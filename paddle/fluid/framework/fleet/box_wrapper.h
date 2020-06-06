@@ -16,7 +16,7 @@ limitations under the License. */
 
 #ifdef PADDLE_WITH_BOX_PS
 #include <boxps_public.h>
-#include <paddle_extends.h>
+#include <boxps_extends.h>
 #include <dirent.h>
 #include <signal.h>
 #include <sys/stat.h>
@@ -146,6 +146,8 @@ class BoxWrapper {
     }
   }
   BoxWrapper() {
+    fprintf(stdout, "init box wrapper\n");
+    boxps::MPICluster::Ins();
   }
 
   void FeedPass(int date, const std::vector<uint64_t>& feasgin_to_box) const;
@@ -242,12 +244,19 @@ class BoxWrapper {
     }
   }
 
+  void ReleasePool(void) {
+    // after one day train release memory pool slot record
+    platform::Timer timer;
+    timer.Start();
+    size_t capacity = SlotRecordPool().capacity();
+    SlotRecordPool().clear();
+    timer.Pause();
+    LOG(WARNING) << "ReleasePool Size="<< capacity << ", Time=" << timer.ElapsedSec()  << "sec";
+  }
+
   const std::string SaveBase(const char* batch_model_path,
                              const char* xbox_model_path,
                              const std::string& date) {
-    // release memory pool slot record
-    SlotRecordPool().clear();
-
     VLOG(3) << "Begin SaveBase";
     PADDLE_ENFORCE_EQ(
         date.length(), 8,
@@ -578,9 +587,6 @@ class BoxWrapper {
       int metric_phase = -1) const {
     VLOG(0) << "Want to Get metric phase: " << metric_phase;
     if (metric_phase == -1) {
-      // after one day train release memory pool slot record
-      SlotRecordPool().clear();
-
       return metric_name_list_;
     } else {
       std::vector<std::string> ret;
@@ -765,6 +771,9 @@ class BoxHelper {
   void ReadData2Memory() {
     platform::Timer timer;
     VLOG(3) << "Begin ReadData2Memory(), dataset[" << dataset_ << "]";
+    double feed_pass_span = 0.0;
+    double read_ins_span = 0.0;
+
     timer.Start();
 #ifdef PADDLE_WITH_BOX_PS
     struct std::tm b;
@@ -775,24 +784,32 @@ class BoxHelper {
     std::time_t x = std::mktime(&b);
 
     auto box_ptr = BoxWrapper::GetInstance();
-
     boxps::PSAgentBase *agent = box_ptr->GetAgent();
     VLOG(3) << "Begin call BeginFeedPass in BoxPS";
     box_ptr->BeginFeedPass(x / 86400, &agent);
+    timer.Pause();
+
+    feed_pass_span = timer.ElapsedSec();
+
+    timer.Start();
     // add 0 key
     agent->AddKey(0ul, 0);
-
     dataset_->LoadIntoMemory();
+    timer.Pause();
+    read_ins_span = timer.ElapsedSec();
 
+    timer.Start();
     // auc runner
     if (box_ptr->Mode() == 1) {
       box_ptr->AddReplaceFeasign(agent, box_ptr->GetFeedpassThreadNum());
     }
-
     box_ptr->EndFeedPass(agent);
 #endif
     timer.Pause();
-    VLOG(0) << "download + parse cost: " << timer.ElapsedSec() << "s";
+
+    VLOG(0) << "begin feedpass: " << feed_pass_span
+            << "s, download + parse cost: " << read_ins_span
+            << "s, end feedpass:" << timer.ElapsedSec() << "s";
   }
 
   void LoadIntoMemory() {

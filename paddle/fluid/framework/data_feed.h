@@ -725,6 +725,22 @@ struct SlotRecordObject {
   std::vector<std::vector<uint64_t>> slot_uint64_feasigns_;
   std::vector<std::vector<float>> slot_float_feasigns_;
 
+  ~SlotRecordObject() {
+    for(auto &t : slot_uint64_feasigns_) {
+      t.clear();
+      t.shrink_to_fit();
+    }
+    slot_uint64_feasigns_.clear();
+    slot_uint64_feasigns_.shrink_to_fit();
+
+    for (auto &t : slot_float_feasigns_) {
+      t.clear();
+      t.shrink_to_fit();
+    }
+    slot_float_feasigns_.clear();
+    slot_float_feasigns_.shrink_to_fit();
+  }
+
   void reset(void) {
     for(auto &t : slot_uint64_feasigns_) {
       t.clear();
@@ -766,8 +782,9 @@ public:
       tmp = (T*) (void*) free_nodes_;
       free_nodes_ = free_nodes_->next;
       delete tmp;
+      --capacity_;
     }
-    capacity_ = 0;
+    CHECK(capacity_ == 0);
   }
   T* acquire(void) {
     T *x = NULL;
