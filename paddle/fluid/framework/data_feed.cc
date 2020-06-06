@@ -1693,7 +1693,6 @@ void PaddleBoxDataFeed::PutToFeedVec(const std::vector<Record*>& ins_vec) {
 #endif
 }
 
-
 //================================ new boxps =============================================
 #ifdef PADDLE_WITH_BOX_PS
 void SlotPaddleBoxDataFeed::Init(const DataFeedDesc& data_feed_desc) {
