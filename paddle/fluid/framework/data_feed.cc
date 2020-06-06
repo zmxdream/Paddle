@@ -2077,6 +2077,11 @@ public:
     ParserInfo info;
 
     mutex_.lock();
+    std::map<std::string, ParserInfo>::iterator itx = obj_map_.find(path);
+    if (itx != obj_map_.end()) {
+      mutex_.unlock();
+      return itx->second.parser;
+    }
     info.hmodule = dlopen(path.c_str(), RTLD_NOW);
     if (info.hmodule == nullptr) {
       mutex_.unlock();
@@ -2148,7 +2153,7 @@ void SlotPaddleBoxDataFeed::LoadIntoMemoryByLib(void) {
       if (!parser->ParseOneInstance(line, [this, &offset, &record_vec, &max_fetch_num, &old_offset](std::vector<SlotRecord> &vec, int num){
         vec.resize(num);
         if (offset + num > max_fetch_num) {
-          input_channel_->WriteMove(offset, &record_vec[offset]);
+          input_channel_->WriteMove(offset, &record_vec[0]);
           SlotRecordPool().get(record_vec, offset);
           record_vec.resize(max_fetch_num);
           offset = 0;
@@ -2337,7 +2342,7 @@ bool SlotPaddleBoxDataFeed::ParseOneInstance(const std::string &line, SlotRecord
         auto &slot_fea = rec->slot_float_feasigns_[info.slot_value_idx];
         for (int j = 0; j < num; ++j) {
           float feasign = strtof(endptr, &endptr);
-          if (fabs(feasign) < 1e-6) {
+          if (fabs(feasign) < 1e-6 && !used_slots_info_[info.used_idx].dense) {
             continue;
           }
           slot_fea.push_back(feasign);
@@ -2347,7 +2352,7 @@ bool SlotPaddleBoxDataFeed::ParseOneInstance(const std::string &line, SlotRecord
         auto &slot_fea = rec->slot_uint64_feasigns_[info.slot_value_idx];
         for (int j = 0; j < num; ++j) {
           uint64_t feasign = (uint64_t) strtoull(endptr, &endptr, 10);
-          if (feasign == 0) {
+          if (feasign == 0 && !used_slots_info_[info.used_idx].dense) {
             continue;
           }
           slot_fea.push_back(feasign);
