@@ -317,7 +317,7 @@ class MultiSlotDataset : public DatasetImpl<Record> {
 class PadBoxSlotDataset : public DatasetImpl<SlotRecord> {
  public:
   PadBoxSlotDataset();
-  virtual ~PadBoxSlotDataset() {}
+  virtual ~PadBoxSlotDataset();
   // seperate train thread and dataset thread
   virtual void DynamicAdjustChannelNum(int channel_num,
                                        bool discard_remaining_ins = false) {
@@ -367,6 +367,8 @@ class PadBoxSlotDataset : public DatasetImpl<SlotRecord> {
   int mpi_size_ = 1;
   int mpi_rank_ = 0;
   std::vector<SlotPvInstance> input_pv_ins_;
+  int shuffle_thread_num_ = 10;
+  std::atomic<int> shuffle_counter_{0};
 };
 #endif
 

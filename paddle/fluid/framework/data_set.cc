@@ -1394,6 +1394,8 @@ PadBoxSlotDataset::PadBoxSlotDataset() {
   }
   SlotRecordPool();
 }
+PadBoxSlotDataset::~PadBoxSlotDataset() {
+}
 // create input channel and output channel
 void PadBoxSlotDataset::CreateChannel() {
   if (input_channel_ == nullptr) {
@@ -1417,6 +1419,28 @@ void PadBoxSlotDataset::SetFileList(const std::vector<std::string>& filelist) {
   }
   file_idx_ = 0;
 }
+
+static
+void SetCPUAffinity(int tid, bool one_by_one = false) {
+  std::vector<int> &cores = boxps::get_readins_cores();
+  if (cores.empty()) {
+    VLOG(0) << "not found binding read ins thread cores";
+    return;
+  }
+
+  int core_num = (int) cores.size();
+  cpu_set_t mask;
+  CPU_ZERO(&mask);
+  if (one_by_one) {
+    CPU_SET(cores[tid % core_num], &mask);
+  } else {
+    for (int i = 0; i < core_num; ++i) {
+      CPU_SET(cores[i], &mask);
+    }
+  }
+  pthread_setaffinity_np(pthread_self(), sizeof(mask), &mask);
+  //VLOG(0) << "binding read ins thread_id = " << tid << ", cpunum = " << core_num;
+}
 // load all data into memory
 void PadBoxSlotDataset::LoadIntoMemory() {
   VLOG(3) << "DatasetImpl<T>::LoadIntoMemory() begin";
@@ -1428,6 +1452,7 @@ void PadBoxSlotDataset::LoadIntoMemory() {
   std::atomic<int> ref(thread_num_);
   for (int64_t i = 0; i < thread_num_; ++i) {
     load_threads.push_back(std::thread([this, i, &ref]() {
+      SetCPUAffinity(i, false);
       readers_[i]->LoadIntoMemory();
       if (--ref == 0) {
         input_channel_->Close();
@@ -1437,7 +1462,7 @@ void PadBoxSlotDataset::LoadIntoMemory() {
 
   // dualbox global data shuffle
   if (mpi_size_ > 1) {
-    ShuffleData(shuffle_threads, 10);
+    ShuffleData(shuffle_threads, shuffle_thread_num_);
     MergeInsKeys(shuffle_channel_);
   } else {
     MergeInsKeys(input_channel_);
@@ -1481,6 +1506,7 @@ void PadBoxSlotDataset::MergeInsKeys(Channel<SlotRecord> &in) {
   std::mutex mutex;
   for (int tid = 0; tid < thread_num; ++tid) {
     feed_threads.push_back(std::thread([this, &in, agent, tid, &mutex, &used_fea_index](){
+      SetCPUAffinity(tid, false);
       std::vector<SlotRecord> datas;
       while (in->Read(datas)) {
         for (auto &rec : datas) {
@@ -1503,6 +1529,7 @@ void PadBoxSlotDataset::MergeInsKeys(Channel<SlotRecord> &in) {
         mutex.unlock();
         datas.clear();
       }
+      datas.shrink_to_fit();
     }));
   }
 
@@ -1553,8 +1580,10 @@ void PadBoxSlotDataset::ShuffleData(std::vector<std::thread> &shuffle_threads, i
     thread_num = thread_num_;
   }
   VLOG(3) << "start global shuffle threads, num = " << thread_num;
+  shuffle_counter_ = thread_num;
   for (int tid = 0; tid < thread_num; ++tid) {
     shuffle_threads.push_back(std::thread([this, tid](){
+      SetCPUAffinity(tid, false);
       std::vector<SlotRecord> data;
       std::vector<SlotRecord> loc_datas;
       std::vector<SlotRecord> releases;
@@ -1604,7 +1633,9 @@ void PadBoxSlotDataset::ShuffleData(std::vector<std::thread> &shuffle_threads, i
         data.clear();
         loc_datas.clear();
       }
-      if (tid == 0) {
+
+      // only one thread send finish notify
+      if (--shuffle_counter_ == 0) {
         // send closed
         paddle::framework::BinaryArchive ar;
         for (int i = 0; i < mpi_size_; ++i) {
@@ -1649,7 +1680,7 @@ void PadBoxSlotDataset::ReceiveSuffleData(int client_id, const char *buf, int le
   }
 
   int offset = 0;
-  int max_fetch_num = 5000;
+  int max_fetch_num = 1000;
   std::vector<SlotRecord> data;
   SlotRecordPool().get(data, max_fetch_num);
   while (ar.Cursor() < ar.Finish()) {
@@ -1871,7 +1902,7 @@ std::vector<std::pair<int, int>> compute_thread_batch_nccl(
           << ", num " << split_left_num;
     thread_avg_batch_num = thread_max_batch_num;
   }
-  VLOG(2) << "thread_num "<< thr_num
+  LOG(WARNING) << "thread_num "<< thr_num
       << ", ins num " << total_instance_num
       << ", batch num " << offset.size()
       << ", thread avg batch num " << thread_avg_batch_num;
@@ -1898,7 +1929,9 @@ void PadBoxSlotDataset::DynamicAdjustReadersNum(int thread_num) {
 // prepare train do something
 void PadBoxSlotDataset::PrepareTrain(void) {
   int thread_avg_batch_num = 0;
-  if (enable_pv_merge_) {
+  auto box_ptr = paddle::framework::BoxWrapper::GetInstance();
+  // join or aucrunner mode enable pv
+  if (enable_pv_merge_ && (box_ptr->Phase() == 1 || box_ptr->Mode() == 1)) {
     std::shuffle(input_pv_ins_.begin(), input_pv_ins_.end(), BoxWrapper::LocalRandomEngine());
     // 分数据到各线程里面
     int batchsize = ((SlotPaddleBoxDataFeed*)readers_[0].get())->GetPvBatchSize();
