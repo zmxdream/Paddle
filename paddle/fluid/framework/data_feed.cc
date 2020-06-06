@@ -1867,20 +1867,38 @@ void SlotPaddleBoxDataFeed::PutToFeedSlotVec(const SlotRecord* ins_vec, int num)
         auto &batch_fea = batch_float_feasigns_[j];
         auto &ins_fea = r->slot_float_feasigns_[info.slot_value_idx];
         if (ins_fea.empty()) {
-          batch_fea.push_back(0.0);
+          for (int k = 0; k < info.total_dims_without_inductive; ++k) {
+            batch_fea.push_back(0.0);
+          }
         } else {
-          batch_fea.insert(batch_fea.end(), ins_fea.begin(), ins_fea.end());
+          // position fea
+          int fea_num = (int)ins_fea.size();
+          if (fea_num != info.total_dims_without_inductive) {
+            // record position index need fix values
+            int pos_idx = (int)ins_fea[0];
+            for (int k = 0; k < info.total_dims_without_inductive; ++k) {
+              if (k == pos_idx) {
+                batch_fea.push_back(1.0);
+              } else {
+                batch_fea.push_back(0.0);
+              }
+            }
+          } else {
+            batch_fea.insert(batch_fea.end(), ins_fea.begin(), ins_fea.end());
+          }
         }
-        offset_[j].push_back(batch_float_feasigns_[j].size());
+        offset_[j].push_back(batch_fea.size());
       } else if (info.type[0] == 'u') {  // uint64
         auto &batch_fea = batch_uint64_feasigns_[j];
         auto &ins_fea = r->slot_uint64_feasigns_[info.slot_value_idx];
         if (ins_fea.empty()) {
-          batch_fea.push_back(0);
+          for (int k = 0; k < info.total_dims_without_inductive; ++k) {
+            batch_fea.push_back(0);
+          }
         } else {
           batch_fea.insert(batch_fea.end(), ins_fea.begin(), ins_fea.end());
         }
-        offset_[j].push_back(batch_uint64_feasigns_[j].size());
+        offset_[j].push_back(batch_fea.size());
       }
     }
   }
