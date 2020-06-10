@@ -2453,7 +2453,6 @@ bool SlotPaddleBoxDataFeed::ParseOneInstance(const std::string &line, SlotRecord
   char* endptr = const_cast<char*>(str);
   int pos = 0;
 
-  int total_slot_num = 0;
   thread_local std::vector<std::vector<float>> slot_float_feasigns;
   thread_local std::vector<std::vector<uint64_t>> slot_uint64_feasigns;
   slot_float_feasigns.resize(float_use_slot_size_);
@@ -2502,6 +2501,10 @@ bool SlotPaddleBoxDataFeed::ParseOneInstance(const std::string &line, SlotRecord
     rec->rank = rank;
     pos += len + 1;
   }
+
+  int float_total_slot_num = 0;
+  int uint64_total_slot_num = 0;
+
   for (size_t i = 0; i < all_slots_info_.size(); ++i) {
     auto &info = all_slots_info_[i];
     int num = strtol(&str[pos], &endptr, 10);
@@ -2522,9 +2525,8 @@ bool SlotPaddleBoxDataFeed::ParseOneInstance(const std::string &line, SlotRecord
             continue;
           }
           slot_fea.push_back(feasign);
-          ++total_slot_num;
+          ++float_total_slot_num;
         }
-        rec->slot_float_feasigns_.add_values(slot_fea.data(), (uint32_t)slot_fea.size());
       } else if (info.type[0] == 'u') {  // uint64
         auto &slot_fea = slot_uint64_feasigns[info.slot_value_idx];
         slot_fea.clear();
@@ -2534,9 +2536,8 @@ bool SlotPaddleBoxDataFeed::ParseOneInstance(const std::string &line, SlotRecord
             continue;
           }
           slot_fea.push_back(feasign);
-          ++total_slot_num;
+          ++uint64_total_slot_num;
         }
-        rec->slot_uint64_feasigns_.add_values(slot_fea.data(), (uint32_t)slot_fea.size());
       }
       pos = endptr - str;
     } else {
@@ -2548,8 +2549,14 @@ bool SlotPaddleBoxDataFeed::ParseOneInstance(const std::string &line, SlotRecord
       }
     }
   }
+  rec->slot_float_feasigns_.add_slot_feasigns(
+      slot_float_feasigns,
+      float_total_slot_num);
+  rec->slot_uint64_feasigns_.add_slot_feasigns(
+      slot_uint64_feasigns,
+      uint64_total_slot_num);
 
-  return (total_slot_num > 0);
+  return (uint64_total_slot_num > 0);
 }
 
 ////////////////////////////// pack ////////////////////////////////////
@@ -2611,15 +2618,13 @@ void SlotPaddleBoxDataFeed::MiniBatchGpuPack::pack_pvinstance(
   pack_instance(&ins_vec_[0], ins_number);
 }
 
-void SlotPaddleBoxDataFeed::MiniBatchGpuPack::pack_instance(
-    const SlotRecord* ins_vec, int num) {
-  ins_num_ = num;
+void SlotPaddleBoxDataFeed::MiniBatchGpuPack::pack_all_data(const SlotRecord* ins_vec, int num) {
   int uint64_total_num = 0;
   int float_total_num = 0;
 
   buf_.h_uint64_lens.resize(num + 1);
-  buf_.h_float_lens.resize(num + 1);
   buf_.h_uint64_lens[0] = 0;
+  buf_.h_float_lens.resize(num + 1);
   buf_.h_float_lens[0] = 0;
 
   if (enable_pv_) {
@@ -2643,12 +2648,12 @@ void SlotPaddleBoxDataFeed::MiniBatchGpuPack::pack_instance(
     }
   }
 
-  int float_cols = (used_float_num_ + 1);
   int uint64_cols = (used_uint64_num_ + 1);
-  buf_.h_float_offset.resize(float_cols * num);
   buf_.h_uint64_offset.resize(uint64_cols * num);
-
   buf_.h_uint64_keys.resize(uint64_total_num);
+
+  int float_cols = (used_float_num_ + 1);
+  buf_.h_float_offset.resize(float_cols * num);
   buf_.h_float_keys.resize(float_total_num);
 
   size_t fea_num = 0;
@@ -2669,20 +2674,130 @@ void SlotPaddleBoxDataFeed::MiniBatchGpuPack::pack_instance(
 
     auto &float_feasigns = r->slot_float_feasigns_;
     fea_num = float_feasigns.slot_values.size();
-    if (fea_num > 0) {
-      memcpy(&buf_.h_float_keys[float_total_num],
-          float_feasigns.slot_values.data(), fea_num * sizeof(float));
-    }
+    memcpy(&buf_.h_float_keys[float_total_num],
+        float_feasigns.slot_values.data(), fea_num * sizeof(float));
     float_total_num += fea_num;
+
     // copy float offset
     memcpy(&buf_.h_float_offset[i * float_cols],
         float_feasigns.slot_offsets.data(), sizeof(int) * float_cols);
   }
-  CHECK(uint64_total_num == (int)buf_.h_uint64_lens.back())
-    << "uint64 value length error";
-  CHECK(float_total_num == (int)buf_.h_float_lens.back())
-    << "float value length error";
+  CHECK(uint64_total_num == (int) buf_.h_uint64_lens.back())
+      << "uint64 value length error";
+  CHECK(float_total_num == (int) buf_.h_float_lens.back())
+      << "float value length error";
+}
+void SlotPaddleBoxDataFeed::MiniBatchGpuPack::pack_uint64_data(const SlotRecord* ins_vec, int num) {
+  int uint64_total_num = 0;
 
+  buf_.h_float_lens.clear();
+  buf_.h_float_keys.clear();
+  buf_.h_float_offset.clear();
+
+  buf_.h_uint64_lens.resize(num + 1);
+  buf_.h_uint64_lens[0] = 0;
+
+  if (enable_pv_) {
+    for (int i = 0; i < num; ++i) {
+      auto r = ins_vec[i];
+      uint64_total_num += r->slot_uint64_feasigns_.slot_values.size();
+      buf_.h_uint64_lens[i + 1] = uint64_total_num;
+
+      buf_.h_rank[i] = r->rank;
+      buf_.h_cmatch[i] = r->cmatch;
+    }
+  } else {
+    for (int i = 0; i < num; ++i) {
+      auto r = ins_vec[i];
+      uint64_total_num += r->slot_uint64_feasigns_.slot_values.size();
+      buf_.h_uint64_lens[i + 1] = uint64_total_num;
+    }
+  }
+
+  int uint64_cols = (used_uint64_num_ + 1);
+  buf_.h_uint64_offset.resize(uint64_cols * num);
+  buf_.h_uint64_keys.resize(uint64_total_num);
+
+  size_t fea_num = 0;
+  uint64_total_num = 0;
+  for (int i = 0; i < num; ++i) {
+    auto r = ins_vec[i];
+    auto &uint64_feasigns = r->slot_uint64_feasigns_;
+    fea_num = uint64_feasigns.slot_values.size();
+    if (fea_num > 0) {
+      memcpy(&buf_.h_uint64_keys[uint64_total_num],
+          uint64_feasigns.slot_values.data(), fea_num * sizeof(uint64_t));
+    }
+    uint64_total_num += fea_num;
+    // copy uint64 offset
+    memcpy(&buf_.h_uint64_offset[i * uint64_cols],
+        uint64_feasigns.slot_offsets.data(), sizeof(int) * uint64_cols);
+
+  }
+  CHECK(uint64_total_num == (int) buf_.h_uint64_lens.back())
+      << "uint64 value length error";
+}
+void SlotPaddleBoxDataFeed::MiniBatchGpuPack::pack_float_data(const SlotRecord* ins_vec, int num) {
+  int float_total_num = 0;
+
+  buf_.h_uint64_lens.clear();
+  buf_.h_uint64_offset.clear();
+  buf_.h_uint64_keys.clear();
+
+  buf_.h_float_lens.resize(num + 1);
+  buf_.h_float_lens[0] = 0;
+
+  if (enable_pv_) {
+    for (int i = 0; i < num; ++i) {
+      auto r = ins_vec[i];
+      float_total_num += r->slot_float_feasigns_.slot_values.size();
+      buf_.h_float_lens[i + 1] = float_total_num;
+
+      buf_.h_rank[i] = r->rank;
+      buf_.h_cmatch[i] = r->cmatch;
+    }
+  } else {
+    for (int i = 0; i < num; ++i) {
+      auto r = ins_vec[i];
+      float_total_num += r->slot_float_feasigns_.slot_values.size();
+      buf_.h_float_lens[i + 1] = float_total_num;
+    }
+  }
+
+  int float_cols = (used_float_num_ + 1);
+  buf_.h_float_offset.resize(float_cols * num);
+  buf_.h_float_keys.resize(float_total_num);
+
+  size_t fea_num = 0;
+  float_total_num = 0;
+  for (int i = 0; i < num; ++i) {
+    auto r = ins_vec[i];
+    auto &float_feasigns = r->slot_float_feasigns_;
+    fea_num = float_feasigns.slot_values.size();
+    memcpy(&buf_.h_float_keys[float_total_num],
+        float_feasigns.slot_values.data(), fea_num * sizeof(float));
+    float_total_num += fea_num;
+
+    // copy float offset
+    memcpy(&buf_.h_float_offset[i * float_cols],
+        float_feasigns.slot_offsets.data(), sizeof(int) * float_cols);
+  }
+  CHECK(float_total_num == (int) buf_.h_float_lens.back())
+      << "float value length error";
+}
+
+void SlotPaddleBoxDataFeed::MiniBatchGpuPack::pack_instance(
+    const SlotRecord* ins_vec, int num) {
+  ins_num_ = num;
+  CHECK(used_uint64_num_ > 0 || used_float_num_ > 0);
+  // uint64 and float
+  if (used_uint64_num_ > 0 && used_float_num_ > 0) {
+    pack_all_data(ins_vec, num);
+  } else if (used_uint64_num_ > 0) { // uint64
+    pack_uint64_data(ins_vec, num);
+  } else { // only float
+    pack_float_data(ins_vec, num);
+  }
   // to gpu
   transfer_to_gpu();
 }

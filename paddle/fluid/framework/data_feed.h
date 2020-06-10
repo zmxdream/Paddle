@@ -714,15 +714,7 @@ class PaddleBoxDataFeed : public MultiSlotInMemoryDataFeed {
   int pv_batch_size_;
   std::vector<PvInstance> pv_vec_;
 };
-//#ifndef PADDLE_WITH_CUDA
-//#define PADDLE_WITH_CUDA
-//#endif
-//#ifndef _LINUX
-//#define _LINUX
-//#endif
-//#ifndef PADDLE_WITH_BOX_PS
-//#define PADDLE_WITH_BOX_PS
-//#endif
+
 #ifdef PADDLE_WITH_BOX_PS
 template<typename T>
 struct SlotValues {
@@ -958,6 +950,7 @@ public:
         std::function<void(std::vector<SlotRecord> &, int)> GetInsFunc) = 0;
 };
 
+#if defined(PADDLE_WITH_CUDA) && defined(_LINUX)
 struct UsedSlotGpuType {
   int is_uint64_value;
   int slot_value_idx;
@@ -999,6 +992,8 @@ struct CudaBuffer {
     malloc(size);
   }
 };
+#endif
+
 class SlotPaddleBoxDataFeed : public DataFeed {
   struct UsedSlotInfo {
     int idx;
@@ -1066,11 +1061,17 @@ class SlotPaddleBoxDataFeed : public DataFeed {
 
   private:
     void transfer_to_gpu(void);
+    void pack_all_data(const SlotRecord* ins_vec, int num);
+    void pack_uint64_data(const SlotRecord* ins_vec, int num);
+    void pack_float_data(const SlotRecord* ins_vec, int num);
 
   public:
     template<typename T>
     void copy_host2device(CudaBuffer<T> &buf, const std::vector<T> &val) {
       size_t size = val.size();
+      if (size == 0) {
+        return;
+      }
       buf.resize(size);
       cudaMemcpyAsync(buf.data(), val.data(),
           size * sizeof(T), cudaMemcpyHostToDevice, stream_);
