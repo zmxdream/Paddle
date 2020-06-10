@@ -1493,8 +1493,8 @@ void PadBoxSlotDataset::MergeInsKeys(Channel<SlotRecord> &in) {
 
   std::vector<std::thread> feed_threads;
   auto boxps_ptr = BoxWrapper::GetInstance();
-  std::vector<bool> used_fea_index;
-  ((SlotPaddleBoxDataFeed*)readers_[0].get())->GetUsedSlot(used_fea_index);
+//  std::vector<bool> used_fea_index;
+//  ((SlotPaddleBoxDataFeed*)readers_[0].get())->GetUsedSlot(used_fea_index);
 
   input_records_.clear();
   boxps::PSAgentBase *agent = boxps_ptr->GetAgent();
@@ -1505,21 +1505,22 @@ void PadBoxSlotDataset::MergeInsKeys(Channel<SlotRecord> &in) {
   }
   std::mutex mutex;
   for (int tid = 0; tid < thread_num; ++tid) {
-    feed_threads.push_back(std::thread([this, &in, agent, tid, &mutex, &used_fea_index](){
+    feed_threads.push_back(std::thread([this, &in, agent, tid, &mutex/**, &used_fea_index*/](){
       SetCPUAffinity(tid, false);
       std::vector<SlotRecord> datas;
+      auto feed_obj = ((SlotPaddleBoxDataFeed*)readers_[tid].get());
       while (in->Read(datas)) {
         for (auto &rec : datas) {
-          for (size_t i = 0; i < rec->slot_uint64_feasigns_.size(); ++i) {
-            if (!used_fea_index[i]) {
-              continue;
-            }
-            auto &feas = rec->slot_uint64_feasigns_[i];
-            agent->AddKeys(feas.data(), feas.size(), tid);
-//            for (auto &k : feas) {
-//              agent->AddKey(k, tid);
+          agent->AddKeys(rec->slot_uint64_feasigns_.slot_values.data(),
+              rec->slot_uint64_feasigns_.slot_values.size(), tid);
+//          for (size_t i = 0; i < rec->slot_uint64_feasigns_.size(); ++i) {
+//            if (!used_fea_index[i]) {
+//              continue;
 //            }
-          }
+//            auto &feas = rec->slot_uint64_feasigns_[i];
+//            agent->AddKeys(feas.data(), feas.size(), tid);
+//          }
+          feed_obj->ExpandSlotRecord(rec);
         }
 
         mutex.lock();

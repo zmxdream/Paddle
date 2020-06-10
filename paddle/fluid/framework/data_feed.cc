@@ -1713,6 +1713,8 @@ void SlotPaddleBoxDataFeed::Init(const DataFeedDesc& data_feed_desc) {
   use_slot_size_ = 0;
   use_slots_.clear();
 
+  float_total_dims_size_ = 0;
+  float_total_dims_without_inductives_.clear();
   for (size_t i = 0; i < all_slot_num; ++i) {
     const auto& slot = multi_slot_desc.slots(i);
     all_slots_[i] = slot.name();
@@ -1755,7 +1757,10 @@ void SlotPaddleBoxDataFeed::Init(const DataFeedDesc& data_feed_desc) {
           }
         }
       }
-
+      if (info.type[0] == 'f') {
+        float_total_dims_without_inductives_.push_back(info.total_dims_without_inductive);
+        float_total_dims_size_ += info.total_dims_without_inductive;
+      }
       info.local_shape.clear();
       for (int j = 0; j < slot.shape_size(); ++j) {
         info.local_shape.push_back(slot.shape(j));
@@ -1783,6 +1788,7 @@ void SlotPaddleBoxDataFeed::Init(const DataFeedDesc& data_feed_desc) {
 
   rank_offset_name_ = data_feed_desc.rank_offset();
   pv_batch_size_ = data_feed_desc.pv_batch_size();
+  //fprintf(stdout, "rank_offset_name: [%s]\n", rank_offset_name_.c_str());
 }
 void SlotPaddleBoxDataFeed::GetUsedSlot(std::vector<bool> &used_slot_index) {
   auto boxps_ptr = BoxWrapper::GetInstance();
@@ -1791,6 +1797,9 @@ void SlotPaddleBoxDataFeed::GetUsedSlot(std::vector<bool> &used_slot_index) {
   used_slot_index.assign(use_slot_size_, false);
   for (int i = 0; i < use_slot_size_; ++i) {
     auto &info = used_slots_info_[i];
+    if (info.type[0] != 'u') {
+      continue;
+    }
     if (slot_name_omited_in_feedpass_.find(info.slot) ==
         slot_name_omited_in_feedpass_.end()) {
       used_slot_index[info.slot_value_idx] = true;
@@ -1801,6 +1810,10 @@ bool SlotPaddleBoxDataFeed::Start() {
   this->CheckSetFileList();
   this->offset_index_ = 0;
   this->finish_start_ = true;
+#if defined(PADDLE_WITH_CUDA) && defined(_LINUX)
+  CHECK(paddle::platform::is_gpu_place(this->place_));
+  pack_ = new MiniBatchGpuPack(this->GetPlace(), used_slots_info_);
+#endif
   return true;
 }
 int SlotPaddleBoxDataFeed::Next() {
@@ -1809,6 +1822,7 @@ int SlotPaddleBoxDataFeed::Next() {
   if (offset_index_ >= (int)batch_offsets_.size()) {
     return 0;
   }
+
   auto &batch = batch_offsets_[offset_index_++];
   if (enable_pv_merge_ && phase == 1) {
     // join phase : output_pv_channel to consume_pv_channel
@@ -1837,6 +1851,12 @@ void SlotPaddleBoxDataFeed::AssignFeedVar(const Scope& scope) {
   }
 }
 void SlotPaddleBoxDataFeed::PutToFeedPvVec(const SlotPvInstance *pvs, int num) {
+#if defined(PADDLE_WITH_CUDA) && defined(_LINUX)
+  paddle::platform::SetDeviceId(boost::get<platform::CUDAPlace>(place_).GetDeviceId());
+  pack_->pack_pvinstance(pvs, num);
+  GetRankOffsetGPU();
+  BuildSlotBatchGPU();
+#else
   int ins_number = 0;
   std::vector<SlotRecord> ins_vec;
   for (int i = 0; i < num; ++i) {
@@ -1848,90 +1868,218 @@ void SlotPaddleBoxDataFeed::PutToFeedPvVec(const SlotPvInstance *pvs, int num) {
   }
   GetRankOffset(pvs, num, ins_number);
   PutToFeedSlotVec(&ins_vec[0], ins_number);
+#endif
 }
-void SlotPaddleBoxDataFeed::PutToFeedSlotVec(const SlotRecord* ins_vec, int num) {
-  for (size_t i = 0; i < batch_float_feasigns_.size(); ++i) {
-    batch_float_feasigns_[i].clear();
-    batch_uint64_feasigns_[i].clear();
-    offset_[i].clear();
-    offset_[i].push_back(0);
+
+// expand values
+void SlotPaddleBoxDataFeed::ExpandSlotRecord(SlotRecord& ins) {
+  if (ins->slot_float_feasigns_.slot_offsets.empty()) {
+    return;
+  }
+  size_t total_value_size = ins->slot_float_feasigns_.slot_values.size();
+  if (float_total_dims_size_ == total_value_size) {
+    return;
   }
 
-  for (int i = 0; i < num; ++i) {
-    auto r = ins_vec[i];
-    for (int j = 0; j < use_slot_size_; ++j) {
-      const auto& info = used_slots_info_[j];
+  int float_slot_num = (int)float_total_dims_without_inductives_.size();
+  CHECK(float_slot_num == float_use_slot_size_);
+  std::vector<float> old_values;
+  std::vector<uint32_t> old_offsets;
+  old_values.swap(ins->slot_float_feasigns_.slot_values);
+  old_offsets.swap(ins->slot_float_feasigns_.slot_offsets);
+
+  ins->slot_float_feasigns_.slot_values.resize(float_total_dims_size_);
+  ins->slot_float_feasigns_.slot_offsets.assign(float_slot_num + 1, 0);
+
+  auto &slot_offsets = ins->slot_float_feasigns_.slot_offsets;
+  auto &slot_values = ins->slot_float_feasigns_.slot_values;
+
+  uint32_t offset = 0;
+  int num = 0;
+  uint32_t old_off = 0;
+  int dim = 0;
+
+  for (int i = 0; i < float_slot_num; ++i) {
+    dim = float_total_dims_without_inductives_[i];
+    old_off = old_offsets[i];
+    num = (int)old_offsets[i + 1] - old_off;
+    if (num == 0) {
       // fill slot value with default value 0
-      if (info.type[0] == 'f') {  // float
-        auto &batch_fea = batch_float_feasigns_[j];
-        auto &ins_fea = r->slot_float_feasigns_[info.slot_value_idx];
-        if (ins_fea.empty()) {
-          for (int k = 0; k < info.total_dims_without_inductive; ++k) {
-            batch_fea.push_back(0.0);
-          }
-        } else {
-          // position fea
-          int fea_num = (int)ins_fea.size();
-          if (fea_num != info.total_dims_without_inductive) {
-            // record position index need fix values
-            int pos_idx = (int)ins_fea[0];
-            for (int k = 0; k < info.total_dims_without_inductive; ++k) {
-              if (k == pos_idx) {
-                batch_fea.push_back(1.0);
-              } else {
-                batch_fea.push_back(0.0);
-              }
-            }
+      for (int k = 0; k < dim; ++k) {
+        slot_values[k + offset] = 0.0;
+      }
+    } else {
+      if (num == dim) {
+        memcpy(&slot_values[offset], &old_values[old_off], dim * sizeof(float));
+      } else {
+        // position fea
+        // record position index need fix values
+        int pos_idx = (int)old_values[old_off];
+        for (int k = 0; k < dim; ++k) {
+          if (k == pos_idx) {
+            slot_values[k + offset] = 1.0;
           } else {
-            batch_fea.insert(batch_fea.end(), ins_fea.begin(), ins_fea.end());
+            slot_values[k + offset] = 0.0;
           }
         }
-        offset_[j].push_back(batch_fea.size());
-      } else if (info.type[0] == 'u') {  // uint64
-        auto &batch_fea = batch_uint64_feasigns_[j];
-        auto &ins_fea = r->slot_uint64_feasigns_[info.slot_value_idx];
-        if (ins_fea.empty()) {
-          for (int k = 0; k < info.total_dims_without_inductive; ++k) {
-            batch_fea.push_back(0);
-          }
-        } else {
-          batch_fea.insert(batch_fea.end(), ins_fea.begin(), ins_fea.end());
-        }
-        offset_[j].push_back(batch_fea.size());
       }
     }
+    slot_offsets[i] = offset;
+    offset += dim;
   }
+  slot_offsets[float_slot_num] = offset;
+  CHECK(float_total_dims_size_ == (size_t)offset);
+}
 
-  for (int i = 0; i < use_slot_size_; ++i) {
-    if (feed_vec_[i] == nullptr) {
+void SlotPaddleBoxDataFeed::PutToFeedSlotVec(const SlotRecord* ins_vec, int num) {
+#if defined(PADDLE_WITH_CUDA) && defined(_LINUX)
+  paddle::platform::SetDeviceId(boost::get<platform::CUDAPlace>(place_).GetDeviceId());
+  pack_->pack_instance(ins_vec, num);
+  BuildSlotBatchGPU();
+#else
+  for (int j = 0; j < use_slot_size_; ++j) {
+    auto &feed = feed_vec_[j];
+    if (feed == nullptr) {
       continue;
     }
-    int total_instance = offset_[i].back();
-    auto &used_slot = used_slots_info_[i];
-    if (used_slot.type[0] == 'f') {  // float
-      float* feasign = batch_float_feasigns_[i].data();
-      float* tensor_ptr = feed_vec_[i]->mutable_data<float>(
-          { total_instance, 1 }, this->place_);
+
+    auto& slot_offset = offset_[j];
+    slot_offset.clear();
+    slot_offset.reserve(num + 1);
+    slot_offset.push_back(0);
+
+    int total_instance = 0;
+    auto& info = used_slots_info_[j];
+    // fill slot value with default value 0
+    if (info.type[0] == 'f') {  // float
+      auto &batch_fea = batch_float_feasigns_[j];
+      batch_fea.clear();
+
+      for (int i = 0; i < num; ++i) {
+        auto r = ins_vec[i];
+        size_t fea_num = 0;
+        float *slot_values = r->slot_float_feasigns_.get_values(info.slot_value_idx, fea_num);
+        batch_fea.resize(total_instance + fea_num);
+        memcpy(&batch_fea[total_instance], slot_values, sizeof(float) * fea_num);
+        total_instance +=fea_num;
+        slot_offset.push_back(total_instance);
+      }
+
+      float* feasign = batch_fea.data();
+      float* tensor_ptr = feed->mutable_data<float>({total_instance, 1}, this->place_);
       CopyToFeedTensor(tensor_ptr, feasign, total_instance * sizeof(float));
-    } else if (used_slot.type[0] == 'u') {  // uint64
+
+    } else if (info.type[0] == 'u') {  // uint64
+      auto &batch_fea = batch_uint64_feasigns_[j];
+      batch_fea.clear();
+
+      for (int i = 0; i < num; ++i) {
+        auto r = ins_vec[i];
+        size_t fea_num = 0;
+        uint64_t *slot_values = r->slot_uint64_feasigns_.get_values(info.slot_value_idx, fea_num);
+        if (fea_num > 0) {
+          batch_fea.resize(total_instance + fea_num);
+          memcpy(&batch_fea[total_instance], slot_values, sizeof(uint64_t) * fea_num);
+          total_instance +=fea_num;
+        }
+        slot_offset.push_back(total_instance);
+      }
+
       // no uint64_t type in paddlepaddle
-      uint64_t* feasign = batch_uint64_feasigns_[i].data();
-      int64_t* tensor_ptr = feed_vec_[i]->mutable_data<int64_t>( {
-          total_instance, 1 }, this->place_);
+      uint64_t* feasign = batch_fea.data();
+      int64_t* tensor_ptr = feed->mutable_data<int64_t>({total_instance, 1}, this->place_);
       CopyToFeedTensor(tensor_ptr, feasign, total_instance * sizeof(int64_t));
     }
-    auto& slot_offset = offset_[i];
-    LoD data_lod { slot_offset };
-    feed_vec_[i]->set_lod(data_lod);
 
-    if (used_slot.dense) {
-      if (used_slot.inductive_shape_index != -1) {
-        used_slot.local_shape[used_slot.inductive_shape_index] = total_instance
-            / used_slot.total_dims_without_inductive;
+    LoD data_lod { slot_offset };
+    feed_vec_[j]->set_lod(data_lod);
+
+    if (info.dense) {
+      if (info.inductive_shape_index != -1) {
+        info.local_shape[info.inductive_shape_index] = total_instance
+            / info.total_dims_without_inductive;
       }
-      feed_vec_[i]->Resize(framework::make_ddim(used_slot.local_shape));
+      feed->Resize(framework::make_ddim(info.local_shape));
     }
   }
+#endif
+}
+
+//template<typename T>
+//void print_vector_data(const std::string &name, const T *values, int size) {
+//  std::ostringstream ostream;
+//  for (int i = 0; i < size; ++i) {
+//    ostream << " " << values[i];
+//  }
+//  LOG(WARNING) << "[" << name << "]" << ostream.str();
+//}
+
+void SlotPaddleBoxDataFeed::BuildSlotBatchGPU(void) {
+#if defined(PADDLE_WITH_CUDA) && defined(_LINUX)
+  int ins_num = pack_->ins_num();
+  int offset_cols_size = (ins_num + 1);
+  slot_value_offsets_.resize(use_slot_size_ * offset_cols_size);
+  auto gpu_slot_offsets = memory::AllocShared(this->GetPlace(), (use_slot_size_ * offset_cols_size) * sizeof(size_t));
+
+  auto &value = pack_->value();
+  const UsedSlotGpuType *used_slot_gpu_types = (const UsedSlotGpuType *)pack_->get_gpu_slots();
+  FillSlotValueOffset(slot_value_offsets_,
+      ins_num, use_slot_size_,
+      (size_t *)gpu_slot_offsets->ptr(),
+      value.d_uint64_offset.data(), uint64_use_slot_size_,
+      value.d_float_offset.data(), float_use_slot_size_,
+      used_slot_gpu_types);
+
+  std::vector<size_t> offsets(offset_cols_size, 0);
+  std::vector<void *> h_tensor_ptrs(use_slot_size_, nullptr);
+  for (int j = 0; j < use_slot_size_; ++j) {
+    auto &feed = feed_vec_[j];
+    if (feed == nullptr) {
+      continue;
+    }
+    memcpy(offsets.data(), &slot_value_offsets_[j * offset_cols_size], offset_cols_size * sizeof(size_t));
+    int total_instance = offsets.back();
+    CHECK(total_instance >= 0) << "slot idx:" << j << ", total instance:" << total_instance;
+    auto& info = used_slots_info_[j];
+    // fill slot value with default value 0
+    if (info.type[0] == 'f') {  // float
+      h_tensor_ptrs[j] = feed->mutable_data<float>( { total_instance, 1 },
+          this->place_);
+    } else if (info.type[0] == 'u') {  // uint64
+      h_tensor_ptrs[j] = feed->mutable_data<int64_t>( { total_instance, 1 },
+          this->place_);
+    }
+
+    LoD data_lod { offsets };
+    feed_vec_[j]->set_lod(data_lod);
+
+    if (info.dense) {
+      if (info.inductive_shape_index != -1) {
+        info.local_shape[info.inductive_shape_index] = total_instance
+            / info.total_dims_without_inductive;
+      }
+      feed->Resize(framework::make_ddim(info.local_shape));
+    }
+  }
+
+  auto buf = memory::AllocShared(this->GetPlace(), use_slot_size_ * sizeof(void*));
+  void** dest_gpu_p = reinterpret_cast<void**>(buf->ptr());
+  // fprintf(stderr, "after create tensor\n");
+  // pack_->copy2tensor_ptr(h_tensor_ptrs);
+  cudaMemcpy(dest_gpu_p, h_tensor_ptrs.data(), use_slot_size_ * sizeof(void*), cudaMemcpyHostToDevice);
+
+  CopyForTensor(ins_num, use_slot_size_, dest_gpu_p,
+      (const size_t *)gpu_slot_offsets->ptr(),
+      (const uint64_t *)value.d_uint64_keys.data(),
+      (const int *)value.d_uint64_offset.data(),
+      (const int *)value.d_uint64_lens.data(),
+      uint64_use_slot_size_,
+      (const float *)value.d_float_keys.data(),
+      (const int *)value.d_float_offset.data(),
+      (const int *)value.d_float_lens.data(),
+      float_use_slot_size_,
+      used_slot_gpu_types);
+#endif
 }
 int SlotPaddleBoxDataFeed::GetCurrentPhase() {
   auto box_ptr = paddle::framework::BoxWrapper::GetInstance();
@@ -1940,6 +2088,20 @@ int SlotPaddleBoxDataFeed::GetCurrentPhase() {
   } else {
     return box_ptr->Phase();
   }
+}
+void SlotPaddleBoxDataFeed::GetRankOffsetGPU(void) {
+#if defined(PADDLE_WITH_CUDA) && defined(_LINUX)
+  int max_rank = 3;  // the value is setting
+  int col = max_rank * 2 + 1;
+  int ins_num = pack_->ins_num();
+
+  auto &value = pack_->value();
+  int* tensor_ptr = rank_offset_->mutable_data<int>({ins_num, col}, this->place_);
+  CopyRankOffset(tensor_ptr, ins_num, pack_->pv_num(), max_rank,
+      (const int *)value.d_rank.data(),
+      (const int *)value.d_cmatch.data(),
+      (const int *)value.d_ad_offset.data(), col);
+#endif
 }
 void SlotPaddleBoxDataFeed::GetRankOffset(
     const SlotPvInstance *pv_vec, int pv_num,
@@ -2162,10 +2324,6 @@ void SlotPaddleBoxDataFeed::LoadIntoMemoryByLib(void) {
 
     SlotRecordPool().get(record_vec, max_fetch_num);
     auto func = [this, &parser, &record_vec, &offset, &max_fetch_num](const std::string &line){
-      auto &rec = record_vec[offset];
-      rec->slot_float_feasigns_.resize(float_use_slot_size_);
-      rec->slot_uint64_feasigns_.resize(uint64_use_slot_size_);
-
       int old_offset = offset;
       if (!parser->ParseOneInstance(line, [this, &offset, &record_vec, &max_fetch_num, &old_offset](std::vector<SlotRecord> &vec, int num){
         vec.resize(num);
@@ -2178,8 +2336,6 @@ void SlotPaddleBoxDataFeed::LoadIntoMemoryByLib(void) {
         }
         for (int i = 0; i < num; ++i) {
           auto &ins = record_vec[offset + i];
-          ins->slot_float_feasigns_.resize(float_use_slot_size_);
-          ins->slot_uint64_feasigns_.resize(uint64_use_slot_size_);
           vec[i] = ins;
         }
         offset = offset + num;
@@ -2298,8 +2454,10 @@ bool SlotPaddleBoxDataFeed::ParseOneInstance(const std::string &line, SlotRecord
   int pos = 0;
 
   int total_slot_num = 0;
-  rec->slot_float_feasigns_.resize(float_use_slot_size_);
-  rec->slot_uint64_feasigns_.resize(uint64_use_slot_size_);
+  thread_local std::vector<std::vector<float>> slot_float_feasigns;
+  thread_local std::vector<std::vector<uint64_t>> slot_uint64_feasigns;
+  slot_float_feasigns.resize(float_use_slot_size_);
+  slot_uint64_feasigns.resize(uint64_use_slot_size_);
 
   if (parse_ins_id_) {
     int num = strtol(&str[pos], &endptr, 10);
@@ -2356,7 +2514,8 @@ bool SlotPaddleBoxDataFeed::ParseOneInstance(const std::string &line, SlotRecord
         str);
     if (info.used_idx != -1) {
       if (info.type[0] == 'f') {  // float
-        auto &slot_fea = rec->slot_float_feasigns_[info.slot_value_idx];
+        auto &slot_fea = slot_float_feasigns[info.slot_value_idx];
+        slot_fea.clear();
         for (int j = 0; j < num; ++j) {
           float feasign = strtof(endptr, &endptr);
           if (fabs(feasign) < 1e-6 && !used_slots_info_[info.used_idx].dense) {
@@ -2365,8 +2524,10 @@ bool SlotPaddleBoxDataFeed::ParseOneInstance(const std::string &line, SlotRecord
           slot_fea.push_back(feasign);
           ++total_slot_num;
         }
+        rec->slot_float_feasigns_.add_values(slot_fea.data(), (uint32_t)slot_fea.size());
       } else if (info.type[0] == 'u') {  // uint64
-        auto &slot_fea = rec->slot_uint64_feasigns_[info.slot_value_idx];
+        auto &slot_fea = slot_uint64_feasigns[info.slot_value_idx];
+        slot_fea.clear();
         for (int j = 0; j < num; ++j) {
           uint64_t feasign = (uint64_t) strtoull(endptr, &endptr, 10);
           if (feasign == 0 && !used_slots_info_[info.used_idx].dense) {
@@ -2375,6 +2536,7 @@ bool SlotPaddleBoxDataFeed::ParseOneInstance(const std::string &line, SlotRecord
           slot_fea.push_back(feasign);
           ++total_slot_num;
         }
+        rec->slot_uint64_feasigns_.add_values(slot_fea.data(), (uint32_t)slot_fea.size());
       }
       pos = endptr - str;
     } else {
@@ -2389,6 +2551,159 @@ bool SlotPaddleBoxDataFeed::ParseOneInstance(const std::string &line, SlotRecord
 
   return (total_slot_num > 0);
 }
+
+////////////////////////////// pack ////////////////////////////////////
+#if defined(PADDLE_WITH_CUDA) && defined(_LINUX)
+SlotPaddleBoxDataFeed::MiniBatchGpuPack::MiniBatchGpuPack(
+    const paddle::platform::Place &place,
+    const std::vector<UsedSlotInfo> &infos) {
+  place_ = place;
+//  paddle::platform::SetDeviceId(boost::get<platform::CUDAPlace>(place).GetDeviceId());
+//  paddle::platform::CUDADeviceContext* context =
+//      dynamic_cast<paddle::platform::CUDADeviceContext*>(platform::DeviceContextPool::Instance().Get(
+//          place));
+  stream_ = dynamic_cast<platform::CUDADeviceContext*>(
+        platform::DeviceContextPool::Instance().Get(boost::get<platform::CUDAPlace>(place)))->stream();
+
+  ins_num_ = 0;
+  pv_num_ = 0;
+  used_float_num_ = 0;
+  used_uint64_num_ = 0;
+  enable_pv_ = false;
+
+  used_slot_size_ = (int)infos.size();
+  for (int i = 0; i < used_slot_size_; ++i) {
+    auto &info = infos[i];
+    if (info.type[0] == 'u') {
+      gpu_used_slots_.push_back( { 1, info.slot_value_idx });
+      ++used_uint64_num_;
+    } else {
+      gpu_used_slots_.push_back( { 0, info.slot_value_idx });
+      ++used_float_num_;
+    }
+  }
+  copy_host2device(gpu_slots_, gpu_used_slots_);
+}
+
+SlotPaddleBoxDataFeed::MiniBatchGpuPack::~MiniBatchGpuPack() {
+}
+
+void SlotPaddleBoxDataFeed::MiniBatchGpuPack::pack_pvinstance(
+    const SlotPvInstance *pv_ins, int num) {
+  pv_num_ = num;
+  buf_.h_ad_offset.resize(num + 1);
+  buf_.h_ad_offset[0] = 0;
+  size_t ins_number = 0;
+
+  ins_vec_.clear();
+  for (int i = 0; i < num; ++i) {
+    auto &pv = pv_ins[i];
+    ins_number += pv->ads.size();
+    for (auto ins : pv->ads) {
+      ins_vec_.push_back(ins);
+    }
+    buf_.h_ad_offset[i + 1] = ins_number;
+  }
+  buf_.h_rank.resize(ins_number);
+  buf_.h_cmatch.resize(ins_number);
+  enable_pv_ = true;
+
+  pack_instance(&ins_vec_[0], ins_number);
+}
+
+void SlotPaddleBoxDataFeed::MiniBatchGpuPack::pack_instance(
+    const SlotRecord* ins_vec, int num) {
+  ins_num_ = num;
+  int uint64_total_num = 0;
+  int float_total_num = 0;
+
+  buf_.h_uint64_lens.resize(num + 1);
+  buf_.h_float_lens.resize(num + 1);
+  buf_.h_uint64_lens[0] = 0;
+  buf_.h_float_lens[0] = 0;
+
+  if (enable_pv_) {
+    for (int i = 0; i < num; ++i) {
+      auto r = ins_vec[i];
+      uint64_total_num += r->slot_uint64_feasigns_.slot_values.size();
+      buf_.h_uint64_lens[i + 1] = uint64_total_num;
+      float_total_num += r->slot_float_feasigns_.slot_values.size();
+      buf_.h_float_lens[i + 1] = float_total_num;
+
+      buf_.h_rank[i] = r->rank;
+      buf_.h_cmatch[i] = r->cmatch;
+    }
+  } else {
+    for (int i = 0; i < num; ++i) {
+      auto r = ins_vec[i];
+      uint64_total_num += r->slot_uint64_feasigns_.slot_values.size();
+      buf_.h_uint64_lens[i + 1] = uint64_total_num;
+      float_total_num += r->slot_float_feasigns_.slot_values.size();
+      buf_.h_float_lens[i + 1] = float_total_num;
+    }
+  }
+
+  int float_cols = (used_float_num_ + 1);
+  int uint64_cols = (used_uint64_num_ + 1);
+  buf_.h_float_offset.resize(float_cols * num);
+  buf_.h_uint64_offset.resize(uint64_cols * num);
+
+  buf_.h_uint64_keys.resize(uint64_total_num);
+  buf_.h_float_keys.resize(float_total_num);
+
+  size_t fea_num = 0;
+  uint64_total_num = 0;
+  float_total_num = 0;
+  for (int i = 0; i < num; ++i) {
+    auto r = ins_vec[i];
+    auto &uint64_feasigns = r->slot_uint64_feasigns_;
+    fea_num = uint64_feasigns.slot_values.size();
+    if (fea_num > 0) {
+      memcpy(&buf_.h_uint64_keys[uint64_total_num],
+          uint64_feasigns.slot_values.data(), fea_num * sizeof(uint64_t));
+    }
+    uint64_total_num += fea_num;
+    // copy uint64 offset
+    memcpy(&buf_.h_uint64_offset[i * uint64_cols],
+        uint64_feasigns.slot_offsets.data(), sizeof(int) * uint64_cols);
+
+    auto &float_feasigns = r->slot_float_feasigns_;
+    fea_num = float_feasigns.slot_values.size();
+    if (fea_num > 0) {
+      memcpy(&buf_.h_float_keys[float_total_num],
+          float_feasigns.slot_values.data(), fea_num * sizeof(float));
+    }
+    float_total_num += fea_num;
+    // copy float offset
+    memcpy(&buf_.h_float_offset[i * float_cols],
+        float_feasigns.slot_offsets.data(), sizeof(int) * float_cols);
+  }
+  CHECK(uint64_total_num == (int)buf_.h_uint64_lens.back())
+    << "uint64 value length error";
+  CHECK(float_total_num == (int)buf_.h_float_lens.back())
+    << "float value length error";
+
+  // to gpu
+  transfer_to_gpu();
+}
+
+void SlotPaddleBoxDataFeed::MiniBatchGpuPack::transfer_to_gpu(void) {
+  if (enable_pv_) {
+    copy_host2device(value_.d_ad_offset, buf_.h_ad_offset);
+    copy_host2device(value_.d_rank, buf_.h_rank);
+    copy_host2device(value_.d_cmatch, buf_.h_cmatch);
+  }
+  copy_host2device(value_.d_uint64_lens, buf_.h_uint64_lens);
+  copy_host2device(value_.d_uint64_keys, buf_.h_uint64_keys);
+  copy_host2device(value_.d_uint64_offset, buf_.h_uint64_offset);
+
+  copy_host2device(value_.d_float_lens, buf_.h_float_lens);
+  copy_host2device(value_.d_float_keys, buf_.h_float_keys);
+  copy_host2device(value_.d_float_offset, buf_.h_float_offset);
+  cudaStreamSynchronize(stream_);
+}
+#endif
+
 #endif
 }  // namespace framework
 }  // namespace paddle

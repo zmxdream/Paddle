@@ -40,7 +40,7 @@ limitations under the License. */
 #include "paddle/fluid/framework/reader.h"
 #include "paddle/fluid/framework/variable.h"
 #include "paddle/fluid/string/string_helper.h"
-
+#include "paddle/fluid/platform/timer.h"
 namespace paddle {
 namespace framework {
 
@@ -714,40 +714,71 @@ class PaddleBoxDataFeed : public MultiSlotInMemoryDataFeed {
   int pv_batch_size_;
   std::vector<PvInstance> pv_vec_;
 };
-
+//#ifndef PADDLE_WITH_CUDA
+//#define PADDLE_WITH_CUDA
+//#endif
+//#ifndef _LINUX
+//#define _LINUX
+//#endif
+//#ifndef PADDLE_WITH_BOX_PS
+//#define PADDLE_WITH_BOX_PS
+//#endif
 #ifdef PADDLE_WITH_BOX_PS
+template<typename T>
+struct SlotValues {
+  std::vector<T> slot_values;
+  std::vector<uint32_t> slot_offsets;
+
+  void add_values(const T *values, uint32_t num) {
+    if (slot_offsets.empty()) {
+      slot_offsets.push_back(0);
+    }
+    if (num > 0) {
+      slot_values.insert(slot_values.end(), values, values + num);
+    }
+    slot_offsets.push_back((uint32_t)slot_values.size());
+  }
+  T* get_values(int idx, size_t &size) {
+    uint32_t &offset = slot_offsets[idx];
+    size = slot_offsets[idx + 1] - offset;
+    return &slot_values[offset];
+  }
+  void add_slot_feasigns(std::vector<std::vector<T>> &slot_feasigns, uint32_t fea_num) {
+    slot_values.reserve(fea_num);
+    int slot_num = (int)slot_feasigns.size();
+    slot_offsets.resize(slot_num + 1);
+    for (int i = 0; i < slot_num; ++i) {
+      auto &slot_val = slot_feasigns[i];
+      slot_offsets[i] = (uint32_t)slot_values.size();
+      uint32_t num = (uint32_t) slot_val.size();
+      if (num > 0) {
+        slot_values.insert(slot_values.end(), slot_val.begin(), slot_val.end());
+      }
+    }
+    slot_offsets[slot_num] = slot_values.size();
+  }
+  void clear(void) {
+    slot_offsets.clear();
+    slot_values.clear();
+  }
+};
 // sizeof Record is much less than std::vector<MultiSlotType>
 struct SlotRecordObject {
   uint64_t search_id;
   uint32_t rank;
   uint32_t cmatch;
   std::string ins_id_;
-  std::vector<std::vector<uint64_t>> slot_uint64_feasigns_;
-  std::vector<std::vector<float>> slot_float_feasigns_;
+  SlotValues<uint64_t> slot_uint64_feasigns_;
+  SlotValues<float> slot_float_feasigns_;
 
   ~SlotRecordObject() {
-    for(auto &t : slot_uint64_feasigns_) {
-      t.clear();
-      t.shrink_to_fit();
-    }
     slot_uint64_feasigns_.clear();
-    slot_uint64_feasigns_.shrink_to_fit();
-
-    for (auto &t : slot_float_feasigns_) {
-      t.clear();
-      t.shrink_to_fit();
-    }
     slot_float_feasigns_.clear();
-    slot_float_feasigns_.shrink_to_fit();
   }
 
   void reset(void) {
-    for(auto &t : slot_uint64_feasigns_) {
-      t.clear();
-    }
-    for (auto &t : slot_float_feasigns_) {
-      t.clear();
-    }
+    slot_uint64_feasigns_.clear();
+    slot_float_feasigns_.clear();
   }
 };
 using SlotRecord = SlotRecordObject*;
@@ -927,6 +958,47 @@ public:
         std::function<void(std::vector<SlotRecord> &, int)> GetInsFunc) = 0;
 };
 
+struct UsedSlotGpuType {
+  int is_uint64_value;
+  int slot_value_idx;
+};
+template<typename T>
+struct CudaBuffer {
+  T* cu_buffer;
+  uint64_t buf_size;
+
+  CudaBuffer<T>() {
+    cu_buffer = NULL;
+    buf_size = 0;
+  }
+  ~CudaBuffer<T>() {
+    free();
+  }
+  T* data() {
+    return cu_buffer;
+  }
+  uint64_t size() {
+    return buf_size;
+  }
+  void malloc(uint64_t size) {
+    buf_size = size;
+    cudaMalloc((void**) &cu_buffer, size * sizeof(T));
+  }
+  void free() {
+    if (cu_buffer != NULL) {
+      cudaFree(cu_buffer);
+      cu_buffer = NULL;
+    }
+    buf_size = 0;
+  }
+  void resize(uint64_t size) {
+    if (size <= buf_size) {
+      return;
+    }
+    free();
+    malloc(size);
+  }
+};
 class SlotPaddleBoxDataFeed : public DataFeed {
   struct UsedSlotInfo {
     int idx;
@@ -938,9 +1010,102 @@ class SlotPaddleBoxDataFeed : public DataFeed {
     int total_dims_without_inductive;
     int inductive_shape_index;
   };
+#if defined(PADDLE_WITH_CUDA) && defined(_LINUX)
+  struct BatchCPUValue {
+    std::vector<int> h_uint64_lens;
+    std::vector<uint64_t> h_uint64_keys;
+    std::vector<int> h_uint64_offset;
+
+    std::vector<int> h_float_lens;
+    std::vector<float> h_float_keys;
+    std::vector<int> h_float_offset;
+
+    std::vector<int> h_rank;
+    std::vector<int> h_cmatch;
+    std::vector<int> h_ad_offset;
+  };
+
+  struct BatchGPUValue {
+    CudaBuffer<int> d_uint64_lens;
+    CudaBuffer<uint64_t> d_uint64_keys;
+    CudaBuffer<int> d_uint64_offset;
+
+    CudaBuffer<int> d_float_lens;
+    CudaBuffer<float> d_float_keys;
+    CudaBuffer<int> d_float_offset;
+
+    CudaBuffer<int> d_rank;
+    CudaBuffer<int> d_cmatch;
+    CudaBuffer<int> d_ad_offset;
+  };
+
+  class MiniBatchGpuPack {
+  public:
+    MiniBatchGpuPack(const paddle::platform::Place &place, const std::vector<UsedSlotInfo> &infos);
+    ~MiniBatchGpuPack();
+    void pack_pvinstance(const SlotPvInstance *pv_ins, int num);
+    void pack_instance(const SlotRecord* ins_vec, int num);
+    int ins_num() {
+      return ins_num_;
+    }
+    int pv_num() {
+      return pv_num_;
+    }
+    BatchGPUValue &value() {
+      return value_;
+    }
+    BatchCPUValue &cpu_value() {
+      return buf_;
+    }
+    UsedSlotGpuType * get_gpu_slots(void) {
+      return (UsedSlotGpuType*)gpu_slots_.data();
+    }
+    SlotRecord *get_records(void) {
+      return &ins_vec_[0];
+    }
+
+  private:
+    void transfer_to_gpu(void);
+
+  public:
+    template<typename T>
+    void copy_host2device(CudaBuffer<T> &buf, const std::vector<T> &val) {
+      size_t size = val.size();
+      buf.resize(size);
+      cudaMemcpyAsync(buf.data(), val.data(),
+          size * sizeof(T), cudaMemcpyHostToDevice, stream_);
+    }
+
+  private:
+    paddle::platform::Place place_;
+    cudaStream_t stream_;
+    BatchGPUValue value_;
+    BatchCPUValue buf_;
+    int ins_num_ = 0;
+    int pv_num_ = 0;
+
+    bool enable_pv_ = false;
+    int used_float_num_ = 0;
+    int used_uint64_num_ = 0;
+    int used_slot_size_ = 0;
+
+    CudaBuffer<UsedSlotGpuType> gpu_slots_;
+    std::vector<UsedSlotGpuType> gpu_used_slots_;
+    std::vector<SlotRecord> ins_vec_;
+  };
+#endif
  public:
-  SlotPaddleBoxDataFeed() {}
-  virtual ~SlotPaddleBoxDataFeed() {}
+  SlotPaddleBoxDataFeed() {
+    finish_start_ = false;
+  }
+  virtual ~SlotPaddleBoxDataFeed() {
+#if defined(PADDLE_WITH_CUDA) && defined(_LINUX)
+    if (pack_ != nullptr) {
+      delete pack_;
+      pack_ = nullptr;
+    }
+#endif
+  }
 
   // This function will do nothing at default
   virtual void SetInputChannel(void* channel) {
@@ -985,6 +1150,8 @@ public:
     batch_offsets_.push_back(off);
   }
   void GetUsedSlot(std::vector<bool> &used_slot_index);
+  // expand values
+  void ExpandSlotRecord(SlotRecord& ins);
 
  public:
   virtual void Init(const DataFeedDesc& data_feed_desc);
@@ -999,10 +1166,45 @@ public:
   void LoadIntoMemoryByLib(void);
   void PutToFeedPvVec(const SlotPvInstance *pvs, int num);
   void PutToFeedSlotVec(const SlotRecord* recs, int num);
+  void BuildSlotBatchGPU(void);
+  void GetRankOffsetGPU(void);
   void GetRankOffset(const SlotPvInstance *pv_vec, int pv_num,
       int ins_number);
   bool ParseOneInstance(const std::string &line, SlotRecord &rec);
-
+ private:
+#if defined(PADDLE_WITH_CUDA) && defined(_LINUX)
+  void CopyRankOffset(int *dest,
+      const int ins_num,
+      const int pv_num,
+      const int max_rank,
+      const int *ranks,
+      const int *cmatchs,
+      const int *ad_offsets,
+      const int cols);
+  void FillSlotValueOffset(
+      std::vector<size_t> &cpu_slot_value_offsets,
+      const int ins_num,
+      const int used_slot_num,
+      size_t *slot_value_offsets,
+      const int *uint64_offsets,
+      const int uint64_slot_size,
+      const int *float_offsets,
+      const int float_slot_size,
+      const UsedSlotGpuType *used_slots);
+  void CopyForTensor(const int ins_num,
+      const int used_slot_num,
+      void** dest,
+      const size_t *slot_value_offsets,
+      const uint64_t* uint64_feas,
+      const int *uint64_offsets,
+      const int *uint64_ins_lens,
+      const int uint64_slot_size,
+      const float *float_feas,
+      const int *float_offsets,
+      const int *float_ins_lens,
+      const int float_slot_size,
+      const UsedSlotGpuType *used_slots);
+#endif
 
  private:
   int thread_id_ = 0;
@@ -1018,6 +1220,8 @@ public:
   std::vector<std::vector<float>> batch_float_feasigns_;
   std::vector<std::vector<uint64_t>> batch_uint64_feasigns_;
   std::vector<std::vector<size_t>> offset_;
+  std::vector<int> float_total_dims_without_inductives_;
+  size_t float_total_dims_size_ = 0;
 
   std::string rank_offset_name_;
   int pv_batch_size_ = 0;
@@ -1025,38 +1229,60 @@ public:
   int float_use_slot_size_ = 0;
   int uint64_use_slot_size_ = 0;
 
+#if defined(PADDLE_WITH_CUDA) && defined(_LINUX)
+  MiniBatchGpuPack *pack_ = nullptr;
+#endif
   int offset_index_ = 0;
   std::vector<std::pair<int, int>> batch_offsets_;
-  SlotPvInstance *pv_ins_;
-  SlotRecord *records_;
+  SlotPvInstance *pv_ins_ = nullptr;
+  SlotRecord *records_ = nullptr;
   std::vector<AllSlotInfo>  all_slots_info_;
   std::vector<UsedSlotInfo> used_slots_info_;
+  std::vector<size_t> slot_value_offsets_;
 };
 
+template <class AR, class T>
+paddle::framework::Archive<AR>& operator<<(paddle::framework::Archive<AR>& ar, const SlotValues<T>& r) {
+  ar << r.slot_values;
+
+  uint16_t slot_num = (uint16_t) r.slot_offsets.size();
+  ar << slot_num;
+  if (slot_num > 0 && !r.slot_values.empty()) {
+    // remove first 0 and end data len
+    for (uint16_t i = 1; i < slot_num - 1; ++i) {
+      ar << r.slot_offsets[i];
+    }
+  }
+  return ar;
+}
+template <class AR, class T>
+paddle::framework::Archive<AR>& operator>>(paddle::framework::Archive<AR>& ar, SlotValues<T>& r) {
+  ar >> r.slot_values;
+
+  uint16_t slot_num = 0;
+  ar >> slot_num;
+  if (slot_num > 0) {
+    size_t value_len = r.slot_values.size();
+    if (value_len > 0) {
+      r.slot_offsets.resize(slot_num);
+      // fill first 0
+      r.slot_offsets[0] = 0;
+      for (uint16_t i = 1; i < slot_num - 1; ++i) {
+        ar >> r.slot_offsets[i];
+      }
+      // fill end data len
+      r.slot_offsets[slot_num - 1] = value_len;
+    } else {
+      // empty values set zero
+      r.slot_offsets.assign(slot_num, 0);
+    }
+  }
+  return ar;
+}
 template <class AR>
 paddle::framework::Archive<AR>& operator<<(paddle::framework::Archive<AR>& ar, const SlotRecord& r) {
-  uint16_t fea_num = 0;
-  uint16_t num = (uint16_t)r->slot_uint64_feasigns_.size();
-  ar << num;
-  for (uint16_t i = 0; i < num; ++i) {
-    auto &uint64_feas = r->slot_uint64_feasigns_[i];
-    fea_num = (uint16_t)uint64_feas.size();
-    ar << fea_num;
-    if (fea_num > 0) {
-      ar.Write(uint64_feas.data(), fea_num * sizeof(uint64_t));
-    }
-  }
-
-  num = (uint16_t)r->slot_float_feasigns_.size();
-  ar << num;
-  for (uint16_t i = 0; i < num; ++i) {
-    auto &float_feas = r->slot_float_feasigns_[i];
-    fea_num = (uint16_t)float_feas.size();
-    ar << fea_num;
-    if (fea_num > 0) {
-      ar.Write(float_feas.data(), fea_num * sizeof(float));
-    }
-  }
+  ar << r->slot_float_feasigns_;
+  ar << r->slot_uint64_feasigns_;
   ar << r->ins_id_;
   ar << r->search_id;
   ar << r->rank;
@@ -1064,33 +1290,10 @@ paddle::framework::Archive<AR>& operator<<(paddle::framework::Archive<AR>& ar, c
 
   return ar;
 }
-
 template <class AR>
 paddle::framework::Archive<AR>& operator>>(paddle::framework::Archive<AR>& ar, SlotRecord& r) {
-  uint16_t num = 0;
-  uint16_t fea_num = 0;
-
-  ar >> num;
-  r->slot_uint64_feasigns_.resize(num);
-  for (uint16_t i = 0; i < num; ++i) {
-    ar >> fea_num;
-    if (fea_num > 0) {
-      auto &uint64_feas = r->slot_uint64_feasigns_[i];
-      uint64_feas.resize(fea_num);
-      ar.Read(uint64_feas.data(), fea_num * sizeof(uint64_t));
-    }
-  }
-
-  ar >> num;
-  r->slot_float_feasigns_.resize(num);
-  for (uint16_t i = 0; i < num; ++i) {
-    ar >> fea_num;
-    if (fea_num > 0) {
-      auto &float_feas = r->slot_float_feasigns_[i];
-      float_feas.resize(fea_num);
-      ar.Read(float_feas.data(), fea_num * sizeof(float));
-    }
-  }
+  ar >> r->slot_float_feasigns_;
+  ar >> r->slot_uint64_feasigns_;
   ar >> r->ins_id_;
   ar >> r->search_id;
   ar >> r->rank;
