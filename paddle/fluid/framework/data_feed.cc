@@ -2319,6 +2319,7 @@ void SlotPaddleBoxDataFeed::LoadIntoMemoryByLib(void) {
     std::vector<SlotRecord> record_vec;
     platform::Timer timeline;
     timeline.Start();
+    
     const int max_fetch_num = 10000;
     int offset = 0;
 

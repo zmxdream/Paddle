@@ -870,7 +870,6 @@ public:
       }
     }
     mutex_.unlock();
-
     if (size == n) {
       return;
     }
