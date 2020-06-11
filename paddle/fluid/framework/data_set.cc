@@ -1681,7 +1681,7 @@ void PadBoxSlotDataset::ReceiveSuffleData(int client_id, const char *buf, int le
   }
 
   int offset = 0;
-  int max_fetch_num = 1000;
+  const int max_fetch_num = 1000;
   std::vector<SlotRecord> data;
   SlotRecordPool().get(data, max_fetch_num);
   while (ar.Cursor() < ar.Finish()) {

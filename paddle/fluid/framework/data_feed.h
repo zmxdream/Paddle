@@ -857,23 +857,25 @@ public:
   }
   void get(std::vector<SlotRecord>& output, int n) {
     output.resize(n);
-
+    return get(&output[0], n);
+  }
+  void get(SlotRecord *output, int n) {
     int size = 0;
     mutex_.lock();
-    int left = (int)alloc_.capacity();
+    int left = (int) alloc_.capacity();
     if (left > 0) {
-       size = (left >= n) ? n: left;
-       for (int i = 0; i < size; ++i) {
-           output[i] = alloc_.acquire();
-       }
+      size = (left >= n) ? n : left;
+      for (int i = 0; i < size; ++i) {
+        output[i] = alloc_.acquire();
+      }
     }
     mutex_.unlock();
 
     if (size == n) {
-       return;
+      return;
     }
     for (int i = size; i < n; ++i) {
-       output[i] = make_slotrecord();
+      output[i] = make_slotrecord();
     }
   }
   void put(std::vector<SlotRecord>& input) {

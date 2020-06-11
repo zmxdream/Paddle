@@ -2319,7 +2319,7 @@ void SlotPaddleBoxDataFeed::LoadIntoMemoryByLib(void) {
     std::vector<SlotRecord> record_vec;
     platform::Timer timeline;
     timeline.Start();
-    int max_fetch_num = 10000;
+    const int max_fetch_num = 10000;
     int offset = 0;
 
     SlotRecordPool().get(record_vec, max_fetch_num);
@@ -2329,13 +2329,14 @@ void SlotPaddleBoxDataFeed::LoadIntoMemoryByLib(void) {
         vec.resize(num);
         if (offset + num > max_fetch_num) {
           input_channel_->WriteMove(offset, &record_vec[0]);
-          SlotRecordPool().get(record_vec, offset);
+          SlotRecordPool().get(&record_vec[0], offset);
           record_vec.resize(max_fetch_num);
           offset = 0;
           old_offset = 0;
         }
         for (int i = 0; i < num; ++i) {
           auto &ins = record_vec[offset + i];
+          ins->reset();
           vec[i] = ins;
         }
         offset = offset + num;
@@ -2349,19 +2350,19 @@ void SlotPaddleBoxDataFeed::LoadIntoMemoryByLib(void) {
         offset = 0;
       }
     };
-
+    int lines = 0;
     if (BoxWrapper::GetInstance()->UseAfsApi()) {
       while (reader->open(filename) < 0) {
         sleep(1);
       }
-      line_reader.read_api(reader, func);
+      lines = line_reader.read_api(reader, func);
       reader->close();
     } else {
       int err_no = 0;
       this->fp_ = fs_open_read(filename, &err_no, "");
       CHECK(this->fp_ != nullptr);
       __fsetlocking(&*(this->fp_), FSETLOCKING_BYCALLER);
-      line_reader.read_file(this->fp_.get(), func);
+      lines = line_reader.read_file(this->fp_.get(), func);
     }
     if (offset > 0) {
       input_channel_->WriteMove(offset, &record_vec[0]);
@@ -2375,7 +2376,9 @@ void SlotPaddleBoxDataFeed::LoadIntoMemoryByLib(void) {
     timeline.Pause();
     VLOG(3) << "LoadIntoMemoryByLib() read all lines, file=" << filename
             << ", cost time=" << timeline.ElapsedSec()
-            << " seconds, thread_id=" << thread_id_;
+            << " seconds, thread_id=" << thread_id_
+            << ", count=" << lines
+            << ", filesize=" << line_reader.file_size() / 1024.0 / 1024.0 << "MB";
   }
   if (reader != nullptr) {
     delete reader;
