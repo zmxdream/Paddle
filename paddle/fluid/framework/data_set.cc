@@ -350,6 +350,7 @@ void DatasetImpl<T>::ReleaseMemoryFun() {
   std::vector<std::shared_ptr<paddle::framework::DataFeed>>().swap(readers_);
   input_records_.clear();
   std::vector<T>().swap(input_records_);
+  std::vector<T>().swap(slots_shuffle_original_data_);
   VLOG(0) << "DatasetImpl<T>::ReleaseMemory() end";
 }
 
