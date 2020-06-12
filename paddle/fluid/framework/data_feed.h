@@ -1108,8 +1108,8 @@ class SlotPaddleBoxDataFeed : public DataFeed {
  public:
   int GetBatchSize() { return default_batch_size_; }
   int GetPvBatchSize() { return pv_batch_size_; }
-  void SetPvInstance(const SlotPvInstance* pv_ins) { pv_ins_ = pv_ins; }
-  void SetSlotRecord(const SlotRecord* records) { records_ = records; }
+  void SetPvInstance(SlotPvInstance* pv_ins) { pv_ins_ = pv_ins; }
+  void SetSlotRecord(SlotRecord* records) { records_ = records; }
   void AddBatchOffset(const std::pair<int, int>& off) {
     batch_offsets_.push_back(off);
   }

@@ -1676,7 +1676,7 @@ void PadBoxSlotDataset::ReceiveSuffleData(int client_id, const char* buf,
   }
 
   paddle::framework::BinaryArchive ar;
-  ar.SetReadBuffer(reinterpret_cast<char*>(buf), len, nullptr);
+  ar.SetReadBuffer(const_cast<char*>(buf), len, nullptr);
   if (ar.Cursor() == ar.Finish()) {
     if (mpi_flags_[client_id]) {
       mpi_flags_[client_id] = 0;
@@ -1783,7 +1783,7 @@ void PadBoxSlotDataset::PreprocessInstance() {
       input_pv_ins_.back()->merge_instance(ins);
     }
   } else {
-    for (int i = 0; i < all_records_num; ++i) {
+    for (size_t i = 0; i < all_records_num; ++i) {
       auto& ins = input_records_[i];
       SlotPvInstance pv_instance = make_slotpv_instance();
       pv_instance->merge_instance(ins);
