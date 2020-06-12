@@ -13,9 +13,10 @@ See the License for the specific language governing permissions and
 limitations under the License. */
 
 #pragma once
+
 #ifdef PADDLE_WITH_BOX_PS
-#include <boxps_public.h>
 #include <boxps_extends.h>
+#include <boxps_public.h>
 #include <dirent.h>
 #include <signal.h>
 #include <sys/stat.h>
@@ -251,7 +252,8 @@ class BoxWrapper {
     size_t capacity = SlotRecordPool().capacity();
     SlotRecordPool().clear();
     timer.Pause();
-    LOG(WARNING) << "ReleasePool Size="<< capacity << ", Time=" << timer.ElapsedSec()  << "sec";
+    LOG(WARNING) << "ReleasePool Size=" << capacity
+                 << ", Time=" << timer.ElapsedSec() << "sec";
   }
 
   const std::string SaveBase(const char* batch_model_path,
@@ -338,13 +340,12 @@ class BoxWrapper {
 
   bool UseAfsApi() const { return use_afs_api_; }
 
-  std::shared_ptr<FILE> OpenReadFile(const std::string &path, const std::string &pipe_command) {
+  std::shared_ptr<FILE> OpenReadFile(const std::string& path,
+                                     const std::string& pipe_command) {
     return boxps::fopen_read(file_manager_.get(), path, pipe_command);
   }
 
-  boxps::PaddleFileMgr *GetFileMgr(void) {
-    return file_manager_.get();
-  }
+  boxps::PaddleFileMgr* GetFileMgr(void) { return file_manager_.get(); }
 
   // this performs better than rand_r, especially large data
   static std::default_random_engine& LocalRandomEngine() {
@@ -355,7 +356,7 @@ class BoxWrapper {
         clock_gettime(CLOCK_REALTIME, &tp);
         double cur_time = tp.tv_sec + tp.tv_nsec * 1e-9;
         static std::atomic<uint64_t> x(0);
-        std::seed_seq sseq = { x++, x++, x++, (uint64_t) (cur_time * 1000) };
+        std::seed_seq sseq = {x++, x++, x++, (uint64_t)(cur_time * 1000)};
         engine.seed(sseq);
       }
     };
@@ -690,6 +691,7 @@ class BoxWrapper {
   bool use_afs_api_ = false;
 
   std::shared_ptr<boxps::PaddleFileMgr> file_manager_ = nullptr;
+
  public:
   static std::shared_ptr<boxps::PaddleShuffler> data_shuffle_;
 
@@ -785,7 +787,7 @@ class BoxHelper {
     std::time_t x = std::mktime(&b);
 
     auto box_ptr = BoxWrapper::GetInstance();
-    boxps::PSAgentBase *agent = box_ptr->GetAgent();
+    boxps::PSAgentBase* agent = box_ptr->GetAgent();
     VLOG(3) << "Begin call BeginFeedPass in BoxPS";
     box_ptr->BeginFeedPass(x / 86400, &agent);
     timer.Pause();
