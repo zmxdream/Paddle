@@ -321,7 +321,7 @@ class PadBoxSlotDataset : public DatasetImpl<SlotRecord> {
   // seperate train thread and dataset thread
   virtual void DynamicAdjustChannelNum(int channel_num,
                                        bool discard_remaining_ins = false) {
-    //not need to
+    // not need to
   }
   // dynamic adjust reader num
   virtual void DynamicAdjustReadersNum(int thread_num);
@@ -343,22 +343,18 @@ class PadBoxSlotDataset : public DatasetImpl<SlotRecord> {
   virtual void PostprocessInstance();
   // prepare train do something
   virtual void PrepareTrain(void);
-  virtual int64_t GetMemoryDataSize() {
-    return input_records_.size();
-  }
-  virtual int64_t GetPvDataSize() {
-    return input_pv_ins_.size();
-  }
-  virtual int64_t GetShuffleDataSize() {
-    return input_records_.size();
-  }
+  virtual int64_t GetMemoryDataSize() { return input_records_.size(); }
+  virtual int64_t GetPvDataSize() { return input_pv_ins_.size(); }
+  virtual int64_t GetShuffleDataSize() { return input_records_.size(); }
+
  protected:
   // shuffle data
-  virtual void ShuffleData(std::vector<std::thread> &shuffle_threads, int thread_num = -1);
-  virtual void ReceiveSuffleData(int client_id, const char *msg, int len);
+  virtual void ShuffleData(std::vector<std::thread>* shuffle_threads,
+                           int thread_num = -1);
+  virtual void ReceiveSuffleData(int client_id, const char* msg, int len);
 
  private:
-  void MergeInsKeys(Channel<SlotRecord> &in);
+  void MergeInsKeys(const Channel<SlotRecord>& in);
 
  private:
   Channel<SlotRecord> shuffle_channel_ = nullptr;
