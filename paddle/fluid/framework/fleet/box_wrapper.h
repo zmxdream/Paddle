@@ -13,7 +13,6 @@ See the License for the specific language governing permissions and
 limitations under the License. */
 
 #pragma once
-
 #ifdef PADDLE_WITH_BOX_PS
 #include <boxps_extends.h>
 #include <boxps_public.h>

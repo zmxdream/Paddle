@@ -1523,7 +1523,7 @@ void PadBoxSlotDataset::MergeInsKeys(const Channel<SlotRecord>& in) {
           //            auto &feas = rec->slot_uint64_feasigns_[i];
           //            agent->AddKeys(feas.data(), feas.size(), tid);
           //          }
-          feed_obj->ExpandSlotRecord(rec);
+          feed_obj->ExpandSlotRecord(&rec);
         }
 
         mutex.lock();
@@ -1564,7 +1564,7 @@ void PadBoxSlotDataset::ReleaseMemory() {
   readers_.clear();
   readers_.shrink_to_fit();
 
-  SlotRecordPool().put(input_records_);
+  SlotRecordPool().put(&input_records_);
   input_records_.clear();
   input_records_.shrink_to_fit();
 
@@ -1614,7 +1614,7 @@ void PadBoxSlotDataset::ShuffleData(std::vector<std::thread>* shuffle_threads,
           ars[client_id] << t;
           releases.push_back(t);
         }
-        SlotRecordPool().put(releases);
+        SlotRecordPool().put(&releases);
         releases.clear();
 
         shuffle_channel_->Write(std::move(loc_datas));
@@ -1691,14 +1691,14 @@ void PadBoxSlotDataset::ReceiveSuffleData(int client_id, const char* buf,
   int offset = 0;
   const int max_fetch_num = 1000;
   std::vector<SlotRecord> data;
-  SlotRecordPool().get(data, max_fetch_num);
+  SlotRecordPool().get(&data, max_fetch_num);
   while (ar.Cursor() < ar.Finish()) {
     ar >> data[offset++];
     if (offset >= max_fetch_num) {
       shuffle_channel_->Write(std::move(data));
       data.clear();
       offset = 0;
-      SlotRecordPool().get(data, max_fetch_num);
+      SlotRecordPool().get(&data, max_fetch_num);
     }
   }
   CHECK(ar.Cursor() == ar.Finish());
@@ -1708,7 +1708,7 @@ void PadBoxSlotDataset::ReceiveSuffleData(int client_id, const char* buf,
       SlotRecordPool().put(&data[offset], (max_fetch_num - offset));
     }
   } else {
-    SlotRecordPool().put(data);
+    SlotRecordPool().put(&data);
   }
 
   data.clear();

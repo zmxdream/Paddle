@@ -39,8 +39,8 @@ limitations under the License. */
 #include "paddle/fluid/framework/lod_tensor.h"
 #include "paddle/fluid/framework/reader.h"
 #include "paddle/fluid/framework/variable.h"
-#include "paddle/fluid/string/string_helper.h"
 #include "paddle/fluid/platform/timer.h"
+#include "paddle/fluid/string/string_helper.h"
 namespace paddle {
 namespace framework {
 
@@ -716,33 +716,34 @@ class PaddleBoxDataFeed : public MultiSlotInMemoryDataFeed {
 };
 
 #ifdef PADDLE_WITH_BOX_PS
-template<typename T>
+template <typename T>
 struct SlotValues {
   std::vector<T> slot_values;
   std::vector<uint32_t> slot_offsets;
 
-  void add_values(const T *values, uint32_t num) {
+  void add_values(const T* values, uint32_t num) {
     if (slot_offsets.empty()) {
       slot_offsets.push_back(0);
     }
     if (num > 0) {
       slot_values.insert(slot_values.end(), values, values + num);
     }
-    slot_offsets.push_back((uint32_t)slot_values.size());
+    slot_offsets.push_back(static_cast<uint32_t>(slot_values.size()));
   }
-  T* get_values(int idx, size_t &size) {
-    uint32_t &offset = slot_offsets[idx];
-    size = slot_offsets[idx + 1] - offset;
+  T* get_values(int idx, size_t* size) {
+    uint32_t& offset = slot_offsets[idx];
+    (*size) = slot_offsets[idx + 1] - offset;
     return &slot_values[offset];
   }
-  void add_slot_feasigns(std::vector<std::vector<T>> &slot_feasigns, uint32_t fea_num) {
+  void add_slot_feasigns(const std::vector<std::vector<T>>& slot_feasigns,
+                         uint32_t fea_num) {
     slot_values.reserve(fea_num);
-    int slot_num = (int)slot_feasigns.size();
+    int slot_num = static_cast<int>(slot_feasigns.size());
     slot_offsets.resize(slot_num + 1);
     for (int i = 0; i < slot_num; ++i) {
-      auto &slot_val = slot_feasigns[i];
-      slot_offsets[i] = (uint32_t)slot_values.size();
-      uint32_t num = (uint32_t) slot_val.size();
+      auto& slot_val = slot_feasigns[i];
+      slot_offsets[i] = static_cast<uint32_t>(slot_values.size());
+      uint32_t num = static_cast<uint32_t>(slot_val.size());
       if (num > 0) {
         slot_values.insert(slot_values.end(), slot_val.begin(), slot_val.end());
       }
@@ -774,95 +775,83 @@ struct SlotRecordObject {
   }
 };
 using SlotRecord = SlotRecordObject*;
-inline SlotRecord make_slotrecord() {
-  return new SlotRecordObject();
-}
+inline SlotRecord make_slotrecord() { return new SlotRecordObject(); }
 
 struct SlotPvInstanceObject {
   std::vector<SlotRecord> ads;
-  void merge_instance(SlotRecord ins) {
-    ads.push_back(ins);
-  }
+  void merge_instance(SlotRecord ins) { ads.push_back(ins); }
 };
 
 using SlotPvInstance = SlotPvInstanceObject*;
-inline SlotPvInstance make_slotpv_instance() { return new SlotPvInstanceObject(); }
+inline SlotPvInstance make_slotpv_instance() {
+  return new SlotPvInstanceObject();
+}
 
-template<class T>
+template <class T>
 class SlotObjAllocator {
-public:
-  explicit SlotObjAllocator() {
-    free_nodes_ = NULL;
-    capacity_ = 0;
-  }
-  ~SlotObjAllocator() {
-    clear();
-  }
+ public:
+  SlotObjAllocator() : free_nodes_(NULL), capacity_(0) {}
+  ~SlotObjAllocator() { clear(); }
 
   void clear(void) {
     T* tmp = NULL;
     while (free_nodes_ != NULL) {
-      tmp = (T*) (void*) free_nodes_;
+      tmp = reinterpret_cast<T*>(reinterpret_cast<void*>(free_nodes_));
       free_nodes_ = free_nodes_->next;
       delete tmp;
       --capacity_;
     }
-    CHECK(capacity_ == 0);
+    CHECK_EQ(capacity_, 0);
   }
   T* acquire(void) {
-    T *x = NULL;
+    T* x = NULL;
     if (free_nodes_ == NULL) {
       x = new T;
     } else {
-      x = (T*) (void*) free_nodes_;
+      x = reinterpret_cast<T*>(reinterpret_cast<void*>(free_nodes_));
       free_nodes_ = free_nodes_->next;
       --capacity_;
     }
     return x;
   }
   void release(T* x) {
-    Node *node = (Node*) (void*) x;
+    Node* node = reinterpret_cast<Node*>(reinterpret_cast<void*>(x));
     node->next = free_nodes_;
     free_nodes_ = node;
     ++capacity_;
   }
-  size_t capacity(void) {
-    return capacity_;
-  }
-private:
+  size_t capacity(void) { return capacity_; }
+
+ private:
   struct alignas(T) Node {
     union {
       Node* next;
       char data[sizeof(T)];
     };
   };
-  Node* free_nodes_; // a list
+  Node* free_nodes_;  // a list
   size_t capacity_;
 };
 
 class SlotObjPool {
-public:
-  SlotObjPool() : max_capacity_(10000000){
+ public:
+  SlotObjPool() : max_capacity_(10000000) {
     ins_chan_ = MakeChannel<SlotRecord>();
-    thread_ = std::thread([this]() {
-      run();
-    });
+    thread_ = std::thread([this]() { run(); });
   }
   ~SlotObjPool() {
     ins_chan_->Close();
     thread_.join();
   }
-  void set_max_capacity(size_t max_capacity) {
-    max_capacity_ = max_capacity;
+  void set_max_capacity(size_t max_capacity) { max_capacity_ = max_capacity; }
+  void get(std::vector<SlotRecord>* output, int n) {
+    output->resize(n);
+    return get(&(*output)[0], n);
   }
-  void get(std::vector<SlotRecord>& output, int n) {
-    output.resize(n);
-    return get(&output[0], n);
-  }
-  void get(SlotRecord *output, int n) {
+  void get(SlotRecord* output, int n) {
     int size = 0;
     mutex_.lock();
-    int left = (int) alloc_.capacity();
+    int left = static_cast<int>(alloc_.capacity());
     if (left > 0) {
       size = (left >= n) ? n : left;
       for (int i = 0; i < size; ++i) {
@@ -877,16 +866,16 @@ public:
       output[i] = make_slotrecord();
     }
   }
-  void put(std::vector<SlotRecord>& input) {
-    size_t size = input.size();
+  void put(std::vector<SlotRecord>* input) {
+    size_t size = input->size();
     if (size == 0) {
       return;
     }
-    put((SlotRecord *) &input[0], size);
-    input.clear();
-    input.shrink_to_fit();
+    put(&(*input)[0], size);
+    input->clear();
+    input->shrink_to_fit();
   }
-  void put(SlotRecord *input, size_t size) {
+  void put(SlotRecord* input, size_t size) {
     ins_chan_->WriteMove(size, input);
   }
   void run(void) {
@@ -897,12 +886,12 @@ public:
       }
       // over max capacity
       if (input.size() + capacity() > max_capacity_) {
-        for (auto &t : input) {
+        for (auto& t : input) {
           delete t;
         }
       } else {
         mutex_.lock();
-        for (auto &t : input) {
+        for (auto& t : input) {
           t->reset();
           alloc_.release(t);
         }
@@ -923,7 +912,7 @@ public:
     return total;
   }
 
-private:
+ private:
   size_t max_capacity_;
   Channel<SlotRecord> ins_chan_;
   std::thread thread_;
@@ -932,8 +921,8 @@ private:
 };
 
 inline SlotObjPool& SlotRecordPool() {
-    static SlotObjPool pool;
-    return pool;
+  static SlotObjPool pool;
+  return pool;
 }
 
 struct AllSlotInfo {
@@ -944,11 +933,12 @@ struct AllSlotInfo {
 };
 
 class ISlotParser {
-public:
-    virtual ~ISlotParser() {}
-    virtual bool Init(const std::vector<AllSlotInfo> &slots) = 0;
-    virtual bool ParseOneInstance(const std::string &line,
-        std::function<void(std::vector<SlotRecord> &, int)> GetInsFunc) = 0;
+ public:
+  virtual ~ISlotParser() {}
+  virtual bool Init(const std::vector<AllSlotInfo>& slots) = 0;
+  virtual bool ParseOneInstance(
+      const std::string& line,
+      std::function<void(std::vector<SlotRecord>&, int)> GetInsFunc) = 0;
 };
 
 #if defined(PADDLE_WITH_CUDA) && defined(_LINUX)
@@ -956,7 +946,7 @@ struct UsedSlotGpuType {
   int is_uint64_value;
   int slot_value_idx;
 };
-template<typename T>
+template <typename T>
 struct CudaBuffer {
   T* cu_buffer;
   uint64_t buf_size;
@@ -965,18 +955,12 @@ struct CudaBuffer {
     cu_buffer = NULL;
     buf_size = 0;
   }
-  ~CudaBuffer<T>() {
-    free();
-  }
-  T* data() {
-    return cu_buffer;
-  }
-  uint64_t size() {
-    return buf_size;
-  }
+  ~CudaBuffer<T>() { free(); }
+  T* data() { return cu_buffer; }
+  uint64_t size() { return buf_size; }
   void malloc(uint64_t size) {
     buf_size = size;
-    cudaMalloc((void**) &cu_buffer, size * sizeof(T));
+    cudaMalloc(reinterpret_cast<void**>(&cu_buffer), size * sizeof(T));
   }
   void free() {
     if (cu_buffer != NULL) {
@@ -1036,49 +1020,40 @@ class SlotPaddleBoxDataFeed : public DataFeed {
   };
 
   class MiniBatchGpuPack {
-  public:
-    MiniBatchGpuPack(const paddle::platform::Place &place, const std::vector<UsedSlotInfo> &infos);
+   public:
+    MiniBatchGpuPack(const paddle::platform::Place& place,
+                     const std::vector<UsedSlotInfo>& infos);
     ~MiniBatchGpuPack();
-    void pack_pvinstance(const SlotPvInstance *pv_ins, int num);
+    void pack_pvinstance(const SlotPvInstance* pv_ins, int num);
     void pack_instance(const SlotRecord* ins_vec, int num);
-    int ins_num() {
-      return ins_num_;
+    int ins_num() { return ins_num_; }
+    int pv_num() { return pv_num_; }
+    BatchGPUValue& value() { return value_; }
+    BatchCPUValue& cpu_value() { return buf_; }
+    UsedSlotGpuType* get_gpu_slots(void) {
+      return reinterpret_cast<UsedSlotGpuType*>(gpu_slots_.data());
     }
-    int pv_num() {
-      return pv_num_;
-    }
-    BatchGPUValue &value() {
-      return value_;
-    }
-    BatchCPUValue &cpu_value() {
-      return buf_;
-    }
-    UsedSlotGpuType * get_gpu_slots(void) {
-      return (UsedSlotGpuType*)gpu_slots_.data();
-    }
-    SlotRecord *get_records(void) {
-      return &ins_vec_[0];
-    }
+    SlotRecord* get_records(void) { return &ins_vec_[0]; }
 
-  private:
+   private:
     void transfer_to_gpu(void);
     void pack_all_data(const SlotRecord* ins_vec, int num);
     void pack_uint64_data(const SlotRecord* ins_vec, int num);
     void pack_float_data(const SlotRecord* ins_vec, int num);
 
-  public:
-    template<typename T>
-    void copy_host2device(CudaBuffer<T> &buf, const std::vector<T> &val) {
+   public:
+    template <typename T>
+    void copy_host2device(CudaBuffer<T>* buf, const std::vector<T>& val) {
       size_t size = val.size();
       if (size == 0) {
         return;
       }
-      buf.resize(size);
-      cudaMemcpyAsync(buf.data(), val.data(),
-          size * sizeof(T), cudaMemcpyHostToDevice, stream_);
+      buf->resize(size);
+      cudaMemcpyAsync(buf->data(), val.data(), size * sizeof(T),
+                      cudaMemcpyHostToDevice, stream_);
     }
 
-  private:
+   private:
     paddle::platform::Place place_;
     cudaStream_t stream_;
     BatchGPUValue value_;
@@ -1096,10 +1071,9 @@ class SlotPaddleBoxDataFeed : public DataFeed {
     std::vector<SlotRecord> ins_vec_;
   };
 #endif
+
  public:
-  SlotPaddleBoxDataFeed() {
-    finish_start_ = false;
-  }
+  SlotPaddleBoxDataFeed() { finish_start_ = false; }
   virtual ~SlotPaddleBoxDataFeed() {
 #if defined(PADDLE_WITH_CUDA) && defined(_LINUX)
     if (pack_ != nullptr) {
@@ -1111,16 +1085,12 @@ class SlotPaddleBoxDataFeed : public DataFeed {
 
   // This function will do nothing at default
   virtual void SetInputChannel(void* channel) {
-    input_channel_ = static_cast<ChannelObject<SlotRecord> *>(channel);
+    input_channel_ = static_cast<ChannelObject<SlotRecord>*>(channel);
   }
   // This function will do nothing at default
-  virtual void SetThreadId(int thread_id) {
-    thread_id_ = thread_id;
-  }
+  virtual void SetThreadId(int thread_id) { thread_id_ = thread_id; }
   // This function will do nothing at default
-  virtual void SetThreadNum(int thread_num) {
-    thread_num_ = thread_num;
-  }
+  virtual void SetThreadNum(int thread_num) { thread_num_ = thread_num; }
   // This function will do nothing at default
   virtual void SetParseInsId(bool parse_ins_id) {
     parse_ins_id_ = parse_ins_id;
@@ -1135,25 +1105,17 @@ class SlotPaddleBoxDataFeed : public DataFeed {
     current_phase_ = current_phase;
   }
 
-public:
-  int GetBatchSize() {
-    return default_batch_size_;
-  }
-  int GetPvBatchSize() {
-    return pv_batch_size_;
-  }
-  void SetPvInstance(SlotPvInstance *pv_ins) {
-    pv_ins_ = pv_ins;
-  }
-  void SetSlotRecord(SlotRecord *records) {
-    records_ = records;
-  }
-  void AddBatchOffset(std::pair<int, int> &off) {
+ public:
+  int GetBatchSize() { return default_batch_size_; }
+  int GetPvBatchSize() { return pv_batch_size_; }
+  void SetPvInstance(const SlotPvInstance* pv_ins) { pv_ins_ = pv_ins; }
+  void SetSlotRecord(const SlotRecord* records) { records_ = records; }
+  void AddBatchOffset(const std::pair<int, int>& off) {
     batch_offsets_.push_back(off);
   }
-  void GetUsedSlot(std::vector<bool> &used_slot_index);
+  void GetUsedSlot(std::vector<bool>* used_slot_index);
   // expand values
-  void ExpandSlotRecord(SlotRecord& ins);
+  void ExpandSlotRecord(SlotRecord* ins);
 
  public:
   virtual void Init(const DataFeedDesc& data_feed_desc);
@@ -1166,46 +1128,32 @@ public:
  private:
   void LoadIntoMemoryByCommand(void);
   void LoadIntoMemoryByLib(void);
-  void PutToFeedPvVec(const SlotPvInstance *pvs, int num);
+  void PutToFeedPvVec(const SlotPvInstance* pvs, int num);
   void PutToFeedSlotVec(const SlotRecord* recs, int num);
   void BuildSlotBatchGPU(void);
   void GetRankOffsetGPU(void);
-  void GetRankOffset(const SlotPvInstance *pv_vec, int pv_num,
-      int ins_number);
-  bool ParseOneInstance(const std::string &line, SlotRecord &rec);
+  void GetRankOffset(const SlotPvInstance* pv_vec, int pv_num, int ins_number);
+  bool ParseOneInstance(const std::string& line, SlotRecord* rec);
+
  private:
 #if defined(PADDLE_WITH_CUDA) && defined(_LINUX)
-  void CopyRankOffset(int *dest,
-      const int ins_num,
-      const int pv_num,
-      const int max_rank,
-      const int *ranks,
-      const int *cmatchs,
-      const int *ad_offsets,
-      const int cols);
-  void FillSlotValueOffset(
-      std::vector<size_t> &cpu_slot_value_offsets,
-      const int ins_num,
-      const int used_slot_num,
-      size_t *slot_value_offsets,
-      const int *uint64_offsets,
-      const int uint64_slot_size,
-      const int *float_offsets,
-      const int float_slot_size,
-      const UsedSlotGpuType *used_slots);
-  void CopyForTensor(const int ins_num,
-      const int used_slot_num,
-      void** dest,
-      const size_t *slot_value_offsets,
-      const uint64_t* uint64_feas,
-      const int *uint64_offsets,
-      const int *uint64_ins_lens,
-      const int uint64_slot_size,
-      const float *float_feas,
-      const int *float_offsets,
-      const int *float_ins_lens,
-      const int float_slot_size,
-      const UsedSlotGpuType *used_slots);
+  void CopyRankOffset(int* dest, const int ins_num, const int pv_num,
+                      const int max_rank, const int* ranks, const int* cmatchs,
+                      const int* ad_offsets, const int cols);
+  void FillSlotValueOffset(std::vector<size_t>* cpu_slot_value_offsets,
+                           const int ins_num, const int used_slot_num,
+                           size_t* slot_value_offsets,
+                           const int* uint64_offsets,
+                           const int uint64_slot_size, const int* float_offsets,
+                           const int float_slot_size,
+                           const UsedSlotGpuType* used_slots);
+  void CopyForTensor(const int ins_num, const int used_slot_num, void** dest,
+                     const size_t* slot_value_offsets,
+                     const uint64_t* uint64_feas, const int* uint64_offsets,
+                     const int* uint64_ins_lens, const int uint64_slot_size,
+                     const float* float_feas, const int* float_offsets,
+                     const int* float_ins_lens, const int float_slot_size,
+                     const UsedSlotGpuType* used_slots);
 #endif
 
  private:
@@ -1215,9 +1163,9 @@ public:
   bool parse_content_ = false;
   bool parse_logkey_ = false;
   bool enable_pv_merge_ = false;
-  int current_phase_ { -1 };  // only for untest
+  int current_phase_{-1};  // only for untest
   std::shared_ptr<FILE> fp_ = nullptr;
-  ChannelObject<SlotRecord> *input_channel_ = nullptr;
+  ChannelObject<SlotRecord>* input_channel_ = nullptr;
 
   std::vector<std::vector<float>> batch_float_feasigns_;
   std::vector<std::vector<uint64_t>> batch_uint64_feasigns_;
@@ -1232,22 +1180,23 @@ public:
   int uint64_use_slot_size_ = 0;
 
 #if defined(PADDLE_WITH_CUDA) && defined(_LINUX)
-  MiniBatchGpuPack *pack_ = nullptr;
+  MiniBatchGpuPack* pack_ = nullptr;
 #endif
   int offset_index_ = 0;
   std::vector<std::pair<int, int>> batch_offsets_;
-  SlotPvInstance *pv_ins_ = nullptr;
-  SlotRecord *records_ = nullptr;
-  std::vector<AllSlotInfo>  all_slots_info_;
+  SlotPvInstance* pv_ins_ = nullptr;
+  SlotRecord* records_ = nullptr;
+  std::vector<AllSlotInfo> all_slots_info_;
   std::vector<UsedSlotInfo> used_slots_info_;
   std::vector<size_t> slot_value_offsets_;
 };
 
 template <class AR, class T>
-paddle::framework::Archive<AR>& operator<<(paddle::framework::Archive<AR>& ar, const SlotValues<T>& r) {
+paddle::framework::Archive<AR>& operator<<(paddle::framework::Archive<AR>& ar,
+                                           const SlotValues<T>& r) {
   ar << r.slot_values;
 
-  uint16_t slot_num = (uint16_t) r.slot_offsets.size();
+  uint16_t slot_num = (uint16_t)r.slot_offsets.size();
   ar << slot_num;
   if (slot_num > 0 && !r.slot_values.empty()) {
     // remove first 0 and end data len
@@ -1258,7 +1207,8 @@ paddle::framework::Archive<AR>& operator<<(paddle::framework::Archive<AR>& ar, c
   return ar;
 }
 template <class AR, class T>
-paddle::framework::Archive<AR>& operator>>(paddle::framework::Archive<AR>& ar, SlotValues<T>& r) {
+paddle::framework::Archive<AR>& operator>>(paddle::framework::Archive<AR>& ar,
+                                           SlotValues<T>& r) {
   ar >> r.slot_values;
 
   uint16_t slot_num = 0;
@@ -1282,7 +1232,8 @@ paddle::framework::Archive<AR>& operator>>(paddle::framework::Archive<AR>& ar, S
   return ar;
 }
 template <class AR>
-paddle::framework::Archive<AR>& operator<<(paddle::framework::Archive<AR>& ar, const SlotRecord& r) {
+paddle::framework::Archive<AR>& operator<<(paddle::framework::Archive<AR>& ar,
+                                           const SlotRecord& r) {
   ar << r->slot_float_feasigns_;
   ar << r->slot_uint64_feasigns_;
   ar << r->ins_id_;
@@ -1293,7 +1244,8 @@ paddle::framework::Archive<AR>& operator<<(paddle::framework::Archive<AR>& ar, c
   return ar;
 }
 template <class AR>
-paddle::framework::Archive<AR>& operator>>(paddle::framework::Archive<AR>& ar, SlotRecord& r) {
+paddle::framework::Archive<AR>& operator>>(paddle::framework::Archive<AR>& ar,
+                                           SlotRecord& r) {
   ar >> r->slot_float_feasigns_;
   ar >> r->slot_uint64_feasigns_;
   ar >> r->ins_id_;
