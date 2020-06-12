@@ -2277,7 +2277,6 @@ class SlotInsParserMgr {
   paddle::framework::ISlotParser* Get(const std::string& path,
                                       const std::vector<AllSlotInfo>& slots) {
     ParserInfo info;
-
     mutex_.lock();
     std::map<std::string, ParserInfo>::iterator itx = obj_map_.find(path);
     if (itx != obj_map_.end()) {
