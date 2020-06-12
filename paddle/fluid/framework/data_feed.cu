@@ -1,16 +1,15 @@
 /* Copyright (c) 2016 PaddlePaddle Authors. All Rights Reserved.
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
 
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
+    http://www.apache.org/licenses/LICENSE-2.0
 
- http://www.apache.org/licenses/LICENSE-2.0
-
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License. */
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License. */
 
 #if defined _WIN32 || defined __APPLE__
 #else
@@ -26,8 +25,8 @@ namespace framework {
   for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < (n); \
        i += blockDim.x * gridDim.x)
 
-__global__ void CopyForTensorKernel(FeatureItem *src, void **dest,
-                                    size_t *offset, char *type,
+__global__ void CopyForTensorKernel(FeatureItem* src, void** dest,
+                                    size_t* offset, char* type,
                                     size_t total_size, size_t row_size,
                                     size_t col_size) {
   CUDA_KERNEL_LOOP(i, row_size * col_size) {
@@ -43,13 +42,14 @@ __global__ void CopyForTensorKernel(FeatureItem *src, void **dest,
       right = offset[row_id * (col_size + 1) + col_id + 1] -
               offset[(row_id - 1) * (col_size + 1) + col_id + 1];
     }
-    uint64_t *up = NULL;
-    float *fp = NULL;
+    
+    uint64_t* up = NULL;
+    float* fp = NULL;
     if (type[row_id] == 'f') {
-      fp = reinterpret_cast<float *>(dest[row_id]);
+      fp = reinterpret_cast<float*>(dest[row_id]);
     } else {
-      up = reinterpret_cast<uint64_t *>(
-          *(reinterpret_cast<uint64_t **>(dest) + row_id));
+      up = reinterpret_cast<uint64_t*>(
+          *(reinterpret_cast<uint64_t**>(dest) + row_id));
     }
     size_t begin = offset[row_id * (col_size + 1) + col_id + 1] +
                    offset[(row_size - 1) * (col_size + 1) + col_id] -
@@ -72,10 +72,10 @@ __global__ void CopyForTensorKernel(FeatureItem *src, void **dest,
 }
 
 void MultiSlotInMemoryDataFeed::CopyForTensor(
-    const paddle::platform::Place &place, FeatureItem *src, void **dest,
-    size_t *offset, char *type, size_t total_size, size_t row_size,
+    const paddle::platform::Place& place, FeatureItem* src, void** dest,
+    size_t* offset, char* type, size_t total_size, size_t row_size,
     size_t col_size) {
-  auto stream = dynamic_cast<platform::CUDADeviceContext *>(
+  auto stream = dynamic_cast<platform::CUDADeviceContext*>(
                     platform::DeviceContextPool::Instance().Get(
                         boost::get<platform::CUDAPlace>(place)))
                     ->stream();

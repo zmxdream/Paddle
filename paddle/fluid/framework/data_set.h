@@ -159,7 +159,7 @@ template <typename T>
 class DatasetImpl : public Dataset {
  public:
   DatasetImpl();
-  virtual ~DatasetImpl() {}
+  virtual ~DatasetImpl() { release_thread_->join(); }
 
   virtual void SetFileList(const std::vector<std::string>& filelist);
   virtual void SetThreadNum(int thread_num);
