@@ -1492,6 +1492,7 @@ void PadBoxSlotDataset::MergeInsKeys(const Channel<SlotRecord>& in) {
 
   std::vector<std::thread> feed_threads;
   auto boxps_ptr = BoxWrapper::GetInstance();
+  
   std::vector<int> used_fea_index;
   (reinterpret_cast<SlotPaddleBoxDataFeed*>(readers_[0].get()))
       ->GetUsedSlotIndex(&used_fea_index);
