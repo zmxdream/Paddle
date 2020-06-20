@@ -728,6 +728,7 @@ class PaddleBoxDataFeed : public MultiSlotInMemoryDataFeed {
 };
 
 #ifdef PADDLE_WITH_BOX_PS
+DECLARE_int32(padbox_record_pool_max_size);
 template <typename T>
 struct SlotValues {
   std::vector<T> slot_values;
@@ -861,7 +862,7 @@ class SlotObjAllocator {
 
 class SlotObjPool {
  public:
-  SlotObjPool() : max_capacity_(10000000) {
+  SlotObjPool() : max_capacity_(FLAGS_padbox_record_pool_max_size) {
     ins_chan_ = MakeChannel<SlotRecord>();
     thread_ = std::thread([this]() { run(); });
   }
