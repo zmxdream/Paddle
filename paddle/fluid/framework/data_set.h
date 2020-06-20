@@ -26,6 +26,8 @@
 #include <vector>
 
 #include "paddle/fluid/framework/data_feed.h"
+DECLARE_int32(padbox_dataset_shuffle_thread_num);
+DECLARE_int32(padbox_dataset_merge_thread_num);
 
 namespace paddle {
 namespace framework {
@@ -320,8 +322,6 @@ class MultiSlotDataset : public DatasetImpl<Record> {
 };
 
 #ifdef PADDLE_WITH_BOX_PS
-DECLARE_int32(padbox_dataset_shuffle_thread_num);
-DECLARE_int32(padbox_dataset_merge_thread_num);
 class PadBoxSlotDataset : public DatasetImpl<SlotRecord> {
  public:
   PadBoxSlotDataset();

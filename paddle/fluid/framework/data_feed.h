@@ -46,6 +46,7 @@ limitations under the License. */
 
 USE_INT_STAT(STAT_total_feasign_num_in_mem);
 USE_INT_STAT(STAT_slot_pool_size);
+DECLARE_int32(padbox_record_pool_max_size);
 namespace paddle {
 namespace framework {
 
@@ -728,7 +729,6 @@ class PaddleBoxDataFeed : public MultiSlotInMemoryDataFeed {
 };
 
 #ifdef PADDLE_WITH_BOX_PS
-DECLARE_int32(padbox_record_pool_max_size);
 template <typename T>
 struct SlotValues {
   std::vector<T> slot_values;
@@ -1217,6 +1217,7 @@ class SlotPaddleBoxDataFeed : public DataFeed {
   std::vector<AllSlotInfo> all_slots_info_;
   std::vector<UsedSlotInfo> used_slots_info_;
   std::vector<size_t> slot_value_offsets_;
+  std::string parser_so_path_;
 };
 
 template <class AR, class T>
