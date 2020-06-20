@@ -265,7 +265,9 @@ class DatasetImpl : public Dataset {
   int trainer_num_;
   std::vector<std::string> filelist_;
   size_t file_idx_;
+  uint64_t total_fea_num_;
   std::mutex mutex_for_pick_file_;
+  std::mutex mutex_for_fea_num_;
   std::string fs_name_;
   std::string fs_ugi_;
   int64_t fleet_send_batch_size_;
@@ -355,7 +357,9 @@ class PadBoxSlotDataset : public DatasetImpl<SlotRecord> {
   // shuffle data
   virtual void ShuffleData(std::vector<std::thread>* shuffle_threads,
                            int thread_num = -1);
-  virtual void ReceiveSuffleData(int client_id, const char* msg, int len);
+
+ public:
+  virtual void ReceiveSuffleData(const int client_id, const char* msg, int len);
 
  private:
   void MergeInsKeys(const Channel<SlotRecord>& in);
@@ -369,6 +373,7 @@ class PadBoxSlotDataset : public DatasetImpl<SlotRecord> {
   std::vector<SlotPvInstance> input_pv_ins_;
   int shuffle_thread_num_ = 10;
   std::atomic<int> shuffle_counter_{0};
+  void* data_consumer_ = nullptr;
 };
 #endif
 
