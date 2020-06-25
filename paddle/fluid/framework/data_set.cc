@@ -1606,6 +1606,43 @@ void PadBoxSlotDataset::ReleaseMemory() {
           << timeline.ElapsedSec()
           << " seconds, object pool size=" << SlotRecordPool().capacity();
 }
+class ShuffleResultWaitGroup : public boxps::ResultCallback {
+ public:
+  ShuffleResultWaitGroup() {}
+  void clear() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    counter_ = 0;
+    cond_.notify_all();
+  }
+  void add(int delta) {
+    if (delta == 0) {
+      return;
+    }
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    counter_ += delta;
+
+    if (counter_ == 0) {
+      cond_.notify_all();
+    }
+  }
+  void done() { add(-1); }
+  void wait() {
+    std::unique_lock<std::mutex> lock(mutex_);
+
+    while (counter_ != 0) {
+      cond_.wait(lock);
+    }
+  }
+
+ public:
+  virtual void on_notify(void) { done(); }
+
+ private:
+  std::mutex mutex_;
+  std::condition_variable cond_;
+  int counter_ = 0;
+};
 // shuffle data
 void PadBoxSlotDataset::ShuffleData(std::vector<std::thread>* shuffle_threads,
                                     int thread_num) {
@@ -1622,6 +1659,7 @@ void PadBoxSlotDataset::ShuffleData(std::vector<std::thread>* shuffle_threads,
       std::vector<SlotRecord> releases;
       std::vector<paddle::framework::BinaryArchive> ars(mpi_size_);
 
+      ShuffleResultWaitGroup wg;
       while (input_channel_->Read(data)) {
         for (auto& t : data) {
           int client_id = 0;
@@ -1645,6 +1683,8 @@ void PadBoxSlotDataset::ShuffleData(std::vector<std::thread>* shuffle_threads,
 
         shuffle_channel_->Write(std::move(loc_datas));
 
+        wg.wait();
+        int send_count = 0;
         for (int i = 0; i < mpi_size_; ++i) {
           if (i == mpi_rank_) {
             continue;
@@ -1653,26 +1693,38 @@ void PadBoxSlotDataset::ShuffleData(std::vector<std::thread>* shuffle_threads,
           if (ar.Length() == 0) {
             continue;
           }
-          BoxWrapper::data_shuffle_->send_message(i, ar.Buffer(), ar.Length());
+          ++send_count;
+          BoxWrapper::data_shuffle_->send_message_callback(i, ar.Buffer(),
+                                                           ar.Length(), &wg);
           ar.Clear();
         }
+        wg.add(send_count);
 
         data.clear();
         loc_datas.clear();
       }
+      wg.wait();
+
       VLOG(3) << "end shuffle thread id = " << tid;
       // only one thread send finish notify
       if (--shuffle_counter_ == 0) {
         // send closed
+        wg.add(mpi_size_ - 1);
         for (int i = 0; i < mpi_size_; ++i) {
           if (i == mpi_rank_) {
             continue;
           }
-          BoxWrapper::data_shuffle_->send_message(i, NULL, 0);
+          BoxWrapper::data_shuffle_->send_message_callback(i, NULL, 0, &wg);
         }
+        wg.wait();
         // local closed channel
         if (--finished_counter_ == 0) {
+          while (receiver_cnt_ > 0) {
+            usleep(100);
+          }
           shuffle_channel_->Close();
+          LOG(WARNING) << "ShuffleData rank_id=" << mpi_rank_
+                       << " close channel";
         }
       }
     }));
@@ -1680,6 +1732,7 @@ void PadBoxSlotDataset::ShuffleData(std::vector<std::thread>* shuffle_threads,
 }
 void PadBoxSlotDataset::ReceiveSuffleData(int client_id, const char* buf,
                                           int len) {
+  ++receiver_cnt_;
   VLOG(3) << "ReceiveFromClient client_id=" << client_id
           << ", msg length=" << len;
   if (len == 0) {
@@ -1687,8 +1740,15 @@ void PadBoxSlotDataset::ReceiveSuffleData(int client_id, const char* buf,
       mpi_flags_[client_id] = 0;
       --finished_counter_;
     }
+    --receiver_cnt_;
+
     if (finished_counter_ == 0) {
+      while (receiver_cnt_ > 0) {
+        usleep(100);
+      }
       shuffle_channel_->Close();
+      LOG(WARNING) << "ReceiveFromClient client_id=" << client_id
+                   << " close channel";
     }
     return;
   }
@@ -1703,7 +1763,8 @@ void PadBoxSlotDataset::ReceiveSuffleData(int client_id, const char* buf,
   while (ar.Cursor() < ar.Finish()) {
     ar >> data[offset++];
     if (offset >= max_fetch_num) {
-      shuffle_channel_->Write(std::move(data));
+      CHECK(shuffle_channel_->Write(std::move(data)) ==
+            static_cast<size_t>(offset));
       data.clear();
       offset = 0;
       SlotRecordPool().get(&data, max_fetch_num);
@@ -1711,7 +1772,8 @@ void PadBoxSlotDataset::ReceiveSuffleData(int client_id, const char* buf,
   }
   CHECK(ar.Cursor() == ar.Finish());
   if (offset > 0) {
-    shuffle_channel_->WriteMove(offset, &data[0]);
+    CHECK(shuffle_channel_->WriteMove(offset, &data[0]) ==
+          static_cast<size_t>(offset));
     if (offset < max_fetch_num) {
       SlotRecordPool().put(&data[offset], (max_fetch_num - offset));
     }
@@ -1721,6 +1783,7 @@ void PadBoxSlotDataset::ReceiveSuffleData(int client_id, const char* buf,
 
   data.clear();
   data.shrink_to_fit();
+  --receiver_cnt_;
 }
 // create readers
 void PadBoxSlotDataset::CreateReaders() {
@@ -1864,8 +1927,9 @@ static int compute_thread_batch_nccl(
     const int minibatch_size, std::vector<std::pair<int, int>>* nccl_offsets) {
   int thread_avg_batch_num = 0;
   if (total_instance_num < static_cast<int64_t>(thr_num)) {
-    VLOG(1) << "compute_thread_batch_nccl total ins num:[" << total_instance_num
-            << "], less thread num:[" << thr_num << "]";
+    LOG(WARNING) << "compute_thread_batch_nccl total ins num:["
+                 << total_instance_num << "], less thread num:[" << thr_num
+                 << "]";
     return thread_avg_batch_num;
   }
 
@@ -1878,11 +1942,13 @@ static int compute_thread_batch_nccl(
   if (mpi.size() > 1) {
     // 这里主要针对NCCL需要相同的minibatch才能正常处理
     int thread_max_batch_num = mpi.allreduce(thread_avg_batch_num, 0);
+    int64_t sum_total_ins_num = mpi.allreduce(total_instance_num, 2);
     int diff_batch_num = thread_max_batch_num - thread_avg_batch_num;
     if (diff_batch_num == 0) {
-      VLOG(1) << "thread_num " << thr_num << ", ins num " << total_instance_num
-              << ", batch num " << offset.size() << ", thread avg batch num "
-              << thread_avg_batch_num;
+      LOG(WARNING) << "total sum ins " << sum_total_ins_num << ", thread_num "
+                   << thr_num << ", ins num " << total_instance_num
+                   << ", batch num " << offset.size()
+                   << ", thread avg batch num " << thread_avg_batch_num;
       return thread_avg_batch_num;
     }
 
@@ -1906,18 +1972,20 @@ static int compute_thread_batch_nccl(
     offset.resize(offset_split_index);
     compute_left_batch_num(split_left_num, need_batch_num, &offset,
                            split_start);
-    VLOG(1) << "thread_num " << thr_num << ", ins num " << total_instance_num
-            << ", batch num " << offset.size() << ", thread avg batch num "
-            << thread_avg_batch_num << ", thread max batch num "
-            << thread_max_batch_num
-            << ", need batch num: " << (need_batch_num / thr_num)
-            << "split begin (" << split_start << ")" << split_start << ", num "
-            << split_left_num;
+    LOG(WARNING) << "total sum ins " << sum_total_ins_num << ", thread_num "
+                 << thr_num << ", ins num " << total_instance_num
+                 << ", batch num " << offset.size() << ", thread avg batch num "
+                 << thread_avg_batch_num << ", thread max batch num "
+                 << thread_max_batch_num
+                 << ", need batch num: " << (need_batch_num / thr_num)
+                 << "split begin (" << split_start << ")" << split_start
+                 << ", num " << split_left_num;
     thread_avg_batch_num = thread_max_batch_num;
+  } else {
+    LOG(WARNING) << "thread_num " << thr_num << ", ins num "
+                 << total_instance_num << ", batch num " << offset.size()
+                 << ", thread avg batch num " << thread_avg_batch_num;
   }
-  LOG(WARNING) << "thread_num " << thr_num << ", ins num " << total_instance_num
-               << ", batch num " << offset.size() << ", thread avg batch num "
-               << thread_avg_batch_num;
   return thread_avg_batch_num;
 }
 
