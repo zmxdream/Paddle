@@ -1522,8 +1522,8 @@ void PadBoxSlotDataset::MergeInsKeys(const Channel<SlotRecord>& in) {
   auto boxps_ptr = BoxWrapper::GetInstance();
 
   std::vector<int> used_fea_index;
-  (reinterpret_cast<SlotPaddleBoxDataFeed*>(readers_[0].get()))
-      ->GetUsedSlotIndex(&used_fea_index);
+  auto feed_obj = reinterpret_cast<SlotPaddleBoxDataFeed*>(readers_[0].get());
+  feed_obj->GetUsedSlotIndex(&used_fea_index);
 
   input_records_.clear();
   boxps::PSAgentBase* agent = boxps_ptr->GetAgent();
@@ -1535,12 +1535,10 @@ void PadBoxSlotDataset::MergeInsKeys(const Channel<SlotRecord>& in) {
   std::mutex mutex;
   for (int tid = 0; tid < thread_num; ++tid) {
     feed_threads.push_back(std::thread([this, &in, agent, tid, &mutex,
-                                        &used_fea_index]() {
+                                        &used_fea_index, &feed_obj]() {
       SetCPUAffinity(tid, false);
       size_t num = 0;
       std::vector<SlotRecord> datas;
-      auto feed_obj =
-          reinterpret_cast<SlotPaddleBoxDataFeed*>(readers_[tid].get());
       while (in->Read(datas)) {
         for (auto& rec : datas) {
           for (auto& idx : used_fea_index) {
