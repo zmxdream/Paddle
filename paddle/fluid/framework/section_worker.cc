@@ -230,7 +230,7 @@ void SectionWorker::TrainFiles() {
       if (box_ptr->Phase() != metric_msg->MetricPhase()) {
         continue;
       }
-      metric_msg->add_data(exe_scope);
+      metric_msg->add_data(exe_scope, place_);
     }
 #endif
     if (section_id_ != section_num_ - 1 && platform::is_gpu_place(place_)) {
@@ -386,7 +386,7 @@ void SectionWorker::TrainFilesWithProfiler() {
       if (box_ptr->Phase() != metric_msg->MetricPhase()) {
         continue;
       }
-      metric_msg->add_data(exe_scope);
+      metric_msg->add_data(exe_scope, place_);
     }
 #endif
     if (need_dump_field_) {
