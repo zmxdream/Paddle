@@ -53,15 +53,15 @@ namespace framework {
 #ifdef PADDLE_WITH_BOX_PS
 class BasicAucCalculator {
  public:
-  BasicAucCalculator(bool mode_collect_in_gpu=false): 
-      _mode_collect_in_gpu(mode_collect_in_gpu) {}
-  void init(int table_size, int max_batch_size=0);
+  BasicAucCalculator(bool mode_collect_in_gpu = false)
+      : _mode_collect_in_gpu(mode_collect_in_gpu) {}
+  void init(int table_size, int max_batch_size = 0);
   void reset();
   // add batch data
   void add_data(const float* d_pred, const int64_t* d_label, int batch_size,
                 const paddle::platform::Place& place);
   // add single data in CPU with LOCK, deprecated
-  void add_data(double pred, int label); 
+  void add_data(double pred, int label);
   void compute();
   int table_size() const { return _table_size; }
   double bucket_error() const { return _bucket_error; }
@@ -76,8 +76,9 @@ class BasicAucCalculator {
   double& local_abserr() { return _local_abserr; }
   double& local_sqrerr() { return _local_sqrerr; }
   double& local_pred() { return _local_pred; }
-  void cuda_add_data(const paddle::platform::Place& place,
-                     const int64_t* label, const float* pred, int len);
+  void cuda_add_data(const paddle::platform::Place& place, const int64_t* label,
+                     const float* pred, int len);
+
  private:
   void calculate_bucket_error();
 
@@ -100,9 +101,7 @@ class BasicAucCalculator {
   std::vector<std::shared_ptr<memory::Allocation>> _d_pred;
 
  private:
-  void set_table_size(int table_size) {
-    _table_size = table_size;
-  }
+  void set_table_size(int table_size) { _table_size = table_size; }
   void set_max_batch_size(int max_batch_size) {
     _max_batch_size = max_batch_size;
   }
@@ -118,6 +117,32 @@ class BasicAucCalculator {
 };
 
 class BoxWrapper {
+  struct DeviceBoxData {
+    LoDTensor keys_tensor;
+    LoDTensor dims_tensor;
+    std::shared_ptr<memory::Allocation> pull_push_buf = nullptr;
+    std::shared_ptr<memory::Allocation> gpu_keys_ptr = nullptr;
+    std::shared_ptr<memory::Allocation> gpu_values_ptr = nullptr;
+
+    LoDTensor slot_lens;
+    LoDTensor d_slot_vector;
+    LoDTensor keys2slot;
+
+    platform::Timer all_pull_timer;
+    platform::Timer boxps_pull_timer;
+    platform::Timer all_push_timer;
+    platform::Timer boxps_push_timer;
+
+    int64_t total_key_length = 0;
+
+    void ResetTimer(void) {
+      all_pull_timer.Reset();
+      boxps_pull_timer.Reset();
+      all_push_timer.Reset();
+      boxps_push_timer.Reset();
+    }
+  };
+
  public:
   virtual ~BoxWrapper() {
     if (file_manager_ != nullptr) {
@@ -132,11 +157,9 @@ class BoxWrapper {
       delete p_agent_;
       p_agent_ = nullptr;
     }
-    if (all_pull_timers_ != nullptr) {
-      delete[] all_pull_timers_;
-      delete[] boxps_pull_timers_;
-      delete[] all_push_timers_;
-      delete[] boxps_push_timers_;
+    if (device_caches_ != nullptr) {
+      delete device_caches_;
+      device_caches_ = nullptr;
     }
   }
   BoxWrapper() {
@@ -180,22 +203,22 @@ class BoxWrapper {
                       const int batch_size);
 
   void CopyForPull(const paddle::platform::Place& place, uint64_t** gpu_keys,
-                   const std::vector<float*>& values, void* total_values_gpu,
-                   const int64_t* gpu_len, const int slot_num,
-                   const int hidden_size, const int expand_embed_dim,
-                   const int64_t total_length, int* total_dims);
+                   float** gpu_values, void* total_values_gpu,
+                   const int64_t* slot_lens, const int slot_num,
+                   const int* key2slot, const int hidden_size,
+                   const int expand_embed_dim, const int64_t total_length,
+                   int* total_dims);
 
-  void CopyForPush(const paddle::platform::Place& place,
-                   const std::vector<const float*>& grad_values,
-                   void* total_grad_values_gpu,
-                   const std::vector<int64_t>& slot_lengths,
+  void CopyForPush(const paddle::platform::Place& place, float** grad_values,
+                   void* total_grad_values_gpu, const int* slots,
+                   const int64_t* slot_lens, const int slot_num,
                    const int hidden_size, const int expand_embed_dim,
                    const int64_t total_length, const int batch_size,
-                   int* total_dims);
+                   const int* total_dims, const int* key2slot);
 
   void CopyKeys(const paddle::platform::Place& place, uint64_t** origin_keys,
                 uint64_t* total_keys, const int64_t* gpu_len, int slot_num,
-                int total_len);
+                int total_len, int* key2slot);
 
   void CheckEmbedSizeIsValid(int embedx_dim, int expand_embed_dim);
 
@@ -207,7 +230,8 @@ class BoxWrapper {
     if (nullptr != s_instance_) {
       VLOG(3) << "Begin InitializeGPU";
       std::vector<cudaStream_t*> stream_list;
-      for (int i = 0; i < platform::GetCUDADeviceCount(); ++i) {
+      int gpu_num = platform::GetCUDADeviceCount();
+      for (int i = 0; i < gpu_num; ++i) {
         VLOG(3) << "before get context i[" << i << "]";
         platform::CUDADeviceContext* context =
             dynamic_cast<platform::CUDADeviceContext*>(
@@ -226,15 +250,7 @@ class BoxWrapper {
         slot_name_omited_in_feedpass_.insert(slot_name);
       }
       slot_vector_ = slot_vector;
-
-      int gpu_num = platform::GetCUDADeviceCount();
-      keys_tensor.resize(gpu_num);
-      dims_tensor.resize(gpu_num);
-
-      all_pull_timers_ = new platform::Timer[gpu_num];
-      boxps_pull_timers_ = new platform::Timer[gpu_num];
-      all_push_timers_ = new platform::Timer[gpu_num];
-      boxps_push_timers_ = new platform::Timer[gpu_num];
+      device_caches_ = new DeviceBoxData[gpu_num];
     }
   }
 
@@ -376,8 +392,8 @@ class BoxWrapper {
    public:
     MetricMsg() {}
     MetricMsg(const std::string& label_varname, const std::string& pred_varname,
-              int metric_phase, int bucket_size = 1000000, bool mode_collect_in_gpu = false,
-              int max_batch_size = 0)
+              int metric_phase, int bucket_size = 1000000,
+              bool mode_collect_in_gpu = false, int max_batch_size = 0)
         : label_varname_(label_varname),
           pred_varname_(pred_varname),
           metric_phase_(metric_phase) {
@@ -396,8 +412,10 @@ class BoxWrapper {
       const float* pred_data = NULL;
       get_data<int64_t>(exe_scope, label_varname_, &label_data, &label_len);
       get_data<float>(exe_scope, pred_varname_, &pred_data, &pred_len);
-      PADDLE_ENFORCE_EQ(label_len, pred_len, platform::errors::PreconditionNotMet(
-                    "the predict data length should be consistent with the label data length"));
+      PADDLE_ENFORCE_EQ(label_len, pred_len,
+                        platform::errors::PreconditionNotMet(
+                            "the predict data length should be consistent with "
+                            "the label data length"));
       int& batch_size = label_len;
       auto cal = GetCalculator();
       cal->add_data(pred_data, label_data, batch_size, place);
@@ -473,7 +491,7 @@ class BoxWrapper {
     }
     virtual ~MultiTaskMetricMsg() {}
     void add_data(const Scope* exe_scope,
-                          const paddle::platform::Place& place) override {
+                  const paddle::platform::Place& place) override {
       std::vector<int64_t> cmatch_rank_data;
       get_data<int64_t>(exe_scope, cmatch_rank_varname_, &cmatch_rank_data);
       std::vector<int64_t> label_data;
@@ -545,7 +563,7 @@ class BoxWrapper {
     }
     virtual ~CmatchRankMetricMsg() {}
     void add_data(const Scope* exe_scope,
-                          const paddle::platform::Place& place) override {
+                  const paddle::platform::Place& place) override {
       std::vector<int64_t> cmatch_rank_data;
       get_data<int64_t>(exe_scope, cmatch_rank_varname_, &cmatch_rank_data);
       std::vector<int64_t> label_data;
@@ -600,7 +618,7 @@ class BoxWrapper {
     }
     virtual ~MaskMetricMsg() {}
     void add_data(const Scope* exe_scope,
-                          const paddle::platform::Place& place) override {
+                  const paddle::platform::Place& place) override {
       std::vector<int64_t> label_data;
       get_data<int64_t>(exe_scope, label_varname_, &label_data);
       std::vector<float> pred_data;
@@ -658,8 +676,10 @@ class BoxWrapper {
                   int bucket_size = 1000000, bool mode_collect_in_gpu = false,
                   int max_batch_size = 0) {
     if (method == "AucCalculator") {
-      metric_lists_.emplace(name, new MetricMsg(label_varname, pred_varname,
-                                                metric_phase, bucket_size, mode_collect_in_gpu, max_batch_size));
+      metric_lists_.emplace(
+          name,
+          new MetricMsg(label_varname, pred_varname, metric_phase, bucket_size,
+                        mode_collect_in_gpu, max_batch_size));
     } else if (method == "MultiTaskAucCalculator") {
       metric_lists_.emplace(
           name, new MultiTaskMetricMsg(label_varname, pred_varname,
@@ -721,15 +741,10 @@ class BoxWrapper {
   std::map<std::string, MetricMsg*> metric_lists_;
   std::vector<std::string> metric_name_list_;
   std::vector<int> slot_vector_;
-  std::vector<LoDTensor> keys_tensor;  // Cache for pull_sparse
-  std::vector<LoDTensor> dims_tensor;
   bool use_afs_api_ = false;
   std::shared_ptr<boxps::PaddleFileMgr> file_manager_ = nullptr;
-
-  platform::Timer* all_pull_timers_ = nullptr;
-  platform::Timer* boxps_pull_timers_ = nullptr;
-  platform::Timer* all_push_timers_ = nullptr;
-  platform::Timer* boxps_push_timers_ = nullptr;
+  // box device cache
+  DeviceBoxData* device_caches_ = nullptr;
 
  public:
   static std::shared_ptr<boxps::PaddleShuffler> data_shuffle_;
