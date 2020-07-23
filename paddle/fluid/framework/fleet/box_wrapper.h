@@ -57,11 +57,14 @@ class BasicAucCalculator {
       : _mode_collect_in_gpu(mode_collect_in_gpu) {}
   void init(int table_size, int max_batch_size = 0);
   void reset();
+  // add single data in CPU with LOCK, deprecated
+  void add_unlock_data(double pred, int label);
   // add batch data
   void add_data(const float* d_pred, const int64_t* d_label, int batch_size,
                 const paddle::platform::Place& place);
-  // add single data in CPU with LOCK, deprecated
-  void add_data(double pred, int label);
+  // add mask data
+  void add_mask_data(const float* d_pred, const int64_t* d_label, const int64_t *d_mask,
+          int batch_size, const paddle::platform::Place& place);
   void compute();
   int table_size() const { return _table_size; }
   double bucket_error() const { return _bucket_error; }
@@ -76,10 +79,14 @@ class BasicAucCalculator {
   double& local_abserr() { return _local_abserr; }
   double& local_sqrerr() { return _local_sqrerr; }
   double& local_pred() { return _local_pred; }
-  void cuda_add_data(const paddle::platform::Place& place, const int64_t* label,
-                     const float* pred, int len);
+  // lock and unlock
+  std::mutex &table_mutex(void) {return _table_mutex;}
 
  private:
+  void cuda_add_data(const paddle::platform::Place& place, const int64_t* label,
+                       const float* pred, int len);
+  void cuda_add_mask_data(const paddle::platform::Place& place, const int64_t* label,
+                         const float* pred, const int64_t *mask, int len);
   void calculate_bucket_error();
 
  protected:
@@ -416,9 +423,7 @@ class BoxWrapper {
                         platform::errors::PreconditionNotMet(
                             "the predict data length should be consistent with "
                             "the label data length"));
-      int& batch_size = label_len;
-      auto cal = GetCalculator();
-      cal->add_data(pred_data, label_data, batch_size, place);
+      calculator->add_data(pred_data, label_data, label_len, place);
     }
     template <class T = float>
     static void get_data(const Scope* exe_scope, const std::string& varname,
@@ -515,12 +520,13 @@ class BoxWrapper {
                 batch_size, pred_data_list[i].size()));
       }
       auto cal = GetCalculator();
+      std::lock_guard<std::mutex> lock(cal->table_mutex());
       for (size_t i = 0; i < batch_size; ++i) {
         auto cmatch_rank_it =
             std::find(cmatch_rank_v.begin(), cmatch_rank_v.end(),
                       parse_cmatch_rank(cmatch_rank_data[i]));
         if (cmatch_rank_it != cmatch_rank_v.end()) {
-          cal->add_data(pred_data_list[std::distance(cmatch_rank_v.begin(),
+          cal->add_unlock_data(pred_data_list[std::distance(cmatch_rank_v.begin(),
                                                      cmatch_rank_it)][i],
                         label_data[i]);
         }
@@ -582,6 +588,7 @@ class BoxWrapper {
               "illegal batch size: cmatch_rank[%lu] and pred_data[%lu]",
               batch_size, pred_data.size()));
       auto cal = GetCalculator();
+      std::lock_guard<std::mutex> lock(cal->table_mutex());
       for (size_t i = 0; i < batch_size; ++i) {
         const auto& cur_cmatch_rank = parse_cmatch_rank(cmatch_rank_data[i]);
         for (size_t j = 0; j < cmatch_rank_v.size(); ++j) {
@@ -592,7 +599,7 @@ class BoxWrapper {
             is_matched = cmatch_rank_v[j] == cur_cmatch_rank;
           }
           if (is_matched) {
-            cal->add_data(pred_data[i], label_data[i]);
+            cal->add_unlock_data(pred_data[i], label_data[i]);
             break;
           }
         }
@@ -608,30 +615,35 @@ class BoxWrapper {
    public:
     MaskMetricMsg(const std::string& label_varname,
                   const std::string& pred_varname, int metric_phase,
-                  const std::string& mask_varname, int bucket_size = 1000000) {
+                  const std::string& mask_varname, int bucket_size = 1000000,
+                  bool mode_collect_in_gpu = false, int max_batch_size = 0) {
       label_varname_ = label_varname;
       pred_varname_ = pred_varname;
       mask_varname_ = mask_varname;
       metric_phase_ = metric_phase;
-      calculator = new BasicAucCalculator();
-      calculator->init(bucket_size);
+      calculator = new BasicAucCalculator(mode_collect_in_gpu);
+      calculator->init(bucket_size, max_batch_size);
     }
     virtual ~MaskMetricMsg() {}
     void add_data(const Scope* exe_scope,
                   const paddle::platform::Place& place) override {
-      std::vector<int64_t> label_data;
-      get_data<int64_t>(exe_scope, label_varname_, &label_data);
-      std::vector<float> pred_data;
-      get_data<float>(exe_scope, pred_varname_, &pred_data);
-      std::vector<int64_t> mask_data;
-      get_data<int64_t>(exe_scope, mask_varname_, &mask_data);
-      auto cal = GetCalculator();
-      auto batch_size = label_data.size();
-      for (size_t i = 0; i < batch_size; ++i) {
-        if (mask_data[i] == 1) {
-          cal->add_data(pred_data[i], label_data[i]);
-        }
-      }
+        int label_len = 0;
+        const int64_t* label_data = NULL;
+        get_data<int64_t>(exe_scope, label_varname_, &label_data, &label_len);
+
+        int pred_len = 0;
+        const float* pred_data = NULL;
+        get_data<float>(exe_scope, pred_varname_, &pred_data, &pred_len);
+
+        int mask_len = 0;
+        const int64_t* mask_data = NULL;
+        get_data<int64_t>(exe_scope, mask_varname_, &mask_data, &mask_len);
+        PADDLE_ENFORCE_EQ(label_len, mask_len,
+                        platform::errors::PreconditionNotMet(
+                            "the predict data length should be consistent with "
+                            "the label data length"));
+        auto cal = GetCalculator();
+        cal->add_mask_data(pred_data, label_data, mask_data, label_len, place);
     }
 
    protected:
@@ -693,7 +705,8 @@ class BoxWrapper {
     } else if (method == "MaskAucCalculator") {
       metric_lists_.emplace(
           name, new MaskMetricMsg(label_varname, pred_varname, metric_phase,
-                                  mask_varname, bucket_size));
+                                  mask_varname, bucket_size,
+                                  mode_collect_in_gpu, max_batch_size));
     } else {
       PADDLE_THROW(platform::errors::Unimplemented(
           "PaddleBox only support AucCalculator, MultiTaskAucCalculator "

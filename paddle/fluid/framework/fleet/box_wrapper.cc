@@ -30,7 +30,7 @@ cudaStream_t BoxWrapper::stream_list_[8];
 int BoxWrapper::embedx_dim_ = 8;
 int BoxWrapper::expand_embed_dim_ = 0;
 
-void BasicAucCalculator::add_data(double pred, int label) {
+void BasicAucCalculator::add_unlock_data(double pred, int label) {
   PADDLE_ENFORCE_GE(pred, 0.0, platform::errors::PreconditionNotMet(
                                    "pred should be greater than 0"));
   PADDLE_ENFORCE_LE(pred, 1.0, platform::errors::PreconditionNotMet(
@@ -48,11 +48,10 @@ void BasicAucCalculator::add_data(double pred, int label) {
       pos, _table_size,
       platform::errors::PreconditionNotMet(
           "pos must be less than table_size, but its value is: %d", pos));
-  std::lock_guard<std::mutex> lock(_table_mutex);
   _local_abserr += fabs(pred - label);
   _local_sqrerr += (pred - label) * (pred - label);
   _local_pred += pred;
-  _table[label][pos]++;
+  ++_table[label][pos];
 }
 
 void BasicAucCalculator::add_data(const float* d_pred, const int64_t* d_label,
@@ -61,16 +60,47 @@ void BasicAucCalculator::add_data(const float* d_pred, const int64_t* d_label,
   if (_mode_collect_in_gpu) {
     cuda_add_data(place, d_label, d_pred, batch_size);
   } else {
-    std::vector<float> h_pred;
-    std::vector<int64_t> h_label;
+    thread_local std::vector<float> h_pred;
+    thread_local std::vector<int64_t> h_label;
     h_pred.resize(batch_size);
     h_label.resize(batch_size);
     cudaMemcpy(h_pred.data(), d_pred, sizeof(float) * batch_size,
                cudaMemcpyDeviceToHost);
     cudaMemcpy(h_label.data(), d_label, sizeof(int64_t) * batch_size,
                cudaMemcpyDeviceToHost);
+
+    std::lock_guard<std::mutex> lock(_table_mutex);
     for (int i = 0; i < batch_size; ++i) {
-      add_data(h_pred[i], h_label[i]);
+      add_unlock_data(h_pred[i], h_label[i]);
+    }
+  }
+}
+// add mask data
+void BasicAucCalculator::add_mask_data(const float* d_pred, const int64_t* d_label,
+        const int64_t *d_mask,
+        int batch_size, const paddle::platform::Place& place) {
+  if (_mode_collect_in_gpu) {
+    cuda_add_mask_data(place, d_label, d_pred, d_mask, batch_size);
+  } else {
+    thread_local std::vector<float> h_pred;
+    thread_local std::vector<int64_t> h_label;
+    thread_local std::vector<int64_t> h_mask;
+    h_pred.resize(batch_size);
+    h_label.resize(batch_size);
+    h_mask.resize(batch_size);
+
+    cudaMemcpy(h_pred.data(), d_pred, sizeof(float) * batch_size,
+               cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_label.data(), d_label, sizeof(int64_t) * batch_size,
+               cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_mask.data(), d_mask, sizeof(int64_t) * batch_size,
+                   cudaMemcpyDeviceToHost);
+
+    std::lock_guard<std::mutex> lock(_table_mutex);
+    for (int i = 0; i < batch_size; ++i) {
+      if (h_mask[i]) {
+          add_unlock_data(h_pred[i], h_label[i]);
+      }
     }
   }
 }
