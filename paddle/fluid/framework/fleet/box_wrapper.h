@@ -53,7 +53,7 @@ namespace framework {
 #ifdef PADDLE_WITH_BOX_PS
 class BasicAucCalculator {
  public:
-  BasicAucCalculator(bool mode_collect_in_gpu = false)
+  explicit BasicAucCalculator(bool mode_collect_in_gpu = false)
       : _mode_collect_in_gpu(mode_collect_in_gpu) {}
   void init(int table_size, int max_batch_size = 0);
   void reset();
@@ -63,8 +63,9 @@ class BasicAucCalculator {
   void add_data(const float* d_pred, const int64_t* d_label, int batch_size,
                 const paddle::platform::Place& place);
   // add mask data
-  void add_mask_data(const float* d_pred, const int64_t* d_label, const int64_t *d_mask,
-          int batch_size, const paddle::platform::Place& place);
+  void add_mask_data(const float* d_pred, const int64_t* d_label,
+                     const int64_t* d_mask, int batch_size,
+                     const paddle::platform::Place& place);
   void compute();
   int table_size() const { return _table_size; }
   double bucket_error() const { return _bucket_error; }
@@ -80,13 +81,14 @@ class BasicAucCalculator {
   double& local_sqrerr() { return _local_sqrerr; }
   double& local_pred() { return _local_pred; }
   // lock and unlock
-  std::mutex &table_mutex(void) {return _table_mutex;}
+  std::mutex& table_mutex(void) { return _table_mutex; }
 
  private:
   void cuda_add_data(const paddle::platform::Place& place, const int64_t* label,
-                       const float* pred, int len);
-  void cuda_add_mask_data(const paddle::platform::Place& place, const int64_t* label,
-                         const float* pred, const int64_t *mask, int len);
+                     const float* pred, int len);
+  void cuda_add_mask_data(const paddle::platform::Place& place,
+                          const int64_t* label, const float* pred,
+                          const int64_t* mask, int len);
   void calculate_bucket_error();
 
  protected:
@@ -526,9 +528,9 @@ class BoxWrapper {
             std::find(cmatch_rank_v.begin(), cmatch_rank_v.end(),
                       parse_cmatch_rank(cmatch_rank_data[i]));
         if (cmatch_rank_it != cmatch_rank_v.end()) {
-          cal->add_unlock_data(pred_data_list[std::distance(cmatch_rank_v.begin(),
-                                                     cmatch_rank_it)][i],
-                        label_data[i]);
+          cal->add_unlock_data(pred_data_list[std::distance(
+                                   cmatch_rank_v.begin(), cmatch_rank_it)][i],
+                               label_data[i]);
         }
       }
     }
@@ -627,23 +629,23 @@ class BoxWrapper {
     virtual ~MaskMetricMsg() {}
     void add_data(const Scope* exe_scope,
                   const paddle::platform::Place& place) override {
-        int label_len = 0;
-        const int64_t* label_data = NULL;
-        get_data<int64_t>(exe_scope, label_varname_, &label_data, &label_len);
+      int label_len = 0;
+      const int64_t* label_data = NULL;
+      get_data<int64_t>(exe_scope, label_varname_, &label_data, &label_len);
 
-        int pred_len = 0;
-        const float* pred_data = NULL;
-        get_data<float>(exe_scope, pred_varname_, &pred_data, &pred_len);
+      int pred_len = 0;
+      const float* pred_data = NULL;
+      get_data<float>(exe_scope, pred_varname_, &pred_data, &pred_len);
 
-        int mask_len = 0;
-        const int64_t* mask_data = NULL;
-        get_data<int64_t>(exe_scope, mask_varname_, &mask_data, &mask_len);
-        PADDLE_ENFORCE_EQ(label_len, mask_len,
+      int mask_len = 0;
+      const int64_t* mask_data = NULL;
+      get_data<int64_t>(exe_scope, mask_varname_, &mask_data, &mask_len);
+      PADDLE_ENFORCE_EQ(label_len, mask_len,
                         platform::errors::PreconditionNotMet(
                             "the predict data length should be consistent with "
                             "the label data length"));
-        auto cal = GetCalculator();
-        cal->add_mask_data(pred_data, label_data, mask_data, label_len, place);
+      auto cal = GetCalculator();
+      cal->add_mask_data(pred_data, label_data, mask_data, label_len, place);
     }
 
    protected:

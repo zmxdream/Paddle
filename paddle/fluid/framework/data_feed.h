@@ -19,6 +19,7 @@ limitations under the License. */
 #define _LINUX
 #endif
 
+#include <semaphore.h>
 #include <fstream>
 #include <future>  // NOLINT
 #include <memory>
@@ -30,7 +31,6 @@ limitations under the License. */
 #include <unordered_set>
 #include <utility>
 #include <vector>
-#include <semaphore.h>
 #include "paddle/fluid/framework/archive.h"
 #include "paddle/fluid/framework/blocking_queue.h"
 #include "paddle/fluid/framework/channel.h"
@@ -877,13 +877,13 @@ class SlotObjPool {
   SlotObjPool() : max_capacity_(FLAGS_padbox_record_pool_max_size) {
     ins_chan_ = MakeChannel<SlotRecord>();
     for (int i = 0; i < FLAGS_padbox_slotpool_thread_num; ++i) {
-        threads_.push_back(std::thread([this]() { run(); }));
+      threads_.push_back(std::thread([this]() { run(); }));
     }
   }
   ~SlotObjPool() {
     ins_chan_->Close();
-    for (auto &t : threads_) {
-        t.join();
+    for (auto& t : threads_) {
+      t.join();
     }
   }
   void set_max_capacity(size_t max_capacity) { max_capacity_ = max_capacity; }
@@ -988,14 +988,14 @@ class ISlotParser {
       std::function<void(std::vector<SlotRecord>&, int)> GetInsFunc) = 0;
 };
 struct UsedSlotInfo {
-    int idx;
-    int slot_value_idx;
-    std::string slot;
-    std::string type;
-    bool dense;
-    std::vector<int> local_shape;
-    int total_dims_without_inductive;
-    int inductive_shape_index;
+  int idx;
+  int slot_value_idx;
+  std::string slot;
+  std::string type;
+  bool dense;
+  std::vector<int> local_shape;
+  int total_dims_without_inductive;
+  int inductive_shape_index;
 };
 #if defined(PADDLE_WITH_CUDA) && defined(_LINUX)
 struct UsedSlotGpuType {
@@ -1033,174 +1033,171 @@ struct CudaBuffer {
     malloc(size);
   }
 };
-template<typename T>
+template <typename T>
 struct HostBuffer {
-    T* host_buffer;
-    size_t buf_size;
-    size_t data_len;
+  T* host_buffer;
+  size_t buf_size;
+  size_t data_len;
 
-    HostBuffer<T>() {
-        host_buffer = NULL;
-        buf_size = 0;
-        data_len = 0;
-    }
-    ~HostBuffer<T>() { free();}
+  HostBuffer<T>() {
+    host_buffer = NULL;
+    buf_size = 0;
+    data_len = 0;
+  }
+  ~HostBuffer<T>() { free(); }
 
-    T* data() { return host_buffer;}
-    const T* data() const { return host_buffer;}
-    size_t size() const { return data_len;}
-    void clear() { free();}
-    T &back() { return host_buffer[data_len - 1]; }
+  T* data() { return host_buffer; }
+  const T* data() const { return host_buffer; }
+  size_t size() const { return data_len; }
+  void clear() { free(); }
+  T& back() { return host_buffer[data_len - 1]; }
 
-    T& operator[](size_t i) {
-        return host_buffer[i];
+  T& operator[](size_t i) { return host_buffer[i]; }
+  const T& operator[](size_t i) const { return host_buffer[i]; }
+  void malloc(size_t len) {
+    buf_size = len;
+    cudaHostAlloc(reinterpret_cast<void**>(&host_buffer), buf_size * sizeof(T),
+                  cudaHostAllocDefault);
+  }
+  void free() {
+    if (host_buffer != NULL) {
+      cudaFreeHost(host_buffer);
+      host_buffer = NULL;
     }
-    const T& operator[](size_t i) const {
-        return host_buffer[i];
+    buf_size = 0;
+  }
+  void resize(size_t size) {
+    if (size <= buf_size) {
+      data_len = size;
+      return;
     }
-    void malloc(size_t len) {
-        CHECK(len != 0);
-        CHECK(host_buffer == NULL) << "malloc when buffer is not NULL, try to use resize ...\n";
-        buf_size = len;
-        cudaHostAlloc((void**)&host_buffer, buf_size * sizeof(T), cudaHostAllocDefault);
-    }
-    void free() {
-        if (host_buffer != NULL) {
-            cudaFreeHost(host_buffer);
-            host_buffer = NULL;
-        }
-        buf_size = 0;
-    }
-    void resize(size_t size) {
-        if (size <= buf_size) {
-            data_len = size;
-            return;
-        }
-        data_len = size;
-        free();
-        malloc(size);
-    }
+    data_len = size;
+    free();
+    malloc(size);
+  }
 };
 
 struct BatchCPUValue {
-    HostBuffer<int> h_uint64_lens;
-    HostBuffer<uint64_t> h_uint64_keys;
-    HostBuffer<int> h_uint64_offset;
+  HostBuffer<int> h_uint64_lens;
+  HostBuffer<uint64_t> h_uint64_keys;
+  HostBuffer<int> h_uint64_offset;
 
-    HostBuffer<int> h_float_lens;
-    HostBuffer<float> h_float_keys;
-    HostBuffer<int> h_float_offset;
+  HostBuffer<int> h_float_lens;
+  HostBuffer<float> h_float_keys;
+  HostBuffer<int> h_float_offset;
 
-    HostBuffer<int> h_rank;
-    HostBuffer<int> h_cmatch;
-    HostBuffer<int> h_ad_offset;
+  HostBuffer<int> h_rank;
+  HostBuffer<int> h_cmatch;
+  HostBuffer<int> h_ad_offset;
 };
 
 struct BatchGPUValue {
-    CudaBuffer<int> d_uint64_lens;
-    CudaBuffer<uint64_t> d_uint64_keys;
-    CudaBuffer<int> d_uint64_offset;
+  CudaBuffer<int> d_uint64_lens;
+  CudaBuffer<uint64_t> d_uint64_keys;
+  CudaBuffer<int> d_uint64_offset;
 
-    CudaBuffer<int> d_float_lens;
-    CudaBuffer<float> d_float_keys;
-    CudaBuffer<int> d_float_offset;
+  CudaBuffer<int> d_float_lens;
+  CudaBuffer<float> d_float_keys;
+  CudaBuffer<int> d_float_offset;
 
-    CudaBuffer<int> d_rank;
-    CudaBuffer<int> d_cmatch;
-    CudaBuffer<int> d_ad_offset;
+  CudaBuffer<int> d_rank;
+  CudaBuffer<int> d_cmatch;
+  CudaBuffer<int> d_ad_offset;
 };
 
 class SlotPaddleBoxDataFeed;
 class MiniBatchGpuPack {
-public:
-    MiniBatchGpuPack(const paddle::platform::Place& place,
-                     const std::vector<UsedSlotInfo>& infos);
-    ~MiniBatchGpuPack();
-    void reset(const paddle::platform::Place& place);
-    void pack_pvinstance(const SlotPvInstance* pv_ins, int num);
-    void pack_instance(const SlotRecord* ins_vec, int num);
-    int ins_num() { return ins_num_; }
-    int pv_num() { return pv_num_; }
-    BatchGPUValue& value() { return value_; }
-    BatchCPUValue& cpu_value() { return buf_; }
-    UsedSlotGpuType* get_gpu_slots(void) {
-      return reinterpret_cast<UsedSlotGpuType*>(gpu_slots_.data());
+ public:
+  MiniBatchGpuPack(const paddle::platform::Place& place,
+                   const std::vector<UsedSlotInfo>& infos);
+  ~MiniBatchGpuPack();
+  void reset(const paddle::platform::Place& place);
+  void pack_pvinstance(const SlotPvInstance* pv_ins, int num);
+  void pack_instance(const SlotRecord* ins_vec, int num);
+  int ins_num() { return ins_num_; }
+  int pv_num() { return pv_num_; }
+  BatchGPUValue& value() { return value_; }
+  BatchCPUValue& cpu_value() { return buf_; }
+  UsedSlotGpuType* get_gpu_slots(void) {
+    return reinterpret_cast<UsedSlotGpuType*>(gpu_slots_.data());
+  }
+  SlotRecord* get_records(void) { return &ins_vec_[0]; }
+  double pack_time_span(void) { return pack_timer_.ElapsedSec(); }
+  double trans_time_span(void) { return trans_timer_.ElapsedSec(); }
+
+ private:
+  void transfer_to_gpu(void);
+  void pack_all_data(const SlotRecord* ins_vec, int num);
+  void pack_uint64_data(const SlotRecord* ins_vec, int num);
+  void pack_float_data(const SlotRecord* ins_vec, int num);
+
+ public:
+  template <typename T>
+  void copy_host2device(CudaBuffer<T>* buf, const T* val, size_t size) {
+    if (size == 0) {
+      return;
     }
-    SlotRecord* get_records(void) { return &ins_vec_[0]; }
-    double pack_time_span(void) { return pack_timer_.ElapsedSec(); }
-    double trans_time_span(void) { return trans_timer_.ElapsedSec(); }
+    buf->resize(size);
+    cudaMemcpyAsync(buf->data(), val, size * sizeof(T), cudaMemcpyHostToDevice,
+                    stream_);
+  }
+  template <typename T>
+  void copy_host2device(CudaBuffer<T>* buf, const HostBuffer<T>& val) {
+    copy_host2device(buf, val.data(), val.size());
+  }
 
-private:
-    void transfer_to_gpu(void);
-    void pack_all_data(const SlotRecord* ins_vec, int num);
-    void pack_uint64_data(const SlotRecord* ins_vec, int num);
-    void pack_float_data(const SlotRecord* ins_vec, int num);
+ private:
+  paddle::platform::Place place_;
+  cudaStream_t stream_;
+  BatchGPUValue value_;
+  BatchCPUValue buf_;
+  int ins_num_ = 0;
+  int pv_num_ = 0;
 
-public:
-    template <typename T>
-    void copy_host2device(CudaBuffer<T>* buf, const T* val, size_t size) {
-      if (size == 0) {
-        return;
-      }
-      buf->resize(size);
-      cudaMemcpyAsync(buf->data(), val, size * sizeof(T),
-                      cudaMemcpyHostToDevice, stream_);
-    }
-    template <typename T>
-    void copy_host2device(CudaBuffer<T>* buf, const HostBuffer<T> &val) {
-      copy_host2device(buf, val.data(), val.size());
-    }
+  bool enable_pv_ = false;
+  int used_float_num_ = 0;
+  int used_uint64_num_ = 0;
+  int used_slot_size_ = 0;
 
-private:
-    paddle::platform::Place place_;
-    cudaStream_t stream_;
-    BatchGPUValue value_;
-    BatchCPUValue buf_;
-    int ins_num_ = 0;
-    int pv_num_ = 0;
+  CudaBuffer<UsedSlotGpuType> gpu_slots_;
+  std::vector<UsedSlotGpuType> gpu_used_slots_;
+  std::vector<SlotRecord> ins_vec_;
 
-    bool enable_pv_ = false;
-    int used_float_num_ = 0;
-    int used_uint64_num_ = 0;
-    int used_slot_size_ = 0;
-
-    CudaBuffer<UsedSlotGpuType> gpu_slots_;
-    std::vector<UsedSlotGpuType> gpu_used_slots_;
-    std::vector<SlotRecord> ins_vec_;
-
-    platform::Timer pack_timer_;
-    platform::Timer trans_timer_;
+  platform::Timer pack_timer_;
+  platform::Timer trans_timer_;
 };
 class MiniBatchGpuPackMgr {
-    static const int MAX_DEIVCE_NUM = 16;
-public:
-    MiniBatchGpuPackMgr() {
-        for (int i = 0; i < MAX_DEIVCE_NUM; ++i) {
-            pack_list_[i] = nullptr;
-        }
+  static const int MAX_DEIVCE_NUM = 16;
+
+ public:
+  MiniBatchGpuPackMgr() {
+    for (int i = 0; i < MAX_DEIVCE_NUM; ++i) {
+      pack_list_[i] = nullptr;
     }
-    ~MiniBatchGpuPackMgr() {
-        for (int i = 0; i < MAX_DEIVCE_NUM; ++i) {
-            if (pack_list_[i] == nullptr) {
-                continue;
-            }
-            delete pack_list_[i];
-            pack_list_[i] = nullptr;
-        }
+  }
+  ~MiniBatchGpuPackMgr() {
+    for (int i = 0; i < MAX_DEIVCE_NUM; ++i) {
+      if (pack_list_[i] == nullptr) {
+        continue;
+      }
+      delete pack_list_[i];
+      pack_list_[i] = nullptr;
     }
-    // one device one thread
-    MiniBatchGpuPack *get(const paddle::platform::Place& place,
-                     const std::vector<UsedSlotInfo>& infos) {
-        int device_id = boost::get<platform::CUDAPlace>(place).GetDeviceId();
-        if (pack_list_[device_id] == nullptr) {
-            pack_list_[device_id] = new MiniBatchGpuPack(place, infos);
-        } else {
-            pack_list_[device_id]->reset(place);
-        }
-        return pack_list_[device_id];
+  }
+  // one device one thread
+  MiniBatchGpuPack* get(const paddle::platform::Place& place,
+                        const std::vector<UsedSlotInfo>& infos) {
+    int device_id = boost::get<platform::CUDAPlace>(place).GetDeviceId();
+    if (pack_list_[device_id] == nullptr) {
+      pack_list_[device_id] = new MiniBatchGpuPack(place, infos);
+    } else {
+      pack_list_[device_id]->reset(place);
     }
-private:
-    MiniBatchGpuPack* pack_list_[MAX_DEIVCE_NUM];
+    return pack_list_[device_id];
+  }
+
+ private:
+  MiniBatchGpuPack* pack_list_[MAX_DEIVCE_NUM];
 };
 // global mgr
 inline MiniBatchGpuPackMgr& BatchGpuPackMgr() {
@@ -1216,11 +1213,12 @@ class SlotPaddleBoxDataFeed : public DataFeed {
 #if defined(PADDLE_WITH_CUDA) && defined(_LINUX)
     if (pack_ != nullptr) {
       LOG(WARNING) << "pack batch total time: " << batch_timer_.ElapsedSec()
-           << "[copy:" << pack_->trans_time_span()
-           << ",fill:" << fill_timer_.ElapsedSec()
-           << ",tensor:" << offset_timer_.ElapsedSec()
-           << ",trans:" << trans_timer_.ElapsedSec()
-           << "], batch cpu build mem: " << pack_->pack_time_span() << "sec";
+                   << "[copy:" << pack_->trans_time_span()
+                   << ",fill:" << fill_timer_.ElapsedSec()
+                   << ",tensor:" << offset_timer_.ElapsedSec()
+                   << ",trans:" << trans_timer_.ElapsedSec()
+                   << "], batch cpu build mem: " << pack_->pack_time_span()
+                   << "sec";
       pack_ = nullptr;
     }
 #endif
@@ -1261,8 +1259,8 @@ class SlotPaddleBoxDataFeed : public DataFeed {
   void ExpandSlotRecord(SlotRecord* ins);
   // pack
   bool EnablePvMerge(void);
-  int GetPackInstance(SlotRecord **ins);
-  int GetPackPvInstance(SlotPvInstance **pv_ins);
+  int GetPackInstance(SlotRecord** ins);
+  int GetPackPvInstance(SlotPvInstance** pv_ins);
 
  public:
   virtual void Init(const DataFeedDesc& data_feed_desc);
@@ -1335,8 +1333,10 @@ class SlotPaddleBoxDataFeed : public DataFeed {
   std::vector<AllSlotInfo> all_slots_info_;
   std::vector<UsedSlotInfo> used_slots_info_;
   std::string parser_so_path_;
-  std::shared_ptr<paddle::memory::allocation::Allocation> gpu_slot_offsets_ = nullptr;
-  std::shared_ptr<paddle::memory::allocation::Allocation> slot_buf_ptr_ = nullptr;
+  std::shared_ptr<paddle::memory::allocation::Allocation> gpu_slot_offsets_ =
+      nullptr;
+  std::shared_ptr<paddle::memory::allocation::Allocation> slot_buf_ptr_ =
+      nullptr;
   platform::Timer batch_timer_;
   platform::Timer fill_timer_;
   platform::Timer offset_timer_;

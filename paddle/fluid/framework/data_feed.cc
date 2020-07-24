@@ -1875,7 +1875,7 @@ int SlotPaddleBoxDataFeed::Next() {
 bool SlotPaddleBoxDataFeed::EnablePvMerge(void) {
   return (enable_pv_merge_ && GetCurrentPhase() == 1);
 }
-int SlotPaddleBoxDataFeed::GetPackInstance(SlotRecord **ins) {
+int SlotPaddleBoxDataFeed::GetPackInstance(SlotRecord** ins) {
   if (offset_index_ >= static_cast<int>(batch_offsets_.size())) {
     return 0;
   }
@@ -1883,7 +1883,7 @@ int SlotPaddleBoxDataFeed::GetPackInstance(SlotRecord **ins) {
   *ins = &records_[batch.first];
   return batch.second;
 }
-int SlotPaddleBoxDataFeed::GetPackPvInstance(SlotPvInstance **pv_ins) {
+int SlotPaddleBoxDataFeed::GetPackPvInstance(SlotPvInstance** pv_ins) {
   if (offset_index_ >= static_cast<int>(batch_offsets_.size())) {
     return 0;
   }
@@ -2085,13 +2085,14 @@ void SlotPaddleBoxDataFeed::BuildSlotBatchGPU(const int ins_num) {
   fill_timer_.Resume();
 
   int offset_cols_size = (ins_num + 1);
-  size_t slot_total_bytes = (use_slot_size_ * offset_cols_size) * sizeof(size_t);
+  size_t slot_total_bytes =
+      (use_slot_size_ * offset_cols_size) * sizeof(size_t);
   if (gpu_slot_offsets_ == nullptr) {
-      gpu_slot_offsets_ = memory::AllocShared(this->GetPlace(), slot_total_bytes);
+    gpu_slot_offsets_ = memory::AllocShared(this->GetPlace(), slot_total_bytes);
   } else if (gpu_slot_offsets_->size() < slot_total_bytes) {
-      auto buf = memory::AllocShared(this->GetPlace(), slot_total_bytes);
-      gpu_slot_offsets_.swap(buf);
-      buf = nullptr;
+    auto buf = memory::AllocShared(this->GetPlace(), slot_total_bytes);
+    gpu_slot_offsets_.swap(buf);
+    buf = nullptr;
   }
 
   auto& value = pack_->value();
@@ -2103,7 +2104,7 @@ void SlotPaddleBoxDataFeed::BuildSlotBatchGPU(const int ins_num) {
                       value.d_float_offset.data(), float_use_slot_size_,
                       used_slot_gpu_types);
   fill_timer_.Pause();
-  size_t *d_slot_offsets = reinterpret_cast<size_t*>(gpu_slot_offsets_->ptr());
+  size_t* d_slot_offsets = reinterpret_cast<size_t*>(gpu_slot_offsets_->ptr());
 
   offset_timer_.Resume();
   thread_local std::vector<size_t> offsets;
@@ -2119,7 +2120,7 @@ void SlotPaddleBoxDataFeed::BuildSlotBatchGPU(const int ins_num) {
     }
 
     cudaMemcpy(offsets.data(), &d_slot_offsets[j * offset_cols_size],
-           offset_cols_size * sizeof(size_t), cudaMemcpyDeviceToHost);
+               offset_cols_size * sizeof(size_t), cudaMemcpyDeviceToHost);
     int total_instance = offsets.back();
     CHECK(total_instance >= 0) << "slot idx:" << j
                                << ", total instance:" << total_instance;
@@ -2146,11 +2147,10 @@ void SlotPaddleBoxDataFeed::BuildSlotBatchGPU(const int ins_num) {
 
   trans_timer_.Resume();
   if (slot_buf_ptr_ == nullptr) {
-      slot_buf_ptr_ = memory::AllocShared(this->GetPlace(), use_slot_size_ * sizeof(void*));
+    slot_buf_ptr_ =
+        memory::AllocShared(this->GetPlace(), use_slot_size_ * sizeof(void*));
   }
   void** dest_gpu_p = reinterpret_cast<void**>(slot_buf_ptr_->ptr());
-  // fprintf(stderr, "after create tensor\n");
-  // pack_->copy2tensor_ptr(h_tensor_ptrs);
   cudaMemcpy(dest_gpu_p, h_tensor_ptrs.data(), use_slot_size_ * sizeof(void*),
              cudaMemcpyHostToDevice);
 
@@ -2174,7 +2174,8 @@ int SlotPaddleBoxDataFeed::GetCurrentPhase() {
     return box_ptr->Phase();
   }
 }
-void SlotPaddleBoxDataFeed::GetRankOffsetGPU(const int pv_num, const int ins_num) {
+void SlotPaddleBoxDataFeed::GetRankOffsetGPU(const int pv_num,
+                                             const int ins_num) {
 #if defined(PADDLE_WITH_CUDA) && defined(_LINUX)
   int max_rank = 3;  // the value is setting
   int col = max_rank * 2 + 1;
@@ -2678,16 +2679,15 @@ static void SetCPUAffinity(int tid) {
 
   size_t core_num = cores.size() / 2;
   if (core_num < 8) {
-      return;
+    return;
   }
   cpu_set_t mask;
   CPU_ZERO(&mask);
   CPU_SET(cores[core_num + (tid % core_num)], &mask);
   pthread_setaffinity_np(pthread_self(), sizeof(mask), &mask);
 }
-MiniBatchGpuPack::MiniBatchGpuPack(
-    const paddle::platform::Place& place,
-    const std::vector<UsedSlotInfo>& infos) {
+MiniBatchGpuPack::MiniBatchGpuPack(const paddle::platform::Place& place,
+                                   const std::vector<UsedSlotInfo>& infos) {
   place_ = place;
   //  paddle::platform::SetDeviceId(boost::get<platform::CUDAPlace>(place).GetDeviceId());
   //  paddle::platform::CUDADeviceContext* context =
@@ -2718,15 +2718,14 @@ MiniBatchGpuPack::MiniBatchGpuPack(
   copy_host2device(&gpu_slots_, gpu_used_slots_.data(), gpu_used_slots_.size());
 }
 
-MiniBatchGpuPack::~MiniBatchGpuPack() {
-}
+MiniBatchGpuPack::~MiniBatchGpuPack() {}
 
 void MiniBatchGpuPack::reset(const paddle::platform::Place& place) {
   place_ = place;
   stream_ = dynamic_cast<platform::CUDADeviceContext*>(
-               platform::DeviceContextPool::Instance().Get(
-                   boost::get<platform::CUDAPlace>(place)))
-               ->stream();
+                platform::DeviceContextPool::Instance().Get(
+                    boost::get<platform::CUDAPlace>(place)))
+                ->stream();
   ins_num_ = 0;
   pv_num_ = 0;
   enable_pv_ = false;
@@ -2735,8 +2734,7 @@ void MiniBatchGpuPack::reset(const paddle::platform::Place& place) {
   trans_timer_.Reset();
 }
 
-void MiniBatchGpuPack::pack_pvinstance(
-    const SlotPvInstance* pv_ins, int num) {
+void MiniBatchGpuPack::pack_pvinstance(const SlotPvInstance* pv_ins, int num) {
   pv_num_ = num;
   buf_.h_ad_offset.resize(num + 1);
   buf_.h_ad_offset[0] = 0;
@@ -2758,8 +2756,7 @@ void MiniBatchGpuPack::pack_pvinstance(
   pack_instance(&ins_vec_[0], ins_number);
 }
 
-void MiniBatchGpuPack::pack_all_data(
-    const SlotRecord* ins_vec, int num) {
+void MiniBatchGpuPack::pack_all_data(const SlotRecord* ins_vec, int num) {
   int uint64_total_num = 0;
   int float_total_num = 0;
 
@@ -2828,8 +2825,7 @@ void MiniBatchGpuPack::pack_all_data(
   CHECK(float_total_num == static_cast<int>(buf_.h_float_lens.back()))
       << "float value length error";
 }
-void MiniBatchGpuPack::pack_uint64_data(
-    const SlotRecord* ins_vec, int num) {
+void MiniBatchGpuPack::pack_uint64_data(const SlotRecord* ins_vec, int num) {
   int uint64_total_num = 0;
 
   buf_.h_float_lens.clear();
@@ -2878,8 +2874,7 @@ void MiniBatchGpuPack::pack_uint64_data(
   CHECK(uint64_total_num == static_cast<int>(buf_.h_uint64_lens.back()))
       << "uint64 value length error";
 }
-void MiniBatchGpuPack::pack_float_data(
-    const SlotRecord* ins_vec, int num) {
+void MiniBatchGpuPack::pack_float_data(const SlotRecord* ins_vec, int num) {
   int float_total_num = 0;
 
   buf_.h_uint64_lens.clear();
@@ -2928,8 +2923,7 @@ void MiniBatchGpuPack::pack_float_data(
       << "float value length error";
 }
 
-void MiniBatchGpuPack::pack_instance(
-    const SlotRecord* ins_vec, int num) {
+void MiniBatchGpuPack::pack_instance(const SlotRecord* ins_vec, int num) {
   pack_timer_.Resume();
   ins_num_ = num;
   CHECK(used_uint64_num_ > 0 || used_float_num_ > 0);

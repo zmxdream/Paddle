@@ -139,23 +139,24 @@ __global__ void PushCopy(
   }
 }
 
-__device__ void add_calculator_value(const int table_size, 
-        const float pred, const int64_t label, const int idx, 
-        double* positive, double* negative, double* abs_error, 
-        double* sqr_error, double* local_pred) {
-    int pos = static_cast<int>(pred * table_size);
-    if (pos >= table_size) {
-      pos = table_size - 1;
-    }
-    if (label == 0) {
-      atomicAdd(negative + pos, 1.0);
-    } else {
-      atomicAdd(positive + pos, 1.0);
-    }
-    double err = pred - label;
-    abs_error[idx] += fabs(err);
-    sqr_error[idx] += err * err;
-    local_pred[idx] += pred;
+__device__ void add_calculator_value(const int table_size, const float pred,
+                                     const int64_t label, const int idx,
+                                     double* positive, double* negative,
+                                     double* abs_error, double* sqr_error,
+                                     double* local_pred) {
+  int pos = static_cast<int>(pred * table_size);
+  if (pos >= table_size) {
+    pos = table_size - 1;
+  }
+  if (label == 0) {
+    atomicAdd(negative + pos, 1.0);
+  } else {
+    atomicAdd(positive + pos, 1.0);
+  }
+  double err = pred - label;
+  abs_error[idx] += fabs(err);
+  sqr_error[idx] += err * err;
+  local_pred[idx] += pred;
 }
 
 __global__ void AddBasicCalculator(const float* pred, const int64_t* label,
@@ -164,40 +165,23 @@ __global__ void AddBasicCalculator(const float* pred, const int64_t* label,
                                    double* local_pred, int len,
                                    int table_size) {
   CUDA_KERNEL_LOOP(ins_idx, len) {
-      add_calculator_value(
-              table_size, 
-              pred[ins_idx], 
-              label[ins_idx], 
-              ins_idx, 
-              positive, 
-              negative, 
-              abs_error, 
-              sqr_error, 
-              local_pred);
+    add_calculator_value(table_size, pred[ins_idx], label[ins_idx], ins_idx,
+                         positive, negative, abs_error, sqr_error, local_pred);
   }
 }
 
-__global__ void  AddMaskCalculator(const float* pred, 
-        const int64_t* label, const int64_t *mask,
-        double* positive, double* negative,
-        double* abs_error, double* sqr_error,
-        double* local_pred, int len,
-        int table_size) {
-    CUDA_KERNEL_LOOP(ins_idx, len) {
-        if (mask[ins_idx] != 1) {
-            continue;
-        }
-        add_calculator_value(
-          table_size, 
-          pred[ins_idx], 
-          label[ins_idx], 
-          ins_idx, 
-          positive, 
-          negative, 
-          abs_error, 
-          sqr_error, 
-          local_pred);
+__global__ void AddMaskCalculator(const float* pred, const int64_t* label,
+                                  const int64_t* mask, double* positive,
+                                  double* negative, double* abs_error,
+                                  double* sqr_error, double* local_pred,
+                                  int len, int table_size) {
+  CUDA_KERNEL_LOOP(ins_idx, len) {
+    if (mask[ins_idx] != 1) {
+      continue;
     }
+    add_calculator_value(table_size, pred[ins_idx], label[ins_idx], ins_idx,
+                         positive, negative, abs_error, sqr_error, local_pred);
+  }
 }
 
 void BoxWrapper::CopyForPull(const paddle::platform::Place& place,
@@ -331,12 +315,13 @@ void BasicAucCalculator::cuda_add_data(const paddle::platform::Place& place,
       reinterpret_cast<double*>(_d_pred[i]->ptr()), len, _table_size);
 }
 
-void BasicAucCalculator::cuda_add_mask_data(const paddle::platform::Place& place, 
-        const int64_t* label, const float* pred, const int64_t *mask, int len) {
+void BasicAucCalculator::cuda_add_mask_data(
+    const paddle::platform::Place& place, const int64_t* label,
+    const float* pred, const int64_t* mask, int len) {
   auto stream = dynamic_cast<platform::CUDADeviceContext*>(
-                        platform::DeviceContextPool::Instance().Get(
-                            BOOST_GET_CONST(platform::CUDAPlace, place)))
-                        ->stream();
+                    platform::DeviceContextPool::Instance().Get(
+                        BOOST_GET_CONST(platform::CUDAPlace, place)))
+                    ->stream();
   int i = BOOST_GET_CONST(platform::CUDAPlace, place).GetDeviceId();
 
   cudaSetDevice(i);
