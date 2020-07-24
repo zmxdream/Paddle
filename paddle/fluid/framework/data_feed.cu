@@ -126,8 +126,7 @@ __global__ void FillSlotValueOffsetKernel(
   }
 }
 
-void SlotPaddleBoxDataFeed::FillSlotValueOffset(
-    std::vector<size_t> *cpu_slot_value_offsets, const int ins_num,
+void SlotPaddleBoxDataFeed::FillSlotValueOffset(const int ins_num,
     const int used_slot_num, size_t *slot_value_offsets,
     const int *uint64_offsets, const int uint64_slot_size,
     const int *float_offsets, const int float_slot_size,
@@ -140,9 +139,6 @@ void SlotPaddleBoxDataFeed::FillSlotValueOffset(
                               stream>>>(
       ins_num, used_slot_num, slot_value_offsets, uint64_offsets,
       uint64_slot_size, float_offsets, float_slot_size, used_slots);
-  cudaMemcpyAsync(cpu_slot_value_offsets->data(), slot_value_offsets,
-                  cpu_slot_value_offsets->size() * sizeof(size_t),
-                  cudaMemcpyDeviceToHost, stream);
   cudaStreamSynchronize(stream);
 }
 
