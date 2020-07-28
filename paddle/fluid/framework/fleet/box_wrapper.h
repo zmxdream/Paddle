@@ -267,8 +267,9 @@ class BoxWrapper {
 
   void Finalize() {
     VLOG(3) << "Begin Finalize";
-    if (nullptr != s_instance_) {
+    if (nullptr != s_instance_ && s_instance_->boxps_ptr_ != nullptr) {
       s_instance_->boxps_ptr_->Finalize();
+      s_instance_->boxps_ptr_ = nullptr;
     }
   }
 
