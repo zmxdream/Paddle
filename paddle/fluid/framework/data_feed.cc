@@ -2101,15 +2101,15 @@ void SlotPaddleBoxDataFeed::BuildSlotBatchGPU(const int ins_num) {
   size_t* d_slot_offsets = reinterpret_cast<size_t*>(pack_->gpu_slot_offsets());
 
   offset_timer_.Resume();
-  HostBuffer<size_t> &offsets = pack_->offsets();
+  HostBuffer<size_t>& offsets = pack_->offsets();
   offsets.resize(slot_total_num);
-  HostBuffer<void*> &h_tensor_ptrs = pack_->h_tensor_ptrs();
+  HostBuffer<void*>& h_tensor_ptrs = pack_->h_tensor_ptrs();
   h_tensor_ptrs.resize(use_slot_size_);
   // alloc gpu memory
   pack_->resize_tensor();
 
-  LoDTensor &float_tensor = pack_->float_tensor();
-  LoDTensor &uint64_tensor = pack_->uint64_tensor();
+  LoDTensor& float_tensor = pack_->float_tensor();
+  LoDTensor& uint64_tensor = pack_->uint64_tensor();
 
   int64_t float_offset = 0;
   int64_t uint64_offset = 0;
@@ -2117,8 +2117,8 @@ void SlotPaddleBoxDataFeed::BuildSlotBatchGPU(const int ins_num) {
 
   copy_timer_.Resume();
   // copy index
-  cudaMemcpy(offsets.data(), d_slot_offsets,
-          slot_total_num * sizeof(size_t), cudaMemcpyDeviceToHost);
+  cudaMemcpy(offsets.data(), d_slot_offsets, slot_total_num * sizeof(size_t),
+             cudaMemcpyDeviceToHost);
   copy_timer_.Pause();
 
   data_timer_.Resume();
@@ -2130,7 +2130,7 @@ void SlotPaddleBoxDataFeed::BuildSlotBatchGPU(const int ins_num) {
       continue;
     }
 
-    size_t *off_start_ptr = &offsets[j * offset_cols_size];
+    size_t* off_start_ptr = &offsets[j * offset_cols_size];
 
     int total_instance = static_cast<int>(off_start_ptr[offset_cols_size - 1]);
     CHECK(total_instance >= 0) << "slot idx:" << j
@@ -2140,34 +2140,35 @@ void SlotPaddleBoxDataFeed::BuildSlotBatchGPU(const int ins_num) {
     // fill slot value with default value 0
     if (info.type[0] == 'f') {  // float
       if (total_instance > 0) {
-         feed->ShareDataWith(float_tensor.Slice(
-                        static_cast<int64_t>(float_offset),
-                        static_cast<int64_t>(float_offset + total_instance)));
-         feed->Resize({total_instance, 1});
-         float_offset += total_instance;
-         h_tensor_ptrs[j] = feed->mutable_data<float>(this->place_);
+        feed->ShareDataWith(float_tensor.Slice(
+            static_cast<int64_t>(float_offset),
+            static_cast<int64_t>(float_offset + total_instance)));
+        feed->Resize({total_instance, 1});
+        float_offset += total_instance;
+        h_tensor_ptrs[j] = feed->mutable_data<float>(this->place_);
       } else {
-         h_tensor_ptrs[j] =
-               feed->mutable_data<float>({total_instance, 1}, this->place_);
+        h_tensor_ptrs[j] =
+            feed->mutable_data<float>({total_instance, 1}, this->place_);
       }
     } else if (info.type[0] == 'u') {  // uint64
       if (total_instance > 0) {
-         feed->ShareDataWith(uint64_tensor.Slice(
-                        static_cast<int64_t>(uint64_offset),
-                        static_cast<int64_t>(uint64_offset + total_instance)));
-         feed->Resize({total_instance, 1});
-         uint64_offset += total_instance;
-         h_tensor_ptrs[j] = feed->mutable_data<int64_t>(this->place_);
+        feed->ShareDataWith(uint64_tensor.Slice(
+            static_cast<int64_t>(uint64_offset),
+            static_cast<int64_t>(uint64_offset + total_instance)));
+        feed->Resize({total_instance, 1});
+        uint64_offset += total_instance;
+        h_tensor_ptrs[j] = feed->mutable_data<int64_t>(this->place_);
       } else {
-         h_tensor_ptrs[j] =
-                    feed->mutable_data<int64_t>({total_instance, 1}, this->place_);
+        h_tensor_ptrs[j] =
+            feed->mutable_data<int64_t>({total_instance, 1}, this->place_);
       }
     }
-    //feed->set_lod({offsets});
-    LoD &lod = (*feed->mutable_lod());
+    // feed->set_lod({offsets});
+    LoD& lod = (*feed->mutable_lod());
     lod.resize(1);
     lod[0].resize(offset_cols_size);
-    memcpy(lod[0].MutableData(platform::CPUPlace()), off_start_ptr, offset_cols_size * sizeof(size_t));
+    memcpy(lod[0].MutableData(platform::CPUPlace()), off_start_ptr,
+           offset_cols_size * sizeof(size_t));
 
     if (info.dense) {
       if (info.inductive_shape_index != -1) {

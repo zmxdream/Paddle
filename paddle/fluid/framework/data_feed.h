@@ -1127,39 +1127,26 @@ class MiniBatchGpuPack {
 
   // tensor gpu memory reused
   void resize_tensor(void) {
-      int float_total_len = buf_.h_float_lens.back();
-      if (float_total_len > 0) {
-          float_tensor_.mutable_data<float>(
-                  {float_total_len, 1}, this->place_);
-      }
-      int uint64_total_len = buf_.h_uint64_lens.back();
-      if (uint64_total_len > 0) {
-          uint64_tensor_.mutable_data<int64_t>(
-                  {uint64_total_len, 1}, this->place_);
-      }
-//      fprintf(stdout, "float total: %d, uint64: %d\n", float_total_len, uint64_total_len);
+    int float_total_len = buf_.h_float_lens.back();
+    if (float_total_len > 0) {
+      float_tensor_.mutable_data<float>({float_total_len, 1}, this->place_);
+    }
+    int uint64_total_len = buf_.h_uint64_lens.back();
+    if (uint64_total_len > 0) {
+      uint64_tensor_.mutable_data<int64_t>({uint64_total_len, 1}, this->place_);
+    }
+    //      fprintf(stdout, "float total: %d, uint64: %d\n", float_total_len,
+    //      uint64_total_len);
   }
-  LoDTensor &float_tensor(void) {
-      return float_tensor_;
-  }
-  LoDTensor &uint64_tensor(void) {
-      return uint64_tensor_;
-  }
+  LoDTensor& float_tensor(void) { return float_tensor_; }
+  LoDTensor& uint64_tensor(void) { return uint64_tensor_; }
 
-  HostBuffer<size_t> &offsets(void) {
-      return offsets_;
-  }
-  HostBuffer<void*> &h_tensor_ptrs(void) {
-      return h_tensor_ptrs_;
-  }
+  HostBuffer<size_t>& offsets(void) { return offsets_; }
+  HostBuffer<void*>& h_tensor_ptrs(void) { return h_tensor_ptrs_; }
 
-  void * gpu_slot_offsets(void) {
-      return gpu_slot_offsets_->ptr();
-  }
+  void* gpu_slot_offsets(void) { return gpu_slot_offsets_->ptr(); }
 
-  void * slot_buf_ptr(void) {
-      return slot_buf_ptr_->ptr();
-  }
+  void* slot_buf_ptr(void) { return slot_buf_ptr_->ptr(); }
 
   void resize_gpu_slot_offsets(const size_t slot_total_bytes) {
     if (gpu_slot_offsets_ == nullptr) {
@@ -1221,9 +1208,9 @@ class MiniBatchGpuPack {
   HostBuffer<void*> h_tensor_ptrs_;
 
   std::shared_ptr<paddle::memory::allocation::Allocation> gpu_slot_offsets_ =
-        nullptr;
+      nullptr;
   std::shared_ptr<paddle::memory::allocation::Allocation> slot_buf_ptr_ =
-        nullptr;
+      nullptr;
 };
 class MiniBatchGpuPackMgr {
   static const int MAX_DEIVCE_NUM = 16;
