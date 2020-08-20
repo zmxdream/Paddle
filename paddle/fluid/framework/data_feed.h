@@ -1127,16 +1127,21 @@ class MiniBatchGpuPack {
 
   // tensor gpu memory reused
   void resize_tensor(void) {
-    int float_total_len = buf_.h_float_lens.back();
-    if (float_total_len > 0) {
-      float_tensor_.mutable_data<float>({float_total_len, 1}, this->place_);
+    if (used_float_num_ > 0) {
+      int float_total_len = buf_.h_float_lens.back();
+      if (float_total_len > 0) {
+        float_tensor_.mutable_data<float>({float_total_len, 1}, this->place_);
+      }
     }
-    int uint64_total_len = buf_.h_uint64_lens.back();
-    if (uint64_total_len > 0) {
-      uint64_tensor_.mutable_data<int64_t>({uint64_total_len, 1}, this->place_);
+    if (used_uint64_num_ > 0) {
+      int uint64_total_len = buf_.h_uint64_lens.back();
+      if (uint64_total_len > 0) {
+        uint64_tensor_.mutable_data<int64_t>({uint64_total_len, 1},
+                                             this->place_);
+      }
     }
-    //      fprintf(stdout, "float total: %d, uint64: %d\n", float_total_len,
-    //      uint64_total_len);
+    //    fprintf(stdout, "float total: %d, uint64: %d\n", float_total_len,
+    //          uint64_total_len);
   }
   LoDTensor& float_tensor(void) { return float_tensor_; }
   LoDTensor& uint64_tensor(void) { return uint64_tensor_; }
