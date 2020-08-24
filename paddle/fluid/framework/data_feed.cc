@@ -2444,7 +2444,7 @@ void SlotPaddleBoxDataFeed::LoadIntoMemoryByLib(void) {
     SlotRecordPool().get(&record_vec, max_fetch_num);
     from_pool_num = GetTotalFeaNum(record_vec, max_fetch_num);
     auto func = [this, &parser, &record_vec, &offset, &max_fetch_num,
-                 &from_pool_num](const std::string& line) {
+                 &from_pool_num, &filename](const std::string& line) {
       int old_offset = offset;
       if (!parser->ParseOneInstance(
               line, [this, &offset, &record_vec, &max_fetch_num, &old_offset](
@@ -2467,6 +2467,8 @@ void SlotPaddleBoxDataFeed::LoadIntoMemoryByLib(void) {
                 offset = offset + num;
               })) {
         offset = old_offset;
+        LOG(WARNING) << "read file:[" << filename << "] item error, line:["
+                     << line << "]";
       }
       if (offset >= max_fetch_num) {
         input_channel_->Write(std::move(record_vec));
@@ -2547,10 +2549,13 @@ void SlotPaddleBoxDataFeed::LoadIntoMemoryByCommand(void) {
 
     int offset = 0;
     line_reader.read_file(
-        this->fp_.get(),
-        [this, &record_vec, &offset, &max_fetch_num](const std::string& line) {
+        this->fp_.get(), [this, &record_vec, &offset, &max_fetch_num,
+                          &filename](const std::string& line) {
           if (ParseOneInstance(line, &record_vec[offset])) {
             ++offset;
+          } else {
+            LOG(WARNING) << "read file:[" << filename << "] item error, line:["
+                         << line << "]";
           }
           if (offset >= max_fetch_num) {
             input_channel_->Write(std::move(record_vec));
