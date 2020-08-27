@@ -386,15 +386,6 @@ class BoxWrapper {
   }
 
   boxps::PaddleFileMgr* GetFileMgr(void) { return file_manager_.get(); }
-  /**
-   * @brief sync dense
-   **/
-  bool SyncDense(cudaStream_t stream, const int size, const char* sendbuf,
-                 char* recvbuf, const int deviceid = 0,
-                 bool allgather = false) {
-    return boxps_ptr_->SyncDense(stream, size, sendbuf, recvbuf, deviceid,
-                                 allgather);
-  }
 
   // this performs better than rand_r, especially large data
   static std::default_random_engine& LocalRandomEngine() {
