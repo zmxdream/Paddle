@@ -76,9 +76,10 @@ void BasicAucCalculator::add_data(const float* d_pred, const int64_t* d_label,
   }
 }
 // add mask data
-void BasicAucCalculator::add_mask_data(const float* d_pred, const int64_t* d_label,
-        const int64_t *d_mask,
-        int batch_size, const paddle::platform::Place& place) {
+void BasicAucCalculator::add_mask_data(const float* d_pred,
+                                       const int64_t* d_label,
+                                       const int64_t* d_mask, int batch_size,
+                                       const paddle::platform::Place& place) {
   if (_mode_collect_in_gpu) {
     cuda_add_mask_data(place, d_label, d_pred, d_mask, batch_size);
   } else {
@@ -94,12 +95,12 @@ void BasicAucCalculator::add_mask_data(const float* d_pred, const int64_t* d_lab
     cudaMemcpy(h_label.data(), d_label, sizeof(int64_t) * batch_size,
                cudaMemcpyDeviceToHost);
     cudaMemcpy(h_mask.data(), d_mask, sizeof(int64_t) * batch_size,
-                   cudaMemcpyDeviceToHost);
+               cudaMemcpyDeviceToHost);
 
     std::lock_guard<std::mutex> lock(_table_mutex);
     for (int i = 0; i < batch_size; ++i) {
       if (h_mask[i]) {
-          add_unlock_data(h_pred[i], h_label[i]);
+        add_unlock_data(h_pred[i], h_label[i]);
       }
     }
   }
@@ -492,13 +493,22 @@ void BoxWrapper::EndPass(bool need_save_delta) const {
   }
 }
 
+void BoxWrapper::PostUpdate() {
+  for (auto& cand_list : random_ins_pool_list) {
+    cand_list.ReInitPass();
+  }
+  pass_done_semi_->Put(1);
+}
+
 void BoxWrapper::GetRandomReplace(const std::vector<Record>& pass_data) {
   VLOG(0) << "Begin GetRandomReplace";
   size_t ins_num = pass_data.size();
   replace_idx_.resize(ins_num);
+  /*
   for (auto& cand_list : random_ins_pool_list) {
     cand_list.ReInitPass();
   }
+  */
   std::vector<std::thread> threads;
   for (int tid = 0; tid < auc_runner_thread_num_; ++tid) {
     threads.push_back(std::thread([this, &pass_data, tid, ins_num]() {
@@ -517,7 +527,7 @@ void BoxWrapper::GetRandomReplace(const std::vector<Record>& pass_data) {
   for (int tid = 0; tid < auc_runner_thread_num_; ++tid) {
     threads[tid].join();
   }
-  pass_done_semi_->Put(1);
+  // pass_done_semi_->Put(1);
   VLOG(0) << "End GetRandomReplace";
 }
 
@@ -541,6 +551,7 @@ void BoxWrapper::GetRandomData(
       for (int j = start; j < end; ++j) {
         const auto& ins = pass_data[j];
         const RecordCandidate& rand_rec = random_pool.Get(replace_idx_[j]);
+
         Record new_rec = ins;
         /*
         for (auto it = new_rec.uint64_feasigns_.begin();

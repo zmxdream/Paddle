@@ -557,6 +557,7 @@ class RecordCandidateList {
 
   void ReInit();
   void ReInitPass() {
+    mutex_.lock();
     for (size_t i = 0; i < cur_size_; ++i) {
       if (candidate_list_[i].shadow_index_ != i) {
         candidate_list_[i].ins_id_ =
@@ -566,7 +567,8 @@ class RecordCandidateList {
         candidate_list_[i].shadow_index_ = i;
       }
     }
-    candidate_list_.resize(cur_size_);
+    candidate_list_.resize(capacity_);
+    mutex_.unlock();
   }
 
   void AddAndGet(const Record& record, RecordCandidate* result);
@@ -576,8 +578,11 @@ class RecordCandidateList {
     ++total_size_;
     auto fleet_ptr = FleetWrapper::GetInstance();
     if (!full_) {
-      candidate_list_.emplace_back(record, slot_index_to_replace_);
-      candidate_list_.back().shadow_index_ = cur_size_;
+      // candidate_list_.emplace_back(record, slot_index_to_replace_);
+      candidate_list_[cur_size_] =
+          RecordCandidate(record, slot_index_to_replace_);
+      // candidate_list_.back().shadow_index_ = cur_size_;
+      candidate_list_[cur_size_].shadow_index_ = cur_size_;
       ++cur_size_;
       full_ = (cur_size_ == capacity_);
     } else {
