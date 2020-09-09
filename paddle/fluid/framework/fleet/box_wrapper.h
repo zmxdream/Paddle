@@ -235,7 +235,8 @@ class BoxWrapper {
   void InitializeGPUAndLoadModel(
       const char* conf_file, const std::vector<int>& slot_vector,
       const std::vector<std::string>& slot_omit_in_feedpass,
-      const std::string& model_path, const std::map<std::string, float> &lr_map) {
+      const std::string& model_path,
+      const std::map<std::string, float>& lr_map) {
     if (nullptr != s_instance_) {
       VLOG(3) << "Begin InitializeGPU";
       std::vector<cudaStream_t*> stream_list;
@@ -262,7 +263,7 @@ class BoxWrapper {
       device_caches_ = new DeviceBoxData[gpu_num];
 
       VLOG(0) << "lr_map.size(): " << lr_map.size();
-      for (const auto e: lr_map) {
+      for (const auto e : lr_map) {
         VLOG(0) << e.first << "'s lr is " << e.second;
         if (e.first.find("param") != std::string::npos) {
           lr_map_[e.first + ".w_0"] = e.second;

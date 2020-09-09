@@ -19,6 +19,7 @@
 #include <numeric>
 #include "paddle/fluid/framework/fleet/box_wrapper.h"
 #include "paddle/fluid/framework/lod_tensor.h"
+#include "paddle/fluid/platform/cuda_primitives.h"
 #include "paddle/fluid/platform/gpu_info.h"
 
 namespace paddle {
@@ -149,9 +150,11 @@ __device__ void add_calculator_value(const int table_size, const float pred,
     pos = table_size - 1;
   }
   if (label == 0) {
-    atomicAdd(negative + pos, 1.0);
+    // atomicAdd(negative + pos, 1.0);
+    paddle::platform::CudaAtomicAdd(negative + pos, 1.0);
   } else {
-    atomicAdd(positive + pos, 1.0);
+    // atomicAdd(positive + pos, 1.0);
+    paddle::platform::CudaAtomicAdd(positive + pos, 1.0);
   }
   double err = pred - label;
   abs_error[idx] += fabs(err);
