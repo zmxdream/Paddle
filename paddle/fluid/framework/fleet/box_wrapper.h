@@ -689,6 +689,7 @@ class BoxWrapper {
     }
   }
   int Phase() const { return phase_; }
+  int PhaseNum() const { return phase_num_; }
   void FlipPhase() { phase_ = (phase_ + 1) % phase_num_; }
   const std::map<std::string, float> GetLRMap() const { return lr_map_; }
   std::map<std::string, MetricMsg*>& GetMetricList() { return metric_lists_; }
@@ -789,6 +790,9 @@ class BoxWrapper {
     pass_done_semi_ = paddle::framework::MakeChannel<int>();
     pass_done_semi_->Put(1);  // Note: At most 1 pipeline in AucRunner
     random_ins_pool_list.resize(thread_num);
+    for (size_t i = 0; i < random_ins_pool_list.size(); ++i) {
+      random_ins_pool_list[i].ReSize(pool_size);
+    }
 
     std::unordered_set<std::string> slot_set;
     for (size_t i = 0; i < slot_eval.size(); ++i) {
@@ -813,6 +817,7 @@ class BoxWrapper {
     }
   }
   void GetRandomReplace(const std::vector<Record>& pass_data);
+  void PostUpdate();
   void AddReplaceFeasign(boxps::PSAgentBase* p_agent, int feed_pass_thread_num);
   void GetRandomData(const std::vector<Record>& pass_data,
                      const std::unordered_set<uint16_t>& slots_to_replace,
@@ -947,6 +952,9 @@ class BoxHelper {
     new_input_channel->Close();
     dynamic_cast<MultiSlotDataset*>(dataset_)->SetInputChannel(
         new_input_channel);
+    if (box_ptr->Phase() == box_ptr->PhaseNum() - 1) {  // last phase
+      box_ptr->PostUpdate();
+    }
 #endif
   }
 #ifdef PADDLE_WITH_BOX_PS
