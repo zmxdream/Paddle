@@ -21,8 +21,8 @@ limitations under the License. */
 #include "paddle/fluid/platform/collective_helper.h"
 #include "paddle/fluid/platform/nccl_helper.h"
 #endif
+#include "paddle/fluid/framework/fleet/box_wrapper.h"
 #include "paddle/fluid/operators/tensor_formatter.h"
-
 namespace paddle {
 namespace operators {
 
@@ -195,31 +195,52 @@ class CMixAllGatherOpCUDAKernel : public framework::OpKernel<T> {
             sendbuff, &recvbuff[numel * device_num * rank_id], numel,
             nccl_dtype, comm->comm(), stream));
         if (device_id == 0) {
-          // node allgather
-          auto node_comm =
-              platform::NCCLCommContext::Instance().Get(ring_id, 0);
-          PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclAllGather(
-              &recvbuff[numel * device_num * rank_id], recvbuff,
-              numel * device_num, nccl_dtype, node_comm->comm(), stream));
+#ifdef PADDLE_WITH_BOX_PS
+          if (ctx.Attr<bool>("use_boxps_nccl")) {
+            auto box_ptr = paddle::framework::BoxWrapper::GetInstance();
+            CHECK(box_ptr->SyncDense(stream, numel * device_num,
+                                     &recvbuff[numel * device_num * rank_id],
+                                     recvbuff, 0, true));
+          } else {
+#endif
+            // node allgather
+            auto node_comm =
+                platform::NCCLCommContext::Instance().Get(ring_id, 0);
+            PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclAllGather(
+                &recvbuff[numel * device_num * rank_id], recvbuff,
+                numel * device_num, nccl_dtype, node_comm->comm(), stream));
+#ifdef PADDLE_WITH_BOX_PS
+          }
+#endif
         }
       } else {  // mixallgather allreduce
         PADDLE_ENFORCE_CUDA_SUCCESS(
             platform::dynload::ncclReduce(sendbuff, sendbuff, numel, nccl_dtype,
                                           ncclSum, 0, comm->comm(), stream));
         if (device_id == 0) {
-          auto node_comm =
-              platform::NCCLCommContext::Instance().Get(ring_id, 0);
-          if (nccl_mode == NCCL_MIXALLGATHER) {
-            // allgather
-            PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclAllGather(
-                sendbuff, recvbuff, numel, nccl_dtype, node_comm->comm(),
-                stream));
+#ifdef PADDLE_WITH_BOX_PS
+          if (ctx.Attr<bool>("use_boxps_nccl")) {
+            auto box_ptr = paddle::framework::BoxWrapper::GetInstance();
+            CHECK(box_ptr->SyncDense(stream, numel, sendbuff, recvbuff, 0,
+                                     (nccl_mode == NCCL_MIXALLGATHER)));
           } else {
-            // allreduce
-            PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclAllReduce(
-                sendbuff, recvbuff, numel, nccl_dtype, ncclSum,
-                node_comm->comm(), stream));
+#endif
+            auto node_comm =
+                platform::NCCLCommContext::Instance().Get(ring_id, 0);
+            if (nccl_mode == NCCL_MIXALLGATHER) {
+              // allgather
+              PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclAllGather(
+                  sendbuff, recvbuff, numel, nccl_dtype, node_comm->comm(),
+                  stream));
+            } else {
+              // allreduce
+              PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclAllReduce(
+                  sendbuff, recvbuff, numel, nccl_dtype, ncclSum,
+                  node_comm->comm(), stream));
+            }
+#ifdef PADDLE_WITH_BOX_PS
           }
+#endif
         }
       }
       PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclGroupEnd());
@@ -281,6 +302,9 @@ class CMixAllGatherOpMaker : public framework::OpProtoAndCheckerMaker {
         "use_calc_stream",
         "(bool default false) eject CUDA operations to calculation stream.")
         .SetDefault(true);
+    AddAttr<bool>("use_boxps_nccl",
+                  "(bool default false) used boxps nccl sync dense data.")
+        .SetDefault(false);
     AddComment(string::Sprintf(R"DOC(
 MixAllGather %s Operator
 

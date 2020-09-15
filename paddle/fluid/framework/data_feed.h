@@ -20,6 +20,7 @@ limitations under the License. */
 #endif
 
 #include <semaphore.h>
+#include <algorithm>
 #include <fstream>
 #include <future>  // NOLINT
 #include <memory>
@@ -193,13 +194,15 @@ class DataFeed {
   virtual void SetFeaNumMutex(std::mutex* mutex) { mutex_for_fea_num_ = mutex; }
   virtual void SetFileListIndex(size_t* file_index) { file_idx_ = file_index; }
   virtual void SetFeaNum(uint64_t* fea_num) { total_fea_num_ = fea_num; }
-  virtual const std::vector<std::string>& GetInsIdVec() const {
-    return ins_id_vec_;
+  virtual const std::string& GetLineId(int idx) const {
+    return ins_id_vec_[idx];
   }
-  virtual const std::vector<std::string>& GetInsContentVec() const {
-    return ins_content_vec_;
+  virtual const std::string& GetContent(int idx) const {
+    return ins_content_vec_[idx];
   }
-  virtual int GetCurBatchSize() { return batch_size_; }
+  virtual int GetCurBatchSize() {
+    return std::max(batch_size_, static_cast<int>(ins_id_vec_.size()));
+  }
   virtual void LoadIntoMemory() {
     PADDLE_THROW("This function(LoadIntoMemory) is not implemented.");
   }
@@ -557,6 +560,7 @@ class RecordCandidateList {
 
   void ReInit();
   void ReInitPass() {
+    mutex_.lock();
     for (size_t i = 0; i < cur_size_; ++i) {
       if (candidate_list_[i].shadow_index_ != i) {
         candidate_list_[i].ins_id_ =
@@ -566,7 +570,8 @@ class RecordCandidateList {
         candidate_list_[i].shadow_index_ = i;
       }
     }
-    candidate_list_.resize(cur_size_);
+    candidate_list_.resize(capacity_);
+    mutex_.unlock();
   }
 
   void AddAndGet(const Record& record, RecordCandidate* result);
@@ -576,8 +581,11 @@ class RecordCandidateList {
     ++total_size_;
     auto fleet_ptr = FleetWrapper::GetInstance();
     if (!full_) {
-      candidate_list_.emplace_back(record, slot_index_to_replace_);
-      candidate_list_.back().shadow_index_ = cur_size_;
+      // candidate_list_.emplace_back(record, slot_index_to_replace_);
+      candidate_list_[cur_size_] =
+          RecordCandidate(record, slot_index_to_replace_);
+      // candidate_list_.back().shadow_index_ = cur_size_;
+      candidate_list_[cur_size_].shadow_index_ = cur_size_;
       ++cur_size_;
       full_ = (cur_size_ == capacity_);
     } else {
@@ -1162,6 +1170,12 @@ class MiniBatchGpuPack {
       buf = nullptr;
     }
   }
+  const std::string& get_lineid(int idx) {
+    if (enable_pv_) {
+      return ins_vec_[idx]->ins_id_;
+    }
+    return batch_ins_[idx]->ins_id_;
+  }
 
  private:
   void transfer_to_gpu(void);
@@ -1200,6 +1214,7 @@ class MiniBatchGpuPack {
   CudaBuffer<UsedSlotGpuType> gpu_slots_;
   std::vector<UsedSlotGpuType> gpu_used_slots_;
   std::vector<SlotRecord> ins_vec_;
+  const SlotRecord* batch_ins_ = nullptr;
 
   platform::Timer pack_timer_;
   platform::Timer trans_timer_;
@@ -1298,6 +1313,10 @@ class SlotPaddleBoxDataFeed : public DataFeed {
   virtual void SetCurrentPhase(int current_phase) {
     current_phase_ = current_phase;
   }
+  virtual const std::string& GetLineId(int idx) const {
+    return pack_->get_lineid(idx);
+  }
+  virtual int GetCurBatchSize() { return pack_->ins_num(); }
 
  public:
   int GetBatchSize() { return default_batch_size_; }
