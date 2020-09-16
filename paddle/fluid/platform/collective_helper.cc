@@ -113,7 +113,7 @@ void NCCLCommContext::CreateNCCLCommMultiTrainer(
   {
     PADDLE_ENFORCE_CUDA_SUCCESS(dynload::ncclGroupStart());
     for (int i = 0; i < kDevices; i++) {
-      PADDLE_ENFORCE_CUDA_SUCCESS(cudaSetDevice(i));
+      PADDLE_ENFORCE_CUDA_SUCCESS(cudaSetDevice(dev_ids[i]));
       platform::dynload::ncclCommInitRank(comms + i, kDevices * ntrainers,
                                           *nccl_id, train_id * kDevices + i);
     }

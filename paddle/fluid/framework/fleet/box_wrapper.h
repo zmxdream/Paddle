@@ -141,6 +141,8 @@ class BoxWrapper {
     platform::Timer boxps_pull_timer;
     platform::Timer all_push_timer;
     platform::Timer boxps_push_timer;
+    platform::Timer dense_nccl_timer;
+    platform::Timer dense_sync_timer;
 
     int64_t total_key_length = 0;
 
@@ -149,6 +151,8 @@ class BoxWrapper {
       boxps_pull_timer.Reset();
       all_push_timer.Reset();
       boxps_push_timer.Reset();
+      dense_nccl_timer.Reset();
+      dense_sync_timer.Reset();
     }
   };
 
@@ -364,6 +368,32 @@ class BoxWrapper {
       LOG(WARNING) << "You have already used SetInstance() before";
     }
     return s_instance_;
+  }
+
+  bool SyncDense(cudaStream_t stream, const int size, const void* sendbuf,
+                 void* recvbuf, const int deviceid = 0,
+                 bool allgather = false) {
+    return boxps_ptr_->SyncDense(
+        stream, size, reinterpret_cast<const char*>(sendbuf),
+        reinterpret_cast<char*>(recvbuf), deviceid, allgather);
+  }
+
+  void DenseNcclTimer(const int deviceid, bool pause, int flag = 1) {
+    auto& dev = device_caches_[deviceid];
+    if (flag & 0x01) {
+      if (pause) {
+        dev.dense_nccl_timer.Pause();
+      } else {
+        dev.dense_nccl_timer.Resume();
+      }
+    }
+    if (flag & 0x02) {
+      if (pause) {
+        dev.dense_sync_timer.Pause();
+      } else {
+        dev.dense_sync_timer.Resume();
+      }
+    }
   }
 
   void InitAfsAPI(const std::string& fs_name, const std::string& fs_ugi,
