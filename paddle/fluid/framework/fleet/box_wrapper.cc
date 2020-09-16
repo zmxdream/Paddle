@@ -489,7 +489,9 @@ void BoxWrapper::EndPass(bool need_save_delta) const {
                  << "] sparse pull span: " << dev.all_pull_timer.ElapsedSec()
                  << ", boxps span: " << dev.boxps_pull_timer.ElapsedSec()
                  << ", push span: " << dev.all_push_timer.ElapsedSec()
-                 << ", boxps span:" << dev.boxps_push_timer.ElapsedSec();
+                 << ", boxps span:" << dev.boxps_push_timer.ElapsedSec()
+                 << ", dense nccl:" << dev.dense_nccl_timer.ElapsedSec()
+                 << ", sync stream:" << dev.dense_sync_timer.ElapsedSec();
   }
 }
 
