@@ -131,11 +131,6 @@ void DeviceWorker::DumpField(const Scope& scope, int dump_mode,
                                                    // 2: random with random
                                                    // number
   size_t batch_size = device_reader_->GetCurBatchSize();
-  auto& ins_id_vec = device_reader_->GetInsIdVec();
-  auto& ins_content_vec = device_reader_->GetInsContentVec();
-  if (ins_id_vec.size() > 0) {
-    batch_size = ins_id_vec.size();
-  }
   std::vector<std::string> ars(batch_size);
   std::vector<bool> hit(batch_size, false);
 
@@ -143,8 +138,9 @@ void DeviceWorker::DumpField(const Scope& scope, int dump_mode,
   std::uniform_int_distribution<size_t> dist(0U, INT_MAX);
   for (size_t i = 0; i < batch_size; i++) {
     size_t r = 0;
+    const std::string& lineid = device_reader_->GetLineId(i);
     if (dump_mode == 1) {
-      r = XXH64(ins_id_vec[i].data(), ins_id_vec[i].length(), 0);
+      r = XXH64(lineid.data(), lineid.length(), 0);
     } else if (dump_mode == 2) {
       r = dist(engine);
     }
@@ -152,13 +148,7 @@ void DeviceWorker::DumpField(const Scope& scope, int dump_mode,
       continue;
     }
     hit[i] = true;
-  }
-  for (size_t i = 0; i < ins_id_vec.size(); i++) {
-    if (!hit[i]) {
-      continue;
-    }
-    ars[i] += ins_id_vec[i];
-    ars[i] = ars[i] + "\t" + ins_content_vec[i];
+    ars[i] += lineid;
   }
   for (auto& field : *dump_fields_) {
     Variable* var = scope.FindVar(field);

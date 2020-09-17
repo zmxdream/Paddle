@@ -3255,6 +3255,7 @@ void MiniBatchGpuPack::pack_float_data(const SlotRecord* ins_vec, int num) {
 void MiniBatchGpuPack::pack_instance(const SlotRecord* ins_vec, int num) {
   pack_timer_.Resume();
   ins_num_ = num;
+  batch_ins_ = ins_vec;
   CHECK(used_uint64_num_ > 0 || used_float_num_ > 0);
   // uint64 and float
   if (used_uint64_num_ > 0 && used_float_num_ > 0) {
