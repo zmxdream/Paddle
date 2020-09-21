@@ -31,6 +31,8 @@ std::shared_ptr<boxps::PaddleShuffler> BoxWrapper::data_shuffle_ = nullptr;
 cudaStream_t BoxWrapper::stream_list_[8];
 int BoxWrapper::embedx_dim_ = 8;
 int BoxWrapper::expand_embed_dim_ = 0;
+bool BoxWrapper::is_quant_ = false;
+float BoxWrapper::pull_embedx_scale_ = 1.0;
 
 void BasicAucCalculator::add_unlock_data(double pred, int label) {
   PADDLE_ENFORCE_GE(pred, 0.0, platform::errors::PreconditionNotMet(
@@ -352,8 +354,15 @@ void BoxWrapper::PullSparse(const paddle::platform::Place& place,
 #define PULLSPARSE_CASE(i, ...)                                             \
   case i: {                                                                 \
     constexpr size_t ExpandDim = i;                                         \
-    PullSparseCase<EmbedxDim, ExpandDim>(place, keys, values, slot_lengths, \
+    if (is_quant_) {                                                        \
+      PullSparseCase<boxps::FeatureValueGpuQuant<EmbedxDim, ExpandDim>>(    \
+                                         place, keys, values, slot_lengths, \
                                          hidden_size, expand_embed_dim);    \
+    } else {                                                                \
+      PullSparseCase<boxps::FeatureValueGpu<EmbedxDim, ExpandDim>>(         \
+                                         place, keys, values, slot_lengths, \
+                                         hidden_size, expand_embed_dim);    \
+    }                                                                       \
   } break
 
   CheckEmbedSizeIsValid(hidden_size - 3, expand_embed_dim);

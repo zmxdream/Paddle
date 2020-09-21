@@ -28,13 +28,14 @@ namespace framework {
   for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < (n); \
        i += blockDim.x * gridDim.x)
 
-template <size_t EMBEDX_DIM, size_t EXPAND_EMBED_DIM>
+template <typename FEATURE_VALUE_GPU_TYPE>
 __global__ void PullCopy(
     float** dest,
-    const boxps::FeatureValueGpu<EMBEDX_DIM, EXPAND_EMBED_DIM>* src,
+    const FEATURE_VALUE_GPU_TYPE* src,
     const int hidden, const int expand_dim, const int total_len,
     uint64_t** keys, int* total_dims, const int64_t* slot_lens,
-    const int slot_num, const int* key2slot) {
+    const int slot_num, const int* key2slot, const bool is_quant,
+    float scale) {
   CUDA_KERNEL_LOOP(i, total_len) {
     int x = key2slot[i];
     int y = i - (x ? slot_lens[x - 1] : 0);
@@ -55,7 +56,11 @@ __global__ void PullCopy(
     } else {
       total_dims[i] = 0x01;
       for (int j = 0; j < hidden - 3; j++) {
-        *(dest[x] + y * hidden + 3 + j) = (src + i)->embedx[1 + j];
+        if (is_quant) {
+          *(dest[x] + y * hidden + 3 + j) = (src + i)->embedx[j] * scale;
+        } else {
+          *(dest[x] + y * hidden + 3 + j) = (src + i)->embedx[1 + j];
+        }
       }
     }
     // process embed_expand
@@ -211,13 +216,23 @@ void BoxWrapper::CopyForPull(const paddle::platform::Place& place,
 #define EXPAND_EMBED_PULL_CASE(i, ...)                                       \
   case i: {                                                                  \
     constexpr size_t ExpandDim = i;                                          \
-    PullCopy<EmbedxDim,                                                      \
-             ExpandDim><<<(total_length + 512 - 1) / 512, 512, 0, stream>>>( \
-        gpu_values,                                                          \
-        reinterpret_cast<boxps::FeatureValueGpu<EmbedxDim, ExpandDim>*>(     \
-            total_values_gpu),                                               \
-        hidden_size, expand_embed_dim, total_length, gpu_keys, total_dims,   \
-        slot_lens, slot_num, key2slot);                                      \
+    if (is_quant_) {                                                         \
+      PullCopy<boxps::FeatureValueGpuQuant<EmbedxDim, ExpandDim>>            \
+          <<<(total_length + 512 - 1) / 512, 512, 0, stream>>>(              \
+          gpu_values,                                                        \
+          reinterpret_cast<boxps::FeatureValueGpuQuant<EmbedxDim, ExpandDim>*>(   \
+              total_values_gpu),                                             \
+          hidden_size, expand_embed_dim, total_length, gpu_keys, total_dims, \
+          slot_lens, slot_num, key2slot, is_quant_, pull_embedx_scale_);     \
+    } else {                                                                 \
+      PullCopy<boxps::FeatureValueGpu<EmbedxDim, ExpandDim>>                 \
+          <<<(total_length + 512 - 1) / 512, 512, 0, stream>>>(              \
+          gpu_values,                                                        \
+          reinterpret_cast<boxps::FeatureValueGpu<EmbedxDim, ExpandDim>*>(   \
+              total_values_gpu),                                             \
+          hidden_size, expand_embed_dim, total_length, gpu_keys, total_dims, \
+          slot_lens, slot_num, key2slot, is_quant_, pull_embedx_scale_);     \   
+    }                                                                        \
   } break
 
   switch (hidden_size - 3) {

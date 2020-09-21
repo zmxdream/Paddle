@@ -233,7 +233,7 @@ class BoxWrapper {
   void EndPass(bool need_save_delta);
   void SetTestMode(bool is_test) const;
 
-  template <size_t EMBEDX_DIM, size_t EXPAND_EMBED_DIM = 0>
+  template <typename FEATURE_VALUE_GPU_TYPE>
   void PullSparseCase(const paddle::platform::Place& place,
                       const std::vector<const uint64_t*>& keys,
                       const std::vector<float*>& values,
@@ -392,7 +392,9 @@ class BoxWrapper {
   }
 
   static std::shared_ptr<BoxWrapper> SetInstance(int embedx_dim = 8,
-                                                 int expand_embed_dim = 0) {
+                                                 int expand_embed_dim = 0,
+                                                 bool is_quant = false,
+                                                 float pull_embedx_scale = 1.0) {
     if (nullptr == s_instance_) {
       // If main thread is guaranteed to init this, this lock can be removed
       static std::mutex mutex;
@@ -404,6 +406,8 @@ class BoxWrapper {
             boxps::BoxPSBase::GetIns(embedx_dim, expand_embed_dim));
         embedx_dim_ = embedx_dim;
         expand_embed_dim_ = expand_embed_dim;
+        is_quant_ = is_quant;
+        pull_embedx_scale_ = pull_embedx_scale;
 
         if (boxps::MPICluster::Ins().size() > 1) {
           data_shuffle_.reset(boxps::PaddleShuffler::New());
@@ -838,6 +842,8 @@ class BoxWrapper {
   // EMBEDX_DIM and EXPAND_EMBED_DIM
   static int embedx_dim_;
   static int expand_embed_dim_;
+  static bool is_quant_;
+  static float pull_embedx_scale_;
 
   // Metric Related
   int phase_ = 1;

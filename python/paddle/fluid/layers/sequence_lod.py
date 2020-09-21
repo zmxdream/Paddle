@@ -258,7 +258,8 @@ def sequence_softmax(input, use_cudnn=False, name=None):
     return softmax_out
 
 
-def sequence_pool(input, pool_type, is_test=False, pad_value=0.0):
+def sequence_pool(input, pool_type, is_test=False, pad_value=0.0,
+                  need_filter=False, show_coeff=0.2, clk_coeff=1.0, threshold=0.96):
     """
 	:api_attr: Static Graph
 
@@ -360,7 +361,11 @@ def sequence_pool(input, pool_type, is_test=False, pad_value=0.0):
         attrs={
             "pooltype": pool_type.upper(),
             "is_test": is_test,
-            "pad_value": pad_value
+            "pad_value": pad_value,
+            "need_filter": need_filter,
+            "show_coeff": show_coeff,
+            "clk_coeff": clk_coeff,
+            "threshold": threshold
         })
 
     # when pool_type is max, variable max_index is initialized,

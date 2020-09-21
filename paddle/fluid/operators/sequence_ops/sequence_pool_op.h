@@ -32,6 +32,10 @@ class SequencePoolKernel : public framework::OpKernel<T> {
     auto* in = context.Input<LoDTensor>("X");
     auto* out = context.Output<LoDTensor>("Out");
     std::string pooltype = context.Attr<std::string>("pooltype");
+    bool need_filter = context.Attr<bool>("need_filter");
+    float show_coeff = context.Attr<float>("show_coeff");
+    float clk_coeff = context.Attr<float>("clk_coeff");
+    float threshold = context.Attr<float>("threshold");
     T pad_value = static_cast<T>(context.Attr<float>("pad_value"));
 
     auto dims = in->dims();
@@ -68,7 +72,7 @@ class SequencePoolKernel : public framework::OpKernel<T> {
     }
     math::SequencePoolFunctor<DeviceContext, T> pool;
     pool(context.template device_context<DeviceContext>(), pooltype, pad_value,
-         *in, out, is_test, index);
+         *in, out, is_test, index, need_filter, show_coeff, clk_coeff, threshold);
   }
 };
 
