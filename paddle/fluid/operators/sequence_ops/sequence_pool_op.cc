@@ -62,6 +62,10 @@ class SequencePoolOpMaker : public framework::OpProtoAndCheckerMaker {
                   "(bool, default false) Set to true for inference only, false "
                   "for training. Some layers may run faster when this is true.")
         .SetDefault(false);
+    AddAttr<bool>("need_filter", "(bool, default false)").SetDefault(false);
+    AddAttr<float>("show_coeff", "(float, default 0.2)").SetDefault(0.2);
+    AddAttr<float>("clk_coeff", "(float, default 1)").SetDefault(1);
+    AddAttr<float>("threshold", "(float, default 0.96)").SetDefault(0.96);
     AddAttr<std::string>(
         "pooltype",
         "(string, default 'AVERAGE') the pooling pooltype of SequencePoolOp.")

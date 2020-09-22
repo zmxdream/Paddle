@@ -21,6 +21,8 @@
 #include "paddle/fluid/platform/collective_helper.h"
 #include "paddle/fluid/platform/gpu_info.h"
 
+DECLARE_bool(use_gpu_replica_cache);
+
 namespace paddle {
 namespace framework {
 
@@ -29,6 +31,8 @@ std::shared_ptr<boxps::PaddleShuffler> BoxWrapper::data_shuffle_ = nullptr;
 cudaStream_t BoxWrapper::stream_list_[8];
 int BoxWrapper::embedx_dim_ = 8;
 int BoxWrapper::expand_embed_dim_ = 0;
+bool BoxWrapper::is_quant_ = false;
+float BoxWrapper::pull_embedx_scale_ = 1.0;
 
 void BasicAucCalculator::add_unlock_data(double pred, int label) {
   PADDLE_ENFORCE_GE(pred, 0.0, platform::errors::PreconditionNotMet(
@@ -126,13 +130,13 @@ void BasicAucCalculator::init(int table_size, int max_batch_size) {
       _d_positive.emplace_back(
           memory::AllocShared(place, _table_size * sizeof(double)));
       _d_negative.emplace_back(
-          memory::Alloc(place, _table_size * sizeof(double)));
+          memory::AllocShared(place, _table_size * sizeof(double)));
       _d_abserr.emplace_back(
-          memory::Alloc(place, _max_batch_size * sizeof(double)));
+          memory::AllocShared(place, _max_batch_size * sizeof(double)));
       _d_sqrerr.emplace_back(
-          memory::Alloc(place, _max_batch_size * sizeof(double)));
+          memory::AllocShared(place, _max_batch_size * sizeof(double)));
       _d_pred.emplace_back(
-          memory::Alloc(place, _max_batch_size * sizeof(double)));
+          memory::AllocShared(place, _max_batch_size * sizeof(double)));
     }
   }
   // reset
@@ -350,8 +354,15 @@ void BoxWrapper::PullSparse(const paddle::platform::Place& place,
 #define PULLSPARSE_CASE(i, ...)                                             \
   case i: {                                                                 \
     constexpr size_t ExpandDim = i;                                         \
-    PullSparseCase<EmbedxDim, ExpandDim>(place, keys, values, slot_lengths, \
+    if (is_quant_) {                                                        \
+      PullSparseCase<boxps::FeatureValueGpuQuant<EmbedxDim, ExpandDim>>(    \
+                                         place, keys, values, slot_lengths, \
                                          hidden_size, expand_embed_dim);    \
+    } else {                                                                \
+      PullSparseCase<boxps::FeatureValueGpu<EmbedxDim, ExpandDim>>(         \
+                                         place, keys, values, slot_lengths, \
+                                         hidden_size, expand_embed_dim);    \
+    }                                                                       \
   } break
 
   CheckEmbedSizeIsValid(hidden_size - 3, expand_embed_dim);
@@ -360,6 +371,7 @@ void BoxWrapper::PullSparse(const paddle::platform::Place& place,
                 PULLSPARSE_CASE(64););
     EMBEDX_CASE(16, PULLSPARSE_CASE(0););
     EMBEDX_CASE(256, PULLSPARSE_CASE(0););
+    EMBEDX_CASE(128, PULLSPARSE_CASE(0););
     default:
       PADDLE_THROW(platform::errors::InvalidArgument(
           "Unsupport this embedding size [%d]", hidden_size - 3));
@@ -400,6 +412,7 @@ void BoxWrapper::PushSparseGrad(const paddle::platform::Place& place,
                 PUSHSPARSE_CASE(64););
     EMBEDX_CASE(16, PUSHSPARSE_CASE(0););
     EMBEDX_CASE(256, PUSHSPARSE_CASE(0););
+    EMBEDX_CASE(128, PUSHSPARSE_CASE(0););
     default:
       PADDLE_THROW(platform::errors::InvalidArgument(
           "Unsupport this embedding size [%d]", hidden_size - 3));
@@ -445,25 +458,33 @@ void BasicAucCalculator::calculate_bucket_error() {
 
 // Deprecated: should use BeginFeedPass & EndFeedPass
 void BoxWrapper::FeedPass(int date,
-                          const std::vector<uint64_t>& feasgin_to_box) const {
+                          const std::vector<uint64_t>& feasgin_to_box) {
   int ret = boxps_ptr_->FeedPass(date, feasgin_to_box);
   PADDLE_ENFORCE_EQ(ret, 0, platform::errors::PreconditionNotMet(
                                 "FeedPass failed in BoxPS."));
 }
 
-void BoxWrapper::BeginFeedPass(int date, boxps::PSAgentBase** agent) const {
+void BoxWrapper::BeginFeedPass(int date, boxps::PSAgentBase** agent) {
   int ret = boxps_ptr_->BeginFeedPass(date, *agent);
+  if(FLAGS_use_gpu_replica_cache){
+    int dim = BoxWrapper::embedx_dim_;
+    VLOG(3) << "gpu cache dim:" << dim;
+    gpu_replica_cache.emplace_back(dim); 
+  }
   PADDLE_ENFORCE_EQ(ret, 0, platform::errors::PreconditionNotMet(
                                 "BeginFeedPass failed in BoxPS."));
 }
 
-void BoxWrapper::EndFeedPass(boxps::PSAgentBase* agent) const {
+void BoxWrapper::EndFeedPass(boxps::PSAgentBase* agent) {
+  if(FLAGS_use_gpu_replica_cache){
+    gpu_replica_cache.back().ToHBM();
+  }
   int ret = boxps_ptr_->EndFeedPass(agent);
   PADDLE_ENFORCE_EQ(ret, 0, platform::errors::PreconditionNotMet(
                                 "EndFeedPass failed in BoxPS."));
 }
 
-void BoxWrapper::BeginPass() const {
+void BoxWrapper::BeginPass() {
   int gpu_num = platform::GetCUDADeviceCount();
   for (int i = 0; i < gpu_num; ++i) {
     DeviceBoxData& dev = device_caches_[i];
@@ -478,7 +499,10 @@ void BoxWrapper::SetTestMode(bool is_test) const {
   boxps_ptr_->SetTestMode(is_test);
 }
 
-void BoxWrapper::EndPass(bool need_save_delta) const {
+void BoxWrapper::EndPass(bool need_save_delta) {
+  if(FLAGS_use_gpu_replica_cache){
+    gpu_replica_cache.pop_front();
+  }
   int ret = boxps_ptr_->EndPass(need_save_delta);
   PADDLE_ENFORCE_EQ(
       ret, 0, platform::errors::PreconditionNotMet("EndPass failed in BoxPS."));
