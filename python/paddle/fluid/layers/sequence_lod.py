@@ -37,7 +37,6 @@ __all__ = [
     'sequence_enumerate',
     'sequence_mask',
     'sequence_reverse',
-    'fused_seqpool_cvm'
 ]
 
 
@@ -1437,45 +1436,3 @@ def sequence_reverse(x, name=None):
         outputs={"Y": out},
         attrs=dict())
     return out
-
-@templatedoc()
-def fused_seqpool_cvm(input, pool_type, cvm, pad_value=0.0, use_cvm=True):
-    """
-    :api_attr: Static Graph
-
-        **Notes: The Op only receives List of LoDTensor as input.
-    """
-    assert not in_dygraph_mode(), (
-        "fused_seqpool_cvm layer is not supported in dygraph mode yet.")
-    helper = LayerHelper('fused_seqpool_cvm', **locals())
-
-    if pool_type.upper() != 'SUM':
-        raise ValueError(
-            "fused_seqpool_cvm only support SUM pooling now, and your type is: " +
-            pool_type)
-
-    check_type(input, 'input', list, 'fused_seqpool_cvm')
-    if isinstance(input, list):
-        for _input in input:
-            check_variable_and_dtype(_input, 'input', ['float32'],
-                                     'fused_seqpool_cvm')
-
-    dtype = helper.input_dtype()
-    inputs = helper.multiple_input()
-    outs = [
-        helper.create_variable_for_type_inference(dtype)
-        for i in range(len(inputs))
-    ]
-
-    helper.append_op(
-        type="fused_seqpool_cvm",
-        inputs={"X": inputs,
-            "CVM": cvm},
-        outputs={"Out": outs},
-        attrs={
-            "pooltype": pool_type.upper(),
-            "pad_value": pad_value,
-            "use_cvm": use_cvm
-        })
-
-    return outs
