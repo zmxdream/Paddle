@@ -300,13 +300,14 @@ void DoFusedSeqpoolCVMGrad(const paddle::platform::Place &place,
                  PADDLE_CUDA_NUM_THREADS,
       PADDLE_CUDA_NUM_THREADS, 0, stream>>>(total_len, slot_lens,
       slot_num, key2slot);
-  
-  FusedSeqpoolCVMGradKernel<<<(total_len + PADDLE_CUDA_NUM_THREADS - 1) /
-                              PADDLE_CUDA_NUM_THREADS,
-      PADDLE_CUDA_NUM_THREADS, 0, stream>>>(
+
+  FusedSeqpoolCVMGradKernel<<<(total_len * embedding_size +
+                               PADDLE_CUDA_NUM_THREADS - 1) /
+                                  PADDLE_CUDA_NUM_THREADS,
+                              PADDLE_CUDA_NUM_THREADS, 0, stream>>>(
       out_grads_values, out_seqpool_grads_values, in_grads_values,
-          gpu_cvm_values, lods_values, slot_lens, key2slot, total_len,
-          embedding_size, use_cvm);
+      gpu_cvm_values, lods_values, slot_lens, key2slot, total_len,
+      embedding_size, use_cvm);
 }
 
 void FusedSeqpoolCVMGrad(const paddle::platform::Place &place,
