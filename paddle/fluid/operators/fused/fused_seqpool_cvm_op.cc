@@ -107,6 +107,10 @@ class FusedSeqpoolCVMOpMaker : public framework::OpProtoAndCheckerMaker {
                    "(float, default 0.0) The value to pad for empty sequence.")
         .SetDefault(0.0);
     AddAttr<bool>("use_cvm", "bool, use cvm or not").SetDefault(true);
+    AddAttr<bool>("need_filter", "(bool, default false)").SetDefault(false);
+    AddAttr<float>("show_coeff", "(float, default 0.2)").SetDefault(0.2);
+    AddAttr<float>("clk_coeff", "(float, default 1)").SetDefault(1);
+    AddAttr<float>("threshold", "(float, default 0.96)").SetDefault(0.96);
 
     AddComment(R"DOC(
 Fuse multiple pairs of Sequence Pool and CVM Operator.
