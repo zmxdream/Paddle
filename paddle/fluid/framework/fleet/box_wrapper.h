@@ -125,6 +125,51 @@ class BasicAucCalculator {
   std::mutex _table_mutex;
 };
 
+class GpuReplicaCache {
+ public:
+  GpuReplicaCache(int dim) {
+    emb_dim_ = dim;
+  }
+
+  ~GpuReplicaCache() {
+    for (size_t i = 0; i < d_embs_.size(); ++i) {
+      cudaFree(d_embs_[i]);
+    }
+  }
+  int AddItems(std::vector<float>& emb) {
+    int r;
+    h_emb_mtx_.lock();
+    h_emb_.insert(h_emb_.end(), emb.begin(), emb.end());
+    r = h_emb_count_;
+    ++h_emb_count_;
+    h_emb_mtx_.unlock();
+    return r;
+  }
+
+  void ToHBM() {
+    int gpu_num = platform::GetCUDADeviceCount();
+    for (int i = 0; i < gpu_num; ++i) {
+      d_embs_.push_back(NULL);
+      cudaSetDevice(i);
+      cudaMalloc(&d_embs_.back(), h_emb_count_ * emb_dim_ * sizeof(float));
+      auto place = platform::CUDAPlace(i);
+      auto stream = dynamic_cast<platform::CUDADeviceContext*>(
+                    platform::DeviceContextPool::Instance().Get(place))
+                    ->stream();
+      cudaMemcpyAsync(d_embs_.back(), h_emb_.data(), h_emb_count_ * emb_dim_ * sizeof(float), cudaMemcpyHostToDevice, stream);
+    }
+  }
+
+  void PullCacheValue(uint64_t* d_keys, float* d_vals, int num, int gpu_id);
+  int emb_dim_ = 0;
+  std::vector<float*> d_embs_;
+
+ private:
+  int h_emb_count_ = 0;
+  std::mutex h_emb_mtx_;
+  std::vector<float> h_emb_;
+};
+
 class BoxWrapper {
   struct DeviceBoxData {
     LoDTensor keys_tensor;
@@ -157,6 +202,7 @@ class BoxWrapper {
   };
 
  public:
+  std::deque<GpuReplicaCache> gpu_replica_cache;
   virtual ~BoxWrapper() {
     if (file_manager_ != nullptr) {
       file_manager_->destory();
@@ -180,14 +226,14 @@ class BoxWrapper {
     boxps::MPICluster::Ins();
   }
 
-  void FeedPass(int date, const std::vector<uint64_t>& feasgin_to_box) const;
-  void BeginFeedPass(int date, boxps::PSAgentBase** agent) const;
-  void EndFeedPass(boxps::PSAgentBase* agent) const;
-  void BeginPass() const;
-  void EndPass(bool need_save_delta) const;
+  void FeedPass(int date, const std::vector<uint64_t>& feasgin_to_box);
+  void BeginFeedPass(int date, boxps::PSAgentBase** agent);
+  void EndFeedPass(boxps::PSAgentBase* agent);
+  void BeginPass();
+  void EndPass(bool need_save_delta);
   void SetTestMode(bool is_test) const;
 
-  template <size_t EMBEDX_DIM, size_t EXPAND_EMBED_DIM = 0>
+  template <typename FEATURE_VALUE_GPU_TYPE>
   void PullSparseCase(const paddle::platform::Place& place,
                       const std::vector<const uint64_t*>& keys,
                       const std::vector<float*>& values,
@@ -346,7 +392,9 @@ class BoxWrapper {
   }
 
   static std::shared_ptr<BoxWrapper> SetInstance(int embedx_dim = 8,
-                                                 int expand_embed_dim = 0) {
+                                                 int expand_embed_dim = 0,
+                                                 bool is_quant = false,
+                                                 float pull_embedx_scale = 1.0) {
     if (nullptr == s_instance_) {
       // If main thread is guaranteed to init this, this lock can be removed
       static std::mutex mutex;
@@ -358,6 +406,8 @@ class BoxWrapper {
             boxps::BoxPSBase::GetIns(embedx_dim, expand_embed_dim));
         embedx_dim_ = embedx_dim;
         expand_embed_dim_ = expand_embed_dim;
+        is_quant_ = is_quant;
+        pull_embedx_scale_ = pull_embedx_scale;
 
         if (boxps::MPICluster::Ins().size() > 1) {
           data_shuffle_.reset(boxps::PaddleShuffler::New());
@@ -792,6 +842,8 @@ class BoxWrapper {
   // EMBEDX_DIM and EXPAND_EMBED_DIM
   static int embedx_dim_;
   static int expand_embed_dim_;
+  static bool is_quant_;
+  static float pull_embedx_scale_;
 
   // Metric Related
   int phase_ = 1;
