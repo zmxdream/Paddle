@@ -1411,7 +1411,8 @@ def _pull_box_extended_sparse(input, size, extend_size=64, dtype='float32'):
     return outs, outs_extend
 
 
-def fused_seqpool_cvm(input, pool_type, cvm, pad_value=0.0, use_cvm=True):
+def fused_seqpool_cvm(input, pool_type, cvm, pad_value=0.0, use_cvm=True,
+                      need_filter=False, show_coeff=0.2, clk_coeff=1.0, threshold=0.96):
     """
      **Notes: The Op only receives List of LoDTensor as input, only support SUM pooling now.
     :attr:`input`.
@@ -1453,7 +1454,12 @@ def fused_seqpool_cvm(input, pool_type, cvm, pad_value=0.0, use_cvm=True):
         attrs={
             "pooltype": pool_type.upper(),
             "pad_value": pad_value,
-            "use_cvm": use_cvm
+            "use_cvm": use_cvm,
+            "need_filter": need_filter,
+            "show_coeff": show_coeff,
+            "clk_coeff": clk_coeff,
+            "threshold": threshold
         })
 
     return outs
+
