@@ -187,6 +187,22 @@ class DatasetBase(object):
         """
         self.proto_desc.pv_batch_size = pv_batch_size
 
+    def set_sample_rate(self, sample_rate):
+        """
+        Set sample_rate, it is the sample rate of readers.
+
+        Examples:
+            .. code-block:: python
+
+              import paddle.fluid as fluid
+              dataset = fluid.DatasetFactory().create_dataset()
+               dataset.set_sample_rate(0.8)
+
+        Args:
+            sample_rate(float): sample rate
+        """
+        self.proto_desc.sample_rate = sample_rate
+
     def set_thread(self, thread_num):
         """
         Set thread num, it is the num of readers.
@@ -1100,8 +1116,8 @@ class BoxPSDataset(InMemoryDataset):
         """
         slots_set = set(slots)
         self.boxps.slots_shuffle(slots_set)
-        
-        
+
+
 class PadBoxSlotDataset(BoxPSDataset):
     """
     PadBoxSlotDataset: derived from InMemoryDataset.
@@ -1152,4 +1168,3 @@ class PadBoxSlotDataset(BoxPSDataset):
         """
         self._prepare_to_run()
         self.boxps.read_ins_into_memory()
-        

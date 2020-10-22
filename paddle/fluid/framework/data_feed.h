@@ -20,6 +20,7 @@ limitations under the License. */
 #endif
 
 #include <semaphore.h>
+
 #include <algorithm>
 #include <fstream>
 #include <future>  // NOLINT
@@ -32,6 +33,7 @@ limitations under the License. */
 #include <unordered_set>
 #include <utility>
 #include <vector>
+
 #include "paddle/fluid/framework/archive.h"
 #include "paddle/fluid/framework/blocking_queue.h"
 #include "paddle/fluid/framework/channel.h"
@@ -40,10 +42,9 @@ limitations under the License. */
 #include "paddle/fluid/framework/lod_tensor.h"
 #include "paddle/fluid/framework/reader.h"
 #include "paddle/fluid/framework/variable.h"
+#include "paddle/fluid/platform/monitor.h"
 #include "paddle/fluid/platform/timer.h"
 #include "paddle/fluid/string/string_helper.h"
-
-#include "paddle/fluid/platform/monitor.h"
 
 USE_INT_STAT(STAT_total_feasign_num_in_mem);
 USE_INT_STAT(STAT_slot_pool_size);
@@ -210,6 +211,7 @@ class DataFeed {
     place_ = place;
   }
   virtual const paddle::platform::Place& GetPlace() const { return place_; }
+  virtual void SetSampleRate(float r) { sample_rate_ = r; }
 
  protected:
   // The following three functions are used to check if it is executed in this
@@ -269,6 +271,7 @@ class DataFeed {
 
   // The input type of pipe reader, 0 for one sample, 1 for one batch
   int input_type_;
+  float sample_rate_ = 1.0f;
 };
 
 // PrivateQueueDataFeed is the base virtual class for ohther DataFeeds.
@@ -342,6 +345,8 @@ class InMemoryDataFeed : public DataFeed {
  protected:
   virtual bool ParseOneInstance(T* instance) = 0;
   virtual bool ParseOneInstanceFromPipe(T* instance) = 0;
+  virtual bool ParseOneInstanceFromPipe(Record* instance,
+                                        const std::string& line) = 0;
   virtual void PutToFeedVec(const std::vector<T>& ins_vec) = 0;
 
   int thread_id_;
@@ -707,6 +712,8 @@ class MultiSlotInMemoryDataFeed : public InMemoryDataFeed<Record> {
  protected:
   virtual bool ParseOneInstance(Record* instance);
   virtual bool ParseOneInstanceFromPipe(Record* instance);
+  virtual bool ParseOneInstanceFromPipe(Record* instance,
+                                        const std::string& line);
   virtual void PutToFeedVec(const std::vector<Record>& ins_vec);
   virtual void GetMsgFromLogKey(const std::string& log_key, uint64_t* search_id,
                                 uint32_t* cmatch, uint32_t* rank);
@@ -992,7 +999,8 @@ class ISlotParser {
   virtual ~ISlotParser() {}
   virtual bool Init(const std::vector<AllSlotInfo>& slots) = 0;
   virtual bool ParseOneInstance(
-      const std::string& line,std::function<int(std::vector<float>&) > GetGpuCacheIndexFunc, 
+      const std::string& line,
+      std::function<int(std::vector<float>&)> GetGpuCacheIndexFunc,
       std::function<void(std::vector<SlotRecord>&, int)> GetInsFunc) {
     return true;
   }
@@ -1424,10 +1432,12 @@ class SlotPaddleBoxDataFeed : public DataFeed {
 class SlotPaddleBoxDataFeedWithGpuReplicaCache : public SlotPaddleBoxDataFeed {
  public:
   SlotPaddleBoxDataFeedWithGpuReplicaCache() { finish_start_ = false; }
+
  private:
   virtual void LoadIntoMemoryByLib(void);
   virtual void LoadIntoMemoryByCommand(void);
-  bool ParseOneInstance(const std::string& line, SlotRecord* rec, int gpu_cache_offset);
+  bool ParseOneInstance(const std::string& line, SlotRecord* rec,
+                        int gpu_cache_offset);
 };
 
 template <class AR, class T>
