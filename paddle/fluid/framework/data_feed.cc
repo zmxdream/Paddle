@@ -1687,10 +1687,6 @@ void PaddleBoxDataFeed::PutToFeedVec(const std::vector<Record*>& ins_vec) {
 
   std::vector<size_t> lodinfo(col_size, 0);
   for (size_t i = 0; i < use_slots_.size(); ++i) {
-    memcpy(lodinfo.data(), offset.data() + index_map[i] * col_size,
-           col_size * sizeof(size_t));
-    LoD lod{lodinfo};
-    feed_vec_[i]->set_lod(lod);
     if (use_slots_is_dense_[i]) {
       if (inductive_shape_index_[i] != -1) {
         use_slots_shape_[i][inductive_shape_index_[i]] =
@@ -1698,6 +1694,11 @@ void PaddleBoxDataFeed::PutToFeedVec(const std::vector<Record*>& ins_vec) {
             total_dims_without_inductive_[i];
       }
       feed_vec_[i]->Resize(framework::make_ddim(use_slots_shape_[i]));
+    } else {
+      memcpy(lodinfo.data(), offset.data() + index_map[i] * col_size,
+             col_size * sizeof(size_t));
+      LoD lod{lodinfo};
+      feed_vec_[i]->set_lod(lod);
     }
   }
 #endif
@@ -2057,15 +2058,15 @@ void SlotPaddleBoxDataFeed::PutToFeedSlotVec(const SlotRecord* ins_vec,
       CopyToFeedTensor(tensor_ptr, feasign, total_instance * sizeof(int64_t));
     }
 
-    LoD data_lod{slot_offset};
-    feed_vec_[j]->set_lod(data_lod);
-
     if (info.dense) {
       if (info.inductive_shape_index != -1) {
         info.local_shape[info.inductive_shape_index] =
             total_instance / info.total_dims_without_inductive;
       }
       feed->Resize(framework::make_ddim(info.local_shape));
+    } else {
+      LoD data_lod{slot_offset};
+      feed_vec_[j]->set_lod(data_lod);
     }
   }
 #endif
@@ -2163,12 +2164,6 @@ void SlotPaddleBoxDataFeed::BuildSlotBatchGPU(const int ins_num) {
             feed->mutable_data<int64_t>({total_instance, 1}, this->place_);
       }
     }
-    // feed->set_lod({offsets});
-    LoD& lod = (*feed->mutable_lod());
-    lod.resize(1);
-    lod[0].resize(offset_cols_size);
-    memcpy(lod[0].MutableData(platform::CPUPlace()), off_start_ptr,
-           offset_cols_size * sizeof(size_t));
 
     if (info.dense) {
       if (info.inductive_shape_index != -1) {
@@ -2176,6 +2171,12 @@ void SlotPaddleBoxDataFeed::BuildSlotBatchGPU(const int ins_num) {
             total_instance / info.total_dims_without_inductive;
       }
       feed->Resize(framework::make_ddim(info.local_shape));
+    } else {
+      LoD& lod = (*feed->mutable_lod());
+      lod.resize(1);
+      lod[0].resize(offset_cols_size);
+      memcpy(lod[0].MutableData(platform::CPUPlace()), off_start_ptr,
+             offset_cols_size * sizeof(size_t));
     }
   }
   data_timer_.Pause();
@@ -2734,11 +2735,12 @@ void SlotPaddleBoxDataFeedWithGpuReplicaCache::LoadIntoMemoryByLib(void) {
                  &from_pool_num, &filename](const std::string& line) {
       int old_offset = offset;
       if (!parser->ParseOneInstance(
-              line,[this, &set](std::vector<float>& gpu_cache) -> int {
-                        return set.AddItems(gpu_cache);
-                },
-                 [this, &offset, &record_vec, &max_fetch_num, &old_offset](
-                        std::vector<SlotRecord>& vec, int num) {
+              line,
+              [this, &set](std::vector<float>& gpu_cache) -> int {
+                return set.AddItems(gpu_cache);
+              },
+              [this, &offset, &record_vec, &max_fetch_num, &old_offset](
+                  std::vector<SlotRecord>& vec, int num) {
                 vec.resize(num);
                 if (offset + num > max_fetch_num) {
                   // Considering the prob of show expanding is low, so we don't
@@ -2841,8 +2843,9 @@ void SlotPaddleBoxDataFeedWithGpuReplicaCache::LoadIntoMemoryByCommand(void) {
     int gpu_cache_offset;
     auto box_ptr = paddle::framework::BoxWrapper::GetInstance();
     line_reader.read_file(
-        this->fp_.get(), [this, &record_vec, &offset, &max_fetch_num, &gpu_cache_offset, &box_ptr,
-                          &filename](const std::string& line) {
+        this->fp_.get(),
+        [this, &record_vec, &offset, &max_fetch_num, &gpu_cache_offset,
+         &box_ptr, &filename](const std::string& line) {
           if (line[0] == '#') {
             std::vector<float> gpu_cache;
             char* pos = const_cast<char*>(line.c_str() + 1);
@@ -2885,8 +2888,8 @@ void SlotPaddleBoxDataFeedWithGpuReplicaCache::LoadIntoMemoryByCommand(void) {
           << ", total size: " << line_reader.file_size();
 }
 
-bool SlotPaddleBoxDataFeedWithGpuReplicaCache::ParseOneInstance(const std::string& line,
-                                             SlotRecord* ins, int gpu_cache_offset) {
+bool SlotPaddleBoxDataFeedWithGpuReplicaCache::ParseOneInstance(
+    const std::string& line, SlotRecord* ins, int gpu_cache_offset) {
   SlotRecord& rec = (*ins);
   // parse line
   const char* str = line.c_str();
@@ -2937,12 +2940,12 @@ bool SlotPaddleBoxDataFeedWithGpuReplicaCache::ParseOneInstance(const std::strin
   for (size_t i = 0; i < all_slots_info_.size(); ++i) {
     auto& info = all_slots_info_[i];
     if (i == 3) {
-        auto& slot_fea = slot_uint64_feasigns[info.slot_value_idx];
-        uint64_t feasign = static_cast<uint64_t>(gpu_cache_offset);
-        slot_fea.clear();
-        slot_fea.push_back(feasign);
-        ++uint64_total_slot_num;
-        continue;
+      auto& slot_fea = slot_uint64_feasigns[info.slot_value_idx];
+      uint64_t feasign = static_cast<uint64_t>(gpu_cache_offset);
+      slot_fea.clear();
+      slot_fea.push_back(feasign);
+      ++uint64_total_slot_num;
+      continue;
     }
     int num = strtol(&str[pos], &endptr, 10);
     PADDLE_ENFORCE(num,
