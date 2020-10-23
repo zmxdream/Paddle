@@ -1937,10 +1937,6 @@ void PaddleBoxDataFeed::PutToFeedVec(const std::vector<Record*>& ins_vec) {
 
   std::vector<size_t> lodinfo(col_size, 0);
   for (size_t i = 0; i < use_slots_.size(); ++i) {
-    memcpy(lodinfo.data(), offset.data() + index_map[i] * col_size,
-           col_size * sizeof(size_t));
-    LoD lod{lodinfo};
-    feed_vec_[i]->set_lod(lod);
     if (use_slots_is_dense_[i]) {
       if (inductive_shape_index_[i] != -1) {
         use_slots_shape_[i][inductive_shape_index_[i]] =
@@ -1948,6 +1944,11 @@ void PaddleBoxDataFeed::PutToFeedVec(const std::vector<Record*>& ins_vec) {
             total_dims_without_inductive_[i];
       }
       feed_vec_[i]->Resize(framework::make_ddim(use_slots_shape_[i]));
+    } else {
+      memcpy(lodinfo.data(), offset.data() + index_map[i] * col_size,
+             col_size * sizeof(size_t));
+      LoD lod{lodinfo};
+      feed_vec_[i]->set_lod(lod);
     }
   }
 #endif
@@ -2308,15 +2309,15 @@ void SlotPaddleBoxDataFeed::PutToFeedSlotVec(const SlotRecord* ins_vec,
       CopyToFeedTensor(tensor_ptr, feasign, total_instance * sizeof(int64_t));
     }
 
-    LoD data_lod{slot_offset};
-    feed_vec_[j]->set_lod(data_lod);
-
     if (info.dense) {
       if (info.inductive_shape_index != -1) {
         info.local_shape[info.inductive_shape_index] =
             total_instance / info.total_dims_without_inductive;
       }
       feed->Resize(framework::make_ddim(info.local_shape));
+    } else {
+      LoD data_lod{slot_offset};
+      feed_vec_[j]->set_lod(data_lod);
     }
   }
 #endif
@@ -2414,12 +2415,6 @@ void SlotPaddleBoxDataFeed::BuildSlotBatchGPU(const int ins_num) {
             feed->mutable_data<int64_t>({total_instance, 1}, this->place_);
       }
     }
-    // feed->set_lod({offsets});
-    LoD& lod = (*feed->mutable_lod());
-    lod.resize(1);
-    lod[0].resize(offset_cols_size);
-    memcpy(lod[0].MutableData(platform::CPUPlace()), off_start_ptr,
-           offset_cols_size * sizeof(size_t));
 
     if (info.dense) {
       if (info.inductive_shape_index != -1) {
@@ -2427,6 +2422,12 @@ void SlotPaddleBoxDataFeed::BuildSlotBatchGPU(const int ins_num) {
             total_instance / info.total_dims_without_inductive;
       }
       feed->Resize(framework::make_ddim(info.local_shape));
+    } else {
+      LoD& lod = (*feed->mutable_lod());
+      lod.resize(1);
+      lod[0].resize(offset_cols_size);
+      memcpy(lod[0].MutableData(platform::CPUPlace()), off_start_ptr,
+             offset_cols_size * sizeof(size_t));
     }
   }
   data_timer_.Pause();
