@@ -22,7 +22,7 @@
 #include "paddle/fluid/platform/gpu_info.h"
 
 DECLARE_bool(use_gpu_replica_cache);
-
+DECLARE_int32(gpu_replica_cache_dim);
 namespace paddle {
 namespace framework {
 
@@ -372,6 +372,7 @@ void BoxWrapper::PullSparse(const paddle::platform::Place& place,
     EMBEDX_CASE(16, PULLSPARSE_CASE(0););
     EMBEDX_CASE(256, PULLSPARSE_CASE(0););
     EMBEDX_CASE(128, PULLSPARSE_CASE(0););
+    EMBEDX_CASE(280, PULLSPARSE_CASE(0););
     default:
       PADDLE_THROW(platform::errors::InvalidArgument(
           "Unsupport this embedding size [%d]", hidden_size - 3));
@@ -413,6 +414,7 @@ void BoxWrapper::PushSparseGrad(const paddle::platform::Place& place,
     EMBEDX_CASE(16, PUSHSPARSE_CASE(0););
     EMBEDX_CASE(256, PUSHSPARSE_CASE(0););
     EMBEDX_CASE(128, PUSHSPARSE_CASE(0););
+    EMBEDX_CASE(280, PUSHSPARSE_CASE(0););
     default:
       PADDLE_THROW(platform::errors::InvalidArgument(
           "Unsupport this embedding size [%d]", hidden_size - 3));
@@ -467,7 +469,7 @@ void BoxWrapper::FeedPass(int date,
 void BoxWrapper::BeginFeedPass(int date, boxps::PSAgentBase** agent) {
   int ret = boxps_ptr_->BeginFeedPass(date, *agent);
   if(FLAGS_use_gpu_replica_cache){
-    int dim = BoxWrapper::embedx_dim_;
+    int dim = FLAGS_gpu_replica_cache_dim;
     VLOG(3) << "gpu cache dim:" << dim;
     gpu_replica_cache.emplace_back(dim); 
   }
