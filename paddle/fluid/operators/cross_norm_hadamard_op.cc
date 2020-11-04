@@ -113,6 +113,8 @@ class CrossNormHadamardOpMaker : public framework::OpProtoAndCheckerMaker {
           PADDLE_ENFORCE(epsilon >= 0.0f && epsilon <= 0.001f,
                          "'epsilon' should be between 0.0 and 0.001.");
         });
+    AddAttr<bool>("sync_stats", "(bool, default false) only used in multi-GPU")
+        .SetDefault(false);
     AddOutput("Out", "Output tensor of cross_norm_hadamard_op operator.");
     AddOutput("CudaMeans", "Output tensor of cross_norm_hadamard_op operator.");
     AddOutput("CudaScales",

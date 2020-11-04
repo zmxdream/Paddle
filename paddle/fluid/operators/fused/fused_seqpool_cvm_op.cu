@@ -53,8 +53,9 @@ __global__ void FusedSeqpoolKernel(
           if (tid <= 1) {  // show & click
             val += *(input_values[x] + k * embedding_size + tid);
           } else {
-            val += ((int)(*(input_values[x] + k * embedding_size + tid) * 128 +
-                          0.5)) /
+            val += (static_cast<int>(
+                       *(input_values[x] + k * embedding_size + tid) * 128 +
+                       0.5)) /
                    128.0;
           }
         }
@@ -74,18 +75,17 @@ template <typename T>
 __global__ void FusedCVMKernel(T **output_values, T **seqpool_output_values,
                                const int64_t *data_lens, const int batch_size,
                                int64_t total_len, const int embedding_size,
-                               bool use_cvm) {
+                               const bool use_cvm, const int cvm_offset) {
   CUDA_KERNEL_LOOP(i, total_len * embedding_size) {
     int key = i / embedding_size;
     int offset = i % embedding_size;
     int x = key / batch_size;
     int y = key - (x ? data_lens[x - 1] : 0);
-    int cvm_offset = 2;
     if (use_cvm) {
-      if (offset == 0) {
+      if (offset == 0) {  // show
         *(output_values[x] + y * embedding_size) =
             log(*(seqpool_output_values[x] + y * embedding_size) + 1);
-      } else if (offset == 1) {
+      } else if (offset == 1) {  // click
         *(output_values[x] + y * embedding_size + offset) =
             log(*(seqpool_output_values[x] + y * embedding_size + 1) + 1) -
             log(*(seqpool_output_values[x] + y * embedding_size) + 1);
@@ -108,14 +108,12 @@ __global__ void FusedSeqpoolCVMGradKernel(
     T **out_grads_values, T **out_seqpool_grads_values, T **in_grads_values,
     T **cvm_values, size_t **lods_values, const int64_t *data_lens,
     const int batch_size, int64_t total_len, const int embedding_size,
-    bool use_cvm) {
+    const bool use_cvm, const int cvm_offset) {
   CUDA_KERNEL_LOOP(i, total_len * embedding_size) {
     int key = i / embedding_size;
     int offset = i % embedding_size;
     int x = key / batch_size;
     int y = key - (x ? data_lens[x - 1] : 0);
-
-    int cvm_offset = 2;
 
     if (offset < cvm_offset) {
       *(out_seqpool_grads_values[x] + y * embedding_size + offset) =
@@ -146,9 +144,9 @@ void DoFusedSeqpoolCVM(const paddle::platform::Place &place,
                        T **gpu_seqpool_output_values, size_t **lods_values,
                        const int64_t *data_lens, int slot_num,
                        int64_t total_len, const int embedding_size,
-                       const float padding_value, bool use_cvm,
-                       bool need_filter, float show_coeff, float clk_coeff,
-                       float threshold) {
+                       const float padding_value, const bool use_cvm,
+                       const int cvm_offset, bool need_filter, float show_coeff,
+                       float clk_coeff, float threshold) {
   auto stream = dynamic_cast<platform::CUDADeviceContext *>(
                     platform::DeviceContextPool::Instance().Get(
                         BOOST_GET_CONST(platform::CUDAPlace, place)))
@@ -165,7 +163,7 @@ void DoFusedSeqpoolCVM(const paddle::platform::Place &place,
                        PADDLE_CUDA_NUM_THREADS,
                    PADDLE_CUDA_NUM_THREADS, 0, stream>>>(
       gpu_output_values, gpu_seqpool_output_values, data_lens, batch_size,
-      total_len, embedding_size, use_cvm);
+      total_len, embedding_size, use_cvm, cvm_offset);
 }
 
 template <typename T>
@@ -176,8 +174,9 @@ void FusedSeqpoolCVM(const paddle::platform::Place &place,
                      std::vector<const size_t *> lods,
                      const std::vector<int64_t> &data_lengths,
                      const int embedding_size, const float padding_value,
-                     const bool use_cvm, float need_filter, float show_coeff,
-                     float clk_coeff, float threshold) {
+                     const bool use_cvm, const int cvm_offset,
+                     float need_filter, float show_coeff, float clk_coeff,
+                     float threshold) {
   auto data_lengths_lod = data_lengths;
   int slot_num = static_cast<int>(data_lengths.size());
   for (int i = 1; i < slot_num; i++) {
@@ -228,60 +227,7 @@ void FusedSeqpoolCVM(const paddle::platform::Place &place,
   DoFusedSeqpoolCVM(place, gpu_input_values, gpu_output_values,
                     gpu_seqpool_output_values, lods_values, data_lens, slot_num,
                     total_length, embedding_size, padding_value, use_cvm,
-                    need_filter, show_coeff, clk_coeff, threshold);
-}
-
-template <typename T>
-static void FusedSeqpoolCVMFunctor(const framework::ExecutionContext &ctx) {
-  auto inputs = ctx.MultiInput<LoDTensor>("X");
-  auto outputs = ctx.MultiOutput<framework::Tensor>("Out");
-
-  const auto slot_size = inputs.size();
-  std::vector<const float *> input_data(slot_size);
-  std::vector<int64_t> data_lens(slot_size);
-  std::vector<const size_t *> lods_data(slot_size);
-  std::vector<T *> output_data(slot_size);
-
-  std::vector<LoDTensor> seqpool_outputs(slot_size);
-  std::vector<T *> seqpool_output_data(slot_size);
-
-  auto padding_value = ctx.Attr<float>("pad_value");
-  auto use_cvm = ctx.Attr<bool>("use_cvm");
-  bool need_filter = ctx.Attr<bool>("need_filter");
-  float show_coeff = ctx.Attr<float>("show_coeff");
-  float clk_coeff = ctx.Attr<float>("clk_coeff");
-  float threshold = ctx.Attr<float>("threshold");
-
-  int embedding_size = inputs[0]->numel() / inputs[0]->dims()[0];
-
-  for (size_t i = 0; i < slot_size; ++i) {
-    const auto *input = inputs[i];
-    auto dims = input->dims();
-
-    auto lod = input->lod();
-    auto lod_level = lod.size();
-    int batch_size = lod[lod_level - 1].size() - 1;  // -1 to real batch size
-
-    input_data[i] = reinterpret_cast<const T *>(input->data<T>());
-    auto *output = outputs[i];
-    if (use_cvm) {
-      output->Resize({batch_size, embedding_size});
-    } else {
-      output->Resize({batch_size, embedding_size - 2});
-    }
-    output_data[i] =
-        reinterpret_cast<T *>(output->mutable_data<T>(ctx.GetPlace()));
-    data_lens[i] = lod[lod_level - 1].size() - 1;
-    lods_data[i] = lod[lod_level - 1].CUDAData(ctx.GetPlace());
-
-    seqpool_output_data[i] =
-        reinterpret_cast<T *>(seqpool_outputs[i].mutable_data<T>(
-            {batch_size, embedding_size}, ctx.GetPlace()));
-  }
-
-  FusedSeqpoolCVM(ctx.GetPlace(), input_data, output_data, seqpool_output_data,
-                  lods_data, data_lens, embedding_size, padding_value, use_cvm,
-                  need_filter, show_coeff, clk_coeff, threshold);
+                    cvm_offset, need_filter, show_coeff, clk_coeff, threshold);
 }
 
 template <typename T>
@@ -290,7 +236,8 @@ void DoFusedSeqpoolCVMGrad(const paddle::platform::Place &place,
                            T **in_grads_values, T **gpu_cvm_values,
                            size_t **lods_values, const int64_t *slot_lens,
                            int slot_num, int64_t total_len,
-                           const int embedding_size, bool use_cvm) {
+                           const int embedding_size, const bool use_cvm,
+                           const int cvm_offset) {
   auto stream = dynamic_cast<platform::CUDADeviceContext *>(
                     platform::DeviceContextPool::Instance().Get(
                         BOOST_GET_CONST(platform::CUDAPlace, place)))
@@ -302,7 +249,7 @@ void DoFusedSeqpoolCVMGrad(const paddle::platform::Place &place,
                               PADDLE_CUDA_NUM_THREADS, 0, stream>>>(
       out_grads_values, out_seqpool_grads_values, in_grads_values,
       gpu_cvm_values, lods_values, slot_lens, batch_size, total_len,
-      embedding_size, use_cvm);
+      embedding_size, use_cvm, cvm_offset);
 }
 
 template <typename T>
@@ -311,9 +258,10 @@ void FusedSeqpoolCVMGrad(const paddle::platform::Place &place,
                          const std::vector<T *> &out_seqpool_grads_data,
                          const std::vector<T *> &in_grads_data,
                          const std::vector<const T *> &cvm_data,
-                         std::vector<const size_t *> &lods,
+                         const std::vector<const size_t *> &lods,
                          const std::vector<int64_t> &data_lengths,
-                         const int embedding_size, const bool use_cvm) {
+                         const int embedding_size, const bool use_cvm,
+                         const int cvm_offset) {
   auto data_lengths_lod = data_lengths;
   int slot_num = static_cast<int>(data_lengths.size());
   for (int i = 1; i < slot_num; i++) {
@@ -370,62 +318,64 @@ void FusedSeqpoolCVMGrad(const paddle::platform::Place &place,
   DoFusedSeqpoolCVMGrad(place, gpu_out_grads_values,
                         gpu_out_seqpool_grads_values, gpu_in_grads_values,
                         gpu_cvm_values, lods_values, data_lens, slot_num,
-                        total_length, embedding_size, use_cvm);
-}
-
-template <typename T>
-static void FusedSeqpoolCVMGradFunctor(const framework::ExecutionContext &ctx) {
-  auto out_grads = ctx.MultiInput<LoDTensor>(framework::GradVarName("Out"));
-  auto in_grads = ctx.MultiOutput<LoDTensor>(framework::GradVarName("X"));
-  auto *cvm = ctx.Input<LoDTensor>("CVM");
-
-  std::string pooltype = ctx.Attr<std::string>("pooltype");
-  auto use_cvm = ctx.Attr<bool>("use_cvm");
-
-  const auto slot_size = in_grads.size();
-  std::vector<const T *> out_grads_data(slot_size);
-  std::vector<T *> in_grads_data(slot_size);
-  std::vector<const T *> cvm_data(slot_size);
-  std::vector<const size_t *> lods_data(slot_size);
-  std::vector<int64_t> data_lengths(slot_size);
-
-  std::vector<LoDTensor> out_seqpool_grads(slot_size);
-  std::vector<T *> out_seqpool_grads_data(slot_size);
-
-  int embedding_size = in_grads[0]->numel() / in_grads[0]->dims()[0];
-
-  for (size_t i = 0; i < slot_size; ++i) {
-    auto *in_grad = in_grads[i];
-    auto dims = in_grad->dims();
-
-    auto lod = in_grad->lod();
-    auto lod_level = lod.size();
-    int batch_size = lod[lod_level - 1].size() - 1;  // -1 to real batch size
-
-    auto *out_grad = out_grads[i];
-    out_grads_data[i] = reinterpret_cast<const T *>(out_grad->data<T>());
-
-    in_grads_data[i] =
-        reinterpret_cast<T *>(in_grad->mutable_data<T>(ctx.GetPlace()));
-    lods_data[i] = lod[lod_level - 1].CUDAData(ctx.GetPlace());
-    data_lengths[i] = lod[lod_level - 1].size() - 1;
-    cvm_data[i] = reinterpret_cast<const T *>(cvm->data<T>());
-
-    out_seqpool_grads_data[i] =
-        reinterpret_cast<T *>(out_seqpool_grads[i].mutable_data<T>(
-            {batch_size, embedding_size}, ctx.GetPlace()));
-  }
-
-  FusedSeqpoolCVMGrad(ctx.GetPlace(), out_grads_data, out_seqpool_grads_data,
-                      in_grads_data, cvm_data, lods_data, data_lengths,
-                      embedding_size, use_cvm);
+                        total_length, embedding_size, use_cvm, cvm_offset);
 }
 
 template <typename T>
 class FusedSeqpoolCVMCUDAKernel : public framework::OpKernel<T> {
  public:
   void Compute(const framework::ExecutionContext &ctx) const override {
-    FusedSeqpoolCVMFunctor<T>(ctx);
+    auto inputs = ctx.MultiInput<LoDTensor>("X");
+    auto outputs = ctx.MultiOutput<framework::Tensor>("Out");
+
+    const auto slot_size = inputs.size();
+    std::vector<const float *> input_data(slot_size);
+    std::vector<int64_t> data_lens(slot_size);
+    std::vector<const size_t *> lods_data(slot_size);
+    std::vector<T *> output_data(slot_size);
+
+    std::vector<LoDTensor> seqpool_outputs(slot_size);
+    std::vector<T *> seqpool_output_data(slot_size);
+
+    auto padding_value = ctx.Attr<float>("pad_value");
+    auto use_cvm = ctx.Attr<bool>("use_cvm");
+    bool need_filter = ctx.Attr<bool>("need_filter");
+    float show_coeff = ctx.Attr<float>("show_coeff");
+    float clk_coeff = ctx.Attr<float>("clk_coeff");
+    float threshold = ctx.Attr<float>("threshold");
+    const int cvm_offset = ctx.Attr<int>("cvm_offset");
+
+    int embedding_size = inputs[0]->numel() / inputs[0]->dims()[0];
+
+    for (size_t i = 0; i < slot_size; ++i) {
+      const auto *input = inputs[i];
+      auto dims = input->dims();
+
+      auto lod = input->lod();
+      auto lod_level = lod.size();
+      int batch_size = lod[lod_level - 1].size() - 1;  // -1 to real batch size
+
+      input_data[i] = reinterpret_cast<const T *>(input->data<T>());
+      auto *output = outputs[i];
+      if (use_cvm) {
+        output->Resize({batch_size, embedding_size});
+      } else {
+        output->Resize({batch_size, embedding_size - cvm_offset});
+      }
+      output_data[i] =
+          reinterpret_cast<T *>(output->mutable_data<T>(ctx.GetPlace()));
+      data_lens[i] = lod[lod_level - 1].size() - 1;
+      lods_data[i] = lod[lod_level - 1].CUDAData(ctx.GetPlace());
+
+      seqpool_output_data[i] =
+          reinterpret_cast<T *>(seqpool_outputs[i].mutable_data<T>(
+              {batch_size, embedding_size}, ctx.GetPlace()));
+    }
+
+    FusedSeqpoolCVM(ctx.GetPlace(), input_data, output_data,
+                    seqpool_output_data, lods_data, data_lens, embedding_size,
+                    padding_value, use_cvm, cvm_offset, need_filter, show_coeff,
+                    clk_coeff, threshold);
   }
 };
 
@@ -433,7 +383,51 @@ template <typename T>
 class FusedSeqpoolCVMGradCUDAKernel : public framework::OpKernel<T> {
  public:
   void Compute(const framework::ExecutionContext &ctx) const override {
-    FusedSeqpoolCVMGradFunctor<T>(ctx);
+    auto out_grads = ctx.MultiInput<LoDTensor>(framework::GradVarName("Out"));
+    auto in_grads = ctx.MultiOutput<LoDTensor>(framework::GradVarName("X"));
+    auto *cvm = ctx.Input<LoDTensor>("CVM");
+
+    std::string pooltype = ctx.Attr<std::string>("pooltype");
+    auto use_cvm = ctx.Attr<bool>("use_cvm");
+    const int cvm_offset = ctx.Attr<int>("cvm_offset");
+
+    const auto slot_size = in_grads.size();
+    std::vector<const T *> out_grads_data(slot_size);
+    std::vector<T *> in_grads_data(slot_size);
+    std::vector<const T *> cvm_data(slot_size);
+    std::vector<const size_t *> lods_data(slot_size);
+    std::vector<int64_t> data_lengths(slot_size);
+
+    std::vector<LoDTensor> out_seqpool_grads(slot_size);
+    std::vector<T *> out_seqpool_grads_data(slot_size);
+
+    int embedding_size = in_grads[0]->numel() / in_grads[0]->dims()[0];
+
+    for (size_t i = 0; i < slot_size; ++i) {
+      auto *in_grad = in_grads[i];
+      auto dims = in_grad->dims();
+
+      auto lod = in_grad->lod();
+      auto lod_level = lod.size();
+      int batch_size = lod[lod_level - 1].size() - 1;  // -1 to real batch size
+
+      auto *out_grad = out_grads[i];
+      out_grads_data[i] = reinterpret_cast<const T *>(out_grad->data<T>());
+
+      in_grads_data[i] =
+          reinterpret_cast<T *>(in_grad->mutable_data<T>(ctx.GetPlace()));
+      lods_data[i] = lod[lod_level - 1].CUDAData(ctx.GetPlace());
+      data_lengths[i] = lod[lod_level - 1].size() - 1;
+      cvm_data[i] = reinterpret_cast<const T *>(cvm->data<T>());
+
+      out_seqpool_grads_data[i] =
+          reinterpret_cast<T *>(out_seqpool_grads[i].mutable_data<T>(
+              {batch_size, embedding_size}, ctx.GetPlace()));
+    }
+
+    FusedSeqpoolCVMGrad(ctx.GetPlace(), out_grads_data, out_seqpool_grads_data,
+                        in_grads_data, cvm_data, lods_data, data_lengths,
+                        embedding_size, use_cvm, cvm_offset);
   }
 };
 

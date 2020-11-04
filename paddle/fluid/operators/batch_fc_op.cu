@@ -29,7 +29,7 @@ using framework::Tensor;
   for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < (n); \
        i += blockDim.x * gridDim.x)
 
-const int CUDA_NUM_THREADS = 1024;
+const int CUDA_NUM_THREADS = paddle::platform::PADDLE_CUDA_NUM_THREADS;
 static inline int GET_BLOCKS(const int N) {
   return (N + CUDA_NUM_THREADS - 1) / CUDA_NUM_THREADS;
 }
