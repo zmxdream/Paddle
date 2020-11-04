@@ -1428,7 +1428,8 @@ def fused_seqpool_cvm(input,
                       need_filter=False,
                       show_coeff=0.2,
                       clk_coeff=1.0,
-                      threshold=0.96):
+                      threshold=0.96,
+                      cvm_offset=2):
     """
      **Notes: The Op only receives List of LoDTensor as input, only support SUM pooling now.
     :attr:`input`.
@@ -1471,6 +1472,7 @@ def fused_seqpool_cvm(input,
             "pooltype": pool_type.upper(),
             "pad_value": pad_value,
             "use_cvm": use_cvm,
+            "cvm_offset": cvm_offset,
             "need_filter": need_filter,
             "show_coeff": show_coeff,
             "clk_coeff": clk_coeff,
@@ -1486,7 +1488,8 @@ def cross_norm_layer_hadamard(input,
                               param_dict={},
                               summary_decay_rate=0.9999999,
                               epsilon=1e-04,
-                              name=None):
+                              name=None,
+                              sync_stats=False):
     """
     **Cross Norm Layer Hadamard**
     """
@@ -1535,6 +1538,7 @@ def cross_norm_layer_hadamard(input,
             "fields_num": fields_num,
             "embed_dim": embed_dim,
             "epsilon": epsilon,
-            "summary_decay_rate": summary_decay_rate
+            "summary_decay_rate": summary_decay_rate,
+            "sync_stats": sync_stats
         })
     return out

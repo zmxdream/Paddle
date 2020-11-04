@@ -16,6 +16,8 @@ limitations under the License. */
 #include <memory.h>
 #include "cub/cub.cuh"
 #include "paddle/fluid/operators/math/math_function.h"
+#include "paddle/fluid/platform/cuda_primitives.h"
+#include "paddle/fluid/platform/gpu_info.h"
 
 #define NORM_POS(idx, row, col) (((idx)*block_cols + (col)) * ins_num + (row))
 #define SCALE_MEAN_POS(idx, col) ((idx)*block_cols + (col))
@@ -29,7 +31,7 @@ limitations under the License. */
   for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < (n); \
        i += blockDim.x * gridDim.x)
 
-const int CUDA_NUM_THREADS = 1024;
+const int CUDA_NUM_THREADS = paddle::platform::PADDLE_CUDA_NUM_THREADS;
 static inline int GET_BLOCKS(const int N) {
   return (N + CUDA_NUM_THREADS - 1) / CUDA_NUM_THREADS;
 }

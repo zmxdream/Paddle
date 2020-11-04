@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License. */
 
 #include "paddle/fluid/operators/fused/fused_seqpool_cvm_op.h"
-
+#include <string>
 namespace paddle {
 namespace operators {
 
@@ -30,12 +30,12 @@ class FusedSeqpoolCVMOp : public framework::OperatorWithKernel {
     PADDLE_ENFORCE_EQ(
         cvm_dims.size(), 2UL,
         platform::errors::InvalidArgument("Input(CVM)'s rank should be 2."));
-    PADDLE_ENFORCE_EQ(
-        cvm_dims[1], 2UL,
-        platform::errors::InvalidArgument("The 2nd dimension of "
-                                          "Input(CVM) should be 2."));
+    PADDLE_ENFORCE_EQ(cvm_dims[1], 2UL, platform::errors::InvalidArgument(
+                                            "The 2nd dimension of "
+                                            "Input(CVM) should be 2."));
 
     auto ins_dims = ctx->GetInputsDim("X");
+    const int cvm_offset = ctx->Attrs().Get<int>("cvm_offset");
     const size_t num_inputs = ins_dims.size();
     std::vector<framework::DDim> outs_dims;
     outs_dims.resize(num_inputs);
@@ -69,7 +69,7 @@ class FusedSeqpoolCVMOp : public framework::OperatorWithKernel {
       if (ctx->Attrs().Get<bool>("use_cvm")) {
         out_dim = {-1, dims[rank - 1]};
       } else {
-        out_dim = {-1, dims[rank - 1] - 2};
+        out_dim = {-1, dims[rank - 1] - cvm_offset};
       }
       outs_dims[i] = framework::make_ddim(out_dim);
     }
@@ -111,6 +111,7 @@ class FusedSeqpoolCVMOpMaker : public framework::OpProtoAndCheckerMaker {
     AddAttr<float>("show_coeff", "(float, default 0.2)").SetDefault(0.2);
     AddAttr<float>("clk_coeff", "(float, default 1)").SetDefault(1);
     AddAttr<float>("threshold", "(float, default 0.96)").SetDefault(0.96);
+    AddAttr<int>("cvm_offset", "(int, default 2)").SetDefault(2);
 
     AddComment(R"DOC(
 Fuse multiple pairs of Sequence Pool and CVM Operator.
@@ -127,6 +128,7 @@ class FusedSeqpoolCVMGradOp : public framework::OperatorWithKernel {
     auto og_dims = ctx->GetInputsDim(framework::GradVarName("Out"));
     auto x_dims = ctx->GetInputsDim("X");
     auto cvm_dims = ctx->GetInputDim("CVM");
+    const int cvm_offset = ctx->Attrs().Get<int>("cvm_offset");
 
     PADDLE_ENFORCE_EQ(
         cvm_dims.size(), 2,
@@ -151,7 +153,7 @@ class FusedSeqpoolCVMGradOp : public framework::OperatorWithKernel {
       } else {
         PADDLE_ENFORCE_EQ(
             og_dims[i][og_dims[i].size() - 1],
-            x_dims[i][og_dims[i].size() - 1] - 2,
+            x_dims[i][og_dims[i].size() - 1] - cvm_offset,
             platform::errors::InvalidArgument(
                 "The dimension mismatch between Input(OUT@GRAD) and "
                 "Input(X). Received Input(OUT@GRAD): input rank %u, "

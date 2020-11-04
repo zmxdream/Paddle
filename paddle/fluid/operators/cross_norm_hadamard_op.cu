@@ -85,6 +85,7 @@ class CrossNormHadamardOpCUDAKernel : public framework::OpKernel<T> {
     auto embed_dim = ctx.Attr<int64_t>("embed_dim");
     const float epsilon = ctx.Attr<float>("epsilon");
     const float dr = ctx.Attr<float>("summary_decay_rate");
+    const bool need_sync_stats = ctx.Attr<bool>("sync_stats");
 
     auto* input_grad = ctx.Output<Tensor>(framework::GradVarName("Input"));
     auto* summary_grad =
@@ -173,7 +174,6 @@ class CrossNormHadamardOpCUDAKernel : public framework::OpKernel<T> {
     T* summary_input_data =
         ctx.Output<Tensor>("SummaryInput")->mutable_data<T>(ctx.GetPlace());
 
-    bool need_sync_stats = true;
     if (need_sync_stats) {
 #if defined(PADDLE_WITH_NCCL)
       auto comm = platform::NCCLCommContext::Instance().Get(0, ctx.GetPlace());
