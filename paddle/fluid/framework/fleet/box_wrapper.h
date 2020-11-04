@@ -408,7 +408,6 @@ class BoxWrapper {
         expand_embed_dim_ = expand_embed_dim;
         is_quant_ = is_quant;
         pull_embedx_scale_ = pull_embedx_scale;
-
         if (boxps::MPICluster::Ins().size() > 1) {
           data_shuffle_.reset(boxps::PaddleShuffler::New());
           data_shuffle_->init(10);
@@ -844,7 +843,6 @@ class BoxWrapper {
   static int expand_embed_dim_;
   static bool is_quant_;
   static float pull_embedx_scale_;
-
   // Metric Related
   int phase_ = 1;
   int phase_num_ = 2;
