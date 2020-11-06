@@ -22,7 +22,7 @@
 #include "paddle/fluid/platform/gpu_info.h"
 
 DECLARE_bool(use_gpu_replica_cache);
-
+DECLARE_int32(gpu_replica_cache_dim);
 namespace paddle {
 namespace framework {
 
@@ -465,7 +465,7 @@ void BoxWrapper::FeedPass(int date,
 void BoxWrapper::BeginFeedPass(int date, boxps::PSAgentBase** agent) {
   int ret = boxps_ptr_->BeginFeedPass(date, *agent);
   if (FLAGS_use_gpu_replica_cache) {
-    int dim = BoxWrapper::embedx_dim_;
+    int dim = FLAGS_gpu_replica_cache_dim;
     VLOG(3) << "gpu cache dim:" << dim;
     gpu_replica_cache.emplace_back(dim);
   }
