@@ -127,16 +127,14 @@ class BasicAucCalculator {
 
 class GpuReplicaCache {
  public:
-  GpuReplicaCache(int dim) {
-    emb_dim_ = dim;
-  }
+  explicit GpuReplicaCache(int dim) { emb_dim_ = dim; }
 
   ~GpuReplicaCache() {
     for (size_t i = 0; i < d_embs_.size(); ++i) {
       cudaFree(d_embs_[i]);
     }
   }
-  int AddItems(std::vector<float>& emb) {
+  int AddItems(const std::vector<float>& emb) {
     int r;
     h_emb_mtx_.lock();
     h_emb_.insert(h_emb_.end(), emb.begin(), emb.end());
@@ -154,9 +152,11 @@ class GpuReplicaCache {
       cudaMalloc(&d_embs_.back(), h_emb_count_ * emb_dim_ * sizeof(float));
       auto place = platform::CUDAPlace(i);
       auto stream = dynamic_cast<platform::CUDADeviceContext*>(
-                    platform::DeviceContextPool::Instance().Get(place))
-                    ->stream();
-      cudaMemcpyAsync(d_embs_.back(), h_emb_.data(), h_emb_count_ * emb_dim_ * sizeof(float), cudaMemcpyHostToDevice, stream);
+                        platform::DeviceContextPool::Instance().Get(place))
+                        ->stream();
+      cudaMemcpyAsync(d_embs_.back(), h_emb_.data(),
+                      h_emb_count_ * emb_dim_ * sizeof(float),
+                      cudaMemcpyHostToDevice, stream);
     }
   }
 
@@ -391,10 +391,9 @@ class BoxWrapper {
     return s_instance_;
   }
 
-  static std::shared_ptr<BoxWrapper> SetInstance(int embedx_dim = 8,
-                                                 int expand_embed_dim = 0,
-                                                 bool is_quant = false,
-                                                 float pull_embedx_scale = 1.0) {
+  static std::shared_ptr<BoxWrapper> SetInstance(
+      int embedx_dim = 8, int expand_embed_dim = 0, bool is_quant = false,
+      float pull_embedx_scale = 1.0) {
     if (nullptr == s_instance_) {
       // If main thread is guaranteed to init this, this lock can be removed
       static std::mutex mutex;
@@ -408,6 +407,7 @@ class BoxWrapper {
         expand_embed_dim_ = expand_embed_dim;
         is_quant_ = is_quant;
         pull_embedx_scale_ = pull_embedx_scale;
+
         if (boxps::MPICluster::Ins().size() > 1) {
           data_shuffle_.reset(boxps::PaddleShuffler::New());
           data_shuffle_->init(10);
@@ -843,6 +843,7 @@ class BoxWrapper {
   static int expand_embed_dim_;
   static bool is_quant_;
   static float pull_embedx_scale_;
+
   // Metric Related
   int phase_ = 1;
   int phase_num_ = 2;

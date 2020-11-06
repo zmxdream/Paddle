@@ -34,6 +34,8 @@
 #define _LINUX
 #endif
 
+DECLARE_bool(padbox_dataset_disable_shuffle);
+
 // USE_INT_STAT(STAT_total_feasign_num_in_mem);
 namespace paddle {
 namespace framework {
@@ -1465,7 +1467,7 @@ void PadBoxSlotDataset::LoadIntoMemory() {
   std::vector<std::thread> load_threads;
   std::vector<std::thread> shuffle_threads;
 
-  if (mpi_size_ > 1) {
+  if (!FLAGS_padbox_dataset_disable_shuffle && mpi_size_ > 1) {
     finished_counter_ = mpi_size_;
     mpi_flags_.assign(mpi_size_, 1);
     VLOG(3) << "RegisterClientToClientMsgHandler";
@@ -1485,7 +1487,7 @@ void PadBoxSlotDataset::LoadIntoMemory() {
   }
 
   // dualbox global data shuffle
-  if (mpi_size_ > 1) {
+  if (!FLAGS_padbox_dataset_disable_shuffle && mpi_size_ > 1) {
     ShuffleData(&shuffle_threads, shuffle_thread_num_);
     MergeInsKeys(shuffle_channel_);
   } else {
@@ -1797,8 +1799,7 @@ void PadBoxSlotDataset::CreateReaders() {
   }
   VLOG(3) << "data feed class name: " << data_feed_desc_.name();
   for (int i = 0; i < thread_num_; ++i) {
-    readers_.push_back(
-        DataFeedFactory::CreateDataFeed(data_feed_desc_.name()));
+    readers_.push_back(DataFeedFactory::CreateDataFeed(data_feed_desc_.name()));
     readers_[i]->Init(data_feed_desc_);
     readers_[i]->SetThreadId(i);
     readers_[i]->SetThreadNum(thread_num_);

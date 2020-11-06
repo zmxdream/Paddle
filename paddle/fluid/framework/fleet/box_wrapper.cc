@@ -22,7 +22,7 @@
 #include "paddle/fluid/platform/gpu_info.h"
 
 DECLARE_bool(use_gpu_replica_cache);
-DECLARE_int32(gpu_replica_cache_dim);
+
 namespace paddle {
 namespace framework {
 
@@ -351,28 +351,25 @@ void BoxWrapper::PullSparse(const paddle::platform::Place& place,
     }                                                                        \
   } break
 
-#define PULLSPARSE_CASE(i, ...)                                             \
-  case i: {                                                                 \
-    constexpr size_t ExpandDim = i;                                         \
-    if (is_quant_) {                                                        \
-      PullSparseCase<boxps::FeatureValueGpuQuant<EmbedxDim, ExpandDim>>(    \
-                                         place, keys, values, slot_lengths, \
-                                         hidden_size, expand_embed_dim);    \
-    } else {                                                                \
-      PullSparseCase<boxps::FeatureValueGpu<EmbedxDim, ExpandDim>>(         \
-                                         place, keys, values, slot_lengths, \
-                                         hidden_size, expand_embed_dim);    \
-    }                                                                       \
+#define PULLSPARSE_CASE(i, ...)                                              \
+  case i: {                                                                  \
+    constexpr size_t ExpandDim = i;                                          \
+    if (is_quant_) {                                                         \
+      PullSparseCase<boxps::FeatureValueGpuQuant<EmbedxDim, ExpandDim>>(     \
+          place, keys, values, slot_lengths, hidden_size, expand_embed_dim); \
+    } else {                                                                 \
+      PullSparseCase<boxps::FeatureValueGpu<EmbedxDim, ExpandDim>>(          \
+          place, keys, values, slot_lengths, hidden_size, expand_embed_dim); \
+    }                                                                        \
   } break
 
   CheckEmbedSizeIsValid(hidden_size - 3, expand_embed_dim);
   switch (hidden_size - 3) {
     EMBEDX_CASE(8, PULLSPARSE_CASE(0); PULLSPARSE_CASE(8);
                 PULLSPARSE_CASE(64););
-    EMBEDX_CASE(16, PULLSPARSE_CASE(0););
+    EMBEDX_CASE(16, PULLSPARSE_CASE(0); PULLSPARSE_CASE(64););
     EMBEDX_CASE(256, PULLSPARSE_CASE(0););
     EMBEDX_CASE(128, PULLSPARSE_CASE(0););
-    EMBEDX_CASE(280, PULLSPARSE_CASE(0););
     default:
       PADDLE_THROW(platform::errors::InvalidArgument(
           "Unsupport this embedding size [%d]", hidden_size - 3));
@@ -411,10 +408,9 @@ void BoxWrapper::PushSparseGrad(const paddle::platform::Place& place,
   switch (hidden_size - 3) {
     EMBEDX_CASE(8, PUSHSPARSE_CASE(0); PUSHSPARSE_CASE(8);
                 PUSHSPARSE_CASE(64););
-    EMBEDX_CASE(16, PUSHSPARSE_CASE(0););
+    EMBEDX_CASE(16, PUSHSPARSE_CASE(0); PUSHSPARSE_CASE(64););
     EMBEDX_CASE(256, PUSHSPARSE_CASE(0););
     EMBEDX_CASE(128, PUSHSPARSE_CASE(0););
-    EMBEDX_CASE(280, PUSHSPARSE_CASE(0););
     default:
       PADDLE_THROW(platform::errors::InvalidArgument(
           "Unsupport this embedding size [%d]", hidden_size - 3));
@@ -468,17 +464,17 @@ void BoxWrapper::FeedPass(int date,
 
 void BoxWrapper::BeginFeedPass(int date, boxps::PSAgentBase** agent) {
   int ret = boxps_ptr_->BeginFeedPass(date, *agent);
-  if(FLAGS_use_gpu_replica_cache){
-    int dim = FLAGS_gpu_replica_cache_dim;
+  if (FLAGS_use_gpu_replica_cache) {
+    int dim = BoxWrapper::embedx_dim_;
     VLOG(3) << "gpu cache dim:" << dim;
-    gpu_replica_cache.emplace_back(dim); 
+    gpu_replica_cache.emplace_back(dim);
   }
   PADDLE_ENFORCE_EQ(ret, 0, platform::errors::PreconditionNotMet(
                                 "BeginFeedPass failed in BoxPS."));
 }
 
 void BoxWrapper::EndFeedPass(boxps::PSAgentBase* agent) {
-  if(FLAGS_use_gpu_replica_cache){
+  if (FLAGS_use_gpu_replica_cache) {
     gpu_replica_cache.back().ToHBM();
   }
   int ret = boxps_ptr_->EndFeedPass(agent);
@@ -502,7 +498,7 @@ void BoxWrapper::SetTestMode(bool is_test) const {
 }
 
 void BoxWrapper::EndPass(bool need_save_delta) {
-  if(FLAGS_use_gpu_replica_cache){
+  if (FLAGS_use_gpu_replica_cache) {
     gpu_replica_cache.pop_front();
   }
   int ret = boxps_ptr_->EndPass(need_save_delta);
