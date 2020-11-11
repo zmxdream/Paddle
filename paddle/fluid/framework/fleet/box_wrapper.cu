@@ -79,6 +79,84 @@ __global__ void PullCopy(float** dest, const FEATURE_VALUE_GPU_TYPE* src,
   }  // end kernel loop
 }
 
+template <typename FEATURE_VALUE_GPU_TYPE>
+__global__ void PullCopyBase(float** dest, const FEATURE_VALUE_GPU_TYPE* src,
+                             const int hidden, const int expand_dim,
+                             const int total_len, uint64_t** keys,
+                             int* total_dims, const int64_t* slot_lens,
+                             const int slot_num, const int* key2slot,
+                             const bool is_quant, float scale) {
+  CUDA_KERNEL_LOOP(i, total_len) {
+    int x = key2slot[i];
+    int y = i - (x ? slot_lens[x - 1] : 0);
+
+    auto& src_val = src[i];
+    if (*(keys[x] + y) == 0) {
+      *(dest[x] + y * hidden) = 0;
+      *(dest[x] + y * hidden + 1) = 0;
+      *(dest[x] + y * hidden + 2) = 0;
+    } else {
+      *(dest[x] + y * hidden) = src_val.show;
+      *(dest[x] + y * hidden + 1) = src_val.clk;
+      *(dest[x] + y * hidden + 2) = src_val.embed_w;
+    }
+    if (src_val.embedding_size == 0 || *(keys[x] + y) == 0) {
+      total_dims[i] = 0x00;
+    } else {
+      total_dims[i] = 0x01;
+    }
+    // process embed_expand
+    if (expand_dim > 0) {
+      if (src_val.embed_expand_size[0] > 0 && *(keys[x] + y) != 0) {
+        total_dims[i] |= 0x02;
+      }
+    }
+  }  // end kernel loop
+}
+
+template <typename FEATURE_VALUE_GPU_TYPE>
+__global__ void PullCopyExpand(float** dest, const FEATURE_VALUE_GPU_TYPE* src,
+                               const int total_embedx_dim, const int embedx_dim,
+                               const int expand_dim, const int total_len,
+                               const int* total_dims, const int64_t* slot_lens,
+                               const int slot_num, const int* key2slot,
+                               const bool is_quant, float scale) {
+  CUDA_KERNEL_LOOP(i, total_len) {
+    int idx = i / total_embedx_dim;
+    int col = i % total_embedx_dim;
+
+    int x = key2slot[idx];
+    int y = idx - (x ? slot_lens[x - 1] : 0);
+
+    auto& src_val = src[idx];
+    if (col < embedx_dim) {  // embedx
+      if (total_dims[idx] & 0x01) {
+        if (is_quant) {
+          *(dest[x] + y * (embedx_dim + 3) + 3 + col) =
+              src_val.embedx[col] * scale;
+        } else {
+          *(dest[x] + y * (embedx_dim + 3) + 3 + col) = src_val.embedx[1 + col];
+        }
+      } else {
+        *(dest[x] + y * (embedx_dim + 3) + 3 + col) = 0;
+      }
+    } else {  // expand
+      int j = col - embedx_dim;
+      if (total_dims[idx] & 0x02) {
+        //            if (is_quant) {
+        //                *(dest[x + slot_num] + y * expand_dim + j) =
+        //                src_val.embed_expand[1 + j] * scale;
+        //            } else {
+        *(dest[x + slot_num] + y * expand_dim + j) =
+            src_val.embed_expand[1 + j];
+        //            }
+      } else {
+        *(dest[x + slot_num] + y * expand_dim + j) = 0;
+      }
+    }
+  }  // end kernel loop
+}
+
 __global__ void FillKey2Slot(const int total_len, const int64_t* slot_lens,
                              const int slot_num, int* key2slots) {
   CUDA_KERNEL_LOOP(i, total_len) {
@@ -106,12 +184,12 @@ __global__ void CopyKeysKernel(const int total_len, uint64_t** src_keys,
   }
 }
 
-template <size_t EMBEDX_DIM, size_t EXPAND_EMBED_DIM>
-__global__ void PushCopy(
-    boxps::FeaturePushValueGpu<EMBEDX_DIM, EXPAND_EMBED_DIM>* dest, float** src,
-    int hidden, int expand_dim, int total_len, int bs, const int* slot_vector,
-    const int* total_dims, const int64_t* slot_lens, const int slot_num,
-    const int* key2slot) {
+template <typename FeaturePushValueGpuType>
+__global__ void PushCopy(FeaturePushValueGpuType* dest, float** src,
+                         const int hidden, const int expand_dim,
+                         const int total_len, int bs, const int* slot_vector,
+                         const int* total_dims, const int64_t* slot_lens,
+                         const int slot_num, const int* key2slot) {
   CUDA_KERNEL_LOOP(i, total_len) {
     int x = key2slot[i];
     int y = i - (x ? slot_lens[x - 1] : 0);
@@ -139,6 +217,58 @@ __global__ void PushCopy(
         for (int j = 0; j < expand_dim; j++) {
           (dest + i)->embed_expand_g[j] = 0;
         }
+      }
+    }
+  }
+}
+
+template <typename FeaturePushValueGpuType>
+__global__ void PushCopyBase(FeaturePushValueGpuType* dest, float** src,
+                             const int hidden, const int total_len,
+                             const int bs, const int* slot_vector,
+                             const int* total_dims, const int64_t* slot_lens,
+                             const int slot_num, const int* key2slot) {
+  CUDA_KERNEL_LOOP(i, total_len) {
+    int x = key2slot[i];
+    int y = i - (x ? slot_lens[x - 1] : 0);
+
+    auto& dest_val = dest[i];
+    dest_val.slot = slot_vector[x];
+    dest_val.show = *(src[x] + y * hidden);
+    dest_val.clk = *(src[x] + y * hidden + 1);
+    dest_val.embed_g = *(src[x] + y * hidden + 2) * -1. * bs;
+  }
+}
+
+template <typename FeaturePushValueGpuType>
+__global__ void PushCopyExpand(FeaturePushValueGpuType* dest, float** src,
+                               const int total_embedx_dim, const int embedx_dim,
+                               const int expand_dim, const int total_len,
+                               const int bs, const int* slot_vector,
+                               const int* total_dims, const int64_t* slot_lens,
+                               const int slot_num, const int* key2slot) {
+  CUDA_KERNEL_LOOP(i, total_len) {
+    int idx = i / total_embedx_dim;
+    int col = i % total_embedx_dim;
+
+    int x = key2slot[idx];
+    int y = idx - (x ? slot_lens[x - 1] : 0);
+
+    auto& dest_val = dest[idx];
+    if (col < embedx_dim) {  // embedx
+      if (total_dims[idx] & 0x01) {
+        dest_val.embedx_g[col] =
+            *(src[x] + y * (embedx_dim + 3) + 3 + col) * -1. * bs;
+      } else {
+        dest_val.embedx_g[col] = 0;
+      }
+    } else {  // expand
+      int j = col - embedx_dim;
+      if (total_dims[idx] & 0x02) {
+        dest_val.embed_expand_g[j] =
+            *(src[x + slot_num] + y * expand_dim + j) * -1. * bs;
+      } else {
+        dest_val.embed_expand_g[j] = 0;
       }
     }
   }
@@ -211,6 +341,7 @@ void BoxWrapper::CopyForPull(const paddle::platform::Place& place,
             "Unsupport this expand embedding size [%d]", expand_embed_dim)); \
     }                                                                        \
   } break
+
 #define EXPAND_EMBED_PULL_CASE(i, ...)                                         \
   case i: {                                                                    \
     constexpr size_t ExpandDim = i;                                            \
@@ -232,12 +363,53 @@ void BoxWrapper::CopyForPull(const paddle::platform::Place& place,
           slot_lens, slot_num, key2slot, is_quant_, pull_embedx_scale_);       \
     }                                                                          \
   } break
+
+#define EXPAND_EMBED_PULL_CASE2(i, ...)                                        \
+  case i: {                                                                    \
+    constexpr size_t ExpandDim = i;                                            \
+    if (is_quant_) {                                                           \
+      PullCopyBase<boxps::FeatureValueGpuQuant<EmbedxDim, ExpandDim>><<<       \
+          (total_length + 512 - 1) / 512, 512, 0, stream>>>(                   \
+          gpu_values, reinterpret_cast<                                        \
+                          boxps::FeatureValueGpuQuant<EmbedxDim, ExpandDim>*>( \
+                          total_values_gpu),                                   \
+          hidden_size, expand_embed_dim, total_length, gpu_keys, total_dims,   \
+          slot_lens, slot_num, key2slot, is_quant_, pull_embedx_scale_);       \
+      int embedx_total_length = total_length * (EmbedxDim + ExpandDim);        \
+      PullCopyExpand<boxps::FeatureValueGpuQuant<EmbedxDim, ExpandDim>><<<     \
+          (embedx_total_length + 512 - 1) / 512, 512, 0, stream>>>(            \
+          gpu_values, reinterpret_cast<                                        \
+                          boxps::FeatureValueGpuQuant<EmbedxDim, ExpandDim>*>( \
+                          total_values_gpu),                                   \
+          (EmbedxDim + ExpandDim), EmbedxDim, ExpandDim, embedx_total_length,  \
+          total_dims, slot_lens, slot_num, key2slot, is_quant_,                \
+          pull_embedx_scale_);                                                 \
+    } else {                                                                   \
+      PullCopyBase<boxps::FeatureValueGpu<EmbedxDim, ExpandDim>><<<            \
+          (total_length + 512 - 1) / 512, 512, 0, stream>>>(                   \
+          gpu_values,                                                          \
+          reinterpret_cast<boxps::FeatureValueGpu<EmbedxDim, ExpandDim>*>(     \
+              total_values_gpu),                                               \
+          hidden_size, expand_embed_dim, total_length, gpu_keys, total_dims,   \
+          slot_lens, slot_num, key2slot, is_quant_, pull_embedx_scale_);       \
+      int embedx_total_length = total_length * (EmbedxDim + ExpandDim);        \
+      PullCopyExpand<boxps::FeatureValueGpu<EmbedxDim, ExpandDim>><<<          \
+          (embedx_total_length + 512 - 1) / 512, 512, 0, stream>>>(            \
+          gpu_values,                                                          \
+          reinterpret_cast<boxps::FeatureValueGpu<EmbedxDim, ExpandDim>*>(     \
+              total_values_gpu),                                               \
+          (EmbedxDim + ExpandDim), EmbedxDim, ExpandDim, embedx_total_length,  \
+          total_dims, slot_lens, slot_num, key2slot, is_quant_,                \
+          pull_embedx_scale_);                                                 \
+    }                                                                          \
+  } break
+
   switch (hidden_size - 3) {
-    EMBEDX_CASE(8, EXPAND_EMBED_PULL_CASE(0); EXPAND_EMBED_PULL_CASE(8);
-                EXPAND_EMBED_PULL_CASE(64););
-    EMBEDX_CASE(16, EXPAND_EMBED_PULL_CASE(0); EXPAND_EMBED_PULL_CASE(64););
-    EMBEDX_CASE(256, EXPAND_EMBED_PULL_CASE(0););
-    EMBEDX_CASE(128, EXPAND_EMBED_PULL_CASE(0););
+    EMBEDX_CASE(8, EXPAND_EMBED_PULL_CASE(0); EXPAND_EMBED_PULL_CASE2(8);
+                EXPAND_EMBED_PULL_CASE2(64););
+    EMBEDX_CASE(16, EXPAND_EMBED_PULL_CASE2(0); EXPAND_EMBED_PULL_CASE2(64););
+    EMBEDX_CASE(256, EXPAND_EMBED_PULL_CASE2(0););
+    EMBEDX_CASE(128, EXPAND_EMBED_PULL_CASE2(0););
     default:
       PADDLE_THROW(platform::errors::InvalidArgument(
           "Unsupport this embedding size [%d]", hidden_size - 3));
@@ -273,7 +445,6 @@ void BoxWrapper::CopyForPush(const paddle::platform::Place& place,
                     platform::DeviceContextPool::Instance().Get(
                         BOOST_GET_CONST(platform::CUDAPlace, place)))
                     ->stream();
-
 #define EMBEDX_CASE(i, ...)                                                  \
   case i: {                                                                  \
     constexpr size_t EmbedxDim = i;                                          \
@@ -287,19 +458,38 @@ void BoxWrapper::CopyForPush(const paddle::platform::Place& place,
 #define EXPAND_EMBED_PUSH_CASE(i, ...)                                        \
   case i: {                                                                   \
     constexpr size_t ExpandDim = i;                                           \
-    PushCopy<EmbedxDim,                                                       \
-             ExpandDim><<<(total_length + 512 - 1) / 512, 512, 0, stream>>>(  \
+    PushCopy<boxps::FeaturePushValueGpu<EmbedxDim, ExpandDim>><<<             \
+        (total_length + 512 - 1) / 512, 512, 0, stream>>>(                    \
         reinterpret_cast<boxps::FeaturePushValueGpu<EmbedxDim, ExpandDim>*>(  \
             total_grad_values_gpu),                                           \
         grad_values, hidden_size, expand_embed_dim, total_length, batch_size, \
         d_slot_vector, total_dims, slot_lens, slot_num, key2slot);            \
   } break
+
+#define EXPAND_EMBED_PUSH_CASE2(i, ...)                                        \
+  case i: {                                                                    \
+    constexpr size_t ExpandDim = i;                                            \
+    PushCopyBase<boxps::FeaturePushValueGpu<EmbedxDim, ExpandDim>><<<          \
+        (total_length + 512 - 1) / 512, 512, 0, stream>>>(                     \
+        reinterpret_cast<boxps::FeaturePushValueGpu<EmbedxDim, ExpandDim>*>(   \
+            total_grad_values_gpu),                                            \
+        grad_values, hidden_size, total_length, batch_size, d_slot_vector,     \
+        total_dims, slot_lens, slot_num, key2slot);                            \
+    int embedx_total_length = total_length * (EmbedxDim + ExpandDim);          \
+    PushCopyExpand<boxps::FeaturePushValueGpu<EmbedxDim, ExpandDim>><<<        \
+        (embedx_total_length + 512 - 1) / 512, 512, 0, stream>>>(              \
+        reinterpret_cast<boxps::FeaturePushValueGpu<EmbedxDim, ExpandDim>*>(   \
+            total_grad_values_gpu),                                            \
+        grad_values, (EmbedxDim + ExpandDim), EmbedxDim, ExpandDim,            \
+        embedx_total_length, batch_size, d_slot_vector, total_dims, slot_lens, \
+        slot_num, key2slot);                                                   \
+  } break
   switch (hidden_size - 3) {
-    EMBEDX_CASE(8, EXPAND_EMBED_PUSH_CASE(0); EXPAND_EMBED_PUSH_CASE(8);
-                EXPAND_EMBED_PUSH_CASE(64););
-    EMBEDX_CASE(16, EXPAND_EMBED_PUSH_CASE(0); EXPAND_EMBED_PUSH_CASE(64););
-    EMBEDX_CASE(256, EXPAND_EMBED_PUSH_CASE(0););
-    EMBEDX_CASE(128, EXPAND_EMBED_PUSH_CASE(0););
+    EMBEDX_CASE(8, EXPAND_EMBED_PUSH_CASE(0); EXPAND_EMBED_PUSH_CASE2(8);
+                EXPAND_EMBED_PUSH_CASE2(64););
+    EMBEDX_CASE(16, EXPAND_EMBED_PUSH_CASE2(0); EXPAND_EMBED_PUSH_CASE2(64););
+    EMBEDX_CASE(256, EXPAND_EMBED_PUSH_CASE2(0););
+    EMBEDX_CASE(128, EXPAND_EMBED_PUSH_CASE2(0););
     default:
       PADDLE_THROW(platform::errors::InvalidArgument(
           "Unsupport this embedding size [%d]", hidden_size - 3));
