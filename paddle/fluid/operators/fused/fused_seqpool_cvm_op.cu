@@ -172,7 +172,6 @@ void DoFusedSeqpoolCVM(const paddle::platform::Place &place,
       gpu_input_values, gpu_seqpool_output_values, lods_values, data_lens,
       batch_size, embedding_size, padding_value, cvm_offset, need_filter,
       show_coeff, clk_coeff, threshold, quant_ratio);
-
   FusedCVMKernel<<<(total_len * embedding_size + PADDLE_CUDA_NUM_THREADS - 1) /
                        PADDLE_CUDA_NUM_THREADS,
                    PADDLE_CUDA_NUM_THREADS, 0, stream>>>(
