@@ -73,8 +73,8 @@ __global__ void PullCopy(float** dest, const FEATURE_VALUE_GPU_TYPE* src,
         total_dims[i] |= 0x02;
         if (is_quant) {
           // skip float g2sum
-          int16_t* embed_expand =
-              reinterpret_cast<int16_t*>(&(src + i)->embed_expand[1]);
+          const int16_t* embed_expand =
+              reinterpret_cast<const int16_t*>(&(src[i].embed_expand[1]));
           for (int j = 0; j < expand_dim; j++) {
             *(dest[z] + y * expand_dim + j) = embed_expand[j] * scale;
           }
@@ -154,8 +154,8 @@ __global__ void PullCopyExpand(float** dest, const FEATURE_VALUE_GPU_TYPE* src,
       if (total_dims[idx] & 0x02) {
         if (is_quant) {
           // skip float g2sum
-          int16_t* expand =
-              reinterpret_cast<int16_t*>(&src_val.embed_expand[1]);
+          const int16_t* expand =
+              reinterpret_cast<const int16_t*>(&src_val.embed_expand[1]);
           *(dest[x + slot_num] + y * expand_dim + j) = expand[j] * scale;
         } else {
           *(dest[x + slot_num] + y * expand_dim + j) =
