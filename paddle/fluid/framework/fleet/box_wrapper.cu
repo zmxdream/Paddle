@@ -71,8 +71,17 @@ __global__ void PullCopy(float** dest, const FEATURE_VALUE_GPU_TYPE* src,
         }
       } else {
         total_dims[i] |= 0x02;
-        for (int j = 0; j < expand_dim; j++) {
-          *(dest[z] + y * expand_dim + j) = (src + i)->embed_expand[1 + j];
+        if (is_quant) {
+          // skip float g2sum
+          int16_t* embed_expand =
+              reinterpret_cast<int16_t*>(&(src + i)->embed_expand[1]);
+          for (int j = 0; j < expand_dim; j++) {
+            *(dest[z] + y * expand_dim + j) = embed_expand[j] * scale;
+          }
+        } else {
+          for (int j = 0; j < expand_dim; j++) {
+            *(dest[z] + y * expand_dim + j) = (src + i)->embed_expand[1 + j];
+          }
         }
       }
     }
@@ -143,13 +152,15 @@ __global__ void PullCopyExpand(float** dest, const FEATURE_VALUE_GPU_TYPE* src,
     } else {  // expand
       int j = col - embedx_dim;
       if (total_dims[idx] & 0x02) {
-        //            if (is_quant) {
-        //                *(dest[x + slot_num] + y * expand_dim + j) =
-        //                src_val.embed_expand[1 + j] * scale;
-        //            } else {
-        *(dest[x + slot_num] + y * expand_dim + j) =
-            src_val.embed_expand[1 + j];
-        //            }
+        if (is_quant) {
+          // skip float g2sum
+          int16_t* expand =
+              reinterpret_cast<int16_t*>(&src_val.embed_expand[1]);
+          *(dest[x + slot_num] + y * expand_dim + j) = expand[j] * scale;
+        } else {
+          *(dest[x + slot_num] + y * expand_dim + j) =
+              src_val.embed_expand[1 + j];
+        }
       } else {
         *(dest[x + slot_num] + y * expand_dim + j) = 0;
       }
@@ -408,6 +419,8 @@ void BoxWrapper::CopyForPull(const paddle::platform::Place& place,
     EMBEDX_CASE(8, EXPAND_EMBED_PULL_CASE(0); EXPAND_EMBED_PULL_CASE2(8);
                 EXPAND_EMBED_PULL_CASE2(64););
     EMBEDX_CASE(16, EXPAND_EMBED_PULL_CASE2(0); EXPAND_EMBED_PULL_CASE2(64););
+    EMBEDX_CASE(32, EXPAND_EMBED_PULL_CASE2(0););
+    EMBEDX_CASE(64, EXPAND_EMBED_PULL_CASE2(0););
     EMBEDX_CASE(256, EXPAND_EMBED_PULL_CASE2(0););
     EMBEDX_CASE(128, EXPAND_EMBED_PULL_CASE2(0););
     EMBEDX_CASE(280, EXPAND_EMBED_PULL_CASE2(0););
@@ -489,6 +502,8 @@ void BoxWrapper::CopyForPush(const paddle::platform::Place& place,
     EMBEDX_CASE(8, EXPAND_EMBED_PUSH_CASE(0); EXPAND_EMBED_PUSH_CASE2(8);
                 EXPAND_EMBED_PUSH_CASE2(64););
     EMBEDX_CASE(16, EXPAND_EMBED_PUSH_CASE2(0); EXPAND_EMBED_PUSH_CASE2(64););
+    EMBEDX_CASE(32, EXPAND_EMBED_PUSH_CASE2(0););
+    EMBEDX_CASE(64, EXPAND_EMBED_PUSH_CASE2(0););
     EMBEDX_CASE(256, EXPAND_EMBED_PUSH_CASE2(0););
     EMBEDX_CASE(128, EXPAND_EMBED_PUSH_CASE2(0););
     EMBEDX_CASE(280, EXPAND_EMBED_PUSH_CASE2(0););
