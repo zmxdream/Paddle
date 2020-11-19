@@ -246,7 +246,7 @@ class BoxWrapper {
                   const std::vector<int64_t>& slot_lengths,
                   const int hidden_size, const int expand_embed_dim);
 
-  template <size_t EMBEDX_DIM, size_t EXPAND_EMBED_DIM = 0>
+  template <typename FeaturePushValueGpuType>
   void PushSparseGradCase(const paddle::platform::Place& place,
                           const std::vector<const uint64_t*>& keys,
                           const std::vector<const float*>& grad_values,

@@ -44,9 +44,8 @@ void BoxWrapper::PullSparseCase(const paddle::platform::Place& place,
     slot_lengths_lod[i] += slot_lengths_lod[i - 1];
   }
   int64_t total_length = slot_lengths_lod[slot_num - 1];
-  size_t total_bytes = reinterpret_cast<size_t>(
-      total_length *
-      sizeof(FEATURE_VALUE_GPU_TYPE));
+  size_t total_bytes =
+      reinterpret_cast<size_t>(total_length * sizeof(FEATURE_VALUE_GPU_TYPE));
 #if defined(PADDLE_WITH_CUDA) && !defined(_WIN32)
   dev.total_key_length = total_length;
   auto& pull_buf = dev.pull_push_buf;
@@ -61,8 +60,7 @@ void BoxWrapper::PullSparseCase(const paddle::platform::Place& place,
   auto pull_buf = memory::AllocShared(place, total_bytes);
 #endif
   FEATURE_VALUE_GPU_TYPE* total_values_gpu =
-      reinterpret_cast<FEATURE_VALUE_GPU_TYPE*>(
-          pull_buf->ptr());
+      reinterpret_cast<FEATURE_VALUE_GPU_TYPE*>(pull_buf->ptr());
 
   if (platform::is_cpu_place(place)) {
     PADDLE_THROW(platform::errors::Unimplemented(
@@ -126,7 +124,7 @@ void BoxWrapper::PullSparseCase(const paddle::platform::Place& place,
   all_timer.Pause();
 }
 
-template <size_t EMBEDX_DIM, size_t EXPAND_EMBED_DIM>
+template <typename FeaturePushValueGpuType>
 void BoxWrapper::PushSparseGradCase(
     const paddle::platform::Place& place,
     const std::vector<const uint64_t*>& keys,
@@ -147,9 +145,8 @@ void BoxWrapper::PushSparseGradCase(
 #if defined(PADDLE_WITH_CUDA) && !defined(_WIN32)
   int64_t total_length = dev.total_key_length;
   // std::accumulate(slot_lengths.begin(), slot_lengths.end(), 0UL);
-  size_t total_bytes = reinterpret_cast<size_t>(
-      total_length *
-      sizeof(boxps::FeaturePushValueGpu<EMBEDX_DIM, EXPAND_EMBED_DIM>));
+  size_t total_bytes =
+      reinterpret_cast<size_t>(total_length * sizeof(FeaturePushValueGpuType));
   auto& push_buf = dev.pull_push_buf;
   if (push_buf == nullptr) {
     push_buf = memory::AllocShared(place, total_bytes);
@@ -161,10 +158,8 @@ void BoxWrapper::PushSparseGradCase(
 #else
   auto push_buf = memory::AllocShared(place, total_bytes);
 #endif
-  boxps::FeaturePushValueGpu<EMBEDX_DIM, EXPAND_EMBED_DIM>*
-      total_grad_values_gpu = reinterpret_cast<
-          boxps::FeaturePushValueGpu<EMBEDX_DIM, EXPAND_EMBED_DIM>*>(
-          push_buf->ptr());
+  FeaturePushValueGpuType* total_grad_values_gpu =
+      reinterpret_cast<FeaturePushValueGpuType*>(push_buf->ptr());
   if (platform::is_cpu_place(place)) {
     PADDLE_THROW(platform::errors::Unimplemented(
         "Warning:: CPUPlace is not supported in PaddleBox now."));

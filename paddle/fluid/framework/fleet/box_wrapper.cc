@@ -399,12 +399,12 @@ void BoxWrapper::PushSparseGrad(const paddle::platform::Place& place,
     }                                                                        \
   } break
 
-#define PUSHSPARSE_CASE(i, ...)                                             \
-  case i: {                                                                 \
-    constexpr size_t ExpandDim = i;                                         \
-    PushSparseGradCase<EmbedxDim, ExpandDim>(place, keys, grad_values,      \
-                                             slot_lengths, hidden_size,     \
-                                             expand_embed_dim, batch_size); \
+#define PUSHSPARSE_CASE(i, ...)                                                \
+  case i: {                                                                    \
+    constexpr size_t ExpandDim = i;                                            \
+    PushSparseGradCase<boxps::FeaturePushValueGpu<EmbedxDim, ExpandDim>>(      \
+        place, keys, grad_values, slot_lengths, hidden_size, expand_embed_dim, \
+        batch_size);                                                           \
   } break
 
   CheckEmbedSizeIsValid(hidden_size - 3, expand_embed_dim);
