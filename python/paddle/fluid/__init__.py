@@ -227,6 +227,7 @@ def __bootstrap__():
             'use_gpu_replica_cache',
             'gpu_replica_cache_dim',
             'padbox_dataset_disable_shuffle',
+            'padbox_slotrecord_extend_dim',
         ]
     core.init_gflags(["--tryfromenv=" + ",".join(read_env_flags)])
     core.init_glog(sys.argv[0])

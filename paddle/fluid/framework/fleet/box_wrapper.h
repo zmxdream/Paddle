@@ -181,6 +181,7 @@ class BoxWrapper {
     LoDTensor slot_lens;
     LoDTensor d_slot_vector;
     LoDTensor keys2slot;
+    LoDTensor qvalue;
 
     platform::Timer all_pull_timer;
     platform::Timer boxps_pull_timer;
@@ -829,6 +830,8 @@ class BoxWrapper {
     auc_cal_->reset();
     return metric_return_values_;
   }
+  // pcoc qvalue tensor
+  LoDTensor& GetQTensor(int device) { return device_caches_[device].qvalue; }
 
  private:
   static cudaStream_t stream_list_[8];

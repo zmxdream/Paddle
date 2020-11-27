@@ -13,7 +13,6 @@ See the License for the specific language governing permissions and
 limitations under the License. */
 
 #pragma once
-
 #if defined _WIN32 || defined __APPLE__
 #else
 #define _LINUX
@@ -50,6 +49,7 @@ USE_INT_STAT(STAT_total_feasign_num_in_mem);
 USE_INT_STAT(STAT_slot_pool_size);
 DECLARE_int32(padbox_record_pool_max_size);
 DECLARE_int32(padbox_slotpool_thread_num);
+DECLARE_int32(padbox_slotrecord_extend_dim);
 
 namespace paddle {
 namespace framework {
@@ -815,7 +815,15 @@ struct SlotRecordObject {
   }
 };
 using SlotRecord = SlotRecordObject*;
-inline SlotRecord make_slotrecord() { return new SlotRecordObject(); }
+
+inline SlotRecord make_slotrecord() {
+  static const size_t slot_record_byte_size =
+      sizeof(SlotRecordObject) +
+      sizeof(float) * FLAGS_padbox_slotrecord_extend_dim;
+  void* p = malloc(slot_record_byte_size);
+  new (p) SlotRecordObject;
+  return reinterpret_cast<SlotRecordObject*>(p);
+}
 
 struct SlotPvInstanceObject {
   std::vector<SlotRecord> ads;
@@ -859,13 +867,9 @@ class SlotObjAllocator {
   }
   T* acquire(void) {
     T* x = NULL;
-    if (free_nodes_ == NULL) {
-      x = new T;
-    } else {
-      x = reinterpret_cast<T*>(reinterpret_cast<void*>(free_nodes_));
-      free_nodes_ = free_nodes_->next;
-      --capacity_;
-    }
+    x = reinterpret_cast<T*>(reinterpret_cast<void*>(free_nodes_));
+    free_nodes_ = free_nodes_->next;
+    --capacity_;
     return x;
   }
   void release(T* x) {
@@ -1191,6 +1195,10 @@ class MiniBatchGpuPack {
     }
     return batch_ins_[idx]->ins_id_;
   }
+  // store pcoc q value
+  void store_qvalue(const std::vector<Tensor>& qvalue);
+  // pack pcoc q to gpu
+  void pack_qvalue(void);
 
  private:
   void transfer_to_gpu(void);
@@ -1246,6 +1254,9 @@ class MiniBatchGpuPack {
       nullptr;
   std::shared_ptr<paddle::memory::allocation::Allocation> slot_buf_ptr_ =
       nullptr;
+  // pcoc
+  const int extend_dim_ = FLAGS_padbox_slotrecord_extend_dim;
+  LoDTensor* qvalue_tensor_ = nullptr;
 };
 class MiniBatchGpuPackMgr {
   static const int MAX_DEIVCE_NUM = 16;
@@ -1275,6 +1286,11 @@ class MiniBatchGpuPackMgr {
       pack_list_[device_id]->reset(place);
     }
     return pack_list_[device_id];
+  }
+
+  // store pcoc q value
+  void store_qvalue(const int device_id, const std::vector<Tensor>& qvalue) {
+    pack_list_[device_id]->store_qvalue(qvalue);
   }
 
  private:
