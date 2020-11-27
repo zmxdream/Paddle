@@ -31,7 +31,7 @@ std::shared_ptr<boxps::PaddleShuffler> BoxWrapper::data_shuffle_ = nullptr;
 cudaStream_t BoxWrapper::stream_list_[8];
 int BoxWrapper::embedx_dim_ = 8;
 int BoxWrapper::expand_embed_dim_ = 0;
-bool BoxWrapper::is_quant_ = false;
+int BoxWrapper::feature_type_ = 0;
 float BoxWrapper::pull_embedx_scale_ = 1.0;
 
 void BasicAucCalculator::add_unlock_data(double pred, int label) {
@@ -354,7 +354,7 @@ void BoxWrapper::PullSparse(const paddle::platform::Place& place,
 #define PULLSPARSE_CASE(i, ...)                                              \
   case i: {                                                                  \
     constexpr size_t ExpandDim = i;                                          \
-    if (is_quant_) {                                                         \
+    if (feature_type_ == static_cast<int>(boxps::FEATURE_QUANT)) {           \
       PullSparseCase<boxps::FeatureValueGpuQuant<EmbedxDim, ExpandDim>>(     \
           place, keys, values, slot_lengths, hidden_size, expand_embed_dim); \
     } else {                                                                 \
@@ -363,8 +363,8 @@ void BoxWrapper::PullSparse(const paddle::platform::Place& place,
     }                                                                        \
   } break
 
-  CheckEmbedSizeIsValid(hidden_size - 3, expand_embed_dim);
-  switch (hidden_size - 3) {
+  CheckEmbedSizeIsValid(hidden_size - cvm_offset_, expand_embed_dim);
+  switch (hidden_size - cvm_offset_) {
     EMBEDX_CASE(8, PULLSPARSE_CASE(0); PULLSPARSE_CASE(8);
                 PULLSPARSE_CASE(64););
     EMBEDX_CASE(16, PULLSPARSE_CASE(0); PULLSPARSE_CASE(64););
@@ -375,7 +375,7 @@ void BoxWrapper::PullSparse(const paddle::platform::Place& place,
     EMBEDX_CASE(280, PULLSPARSE_CASE(0););
     default:
       PADDLE_THROW(platform::errors::InvalidArgument(
-          "Unsupport this embedding size [%d]", hidden_size - 3));
+          "Unsupport this embedding size [%d]", hidden_size - cvm_offset_));
   }
 #undef PULLSPARSE_CASE
 #undef EMBEDX_CASE
@@ -407,8 +407,8 @@ void BoxWrapper::PushSparseGrad(const paddle::platform::Place& place,
         batch_size);                                                           \
   } break
 
-  CheckEmbedSizeIsValid(hidden_size - 3, expand_embed_dim);
-  switch (hidden_size - 3) {
+  CheckEmbedSizeIsValid(hidden_size - cvm_offset_, expand_embed_dim);
+  switch (hidden_size - cvm_offset_) {
     EMBEDX_CASE(8, PUSHSPARSE_CASE(0); PUSHSPARSE_CASE(8);
                 PUSHSPARSE_CASE(64););
     EMBEDX_CASE(16, PUSHSPARSE_CASE(0); PUSHSPARSE_CASE(64););
@@ -419,7 +419,7 @@ void BoxWrapper::PushSparseGrad(const paddle::platform::Place& place,
     EMBEDX_CASE(280, PUSHSPARSE_CASE(0););
     default:
       PADDLE_THROW(platform::errors::InvalidArgument(
-          "Unsupport this embedding size [%d]", hidden_size - 3));
+          "Unsupport this embedding size [%d]", hidden_size - cvm_offset_));
   }
 #undef PUSHSPARSE_CASE
 #undef EMBEDX_CASE
