@@ -354,7 +354,10 @@ void BoxWrapper::PullSparse(const paddle::platform::Place& place,
 #define PULLSPARSE_CASE(i, ...)                                              \
   case i: {                                                                  \
     constexpr size_t ExpandDim = i;                                          \
-    if (feature_type_ == static_cast<int>(boxps::FEATURE_QUANT)) {           \
+    if (feature_type_ == static_cast<int>(boxps::FEATURE_PCOC)) {            \
+      PullSparseCase<boxps::FeatureValueGpuPCOC<EmbedxDim, ExpandDim>>(      \
+          place, keys, values, slot_lengths, hidden_size, expand_embed_dim); \
+    } else if (feature_type_ == static_cast<int>(boxps::FEATURE_QUANT)) {    \
       PullSparseCase<boxps::FeatureValueGpuQuant<EmbedxDim, ExpandDim>>(     \
           place, keys, values, slot_lengths, hidden_size, expand_embed_dim); \
     } else {                                                                 \

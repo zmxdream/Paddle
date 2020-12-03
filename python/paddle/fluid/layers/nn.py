@@ -708,6 +708,43 @@ def _pull_box_sparse(input, size, dtype='float32'):
     return outs
 
 
+def _store_q_value(input, dtype='float32'):
+    """
+    **Store Q Value Layer**
+
+    This layer is used to store q value, provided by :attr:`input`.
+    Args:
+        input(Variable|list of Variable): Input is a list of Tensor<float> Variable, which
+            contains the IDs information.
+
+    Returns:
+        None.
+
+    Examples:
+        .. code-block:: python
+
+          import paddle.fluid as fluid
+          q_value = [q1, q2, q3]
+          fluid.layers._store_q_value(input=q_value)
+    """
+    helper = LayerHelper('store_q_value', **locals())
+    if dtype != 'float32':
+        raise ValueError(
+            "BoxPS only support float type q value now, and your type is: " +
+            dtype)
+    helper.input_dtype()
+    inputs = helper.multiple_input()
+    # outs = [
+    #     helper.create_variable_for_type_inference(dtype)
+    #     for i in range(len(inputs))
+    # ]
+    
+    helper.append_op(
+        type='store_q_value',
+        inputs={'Ids': inputs})
+
+    return None
+
 @templatedoc()
 def linear_chain_crf(input, label, param_attr=None, length=None):
     """
