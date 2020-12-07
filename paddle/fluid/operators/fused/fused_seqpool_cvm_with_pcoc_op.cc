@@ -131,8 +131,8 @@ class FusedSeqpoolCVMWithPCOCGradOp : public framework::OperatorWithKernel {
     const int cvm_offset = ctx->Attrs().Get<int>("cvm_offset");
 
     PADDLE_ENFORCE_EQ(
-        cvm_dims.size(), 7,
-        platform::errors::InvalidArgument("Input(CVMWithPCOC)'s rank should be 7."));
+        cvm_dims.size(), 2,
+        platform::errors::InvalidArgument("Input(CVMWithPCOC)'s rank should be 2."));
 
     for (size_t i = 0; i < og_dims.size(); i++) {
       PADDLE_ENFORCE_EQ(

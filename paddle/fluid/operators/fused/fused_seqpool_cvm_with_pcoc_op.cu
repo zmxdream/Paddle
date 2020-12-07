@@ -31,7 +31,7 @@ __global__ void FusedSeqpoolWithPCOCKernel(
     T **input_values, T **seqpool_output_values, size_t **lods_values,
     const int64_t *data_lens, const int batch_size, const int embedding_size,
     const float pad_value, bool need_filter, float show_coeff, float clk_coeff,
-    float threshold) {
+    float threshold, const int cvm_offset) {
   int bId = blockIdx.y * gridDim.x + blockIdx.x;
   int x = bId / batch_size;
   int y = bId - (x ? data_lens[x - 1] : 0);
@@ -50,7 +50,7 @@ __global__ void FusedSeqpoolWithPCOCKernel(
           if ((show - click) * show_coeff + click * clk_coeff < threshold) {
             continue;
           }
-          if (tid <= 1) {  // show & click
+          if (tid < cvm_offset) {  // show & click
             val += *(input_values[x] + k * embedding_size + tid);
           } else {
             val += (static_cast<int>(
@@ -187,7 +187,7 @@ void DoFusedSeqpoolCVMWithPCOC(const paddle::platform::Place &place,
   FusedSeqpoolWithPCOCKernel<<<grid, PADDLE_CUDA_NUM_THREADS, 0, stream>>>(
       gpu_input_values, gpu_seqpool_output_values, lods_values, data_lens,
       batch_size, embedding_size, padding_value, need_filter, show_coeff,
-      clk_coeff, threshold);
+      clk_coeff, threshold, cvm_offset);
 
   FusedCVMWithPCOCKernel<<<(total_len * embedding_size + PADDLE_CUDA_NUM_THREADS - 1) /
                        PADDLE_CUDA_NUM_THREADS,

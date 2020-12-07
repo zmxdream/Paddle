@@ -22,7 +22,7 @@ using platform::PADDLE_CUDA_NUM_THREADS;
 using LoDTensor = framework::LoDTensor;
 
 template <typename T>
-class PullBoxSparseCUDAKernel : public framework::OpKernel<T> {
+class StoreQValueCUDAKernel : public framework::OpKernel<T> {
  public:
   void Compute(const framework::ExecutionContext &ctx) const override {
     StoreQValueFunctor<T>(ctx);
@@ -33,4 +33,4 @@ class PullBoxSparseCUDAKernel : public framework::OpKernel<T> {
 }  // namespace paddle
 
 namespace ops = paddle::operators;
-REGISTER_OP_CUDA_KERNEL(store_q_value, ops::PullBoxSparseCUDAKernel<float>);
+REGISTER_OP_CUDA_KERNEL(store_q_value, ops::StoreQValueCUDAKernel<float>);
