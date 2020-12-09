@@ -82,6 +82,8 @@ __global__ void FusedCVMWithPCOCKernel(T **output_values, T **seqpool_output_val
     int x = key / batch_size;
     int y = key - (x ? data_lens[x - 1] : 0);
     if (use_cvm) {
+      // show clk show2 clk2 pclk plck2 plck3
+      // show ctr pctr pctr2 pctr3 pcoc pcoc2 pcoc3
       if (offset == 0) {  // show
         *(output_values[x] + y * embedding_size) =
             log(*(seqpool_output_values[x] + y * embedding_size) + 1);
@@ -115,7 +117,7 @@ __global__ void FusedCVMWithPCOCKernel(T **output_values, T **seqpool_output_val
             log(*(seqpool_output_values[x] + y * embedding_size + 6) + 1);
       } else {
         *(output_values[x] + y * embedding_size + offset) =
-            *(seqpool_output_values[x] + y * embedding_size + offset);
+            *(seqpool_output_values[x] + y * embedding_size + offset - 1);
       }
     } else {
       if (offset >= cvm_offset) {
@@ -389,7 +391,7 @@ class FusedSeqpoolCVMWithPCOCCUDAKernel : public framework::OpKernel<T> {
       input_data[i] = reinterpret_cast<const T *>(input->data<T>());
       auto *output = outputs[i];
       if (use_cvm) {
-        output->Resize({batch_size, embedding_size});
+        output->Resize({batch_size, embedding_size + 1});
       } else {
         output->Resize({batch_size, embedding_size - cvm_offset});
       }
