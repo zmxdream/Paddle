@@ -109,6 +109,7 @@ void BoxWrapper::PullSparseCase(const paddle::platform::Place& place,
     cudaMemcpyAsync(gpu_values, values.data(), values.size() * sizeof(float*),
                     cudaMemcpyHostToDevice, stream);
 
+    printf("before CopyForPull cvmoffset=%d, &cvm_offset=%p \n", cvm_offset_ ,&cvm_offset_);
     this->CopyForPull(place, gpu_keys, gpu_values, total_values_gpu, slot_lens,
                       slot_num, key2slot, hidden_size, expand_embed_dim,
                       total_length, total_dims);

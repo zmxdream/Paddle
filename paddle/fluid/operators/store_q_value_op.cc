@@ -12,11 +12,44 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License. */
 
-#include "paddle/fluid/operators/store_q_value_op.h"
+#include <sstream>
+#include <vector>
+#include <memory>
+
+#include "paddle/fluid/framework/eigen.h"
+#include "paddle/fluid/framework/operator.h"
 #include "paddle/fluid/framework/op_registry.h"
+#include "paddle/fluid/framework/data_feed.h"
+#include "paddle/fluid/framework/tensor.h"
+//#include "paddle/fluid/platform/cuda_primitives.h"
+#include "paddle/fluid/platform/gpu_info.h"
 
 namespace paddle {
 namespace operators {
+
+//using platform::PADDLE_CUDA_NUM_THREADS;
+using Tensor = framework::Tensor;
+using LoDTensor = framework::LoDTensor;
+using LoDTensorArray = framework::LoDTensorArray;
+
+template <typename T>
+class StoreQValueOpKernel : public framework::OpKernel<T> {
+ public:
+  void Compute(const framework::ExecutionContext& ctx) const override {
+    auto inputs = ctx.MultiInput<LoDTensor>("Ids"); //std::vector<const Tensor*>
+    auto ctx_place = ctx.GetPlace();
+    int device_id = boost::get<platform::CUDAPlace>(ctx_place).GetDeviceId();
+
+    const auto qvalues_size = inputs.size();
+    std::vector<framework::Tensor> cpu_qvalues(qvalues_size);
+
+    for (size_t i = 0; i < qvalues_size; ++i) {
+      framework::TensorCopy(*inputs[i], platform::CPUPlace(), &cpu_qvalues[i]);
+    }
+    printf("begin BatchGpuPackMgr().store_qvalue in StoreQValueOpKernel\n"); 
+    framework::BatchGpuPackMgr().store_qvalue(device_id, cpu_qvalues);
+  }
+};
 
 class StoreQValueOp : public framework::OperatorWithKernel {
  public:
@@ -43,8 +76,15 @@ store a value Operator.
 }  // namespace paddle
 
 namespace ops = paddle::operators;
+namespace plat = paddle::platform;
+
 REGISTER_OPERATOR(
     store_q_value, ops::StoreQValueOp, ops::StoreQValueOpMaker,
     paddle::framework::EmptyGradOpMaker<paddle::framework::OpDesc>,
     paddle::framework::EmptyGradOpMaker<paddle::imperative::OpBase>);
-REGISTER_OP_CPU_KERNEL(store_q_value, ops::StoreQValueCPUKernel<float>);
+
+REGISTER_OP_CPU_KERNEL(store_q_value, ops::StoreQValueOpKernel<float>);
+
+#ifdef PADDLE_WITH_CUDA
+REGISTER_OP_CUDA_KERNEL(store_q_value, ops::StoreQValueOpKernel<float>);
+#endif

@@ -67,7 +67,7 @@ class FusedSeqpoolCVMWithPCOCOp : public framework::OperatorWithKernel {
       // input lod is not accessible here
       std::vector<int64_t> out_dim;
       if (ctx->Attrs().Get<bool>("use_cvm")) {
-        out_dim = {-1, dims[rank - 1]};
+        out_dim = {-1, dims[rank - 1] + 1};
       } else {
         out_dim = {-1, dims[rank - 1] - cvm_offset};
       }
