@@ -66,15 +66,11 @@ class FillConstantKernel : public framework::OpKernel<T> {
     if (str_value.empty()) {
       value = static_cast<T>(float_value);
     } else {
-      std::stringstream convert_stream(str_value);
+      std::string::size_type sz = 0;
       if (std::is_same<int64_t, T>::value) {
-        int64_t tmp_value;
-        convert_stream >> tmp_value;
-        value = static_cast<T>(tmp_value);
+        value = static_cast<T>(std::stoll(str_value, &sz, 0));
       } else {
-        double tmp_value;
-        convert_stream >> tmp_value;
-        value = static_cast<T>(tmp_value);
+        value = static_cast<T>(std::stod(str_value, &sz));
       }
     }
     if (ctx.HasInput("ValueTensor")) {

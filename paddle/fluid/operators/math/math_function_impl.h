@@ -25,8 +25,10 @@ template <typename DeviceContext, typename T>
 void SetConstant<DeviceContext, T>::operator()(const DeviceContext& context,
                                                framework::Tensor* tensor,
                                                T num) {
-  auto t = framework::EigenVector<T>::Flatten(*tensor);
-  t.device(*context.eigen_device()) = t.constant(static_cast<T>(num));
+  //  auto t = framework::EigenVector<T>::Flatten(*tensor);
+  //  t.device(*context.eigen_device()) = t.constant(static_cast<T>(num));
+  //  printf("set constant\n");
+  set_constant(context, tensor, static_cast<float>(num));
 }
 
 template <typename DeviceContext, typename T, int Rank>

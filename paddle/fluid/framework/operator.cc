@@ -185,7 +185,8 @@ void OperatorBase::Run(const Scope& scope, const platform::Place& place) {
     std::rethrow_exception(std::current_exception());
   } catch (std::exception& ex) {
     LOG(WARNING) << Type() << " raises an exception "
-                 << platform::demangle(typeid(ex).name()) << ", " << ex.what();
+                 << platform::demangle(typeid(ex).name()) << ", " << ex.what()
+                 << ", debug string: [" << DebugStringEx(&scope) << "]";
     std::rethrow_exception(std::current_exception());
   } catch (...) {
     LOG(WARNING) << Type() << " raises an unknown exception";

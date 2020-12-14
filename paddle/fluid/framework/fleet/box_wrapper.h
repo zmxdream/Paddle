@@ -127,16 +127,14 @@ class BasicAucCalculator {
 
 class GpuReplicaCache {
  public:
-  GpuReplicaCache(int dim) {
-    emb_dim_ = dim;
-  }
+  explicit GpuReplicaCache(int dim) { emb_dim_ = dim; }
 
   ~GpuReplicaCache() {
     for (size_t i = 0; i < d_embs_.size(); ++i) {
       cudaFree(d_embs_[i]);
     }
   }
-  int AddItems(std::vector<float>& emb) {
+  int AddItems(const std::vector<float>& emb) {
     int r;
     h_emb_mtx_.lock();
     h_emb_.insert(h_emb_.end(), emb.begin(), emb.end());
@@ -154,9 +152,11 @@ class GpuReplicaCache {
       cudaMalloc(&d_embs_.back(), h_emb_count_ * emb_dim_ * sizeof(float));
       auto place = platform::CUDAPlace(i);
       auto stream = dynamic_cast<platform::CUDADeviceContext*>(
-                    platform::DeviceContextPool::Instance().Get(place))
-                    ->stream();
-      cudaMemcpyAsync(d_embs_.back(), h_emb_.data(), h_emb_count_ * emb_dim_ * sizeof(float), cudaMemcpyHostToDevice, stream);
+                        platform::DeviceContextPool::Instance().Get(place))
+                        ->stream();
+      cudaMemcpyAsync(d_embs_.back(), h_emb_.data(),
+                      h_emb_count_ * emb_dim_ * sizeof(float),
+                      cudaMemcpyHostToDevice, stream);
     }
   }
 
@@ -181,6 +181,7 @@ class BoxWrapper {
     LoDTensor slot_lens;
     LoDTensor d_slot_vector;
     LoDTensor keys2slot;
+    LoDTensor qvalue;
 
     platform::Timer all_pull_timer;
     platform::Timer boxps_pull_timer;
@@ -246,7 +247,7 @@ class BoxWrapper {
                   const std::vector<int64_t>& slot_lengths,
                   const int hidden_size, const int expand_embed_dim);
 
-  template <size_t EMBEDX_DIM, size_t EXPAND_EMBED_DIM = 0>
+  template <typename FeaturePushValueGpuType>
   void PushSparseGradCase(const paddle::platform::Place& place,
                           const std::vector<const uint64_t*>& keys,
                           const std::vector<const float*>& grad_values,
@@ -391,10 +392,9 @@ class BoxWrapper {
     return s_instance_;
   }
 
-  static std::shared_ptr<BoxWrapper> SetInstance(int embedx_dim = 8,
-                                                 int expand_embed_dim = 0,
-                                                 bool is_quant = false,
-                                                 float pull_embedx_scale = 1.0) {
+  static std::shared_ptr<BoxWrapper> SetInstance(
+      int embedx_dim = 8, int expand_embed_dim = 0, int feature_type = 0,
+      float pull_embedx_scale = 1.0) {
     if (nullptr == s_instance_) {
       // If main thread is guaranteed to init this, this lock can be removed
       static std::mutex mutex;
@@ -402,12 +402,15 @@ class BoxWrapper {
       if (nullptr == s_instance_) {
         VLOG(3) << "s_instance_ is null";
         s_instance_.reset(new paddle::framework::BoxWrapper());
-        s_instance_->boxps_ptr_.reset(
-            boxps::BoxPSBase::GetIns(embedx_dim, expand_embed_dim));
+        s_instance_->boxps_ptr_.reset(boxps::BoxPSBase::GetInsEx(
+            embedx_dim, expand_embed_dim, feature_type));
         embedx_dim_ = embedx_dim;
         expand_embed_dim_ = expand_embed_dim;
-        is_quant_ = is_quant;
+        feature_type_ = feature_type;
         pull_embedx_scale_ = pull_embedx_scale;
+        // ToDo: feature gpu value param set diffent value
+        s_instance_->cvm_offset_ = 3;
+
         if (boxps::MPICluster::Ins().size() > 1) {
           data_shuffle_.reset(boxps::PaddleShuffler::New());
           data_shuffle_->init(10);
@@ -829,6 +832,8 @@ class BoxWrapper {
     auc_cal_->reset();
     return metric_return_values_;
   }
+  // pcoc qvalue tensor
+  LoDTensor& GetQTensor(int device) { return device_caches_[device].qvalue; }
 
  private:
   static cudaStream_t stream_list_[8];
@@ -841,8 +846,10 @@ class BoxWrapper {
   // EMBEDX_DIM and EXPAND_EMBED_DIM
   static int embedx_dim_;
   static int expand_embed_dim_;
-  static bool is_quant_;
+  static int feature_type_;
   static float pull_embedx_scale_;
+  int cvm_offset_ = 3;
+
   // Metric Related
   int phase_ = 1;
   int phase_num_ = 2;

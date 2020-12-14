@@ -46,6 +46,14 @@ DEFINE_GPU_TRANS(4);
 DEFINE_GPU_TRANS(5);
 DEFINE_GPU_TRANS(6);
 
+template <typename T>
+__global__ void FillConstantKernel(const int N, T* a, const T val) {
+  for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < N;
+       i += blockDim.x * gridDim.x) {
+    a[i] = val;
+  }
+}
+
 struct TensorSetConstantGPU {
   TensorSetConstantGPU(const platform::DeviceContext& context,
                        framework::Tensor* tensor, float value)
@@ -53,9 +61,17 @@ struct TensorSetConstantGPU {
 
   template <typename T>
   void apply() const {
-    SetConstant<platform::CUDADeviceContext, T> functor;
-    functor(reinterpret_cast<const platform::CUDADeviceContext&>(context_),
-            tensor_, static_cast<T>(value_));
+    //    SetConstant<platform::CUDADeviceContext, T> functor;
+    //    functor(reinterpret_cast<const
+    //    platform::CUDADeviceContext&>(context_),
+    //            tensor_, static_cast<T>(value_));
+    int N = static_cast<int>(tensor_->numel());
+    if (N <= 0) {
+      return;
+    }
+    auto& ctx = reinterpret_cast<const platform::CUDADeviceContext&>(context_);
+    FillConstantKernel<T><<<(N + 512 - 1) / 512, 512, 0, ctx.stream()>>>(
+        N, tensor_->mutable_data<T>(ctx.GetPlace()), static_cast<T>(value_));
   }
 
   const platform::DeviceContext& context_;
@@ -149,13 +165,28 @@ template struct RowwiseMean<platform::CUDADeviceContext, float>;
 template struct RowwiseMean<platform::CUDADeviceContext, double>;
 
 template <typename T>
+__global__ void ElementwiseAddKernel(int num, T* c, const T* a, const T* b) {
+  for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < num;
+       i += blockDim.x * gridDim.x) {
+    c[i] = a[i] + b[i];
+  }
+}
+
+template <typename T>
 struct ElementwiseAddTo<platform::CUDADeviceContext, T> {
   void operator()(platform::CUDADeviceContext* ctx,
                   const framework::Tensor& src, framework::Tensor* dst) {
-    auto in = framework::EigenVector<T>::Flatten(src);
-    auto out = framework::EigenVector<T>::Flatten(*dst);
-    auto& place = *(ctx->eigen_device());
-    out.device(place) = out + in;
+    //    auto in = framework::EigenVector<T>::Flatten(src);
+    //    auto out = framework::EigenVector<T>::Flatten(*dst);
+    //    auto& place = *(ctx->eigen_device());
+    //    out.device(place) = out + in;
+    int num = static_cast<int>(dst->numel());
+    if (num <= 0) {
+      return;
+    }
+    ElementwiseAddKernel<T><<<(num + 512 - 1) / 512, 512, 0, ctx->stream()>>>(
+        num, dst->mutable_data<T>(ctx->GetPlace()), dst->data<T>(),
+        src.data<T>());
   }
 };
 

@@ -2120,6 +2120,11 @@ int SlotPaddleBoxDataFeed::Next() {
     this->batch_size_ = batch.second;
     batch_timer_.Resume();
     PutToFeedSlotVec(&records_[batch.first], this->batch_size_);
+    // update set join q value
+    if (phase == 0 && FLAGS_padbox_slotrecord_extend_dim > 0) {
+      // pcoc
+      pack_->pack_qvalue();
+    }
     batch_timer_.Pause();
     return this->batch_size_;
   }
@@ -2385,8 +2390,8 @@ void SlotPaddleBoxDataFeed::BuildSlotBatchGPU(const int ins_num) {
     size_t* off_start_ptr = &offsets[j * offset_cols_size];
 
     int total_instance = static_cast<int>(off_start_ptr[offset_cols_size - 1]);
-    CHECK(total_instance >= 0)
-        << "slot idx:" << j << ", total instance:" << total_instance;
+    CHECK(total_instance >= 0) << "slot idx:" << j
+                               << ", total instance:" << total_instance;
 
     auto& info = used_slots_info_[j];
     // fill slot value with default value 0
@@ -3234,6 +3239,9 @@ MiniBatchGpuPack::MiniBatchGpuPack(const paddle::platform::Place& place,
   copy_host2device(&gpu_slots_, gpu_used_slots_.data(), gpu_used_slots_.size());
 
   slot_buf_ptr_ = memory::AllocShared(place_, used_slot_size_ * sizeof(void*));
+
+  int device_id = boost::get<platform::CUDAPlace>(place).GetDeviceId();
+  qvalue_tensor_ = &BoxWrapper::GetInstance()->GetQTensor(device_id);
 }
 
 MiniBatchGpuPack::~MiniBatchGpuPack() {}
@@ -3250,6 +3258,9 @@ void MiniBatchGpuPack::reset(const paddle::platform::Place& place) {
 
   pack_timer_.Reset();
   trans_timer_.Reset();
+
+  int device_id = boost::get<platform::CUDAPlace>(place).GetDeviceId();
+  qvalue_tensor_ = &BoxWrapper::GetInstance()->GetQTensor(device_id);
 }
 
 void MiniBatchGpuPack::pack_pvinstance(const SlotPvInstance* pv_ins, int num) {
@@ -3476,6 +3487,48 @@ void MiniBatchGpuPack::transfer_to_gpu(void) {
   cudaStreamSynchronize(stream_);
   trans_timer_.Pause();
 }
+
+//================================ pcoc
+//=========================================
+// pack pcoc q to gpu
+void MiniBatchGpuPack::pack_qvalue(void) {
+  int len = ins_num_ * extend_dim_;
+  std::vector<float> qvalue;
+  qvalue.resize(len);
+
+  int off = 0;
+  char* ptr = NULL;
+  for (int i = 0; i < ins_num_; ++i) {
+    ptr = reinterpret_cast<char*>(batch_ins_[i]);
+    float* q = reinterpret_cast<float*>(&ptr[sizeof(SlotRecordObject)]);
+    for (int k = 0; k < extend_dim_; ++k) {
+      qvalue[off++] = q[k];
+    }
+  }
+  CHECK(off == len);
+
+  float* tensor_ptr =
+      qvalue_tensor_->mutable_data<float>({len, 1}, this->place_);
+  cudaMemcpyAsync(tensor_ptr, &qvalue[0], len * sizeof(float),
+                  cudaMemcpyHostToDevice, stream_);
+  cudaStreamSynchronize(stream_);
+}
+
+// store pcoc q value
+void MiniBatchGpuPack::store_qvalue(const std::vector<Tensor>& qvalue) {
+  CHECK(static_cast<int>(qvalue.size()) == extend_dim_);
+  SlotRecord* batch_records = const_cast<SlotRecord*>(batch_ins_);
+  char* ptr = NULL;
+  for (int i = 0; i < extend_dim_; ++i) {
+    CHECK(static_cast<int>(qvalue[i].numel()) == ins_num_);
+    const float* q = qvalue[i].data<float>();
+    for (int k = 0; k < ins_num_; ++k) {
+      ptr = reinterpret_cast<char*>(batch_records[k]);
+      reinterpret_cast<float*>(&ptr[sizeof(SlotRecordObject)])[i] = q[k];
+    }
+  }
+}
+
 #endif
 
 #endif

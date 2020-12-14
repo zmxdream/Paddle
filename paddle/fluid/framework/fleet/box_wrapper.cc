@@ -31,7 +31,7 @@ std::shared_ptr<boxps::PaddleShuffler> BoxWrapper::data_shuffle_ = nullptr;
 cudaStream_t BoxWrapper::stream_list_[8];
 int BoxWrapper::embedx_dim_ = 8;
 int BoxWrapper::expand_embed_dim_ = 0;
-bool BoxWrapper::is_quant_ = false;
+int BoxWrapper::feature_type_ = 0;
 float BoxWrapper::pull_embedx_scale_ = 1.0;
 
 void BasicAucCalculator::add_unlock_data(double pred, int label) {
@@ -351,31 +351,31 @@ void BoxWrapper::PullSparse(const paddle::platform::Place& place,
     }                                                                        \
   } break
 
-#define PULLSPARSE_CASE(i, ...)                                             \
-  case i: {                                                                 \
-    constexpr size_t ExpandDim = i;                                         \
-    if (is_quant_) {                                                        \
-      PullSparseCase<boxps::FeatureValueGpuQuant<EmbedxDim, ExpandDim>>(    \
-                                         place, keys, values, slot_lengths, \
-                                         hidden_size, expand_embed_dim);    \
-    } else {                                                                \
-      PullSparseCase<boxps::FeatureValueGpu<EmbedxDim, ExpandDim>>(         \
-                                         place, keys, values, slot_lengths, \
-                                         hidden_size, expand_embed_dim);    \
-    }                                                                       \
+#define PULLSPARSE_CASE(i, ...)                                              \
+  case i: {                                                                  \
+    constexpr size_t ExpandDim = i;                                          \
+    if (feature_type_ == static_cast<int>(boxps::FEATURE_QUANT)) {           \
+      PullSparseCase<boxps::FeatureValueGpuQuant<EmbedxDim, ExpandDim>>(     \
+          place, keys, values, slot_lengths, hidden_size, expand_embed_dim); \
+    } else {                                                                 \
+      PullSparseCase<boxps::FeatureValueGpu<EmbedxDim, ExpandDim>>(          \
+          place, keys, values, slot_lengths, hidden_size, expand_embed_dim); \
+    }                                                                        \
   } break
 
-  CheckEmbedSizeIsValid(hidden_size - 3, expand_embed_dim);
-  switch (hidden_size - 3) {
+  CheckEmbedSizeIsValid(hidden_size - cvm_offset_, expand_embed_dim);
+  switch (hidden_size - cvm_offset_) {
     EMBEDX_CASE(8, PULLSPARSE_CASE(0); PULLSPARSE_CASE(8);
                 PULLSPARSE_CASE(64););
-    EMBEDX_CASE(16, PULLSPARSE_CASE(0););
+    EMBEDX_CASE(16, PULLSPARSE_CASE(0); PULLSPARSE_CASE(64););
+    EMBEDX_CASE(32, PULLSPARSE_CASE(0););
+    EMBEDX_CASE(64, PULLSPARSE_CASE(0););
     EMBEDX_CASE(256, PULLSPARSE_CASE(0););
     EMBEDX_CASE(128, PULLSPARSE_CASE(0););
     EMBEDX_CASE(280, PULLSPARSE_CASE(0););
     default:
       PADDLE_THROW(platform::errors::InvalidArgument(
-          "Unsupport this embedding size [%d]", hidden_size - 3));
+          "Unsupport this embedding size [%d]", hidden_size - cvm_offset_));
   }
 #undef PULLSPARSE_CASE
 #undef EMBEDX_CASE
@@ -399,25 +399,27 @@ void BoxWrapper::PushSparseGrad(const paddle::platform::Place& place,
     }                                                                        \
   } break
 
-#define PUSHSPARSE_CASE(i, ...)                                             \
-  case i: {                                                                 \
-    constexpr size_t ExpandDim = i;                                         \
-    PushSparseGradCase<EmbedxDim, ExpandDim>(place, keys, grad_values,      \
-                                             slot_lengths, hidden_size,     \
-                                             expand_embed_dim, batch_size); \
+#define PUSHSPARSE_CASE(i, ...)                                                \
+  case i: {                                                                    \
+    constexpr size_t ExpandDim = i;                                            \
+    PushSparseGradCase<boxps::FeaturePushValueGpu<EmbedxDim, ExpandDim>>(      \
+        place, keys, grad_values, slot_lengths, hidden_size, expand_embed_dim, \
+        batch_size);                                                           \
   } break
 
-  CheckEmbedSizeIsValid(hidden_size - 3, expand_embed_dim);
-  switch (hidden_size - 3) {
+  CheckEmbedSizeIsValid(hidden_size - cvm_offset_, expand_embed_dim);
+  switch (hidden_size - cvm_offset_) {
     EMBEDX_CASE(8, PUSHSPARSE_CASE(0); PUSHSPARSE_CASE(8);
                 PUSHSPARSE_CASE(64););
-    EMBEDX_CASE(16, PUSHSPARSE_CASE(0););
+    EMBEDX_CASE(16, PUSHSPARSE_CASE(0); PUSHSPARSE_CASE(64););
+    EMBEDX_CASE(32, PUSHSPARSE_CASE(0););
+    EMBEDX_CASE(64, PUSHSPARSE_CASE(0););
     EMBEDX_CASE(256, PUSHSPARSE_CASE(0););
     EMBEDX_CASE(128, PUSHSPARSE_CASE(0););
     EMBEDX_CASE(280, PUSHSPARSE_CASE(0););
     default:
       PADDLE_THROW(platform::errors::InvalidArgument(
-          "Unsupport this embedding size [%d]", hidden_size - 3));
+          "Unsupport this embedding size [%d]", hidden_size - cvm_offset_));
   }
 #undef PUSHSPARSE_CASE
 #undef EMBEDX_CASE
@@ -468,17 +470,17 @@ void BoxWrapper::FeedPass(int date,
 
 void BoxWrapper::BeginFeedPass(int date, boxps::PSAgentBase** agent) {
   int ret = boxps_ptr_->BeginFeedPass(date, *agent);
-  if(FLAGS_use_gpu_replica_cache){
+  if (FLAGS_use_gpu_replica_cache) {
     int dim = FLAGS_gpu_replica_cache_dim;
     VLOG(3) << "gpu cache dim:" << dim;
-    gpu_replica_cache.emplace_back(dim); 
+    gpu_replica_cache.emplace_back(dim);
   }
   PADDLE_ENFORCE_EQ(ret, 0, platform::errors::PreconditionNotMet(
                                 "BeginFeedPass failed in BoxPS."));
 }
 
 void BoxWrapper::EndFeedPass(boxps::PSAgentBase* agent) {
-  if(FLAGS_use_gpu_replica_cache){
+  if (FLAGS_use_gpu_replica_cache) {
     gpu_replica_cache.back().ToHBM();
   }
   int ret = boxps_ptr_->EndFeedPass(agent);
@@ -502,7 +504,7 @@ void BoxWrapper::SetTestMode(bool is_test) const {
 }
 
 void BoxWrapper::EndPass(bool need_save_delta) {
-  if(FLAGS_use_gpu_replica_cache){
+  if (FLAGS_use_gpu_replica_cache) {
     gpu_replica_cache.pop_front();
   }
   int ret = boxps_ptr_->EndPass(need_save_delta);

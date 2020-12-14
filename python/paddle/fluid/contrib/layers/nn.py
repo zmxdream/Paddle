@@ -1297,10 +1297,12 @@ def rank_attention(input,
             "RankOffset": rank_offset,
             "RankParam": rank_param
         },
-        outputs={"Out": output,
-                 "InputHelp": input_help,
-                 "ParamHelp": param_help,
-                 "InsRank": ins_rank},
+        outputs={
+            "Out": output,
+            "InputHelp": input_help,
+            "ParamHelp": param_help,
+            "InsRank": ins_rank
+        },
         attrs={"MaxRank": max_rank,
                "MaxSize": max_size})
     return output
@@ -1432,7 +1434,8 @@ def fused_seqpool_cvm(input,
                       show_coeff=0.2,
                       clk_coeff=1.0,
                       threshold=0.96,
-                      cvm_offset=2):
+                      cvm_offset=2,
+                      quant_ratio=0):
     """
      **Notes: The Op only receives List of LoDTensor as input, only support SUM pooling now.
     :attr:`input`.
@@ -1466,6 +1469,10 @@ def fused_seqpool_cvm(input,
         for i in range(len(inputs))
     ]
 
+    if quant_ratio == 0 and need_filter:
+        ## quant not allow quant ratio zero set default 128
+        quant_ratio = 128
+
     helper.append_op(
         type="fused_seqpool_cvm",
         inputs={"X": inputs,
@@ -1479,7 +1486,8 @@ def fused_seqpool_cvm(input,
             "need_filter": need_filter,
             "show_coeff": show_coeff,
             "clk_coeff": clk_coeff,
-            "threshold": threshold
+            "threshold": threshold,
+            "quant_ratio": quant_ratio
         })
 
     return outs
