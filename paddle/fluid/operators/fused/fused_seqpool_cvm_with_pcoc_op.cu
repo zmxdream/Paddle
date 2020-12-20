@@ -87,34 +87,34 @@ __global__ void FusedCVMWithPCOCKernel(T **output_values, T **seqpool_output_val
       if (offset == 0) {  // show
         *(output_values[x] + y * embedding_size) =
             log(*(seqpool_output_values[x] + y * embedding_size) + 1);
-      } else if (offset == 1) {  // ctr_smoth = log(show) - log(click)
+      } else if (offset == 1) {  // ctr_smoth = log(click) - log(show)
         *(output_values[x] + y * embedding_size + offset) =
             log(*(seqpool_output_values[x] + y * embedding_size + 1) + 1) -
             log(*(seqpool_output_values[x] + y * embedding_size) + 1);
-      } else if (offset == 2) {  // pctr_smoth = log(show2) - log(pclk)
+      } else if (offset == 2) {  // pctr_smoth = log(pclk) - log(show2)
         *(output_values[x] + y * embedding_size + offset) =
-            log(*(seqpool_output_values[x] + y * embedding_size + 2) + 1) -
-            log(*(seqpool_output_values[x] + y * embedding_size + 4) + 1);
-      } else if (offset == 3) {  // pctr2_smoth = log(show2) - log(pclk2)
+            log(*(seqpool_output_values[x] + y * embedding_size + 4) + 1) -
+            log(*(seqpool_output_values[x] + y * embedding_size + 2) + 1);
+      } else if (offset == 3) {  // pctr2_smoth = log(pclk2) - log(show2)
         *(output_values[x] + y * embedding_size + offset) =
-            log(*(seqpool_output_values[x] + y * embedding_size + 2) + 1) -
-            log(*(seqpool_output_values[x] + y * embedding_size + 5) + 1);
-      } else if (offset == 4) {  // pctr3_smoth = log(show2) - log(pclk3)
+            log(*(seqpool_output_values[x] + y * embedding_size + 5) + 1) -
+            log(*(seqpool_output_values[x] + y * embedding_size + 2) + 1);
+      } else if (offset == 4) {  // pctr3_smoth = log(pclk3) - log(show2)
         *(output_values[x] + y * embedding_size + offset) =
-            log(*(seqpool_output_values[x] + y * embedding_size + 2) + 1) -
-            log(*(seqpool_output_values[x] + y * embedding_size + 6) + 1);
-      } else if (offset == 5) {  // pcoc_smoth = log(click2) - log(pclk)
+            log(*(seqpool_output_values[x] + y * embedding_size + 6) + 1) -
+            log(*(seqpool_output_values[x] + y * embedding_size + 2) + 1);
+      } else if (offset == 5) {  // pcoc_smoth =  log(pclk) - log(click2)
         *(output_values[x] + y * embedding_size + offset) =
-            log(*(seqpool_output_values[x] + y * embedding_size + 3) + 1) -
-            log(*(seqpool_output_values[x] + y * embedding_size + 4) + 1);
-      } else if (offset == 6) {  // pcoc2_smoth = log(click2) - log(pclk2)
+            log(*(seqpool_output_values[x] + y * embedding_size + 4) + 1) -
+            log(*(seqpool_output_values[x] + y * embedding_size + 3) + 1);
+      } else if (offset == 6) {  // pcoc2_smoth = log(pclk2) - log(click2)
         *(output_values[x] + y * embedding_size + offset) =
-            log(*(seqpool_output_values[x] + y * embedding_size + 3) + 1) -
-            log(*(seqpool_output_values[x] + y * embedding_size + 5) + 1);
-      } else if (offset == 7) {  // pcoc3_smoth = log(click2) - log(pclk3)
+            log(*(seqpool_output_values[x] + y * embedding_size + 5) + 1) -
+            log(*(seqpool_output_values[x] + y * embedding_size + 3) + 1);
+      } else if (offset == 7) {  // pcoc3_smoth = log(pclk3) - log(click2)
         *(output_values[x] + y * embedding_size + offset) =
-            log(*(seqpool_output_values[x] + y * embedding_size + 3) + 1) -
-            log(*(seqpool_output_values[x] + y * embedding_size + 6) + 1);
+            log(*(seqpool_output_values[x] + y * embedding_size + 6) + 1) -
+            log(*(seqpool_output_values[x] + y * embedding_size + 3) + 1);
       } else {
         *(output_values[x] + y * embedding_size + offset) =
             *(seqpool_output_values[x] + y * embedding_size + offset - 1);
