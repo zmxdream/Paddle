@@ -27,10 +27,10 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "crypto/cipher.h"
 #include "paddle_infer_declare.h"  // NOLINT
-
-/*! \namespace paddle
- */
+                                   /*! \namespace paddle
+                                    */
 namespace paddle {
 
 /// \brief Paddle data type.
@@ -307,11 +307,28 @@ class PD_INFER_DECL PaddlePredictor {
   /// This will save the IO copy for transfering inputs and outputs to predictor
   /// workspace
   /// and get some performance improvement.
-  /// To use it, one should call the AnalysisConfig.SwitchUseFeedFetchOp(true)
+  /// To use it, one should call the AnalysisConfig.SwitchUseFeedFetchOp(false)
   /// and then use the `GetInputTensor` and `GetOutputTensor`
   /// to directly write or read the input/output tensors.
   /// \return Whether the run is successful
   virtual bool ZeroCopyRun() { return false; }
+
+  ///
+  /// \brief Clear the intermediate tensors of the predictor
+  ///
+  ///
+  virtual void ClearIntermediateTensor() {}
+
+  ///
+  /// \brief Release all tmp tensor to compress the size of the memory pool.
+  /// The memory pool is considered to be composed of a list of chunks, if
+  /// the chunk is not occupied, it can be released.
+  ///
+  /// \return Number of bytes released. It may be smaller than the actual
+  /// released memory, because part of the memory is not managed by the
+  /// MemoryPool.
+  ///
+  virtual uint64_t TryShrinkMemory() { return 0; }
 
   /// \brief Clone an existing predictor
   /// When using clone, the same network will be created,
@@ -341,6 +358,7 @@ class PD_INFER_DECL PaddlePredictor {
 /// place of inference, etc.)
 ///
 struct PD_INFER_DECL NativeConfig : public PaddlePredictor::Config {
+  NativeConfig();
   /// GPU related fields.
   bool use_gpu{false};
   int device{0};
@@ -415,7 +433,8 @@ enum class PaddleEngineKind {
 };
 
 template <typename ConfigT, PaddleEngineKind engine>
-std::unique_ptr<PaddlePredictor> CreatePaddlePredictor(const ConfigT& config);
+PD_INFER_DECL std::unique_ptr<PaddlePredictor> CreatePaddlePredictor(
+    const ConfigT& config);
 
 template <>
 PD_INFER_DECL std::unique_ptr<PaddlePredictor> CreatePaddlePredictor<

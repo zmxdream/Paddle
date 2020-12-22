@@ -18,6 +18,8 @@ limitations under the License. */
 #include <string>
 #include <vector>
 
+#include "paddle/fluid/framework/op_version_registry.h"
+
 #ifdef PADDLE_WITH_CUDA
 #include "paddle/fluid/operators/conv_cudnn_op_cache.h"
 #include "paddle/fluid/platform/cudnn_helper.h"
@@ -153,8 +155,7 @@ framework::OpKernelType ConvOp::GetExpectedKernelType(
   }
 #endif
 #ifdef PADDLE_WITH_MKLDNN
-  if (library == framework::LibraryType::kPlain &&
-      platform::CanMKLDNNBeUsed(ctx)) {
+  if (library == framework::LibraryType::kPlain && this->CanMKLDNNBeUsed(ctx)) {
     library = framework::LibraryType::kMKLDNN;
     layout = framework::DataLayout::kMKLDNN;
     customized_type_value =
@@ -166,7 +167,8 @@ framework::OpKernelType ConvOp::GetExpectedKernelType(
 #endif
 
   if (input_data_type != framework::proto::VarType::INT8 &&
-      input_data_type != framework::proto::VarType::UINT8) {
+      input_data_type != framework::proto::VarType::UINT8 &&
+      input_data_type != framework::proto::VarType::BF16) {
     auto filter_data_type = ctx.Input<Tensor>("Filter")->type();
     PADDLE_ENFORCE_EQ(input_data_type, filter_data_type,
                       platform::errors::InvalidArgument(
@@ -196,7 +198,7 @@ framework::OpKernelType ConvOp::GetKernelTypeForVar(
     auto ar = paddle::framework::AttrReader(attrs);
     const std::string data_format = ar.Get<std::string>("data_format");
     auto dl = framework::StringToDataLayout(data_format);
-    // Some models may have intentionally set "AnyLayout" for pool
+    // Some models may have intentionally set "AnyLayout" for conv
     // op. Treat this as NCHW (default data_format value)
     if (dl != framework::DataLayout::kAnyLayout) {
       return framework::OpKernelType(expected_kernel_type.data_type_,
@@ -279,12 +281,16 @@ void Conv2DOpMaker::Make() {
   AddAttr<bool>("use_mkldnn",
                 "(bool, default false) Only used in mkldnn kernel")
       .SetDefault(false);
-  AddAttr<bool>("use_quantizer",
-                "(bool, default false) "
-                "Set to true for operators that should be quantized and use "
-                "int8 kernel. "
-                "Only used on CPU.")
+  AddAttr<bool>(
+      "use_quantizer",
+      "(bool, default false) "
+      "This parameter is no longer used. Use 'mkldnn_data_type' instead.")
       .SetDefault(false);
+  AddAttr<std::string>(
+      "mkldnn_data_type",
+      "(string, default \"float32\"). Data type of mkldnn kernel")
+      .SetDefault("float32")
+      .InEnum({"float32", "int8", "bfloat16"});
   AddAttr<bool>("fuse_relu", "(bool, default false) Only used in mkldnn kernel")
       .SetDefault(false);
   AddAttr<bool>("fuse_brelu",
@@ -301,6 +307,11 @@ void Conv2DOpMaker::Make() {
       .SetDefault(0.0f);
   AddAttr<float>("fuse_beta", "(float, default 0.0) Only used in mkldnn kernel")
       .SetDefault(0.0f);
+  AddAttr<bool>(
+      "use_addto",
+      "(bool, default false) If use addto strategy or not, only used in "
+      "cudnn kernel")
+      .SetDefault(false);
   AddAttr<bool>("fuse_residual_connection",
                 "(bool, default false) Only used in mkldnn kernel. Used "
                 "whenever convolution output is as an input to residual "
@@ -446,6 +457,11 @@ void Conv3DOpMaker::Make() {
   AddAttr<bool>("use_mkldnn",
                 "(bool, default false) Only used in mkldnn kernel")
       .SetDefault(false);
+  AddAttr<std::string>(
+      "mkldnn_data_type",
+      "(string, default \"float32\"). Data type of mkldnn kernel")
+      .SetDefault("float32")
+      .InEnum({"float32", "int8", "bfloat16"});
   AddAttr<bool>("fuse_relu", "(bool, default false) Only used in mkldnn kernel")
       .SetDefault(false);
   AddAttr<std::string>("fuse_activation",
@@ -456,6 +472,11 @@ void Conv3DOpMaker::Make() {
       .SetDefault(0.0f);
   AddAttr<float>("fuse_beta", "(float, default 0.0) Only used in mkldnn kernel")
       .SetDefault(0.0f);
+  AddAttr<bool>(
+      "use_addto",
+      "(bool, default false) If use addto strategy or not, only used in "
+      "cudnn kernel")
+      .SetDefault(false);
   AddAttr<bool>("fuse_residual_connection",
                 "(bool, default false) Only used in mkldnn kernel. Used "
                 "whenever convolution output is as an input to residual "
@@ -543,7 +564,7 @@ framework::OpKernelType ConvOpGrad::GetExpectedKernelType(
 #endif
 #ifdef PADDLE_WITH_MKLDNN
   if (library_ == framework::LibraryType::kPlain &&
-      platform::CanMKLDNNBeUsed(ctx)) {
+      this->CanMKLDNNBeUsed(ctx)) {
     const std::string data_format = ctx.Attr<std::string>("data_format");
     library_ = framework::LibraryType::kMKLDNN;
     layout_ = framework::DataLayout::kMKLDNN;
@@ -797,3 +818,36 @@ REGISTER_OP_CPU_KERNEL(
     conv3d_grad_grad,
     ops::GemmConvDoubleGradKernel<paddle::platform::CPUDeviceContext, float>,
     ops::GemmConvDoubleGradKernel<paddle::platform::CPUDeviceContext, double>);
+
+REGISTER_OP_VERSION(conv2d)
+    .AddCheckpoint(
+        R"ROC(
+      Upgrade conv2d, add a new attribute [use_addto].
+    )ROC",
+        paddle::framework::compatible::OpVersionDesc().NewAttr(
+            "use_addto",
+            "In order to support new feature (inplace addto strategy) for "
+            "gradient accumulation.",
+            false));
+
+REGISTER_OP_VERSION(depthwise_conv2d)
+    .AddCheckpoint(
+        R"ROC(
+      Upgrade depthwise_conv2d, add a new attribute [use_addto].
+    )ROC",
+        paddle::framework::compatible::OpVersionDesc().NewAttr(
+            "use_addto",
+            "In order to support new feature (inplace addto strategy) for "
+            "gradient accumulation.",
+            false));
+
+REGISTER_OP_VERSION(conv3d)
+    .AddCheckpoint(
+        R"ROC(
+      Upgrade conv3d, add a new attribute [use_addto].
+    )ROC",
+        paddle::framework::compatible::OpVersionDesc().NewAttr(
+            "use_addto",
+            "In order to support new feature (inplace addto strategy) for "
+            "gradient accumulation.",
+            false));

@@ -24,9 +24,6 @@
 
 namespace paddle {
 namespace framework {
-#define CUDA_KERNEL_LOOP(i, n)                                 \
-  for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < (n); \
-       i += blockDim.x * gridDim.x)
 
 template <typename FEATURE_VALUE_GPU_TYPE>
 __global__ void PullCopy(float** dest, const FEATURE_VALUE_GPU_TYPE* src,

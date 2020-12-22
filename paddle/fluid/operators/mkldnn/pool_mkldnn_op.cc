@@ -12,7 +12,6 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License. */
 
-#include "paddle/fluid/framework/data_layout_transform.h"
 #include "paddle/fluid/operators/pool_op.h"
 #include "paddle/fluid/platform/mkldnn_helper.h"
 #include "paddle/fluid/platform/mkldnn_reuse.h"
@@ -83,19 +82,24 @@ class PoolMKLDNNGradOpKernel : public paddle::framework::OpKernel<T> {
     const Tensor* out_grad = ctx.Input<Tensor>(framework::GradVarName("Out"));
     Tensor* in_x_grad = ctx.Output<Tensor>(framework::GradVarName("X"));
 
-    PADDLE_ENFORCE_EQ(in_x->layout(), DataLayout::kMKLDNN,
-                      "Wrong layout set for Input tensor");
-    PADDLE_ENFORCE_NE(in_x->format(), MKLDNNMemoryFormat::undef,
-                      "Wrong format set for Input tensor");
+    PADDLE_ENFORCE_EQ(
+        in_x->layout(), DataLayout::kMKLDNN,
+        platform::errors::InvalidArgument("Wrong layout set for Input tensor"));
+    PADDLE_ENFORCE_NE(
+        in_x->format(), MKLDNNMemoryFormat::undef,
+        platform::errors::InvalidArgument("Wrong format set for Input tensor"));
 
     PADDLE_ENFORCE_EQ(out_grad->layout(), DataLayout::kMKLDNN,
-                      "Wrong layout set for Input output_grad tensor");
+                      platform::errors::InvalidArgument(
+                          "Wrong layout set for Input output_grad tensor"));
     PADDLE_ENFORCE_NE(out_grad->format(), MKLDNNMemoryFormat::undef,
-                      "Wrong format set for Input output_grad tensor");
+                      platform::errors::InvalidArgument(
+                          "Wrong format set for Input output_grad tensor"));
 
     PADDLE_ENFORCE_EQ(
         ctx.Attr<bool>("is_test"), false,
-        "is_test attribute should be set to False in training phase.");
+        platform::errors::InvalidArgument(
+            "is_test attribute should be set to False in training phase."));
 
     std::string pooling_type = ctx.Attr<std::string>("pooling_type");
 
@@ -122,6 +126,9 @@ class PoolMKLDNNGradOpKernel : public paddle::framework::OpKernel<T> {
     UpdatePadding(&paddings, global_pooling, 0, padding_algorithm, data_dims,
                   strides, ksize);
 
+    platform::PoolingMKLDNNHandler<T>::ComputeAdaptivePoolParameters(
+        ctx, paddle::framework::vectorize(in_x->dims()), ksize, strides);
+
     auto& dev_ctx =
         ctx.template device_context<platform::MKLDNNDeviceContext>();
 
@@ -133,7 +140,7 @@ class PoolMKLDNNGradOpKernel : public paddle::framework::OpKernel<T> {
     // Get an unique name from "argument" name of "Out" variable
     // This name will be used as key when referring info from device context
     const std::string key = platform::CreateKey(
-        diff_src_tz, pooling_type, ksize, strides, paddings,
+        dev_ctx, diff_src_tz, pooling_type, ksize, strides, paddings,
         memory::data_type::f32, in_x->format(), ctx.InputName("Out"));
 
     platform::PoolingMKLDNNHandler<T> handler(
@@ -174,7 +181,8 @@ namespace ops = paddle::operators;
 REGISTER_OP_KERNEL(pool2d, MKLDNN, ::paddle::platform::CPUPlace,
                    ops::PoolMKLDNNOpKernel<float>,
                    ops::PoolMKLDNNOpKernel<int8_t>,
-                   ops::PoolMKLDNNOpKernel<uint8_t>);
+                   ops::PoolMKLDNNOpKernel<uint8_t>,
+                   ops::PoolMKLDNNOpKernel<paddle::platform::bfloat16>);
 
 REGISTER_OP_KERNEL(pool2d_grad, MKLDNN, ::paddle::platform::CPUPlace,
                    ops::PoolMKLDNNGradOpKernel<float>);
