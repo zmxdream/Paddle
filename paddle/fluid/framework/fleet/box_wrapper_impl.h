@@ -132,6 +132,9 @@ void BoxWrapper::PushSparseGradCase(
     const std::vector<const float*>& grad_values,
     const std::vector<int64_t>& slot_lengths, const int hidden_size,
     const int expand_embed_dim, const int batch_size) {
+
+  printf("in PushSparseGradCase sizeof(FeaturePushValueGpuType)=%d\n", (int)sizeof(FeaturePushValueGpuType));
+
 #if defined(PADDLE_WITH_CUDA) && !defined(_WIN32)
   int device_id = BOOST_GET_CONST(platform::CUDAPlace, place).GetDeviceId();
   DeviceBoxData& dev = device_caches_[device_id];

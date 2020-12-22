@@ -711,9 +711,9 @@ void BoxWrapper::CopyForPush(const paddle::platform::Place& place,
           grad_values, hidden_size, total_length, batch_size, d_slot_vector,     \
           total_dims, slot_lens, slot_num, key2slot);                            \
       int embedx_total_length = total_length * (EmbedxDim + ExpandDim);          \
-      PushCopyExpand<boxps::FeaturePushValueGpu<EmbedxDim, ExpandDim>><<<        \
+      PushCopyExpand<boxps::FeaturePushValueGpuPCOC<EmbedxDim, ExpandDim>><<<        \
           (embedx_total_length + 512 - 1) / 512, 512, 0, stream>>>(              \
-          reinterpret_cast<boxps::FeaturePushValueGpu<EmbedxDim, ExpandDim>*>(   \
+          reinterpret_cast<boxps::FeaturePushValueGpuPCOC<EmbedxDim, ExpandDim>*>(   \
               total_grad_values_gpu),                                            \
           grad_values, (EmbedxDim + ExpandDim), EmbedxDim, ExpandDim,            \
           embedx_total_length, batch_size, d_slot_vector, total_dims, slot_lens, \
