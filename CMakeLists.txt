@@ -22,11 +22,23 @@ include(system)
 project(paddle CXX C)
 
 include(init)
+include(generic)            # simplify cmake module
 
 # enable language CUDA
 # TODO(Shibo Tao): remove find_package(CUDA) completely.
 find_package(CUDA QUIET)
 option(WITH_GPU         "Compile PaddlePaddle with NVIDIA GPU"          ${CUDA_FOUND})
+option(WITH_TENSORRT    "Compile PaddlePaddle with NVIDIA TensorRT"     OFF)
+option(WITH_XPU         "Compile PaddlePaddle with BAIDU KUNLUN"        OFF)
+if (WITH_GPU  AND WITH_XPU)
+    message(FATAL_ERROR "Error when compile GPU and XPU at the same time")
+endif()
+# cmake 3.12, 3.13, 3.14 will append gcc link options to nvcc, and nvcc doesn't recognize them.
+if(WITH_GPU AND (${CMAKE_VERSION} VERSION_GREATER_EQUAL 3.12) AND (${CMAKE_VERSION} VERSION_LESS 3.15))
+    message(FATAL_ERROR "cmake ${CMAKE_VERSION} is not supported when WITH_GPU=ON because of bug https://cmake.org/pipermail/cmake/2018-September/068195.html. "
+       "You can use cmake 3.16 (recommended), 3.10, 3.11, 3.15 or 3.17. Please refer to the install document: https://cmake.org/install/")
+endif()
+
 if(WITH_GPU AND NOT APPLE)
     enable_language(CUDA)
     message(STATUS "CUDA compiler: ${CMAKE_CUDA_COMPILER}, version: "
@@ -39,12 +51,16 @@ message(STATUS "C compiler: ${CMAKE_C_COMPILER}, version: "
         "${CMAKE_C_COMPILER_ID} ${CMAKE_C_COMPILER_VERSION}")
 message(STATUS "AR tools: ${CMAKE_AR}")
 
+# MUSL build turn off warnings
+if(WITH_MUSL)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=deprecated-declarations -Wno-deprecated-declarations -Wno-error=pessimizing-move -Wno-error=deprecated-copy")
+endif()
+
 if(WIN32)
     option(MSVC_STATIC_CRT "use static C Runtime library by default" ON)
 
     set(CMAKE_SUPPRESS_REGENERATION ON)
     set(CMAKE_STATIC_LIBRARY_PREFIX lib)
-    add_definitions("/DGOOGLE_GLOG_DLL_DECL=")
 
     if (MSVC_STATIC_CRT)
         message(STATUS "Use static C runtime time, refer to https://docs.microsoft.com/en-us/cpp/c-runtime-library/crt-library-features?view=vs-2019")
@@ -52,26 +68,58 @@ if(WIN32)
         set(CMAKE_C_FLAGS_RELEASE  "${CMAKE_C_FLAGS_RELEASE} /bigobj /MT")
         set(CMAKE_CXX_FLAGS_DEBUG  "${CMAKE_CXX_FLAGS_DEBUG} /bigobj /MTd")
         set(CMAKE_CXX_FLAGS_RELEASE   "${CMAKE_CXX_FLAGS_RELEASE} /bigobj /MT")
+        foreach(flag_var
+            CMAKE_CXX_FLAGS CMAKE_CXX_FLAGS_DEBUG CMAKE_CXX_FLAGS_RELEASE
+            CMAKE_CXX_FLAGS_MINSIZEREL CMAKE_CXX_FLAGS_RELWITHDEBINFO
+            CMAKE_C_FLAGS CMAKE_C_FLAGS_DEBUG CMAKE_C_FLAGS_RELEASE
+            CMAKE_C_FLAGS_MINSIZEREL CMAKE_C_FLAGS_RELWITHDEBINFO)
+            if(${flag_var} MATCHES "/MD")
+                string(REGEX REPLACE "/MD" "/MT" ${flag_var} "${${flag_var}}")
+            endif()
+        endforeach(flag_var)
     endif()
-    
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /wd4068 /wd4129 /wd4244 /wd4267 /wd4297 /wd4530 /wd4577 /wd4819 /wd4838 /MP")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4068 /wd4129 /wd4244 /wd4267 /wd4297 /wd4530 /wd4577 /wd4819 /wd4838 /MP")
-    message(STATUS "Using parallel compiling (/MP)")
-    set(PADDLE_LINK_FLAGS "/IGNORE:4006 /IGNORE:4098 /IGNORE:4217 /IGNORE:4221")
-    set(CMAKE_STATIC_LINKER_FLAGS  "${CMAKE_STATIC_LINKER_FLAGS} ${PADDLE_LINK_FLAGS}")
-    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${PADDLE_LINK_FLAGS}")
-    set(CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} ${PADDLE_LINK_FLAGS}")
+
+    # windows build turn off warnings, use parallel compiling.
+    foreach(flag_var
+        CMAKE_CXX_FLAGS CMAKE_CXX_FLAGS_DEBUG CMAKE_CXX_FLAGS_RELEASE
+        CMAKE_CXX_FLAGS_MINSIZEREL CMAKE_CXX_FLAGS_RELWITHDEBINFO
+        CMAKE_C_FLAGS CMAKE_C_FLAGS_DEBUG CMAKE_C_FLAGS_RELEASE
+        CMAKE_C_FLAGS_MINSIZEREL CMAKE_C_FLAGS_RELWITHDEBINFO)
+        string(REGEX REPLACE "/W[1-4]" " /W0 " ${flag_var} "${${flag_var}}")
+        set(${flag_var} "${${flag_var}} /MP")
+    endforeach(flag_var)
+    foreach(flag_var CMAKE_CXX_FLAGS CMAKE_C_FLAGS)
+        set(${flag_var} "${${flag_var}} /w")
+    endforeach(flag_var)
+
+    # Windows Remove /Zi, /ZI for Release, MinSizeRel builds
+    foreach(flag_var
+        CMAKE_C_FLAGS CMAKE_C_FLAGS_RELEASE CMAKE_C_FLAGS_MINSIZEREL
+        CMAKE_CXX_FLAGS CMAKE_CXX_FLAGS_RELEASE CMAKE_CXX_FLAGS_MINSIZEREL)
+        if(${flag_var} MATCHES "/Z[iI]")
+            string(REGEX REPLACE "/Z[iI]" "" ${flag_var} "${${flag_var}}")
+        endif()
+    endforeach(flag_var)
+
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /wd4068 /wd4129 /wd4244 /wd4267 /wd4297 /wd4530 /wd4577 /wd4819 /wd4838")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4068 /wd4129 /wd4244 /wd4267 /wd4297 /wd4530 /wd4577 /wd4819 /wd4838")
 else(WIN32)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=deprecated-declarations -Wno-deprecated-declarations")
 endif(WIN32)
 
 find_package(Git REQUIRED)
+
+# config GIT_URL with github mirrors to speed up dependent repos clone
+option(GIT_URL "Git URL to clone dependent repos" ${GIT_URL})
+if(NOT GIT_URL)
+    set(GIT_URL "https://github.com")
+endif()
+
 find_package(Threads REQUIRED)
 
 include(simd)
 
 ################################ Exposed Configurations #######################################
-option(WITH_DSO         "Compile PaddlePaddle with dynamic linked CUDA" ON)
 option(WITH_AVX         "Compile PaddlePaddle with AVX intrinsics"      ${AVX_FOUND})
 option(WITH_PYTHON      "Compile PaddlePaddle with python interpreter"  ON)
 option(WITH_TESTING     "Compile PaddlePaddle with unit testing"        OFF)
@@ -85,6 +133,7 @@ option(WITH_AMD_GPU     "Compile PaddlePaddle with AMD GPU"             OFF)
 option(WITH_NV_JETSON     "Compile PaddlePaddle with NV JETSON"             OFF)
 option(WITH_PROFILER    "Compile PaddlePaddle with GPU profiler and gperftools"        OFF)
 option(WITH_COVERAGE    "Compile PaddlePaddle with code coverage"       OFF)
+option(WITH_INCREMENTAL_COVERAGE    "Generate coverage reports only for incremental code"       OFF)
 OPTION(WITH_LIBXSMM     "Compile with libxsmm"                          OFF)
 option(COVERALLS_UPLOAD "Package code coverage data to coveralls"       OFF)
 option(WITH_PSLIB       "Compile with pslib support"                    OFF)
@@ -99,6 +148,10 @@ option(SANITIZER_TYPE "Choose the type of sanitizer, options are: Address, Leak,
 option(WITH_LITE   "Compile Paddle Fluid with Lite Engine" OFF)
 option(WITH_NCCL   "Compile PaddlePaddle with NCCL support"             ON)
 option(WITH_CRYPTO   "Compile PaddlePaddle with crypto support"         ON)
+option(WITH_ARM   "Compile PaddlePaddle with arm support"         OFF)
+option(WITH_SW   "Compile PaddlePaddle with sw support"         OFF)
+option(WITH_MUSL        "Compile with musl libc instead of gblic"  OFF)
+option(WITH_UNITY_BUILD "Compile with UnityBuild mode"             OFF)
 
 # PY_VERSION
 if(NOT PY_VERSION)
@@ -160,7 +213,19 @@ if(WITH_BRPC_RDMA)
     endif()
 endif()
 
-include(third_party)        # download, build, install third_party
+if(WITH_GPU)
+    include(cuda)
+    # lite subgraph compilation depends on CUDNN_ROOT,
+    # so include(cudnn) needs to be in front of include(third_party/lite)
+    include(cudnn)              # set cudnn libraries, must before configure
+    include(tensorrt)
+    # there is no official support of nccl, cupti in windows
+    if(NOT WIN32)
+        include(cupti)
+    endif()
+endif()
+
+include(third_party)  # download, build, install third_party, Contains about 20+ dependencies
 
 if(WITH_DISTRIBUTE)
     if(WITH_GRPC)
@@ -173,18 +238,7 @@ if(WITH_DISTRIBUTE)
     endif()
 endif()
 
-# there is no official support of nccl, cupti in windows
-if(NOT WIN32)
-    include(cupti)
-endif()
-
 include(flags)              # set paddle compile flags
-include(cudnn)              # set cudnn libraries, must before configure
-
-if(WITH_GPU)
-    include(cuda)
-    include(tensorrt)
-endif()
 
 if(WITH_PROFILER)
     find_package(Gperftools REQUIRED)
@@ -192,7 +246,12 @@ if(WITH_PROFILER)
     add_definitions(-DWITH_GPERFTOOLS)
 endif()
 
-include(generic)            # simplify cmake module
+if(WITH_DISTRIBUTE)
+    if(LINUX)
+        set(WITH_GLOO ON CACHE STRING "Enable GLOO when compiling WITH_DISTRIBUTE=ON." FORCE)
+    endif()
+endif()
+
 include(ccache)             # set ccache for compilation
 include(util)               # set unittest and link libs
 include(version)            # set PADDLE_VERSION
@@ -205,6 +264,23 @@ if(WITH_AMD_GPU)
     find_package(HIP)
     include(hip)
 endif(WITH_AMD_GPU)
+
+if(WITH_ARM)
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fPIC")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC")
+    set(WITH_XBYAK OFF CACHE STRING "Disable XBYAK when compiling WITH_ARM=ON" FORCE)
+    set(WITH_MKL OFF CACHE STRING "Disable MKL when compiling WITH_ARM=ON." FORCE)
+    add_definitions(-DPADDLE_WITH_ARM)
+endif()
+
+if (WITH_SW)
+    # mieee flag solves floating-point exceptions under sw and ALPHA architectures
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fPIC -mieee")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC -mieee")
+    set(WITH_XBYAK OFF CACHE STRING "Disable XBYAK when compiling WITH_SW=ON" FORCE)
+    set(WITH_MKL OFF CACHE STRING "Disable MKL when compiling WITH_SW=ON." FORCE)
+    add_definitions(-DPADDLE_WITH_SW)
+endif()
 
 set(PADDLE_PYTHON_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/python/build")
 

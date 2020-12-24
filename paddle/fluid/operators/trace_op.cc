@@ -30,8 +30,8 @@ class TraceOp : public framework::OperatorWithKernel {
         ctx->HasOutput("Out"), true,
         platform::errors::NotFound("Output of TraceOp is not found."));
 
-    int dim1 = ctx->Attrs().Get<int>("dim1");
-    int dim2 = ctx->Attrs().Get<int>("dim2");
+    int dim1 = ctx->Attrs().Get<int>("axis1");
+    int dim2 = ctx->Attrs().Get<int>("axis2");
 
     auto x_dims = ctx->GetInputDim("Input");
 
@@ -84,15 +84,15 @@ class TraceOpMaker : public framework::OpProtoAndCheckerMaker {
         )DOC")
         .SetDefault(0);
     AddAttr<int>(
-        "dim1",
-        R"DOC((int, default 0), the first dim of the 2-D planes from which the diagonals should be taken. 
-        Can be both positive and negative. Default: 0.
+        "axis1",
+        R"DOC((int, default 0), the first axis of the 2-D planes from which the diagonals should be taken. 
+        Can be either positive or negative. Default: 0.
         )DOC")
         .SetDefault(-2);
     AddAttr<int>(
-        "dim2",
-        R"DOC((int, default 1), the second dim of the 2-D planes from which the diagonals should be taken. 
-        Can be both positive and negative. Default: 1.
+        "axis2",
+        R"DOC((int, default 1), the second axis of the 2-D planes from which the diagonals should be taken. 
+        Can be either positive or negative. Default: 1.
         )DOC")
         .SetDefault(-1);
     AddComment(R"DOC(
@@ -163,9 +163,17 @@ REGISTER_OP_CPU_KERNEL(
     trace, ops::TraceKernel<paddle::platform::CPUDeviceContext, int>,
     ops::TraceKernel<paddle::platform::CPUDeviceContext, float>,
     ops::TraceKernel<paddle::platform::CPUDeviceContext, double>,
-    ops::TraceKernel<paddle::platform::CPUDeviceContext, int64_t>);
+    ops::TraceKernel<paddle::platform::CPUDeviceContext, int64_t>,
+    ops::TraceKernel<paddle::platform::CPUDeviceContext,
+                     paddle::platform::complex64>,
+    ops::TraceKernel<paddle::platform::CPUDeviceContext,
+                     paddle::platform::complex128>);
 REGISTER_OP_CPU_KERNEL(
     trace_grad, ops::TraceGradKernel<paddle::platform::CPUDeviceContext, int>,
     ops::TraceGradKernel<paddle::platform::CPUDeviceContext, float>,
     ops::TraceGradKernel<paddle::platform::CPUDeviceContext, double>,
-    ops::TraceGradKernel<paddle::platform::CPUDeviceContext, int64_t>);
+    ops::TraceGradKernel<paddle::platform::CPUDeviceContext, int64_t>,
+    ops::TraceGradKernel<paddle::platform::CPUDeviceContext,
+                         paddle::platform::complex64>,
+    ops::TraceGradKernel<paddle::platform::CPUDeviceContext,
+                         paddle::platform::complex128>);

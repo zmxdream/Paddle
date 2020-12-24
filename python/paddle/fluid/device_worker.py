@@ -15,10 +15,8 @@
 
 from __future__ import print_function
 
-from paddle.fluid.incubate.fleet.parameter_server import version
-
 __all__ = [
-    'DeviceWorker', 'Hogwild', 'DownpourSGD', 'Section', 'DownpourSGDOPT'
+    'DeviceWorker', 'Hogwild', 'DownpourSGD', 'Section', 'DownpourSGDOPT', 'BoxPSWorker'
 ]
 
 
@@ -104,6 +102,8 @@ class Hogwild(DeviceWorker):
         # when opt_info is None or empty dict, it should return
         if not opt_info:
             return
+
+        from paddle.fluid.incubate.fleet.parameter_server import version
 
         if version.is_transpiler() and "fleet_desc" not in opt_info:
             return
@@ -221,9 +221,17 @@ class DownpourSGD(DeviceWorker):
                 for i in program_configs[program_id]["pull_dense"]:
                     pc.pull_dense_table_id.extend([i])
                     dense_table_set.add(i)
+                # code for partial push dense table such as multitask
+                if "cond2denseid" in program_configs[program_id]:
+                    cond2denseid = program_configs[program_id]["cond2denseid"]
+                    for key, value in cond2denseid.items():
+                        mc_map = pc.partial_pushdense_condtable_map.add()
+                        mc_map.key = key
+                        mc_map.value = value
                 break
 
-        trainer_desc.device_worker_name = "DownpourWorker"
+        trainer_desc.device_worker_name = opt_info.get("worker_class",
+                                                       "DownpourWorker")
         pull_thread = trainer_desc.pull_dense_param
         pull_thread.device_num = trainer_desc.thread_num
         if opt_info.get("program_id_to_worker") is None:
@@ -403,36 +411,47 @@ class Section(DeviceWorker):
         trainer_desc.device_worker_name = "SectionWorker"
         pipeline_opt = self._program._pipeline_opt
         section_param = trainer_desc.section_param
-        section_param.queue_size = pipeline_opt["queue_size"]
-        section_param.sync_steps = pipeline_opt["sync_steps"]
+        section_param.num_microbatches = pipeline_opt["num_microbatches"]
         section_param.start_cpu_core_id = pipeline_opt["start_cpu_core_id"]
-        section_param.async_mode = pipeline_opt.get("async_mode", False)
+        cfg = section_param.section_config
+        program = pipeline_opt["section_program"]
+        cfg.program_desc.ParseFromString(program["program"]._get_desc()
+                                         .serialize_to_string())
+        # TODO: why does not work
+        # cfg.program_desc.CopyFrom(program.program._get_desc())
+        place = pipeline_opt["place"]
+        place_id = pipeline_opt["place_id"]
+        assert isinstance(place, core.CUDAPlace)
+        cfg.place = cfg.CUDAPlace
+        cfg.place_id = place_id
+        
+
+class BoxPSWorker(DeviceWorker):
+    """ BoxPSWorker """
+    def __init__(self):
+        """Init."""
+        super(DeviceWorker, self).__init__()
+
+    def _gen_worker_desc(self, trainer_desc):
+        """
+        Generator worker desc, which device worker is BoxPSWorker.
+        Args:
+            trainer_desc(TrainerDesc): a TrainerDesc object
+        """
+        from google.protobuf import text_format
+        from . import core
+        trainer_desc.device_worker_name = "BoxPSWorker"
+        pipeline_opt = self._program._pipeline_opt
+        boxps_param = trainer_desc.boxps_param
+        boxps_param.async_mode = pipeline_opt.get("async_mode", False)
         for e in pipeline_opt["param_need_sync"]:
-            section_param.param_need_sync.append(e)
-        for i, program in enumerate(pipeline_opt["section_program_list"]):
-            cfg = section_param.section_config.add()
-            cfg.program_desc.ParseFromString(program["program"]._get_desc()
-                                             .serialize_to_string())
-            # TODO: why does not work
-            # cfg.program_desc.CopyFrom(program.program._get_desc())
-            place = pipeline_opt["place_list"][i]
-            if isinstance(place, core.CPUPlace):
-                cfg.place = cfg.CPUPlace
-            elif isinstance(place, core.CUDAPlace):
-                cfg.place = cfg.CUDAPlace
-            elif isinstance(place, core.CUDAPinnedPlace):
-                cfg.place = cfg.CUDAPinnedPlace
-            else:
-                raise NotImplementedError(
-                    "SectionWorker only supports CPUPlace, CUDAPlace and CUDAPinnedPlace now."
-                )
-
-            cfg.concurrency = pipeline_opt["concurrency_list"][i]
-            for var in program["input_set"]:
-                cfg.section_in_var_names.append(var)
-            for var in program["output_set"]:
-                cfg.section_out_var_names.append(var)
-
+            boxps_param.param_need_sync.append(e)
+        boxps_param.dump_thread_num = pipeline_opt.get("dump_thread_num", 1)
+        
+        program_list = pipeline_opt.get("section_program_list", [])
+        if len(program_list) > 0:
+            boxps_param.program_desc.ParseFromString(
+                program_list[0]["program"]._get_desc().serialize_to_string())
 
 class DeviceWorkerFactory(object):
     def _create_device_worker(self, worker_type):
