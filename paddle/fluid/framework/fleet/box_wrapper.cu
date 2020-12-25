@@ -523,7 +523,6 @@ void BoxWrapper::CopyForPull(const paddle::platform::Place& place,
                              const int slot_num, const int* key2slot,
                              const int hidden_size, const int expand_embed_dim,
                              const int64_t total_length, int* total_dims) {
-  printf("in CopyForPull cvmoffset=%d, &cvm_offset=%p \n", cvm_offset_ ,&cvm_offset_);
   auto stream = dynamic_cast<platform::CUDADeviceContext*>(
                     platform::DeviceContextPool::Instance().Get(
                         BOOST_GET_CONST(platform::CUDAPlace, place)))

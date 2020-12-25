@@ -46,7 +46,6 @@ class StoreQValueOpKernel : public framework::OpKernel<T> {
     for (size_t i = 0; i < qvalues_size; ++i) {
       framework::TensorCopy(*inputs[i], platform::CPUPlace(), &cpu_qvalues[i]);
     }
-    printf("begin BatchGpuPackMgr().store_qvalue in StoreQValueOpKernel\n"); 
     framework::BatchGpuPackMgr().store_qvalue(device_id, cpu_qvalues);
   }
 };
