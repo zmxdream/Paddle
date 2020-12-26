@@ -127,7 +127,8 @@ __global__ void PullCopyExpand(float** dest, const FEATURE_VALUE_GPU_TYPE* src,
                                const int* total_dims, const int64_t* slot_lens,
                                const int slot_num, const int* key2slot,
                                const bool is_quant, float scale,
-                               const int cvm_offset) {
+                               const int cvm_offset, const int embedx_offset,
+                               const int expand_offset) {
   CUDA_KERNEL_LOOP(i, total_len) {
     int idx = i / total_embedx_dim;
     int col = i % total_embedx_dim;
@@ -142,7 +143,7 @@ __global__ void PullCopyExpand(float** dest, const FEATURE_VALUE_GPU_TYPE* src,
         if (is_quant) {
           *(dest[x] + offset) = src_val.embedx[col] * scale;
         } else {
-          *(dest[x] + offset) = src_val.embedx[1 + col];
+          *(dest[x] + offset) = src_val.embedx[embedx_offset + col];
         }
       } else {
         *(dest[x] + offset) = 0;
@@ -157,7 +158,7 @@ __global__ void PullCopyExpand(float** dest, const FEATURE_VALUE_GPU_TYPE* src,
           *(dest[x + slot_num] + y * expand_dim + j) = expand[j] * scale;
         } else {
           *(dest[x + slot_num] + y * expand_dim + j) =
-              src_val.embed_expand[1 + j];
+              src_val.embed_expand[expand_offset + j];
         }
       } else {
         *(dest[x + slot_num] + y * expand_dim + j) = 0;
@@ -394,7 +395,45 @@ void BoxWrapper::CopyForPull(const paddle::platform::Place& place,
                           total_values_gpu),                                   \
           (EmbedxDim + ExpandDim), EmbedxDim, ExpandDim, embedx_total_length,  \
           total_dims, slot_lens, slot_num, key2slot, true, pull_embedx_scale_, \
-          cvm_offset_);                                                        \
+          cvm_offset_, 1, 1);                                                  \
+    } else if (feature_type_ ==                                                \
+               static_cast<int>(boxps::FEATURE_SHARED_ADAM)) {                 \
+      PullCopyBase<boxps::FeatureValueGpuSharedAdam<EmbedxDim, ExpandDim>><<<  \
+          (total_length + 512 - 1) / 512, 512, 0, stream>>>(                   \
+          gpu_values,                                                          \
+          reinterpret_cast<                                                    \
+              boxps::FeatureValueGpuSharedAdam<EmbedxDim, ExpandDim>*>(        \
+              total_values_gpu),                                               \
+          hidden_size, expand_embed_dim, total_length, gpu_keys, total_dims,   \
+          slot_lens, slot_num, key2slot, false, pull_embedx_scale_);           \
+      int embedx_total_length = total_length * (EmbedxDim + ExpandDim);        \
+      PullCopyExpand<                                                          \
+          boxps::FeatureValueGpuSharedAdam<EmbedxDim, ExpandDim>><<<           \
+          (embedx_total_length + 512 - 1) / 512, 512, 0, stream>>>(            \
+          gpu_values,                                                          \
+          reinterpret_cast<                                                    \
+              boxps::FeatureValueGpuSharedAdam<EmbedxDim, ExpandDim>*>(        \
+              total_values_gpu),                                               \
+          (EmbedxDim + ExpandDim), EmbedxDim, ExpandDim, embedx_total_length,  \
+          total_dims, slot_lens, slot_num, key2slot, false,                    \
+          pull_embedx_scale_, cvm_offset_, 0, 1);                              \
+    } else if (feature_type_ == static_cast<int>(boxps::FEATURE_ADAM)) {       \
+      PullCopyBase<boxps::FeatureValueGpuAdam<EmbedxDim, ExpandDim>><<<        \
+          (total_length + 512 - 1) / 512, 512, 0, stream>>>(                   \
+          gpu_values,                                                          \
+          reinterpret_cast<boxps::FeatureValueGpuAdam<EmbedxDim, ExpandDim>*>( \
+              total_values_gpu),                                               \
+          hidden_size, expand_embed_dim, total_length, gpu_keys, total_dims,   \
+          slot_lens, slot_num, key2slot, false, pull_embedx_scale_);           \
+      int embedx_total_length = total_length * (EmbedxDim + ExpandDim);        \
+      PullCopyExpand<boxps::FeatureValueGpuAdam<EmbedxDim, ExpandDim>><<<      \
+          (embedx_total_length + 512 - 1) / 512, 512, 0, stream>>>(            \
+          gpu_values,                                                          \
+          reinterpret_cast<boxps::FeatureValueGpuAdam<EmbedxDim, ExpandDim>*>( \
+              total_values_gpu),                                               \
+          (EmbedxDim + ExpandDim), EmbedxDim, ExpandDim, embedx_total_length,  \
+          total_dims, slot_lens, slot_num, key2slot, false,                    \
+          pull_embedx_scale_, cvm_offset_, 0, 1);                              \
     } else {                                                                   \
       PullCopyBase<boxps::FeatureValueGpu<EmbedxDim, ExpandDim>><<<            \
           (total_length + 512 - 1) / 512, 512, 0, stream>>>(                   \
@@ -411,7 +450,7 @@ void BoxWrapper::CopyForPull(const paddle::platform::Place& place,
               total_values_gpu),                                               \
           (EmbedxDim + ExpandDim), EmbedxDim, ExpandDim, embedx_total_length,  \
           total_dims, slot_lens, slot_num, key2slot, false,                    \
-          pull_embedx_scale_, cvm_offset_);                                    \
+          pull_embedx_scale_, cvm_offset_, 1, 1);                              \
     }                                                                          \
   } break
 
