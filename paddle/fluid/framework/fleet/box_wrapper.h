@@ -33,8 +33,8 @@ limitations under the License. */
 #include <mutex>  // NOLINT
 #include <set>
 #include <string>
-#include <unordered_set>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -50,6 +50,8 @@ limitations under the License. */
 #define BUF_SIZE 1024 * 1024
 
 DECLARE_int32(fix_dayid);
+DECLARE_bool(padbox_auc_runner_mode);
+
 namespace paddle {
 namespace framework {
 
@@ -483,6 +485,15 @@ class BoxWrapper {
         }
       }
     } else {
+      if (nullptr == s_instance_->boxps_ptr_) {
+        static std::mutex ps_mtx;
+        std::lock_guard<std::mutex> ps_lock(ps_mtx);
+        if (nullptr == s_instance_->boxps_ptr_) {
+          VLOG(0) << "reset boxps ptr";
+          s_instance_->boxps_ptr_.reset(boxps::BoxPSBase::GetInsEx(
+              embedx_dim, expand_embed_dim, feature_type));
+        }
+      }
       LOG(WARNING) << "You have already used SetInstance() before";
     }
     return s_instance_;
@@ -826,11 +837,11 @@ class BoxWrapper {
                 "The metric name you provided is not registered."));
 
         if (iter->second->MetricPhase() == metric_phase) {
-          VLOG(0) << name << "'s phase is " << iter->second->MetricPhase()
+          VLOG(3) << name << "'s phase is " << iter->second->MetricPhase()
                   << ", we want";
           ret.push_back(name);
         } else {
-          VLOG(0) << name << "'s phase is " << iter->second->MetricPhase()
+          VLOG(3) << name << "'s phase is " << iter->second->MetricPhase()
                   << ", not we want";
         }
       }
@@ -939,15 +950,19 @@ class BoxWrapper {
   void InitializeAucRunner(std::vector<std::vector<std::string>> slot_eval,
                            int thread_num, int pool_size,
                            std::vector<std::string> slot_list) {
+    PADDLE_ENFORCE_EQ(FLAGS_padbox_auc_runner_mode, true,
+                      platform::errors::InvalidArgument(
+                          "you should export FLAGS_padbox_auc_runner_mode=true "
+                          "in auc runner mode."));
+
     mode_ = 1;
     phase_num_ = static_cast<int>(slot_eval.size());
     phase_ = phase_num_ - 1;
     auc_runner_thread_num_ = thread_num;
     pass_done_semi_ = paddle::framework::MakeChannel<int>();
-    pass_done_semi_->Put(1);  // Note: At most 1 pipeline in AucRunner
     random_ins_pool_list.resize(thread_num);
     for (size_t i = 0; i < random_ins_pool_list.size(); ++i) {
-      random_ins_pool_list[i].ReSize(pool_size);
+      random_ins_pool_list[i].Resize(pool_size);
     }
 
     std::unordered_set<std::string> slot_set;
@@ -958,11 +973,11 @@ class BoxWrapper {
     }
     for (size_t i = 0; i < slot_list.size(); ++i) {
       if (slot_set.find(slot_list[i]) != slot_set.end()) {
-        slot_index_to_replace_.insert(static_cast<int16_t>(i));
+        slot_index_to_replace_.insert(static_cast<uint16_t>(i));
       }
     }
     for (int i = 0; i < auc_runner_thread_num_; ++i) {
-      random_ins_pool_list[i].SetSlotIndexToReplace(slot_index_to_replace_);
+      random_ins_pool_list[i].SetReplacedSlots(slot_index_to_replace_);
     }
     VLOG(0) << "AucRunner configuration: thread number[" << thread_num
             << "], pool size[" << pool_size << "], runner_group[" << phase_num_
@@ -972,7 +987,7 @@ class BoxWrapper {
       VLOG(0) << e << ": " << slot_list[e];
     }
   }
-  void GetRandomReplace(const std::vector<Record>& pass_data);
+  void GetRandomReplace(std::vector<SlotRecord>* records);
   void PostUpdate();
   void AddReplaceFeasign(boxps::PSAgentBase* p_agent, int feed_pass_thread_num);
   void GetRandomData(const std::vector<Record>& pass_data,
@@ -980,14 +995,50 @@ class BoxWrapper {
                      std::vector<Record>* result);
   int Mode() const { return mode_; }
 
+  void PushAucRunnerResource(size_t records_len) {
+    platform::Timer timer;
+    timer.Start();
+
+    for (auto& pool : random_ins_pool_list) {
+      pool.Push();
+    }
+
+    timer.Pause();
+    VLOG(0) << "PushAucRunnerResource cost: " << timer.ElapsedMS();
+  }
+
+  void PopAucRunnerResource() {
+    platform::Timer timer;
+    timer.Start();
+
+    std::lock_guard<std::mutex> lock(mutex4random_pool_);
+    for (auto& pool : random_ins_pool_list) {
+      pool.Pop();
+    }
+    record_replacers_.clear();
+    last_slots_idx_.clear();
+
+    timer.Pause();
+    VLOG(0) << "PopAucRunnerResource cost: " << timer.ElapsedMS();
+  }
+
+  std::vector<FeasignValuesReplacer> record_replacers_;
+  std::set<uint16_t> last_slots_idx_;
+
+  void RecordReplace(std::vector<SlotRecord>* records,
+                     const std::set<uint16_t>& slots);
+  void RecordReplaceBack(std::vector<SlotRecord>* records,
+                         const std::set<uint16_t>& slots);
+
  private:
   int mode_ = 0;  // 0 means train/test 1 means auc_runner
   int auc_runner_thread_num_ = 1;
   bool init_done_ = false;
   paddle::framework::Channel<int> pass_done_semi_;
-  std::unordered_set<uint16_t> slot_index_to_replace_;
-  std::vector<RecordCandidateList> random_ins_pool_list;
-  std::vector<size_t> replace_idx_;
+
+  std::set<uint16_t> slot_index_to_replace_;
+  std::vector<FeasignValuesCandidateList> random_ins_pool_list;
+  std::mutex mutex4random_pool_;
 };
 #endif
 
@@ -1011,6 +1062,10 @@ class BoxHelper {
 #ifdef PADDLE_WITH_BOX_PS
     auto box_ptr = BoxWrapper::GetInstance();
     box_ptr->EndPass(need_save_delta);
+
+    if (box_ptr->Mode() == 1) {
+      box_ptr->PopAucRunnerResource();
+    }
 #endif
   }
 
@@ -1048,6 +1103,12 @@ class BoxHelper {
     // auc runner
     if (box_ptr->Mode() == 1) {
       box_ptr->AddReplaceFeasign(agent, box_ptr->GetFeedpassThreadNum());
+
+      PadBoxSlotDataset* dataset = dynamic_cast<PadBoxSlotDataset*>(dataset_);
+      CHECK(dataset);
+      auto& records = dataset->GetInputRecord();
+      box_ptr->PushAucRunnerResource(records.size());
+      box_ptr->GetRandomReplace(&records);
     }
     box_ptr->EndFeedPass(agent);
 #endif
@@ -1081,36 +1142,30 @@ class BoxHelper {
     VLOG(3) << "After PreLoadIntoMemory()";
   }
   void WaitFeedPassDone() { feed_data_thread_->join(); }
+
   void SlotsShuffle(const std::set<std::string>& slots_to_replace) {
 #ifdef PADDLE_WITH_BOX_PS
     auto box_ptr = BoxWrapper::GetInstance();
-    PADDLE_ENFORCE_EQ(box_ptr->Mode(), 1,
-                      platform::errors::PreconditionNotMet(
-                          "Should call InitForAucRunner first."));
+    PADDLE_ENFORCE_EQ(box_ptr->Mode(), 1);
     box_ptr->FlipPhase();
 
-    std::unordered_set<uint16_t> index_slots;
-    dynamic_cast<MultiSlotDataset*>(dataset_)->PreprocessChannel(
-        slots_to_replace, index_slots);
-    const std::vector<Record>& pass_data =
-        dynamic_cast<MultiSlotDataset*>(dataset_)->GetSlotsOriginalData();
-    if (!get_random_replace_done_) {
-      box_ptr->GetRandomReplace(pass_data);
-      get_random_replace_done_ = true;
-    }
-    std::vector<Record> random_data;
-    random_data.resize(pass_data.size());
-    box_ptr->GetRandomData(pass_data, index_slots, &random_data);
+    PadBoxSlotDataset* dataset = dynamic_cast<PadBoxSlotDataset*>(dataset_);
+    CHECK(dataset);
 
-    auto new_input_channel = paddle::framework::MakeChannel<Record>();
-    new_input_channel->Open();
-    new_input_channel->Write(std::move(random_data));
-    new_input_channel->Close();
-    dynamic_cast<MultiSlotDataset*>(dataset_)->SetInputChannel(
-        new_input_channel);
-    if (box_ptr->Phase() == box_ptr->PhaseNum() - 1) {  // last phase
-      box_ptr->PostUpdate();
+    auto& records = dataset->GetInputRecord();
+    auto slot_idx = dataset->GetSlotsIdx(slots_to_replace);
+
+    if (box_ptr->record_replacers_.size() != records.size()) {
+      box_ptr->record_replacers_.resize(records.size());
     }
+    if (box_ptr->last_slots_idx_.size() > 0) {
+      box_ptr->RecordReplaceBack(&records, box_ptr->last_slots_idx_);
+    }
+    if (slot_idx.size() > 0) {
+      box_ptr->RecordReplace(&records, slot_idx);
+    }
+
+    box_ptr->last_slots_idx_ = slot_idx;
 #endif
   }
 #ifdef PADDLE_WITH_BOX_PS
