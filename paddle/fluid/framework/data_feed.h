@@ -50,6 +50,7 @@ USE_INT_STAT(STAT_slot_pool_size);
 DECLARE_int32(padbox_record_pool_max_size);
 DECLARE_int32(padbox_slotpool_thread_num);
 DECLARE_int32(padbox_slotrecord_extend_dim);
+DECLARE_int32(padbox_slotrecord_extptr_num);
 
 namespace paddle {
 namespace framework {
@@ -840,7 +841,8 @@ using SlotRecord = SlotRecordObject*;
 inline SlotRecord make_slotrecord() {
   static const size_t slot_record_byte_size =
       sizeof(SlotRecordObject) +
-      sizeof(float) * FLAGS_padbox_slotrecord_extend_dim;
+      sizeof(float) * FLAGS_padbox_slotrecord_extend_dim +
+      sizeof(void*) * FLAGS_padbox_slotrecord_extptr_num;
   void* p = malloc(slot_record_byte_size);
   new (p) SlotRecordObject;
   return reinterpret_cast<SlotRecordObject*>(p);
