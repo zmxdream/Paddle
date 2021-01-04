@@ -353,23 +353,16 @@ void BoxWrapper::PullSparse(const paddle::platform::Place& place,
     }                                                                        \
   } break
 
-#define PULLSPARSE_CASE(i, ...)                                               \
-  case i: {                                                                   \
-    constexpr size_t ExpandDim = i;                                           \
-    if (feature_type_ == static_cast<int>(boxps::FEATURE_QUANT)) {            \
-      PullSparseCase<boxps::FeatureValueGpuQuant<EmbedxDim, ExpandDim>>(      \
-          place, keys, values, slot_lengths, hidden_size, expand_embed_dim);  \
-    } else if (feature_type_ ==                                               \
-               static_cast<int>(boxps::FEATURE_SHARED_ADAM)) {                \
-      PullSparseCase<boxps::FeatureValueGpuSharedAdam<EmbedxDim, ExpandDim>>( \
-          place, keys, values, slot_lengths, hidden_size, expand_embed_dim);  \
-    } else if (feature_type_ == static_cast<int>(boxps::FEATURE_ADAM)) {      \
-      PullSparseCase<boxps::FeatureValueGpuAdam<EmbedxDim, ExpandDim>>(       \
-          place, keys, values, slot_lengths, hidden_size, expand_embed_dim);  \
-    } else {                                                                  \
-      PullSparseCase<boxps::FeatureValueGpu<EmbedxDim, ExpandDim>>(           \
-          place, keys, values, slot_lengths, hidden_size, expand_embed_dim);  \
-    }                                                                         \
+#define PULLSPARSE_CASE(i, ...)                                              \
+  case i: {                                                                  \
+    constexpr size_t ExpandDim = i;                                          \
+    if (feature_type_ == static_cast<int>(boxps::FEATURE_QUANT)) {           \
+      PullSparseCase<boxps::FeaturePullValueGpuQuant<EmbedxDim, ExpandDim>>( \
+          place, keys, values, slot_lengths, hidden_size, expand_embed_dim); \
+    } else {                                                                 \
+      PullSparseCase<boxps::FeaturePullValueGpu<EmbedxDim, ExpandDim>>(      \
+          place, keys, values, slot_lengths, hidden_size, expand_embed_dim); \
+    }                                                                        \
   } break
 
   CheckEmbedSizeIsValid(hidden_size - cvm_offset_, expand_embed_dim);

@@ -846,6 +846,11 @@ inline SlotRecord make_slotrecord() {
   return reinterpret_cast<SlotRecordObject*>(p);
 }
 
+inline void free_slotrecord(SlotRecordObject* p) {
+  p->~SlotRecordObject();
+  free(p);
+}
+
 struct SlotPvInstanceObject {
   std::vector<SlotRecord> ads;
   ~SlotPvInstanceObject() {
@@ -974,7 +979,7 @@ class SlotObjPool {
                  GetTotalFeaNum(input, input.size()));
         STAT_SUB(STAT_slot_pool_size, input.size());
         for (auto& t : input) {
-          delete t;
+          free_slotrecord(t);
         }
       } else {
         mutex_.lock();
