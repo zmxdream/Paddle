@@ -1836,6 +1836,13 @@ void PadBoxSlotDataset::PreprocessInstance() {
     return;
   }
 
+  if (!input_pv_ins_.empty()) {  // for auc runner
+    for (auto pv : input_pv_ins_) {
+      delete pv;
+    }
+    input_pv_ins_.clear();
+  }
+
   size_t all_records_num = input_records_.size();
   std::sort(input_records_.data(), input_records_.data() + all_records_num,
             [](const SlotRecord& lhs, const SlotRecord& rhs) {
