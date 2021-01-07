@@ -477,7 +477,11 @@ class BoxWrapper {
         feature_type_ = feature_type;
         pull_embedx_scale_ = pull_embedx_scale;
         // ToDo: feature gpu value param set diffent value
-        s_instance_->cvm_offset_ = 3;
+        if (feature_type_ == static_cast<int>(boxps::FEATURE_PCOC)) {
+          s_instance_->cvm_offset_ = 8;
+        } else {
+          s_instance_->cvm_offset_ = 3;
+        }
 
         if (boxps::MPICluster::Ins().size() > 1) {
           data_shuffle_.reset(boxps::PaddleShuffler::New());
