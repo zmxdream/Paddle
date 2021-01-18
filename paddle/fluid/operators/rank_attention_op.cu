@@ -42,7 +42,7 @@ class RankAttentionCUDAKernel : public framework::OpKernel<T> {
     auto *param_help = ctx.Output<Tensor>("ParamHelp");
     auto *ins_rank = ctx.Output<Tensor>("InsRank");
     int max_rank = ctx.Attr<int>("MaxRank");
-    //    int64_t max_size = ctx.Attr<int>("MaxSize");
+    int64_t max_size = ctx.Attr<int>("MaxSize");
     auto *Out = ctx.Output<Tensor>("Out");
 
     // check dims
@@ -67,7 +67,7 @@ class RankAttentionCUDAKernel : public framework::OpKernel<T> {
 
     auto &dev_ctx = ctx.template device_context<platform::CUDADeviceContext>();
 
-    int max_ins = ins_num;  // std::max(ins_num, max_size);
+    int max_ins = std::max(ins_num, max_size);
 
     param_help->Resize({max_ins * block_matrix_row, para_col});
     param_help->mutable_data<T>(ctx.GetPlace());
@@ -108,9 +108,7 @@ class RankAttentionCUDAKernel : public framework::OpKernel<T> {
     //                    stream);
     //    cudaMemsetAsync(input_help_data, 0, sizeof(T) * input_help->numel(),
     //                    stream);
-    //    size_t N = static_cast<size_t>(ins_rank->numel());
-    //    KernelMemSet<T><<<(N + 512 - 1) / 512, 512, 0, stream>>>(N, -1,
-    //                                                             ins_rank_data);
+    math::set_constant(dev_ctx, ins_rank, -1);
 
     expand_rank_attention_input(stream, X->data<T>(), ins_num, x_fea_dim,
                                 input_help_data, ins_num, block_matrix_row,
@@ -148,7 +146,7 @@ class RankAttentionGradOpCUDAKernel : public framework::OpKernel<T> {
     auto *input_help = ctx.Input<Tensor>("InputHelp");
     auto *ins_rank = ctx.Input<Tensor>("InsRank");
     auto *dout = ctx.Input<Tensor>(framework::GradVarName("Out"));
-    //    int64_t max_size = ctx.Attr<int>("MaxSize");
+    int64_t max_size = ctx.Attr<int>("MaxSize");
 
     auto *drank_para = ctx.Output<Tensor>(framework::GradVarName("RankParam"));
 
@@ -166,7 +164,7 @@ class RankAttentionGradOpCUDAKernel : public framework::OpKernel<T> {
     auto &place = *ctx.template device_context<platform::CUDADeviceContext>()
                        .eigen_device();
     auto stream = ctx.cuda_device_context().stream();
-    int max_ins = ins_num;  // std::max(ins_num, max_size);
+    int max_ins = std::max(ins_num, max_size);
     // initialize out grad
     T *drank_para_ptr = drank_para->mutable_data<T>(ctx.GetPlace());
     //    auto drank_para_eigen =
