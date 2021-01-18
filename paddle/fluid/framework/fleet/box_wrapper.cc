@@ -107,7 +107,6 @@ void BasicAucCalculator::add_mask_data(const float* d_pred,
     for (int i = 0; i < batch_size; ++i) {
       if (h_mask[i]) {
         add_unlock_data(h_pred[i], h_label[i]);
-        printf("label: %ld, pred: %f\n", h_label[i], h_pred[i]);
       }
     }
   }
