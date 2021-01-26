@@ -41,6 +41,15 @@ class FusedSeqpoolCVMWithPCOCOp : public framework::OperatorWithKernel {
     std::vector<framework::DDim> outs_dims;
     outs_dims.resize(num_inputs);
 
+    // need filter quant_ratio more than zero
+    if (ctx->Attrs().Get<bool>("need_filter")) {
+      const int quant_ratio = ctx->Attrs().Get<int>("quant_ratio");
+      PADDLE_ENFORCE_GT(
+          quant_ratio, 0,
+          platform::errors::InvalidArgument(
+              "Input need filter quant_ratio should be greater than 0"));
+    }
+
     PADDLE_ENFORCE_GT(num_inputs, 0UL,
                       platform::errors::InvalidArgument(
                           "Input tensors count should be greater than 0, "
@@ -115,6 +124,7 @@ class FusedSeqpoolCVMWithPCOCOpMaker : public framework::OpProtoAndCheckerMaker 
     AddAttr<float>("threshold", "(float, default 0.96)").SetDefault(0.96);
     AddAttr<int>("cvm_offset", "(int, default 7)").SetDefault(7);
     AddAttr<int>("max_cvm_offset", "(int, default 7)").SetDefault(7);
+    AddAttr<int>("quant_ratio", "(int, default 128)").SetDefault(0);
 
     AddComment(R"DOC(
 Fuse multiple pairs of Sequence Pool and CVMWithPCOC Operator.
