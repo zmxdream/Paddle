@@ -1598,7 +1598,8 @@ def fused_seqpool_cvm_with_pcoc(input,
                                 show_coeff=0.2,
                                 clk_coeff=1.0,
                                 threshold=0.96,
-                                cvm_offset=2,
+                                cvm_offset=7,
+                                max_cvm_offset=7,
                                 quant_ratio=0):
     """
      **Notes: The Op only receives List of LoDTensor as input, only support SUM pooling now.
@@ -1647,6 +1648,7 @@ def fused_seqpool_cvm_with_pcoc(input,
             "pad_value": pad_value,
             "use_cvm": use_cvm,
             "cvm_offset": cvm_offset,
+            "max_cvm_offset": max_cvm_offset,
             "need_filter": need_filter,
             "show_coeff": show_coeff,
             "clk_coeff": clk_coeff,
