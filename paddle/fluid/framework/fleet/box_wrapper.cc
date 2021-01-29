@@ -497,11 +497,14 @@ void BoxWrapper::BeginFeedPass(int date, boxps::PSAgentBase** agent) {
 
 void BoxWrapper::EndFeedPass(boxps::PSAgentBase* agent) {
   if (FLAGS_use_gpu_replica_cache) {
-    gpu_replica_cache.back().ToHBM();
+    auto& t = gpu_replica_cache.back();
+    t.ToHBM();
+    VLOG(0) << "gpu cache memory: " << t.GpuMemUsed() << "MB";
   }
   if (dataset_name_ == "InputTableDataset") {
     auto& t = input_table_deque_.back();
-    VLOG(3) << "input table size: " << t.size() << " miss: " << t.miss();
+    VLOG(0) << "input table size: " << t.size() << " miss: " << t.miss()
+            << ", cpu memory: " << t.CpuMemUsed() << "MB";
   }
   int ret = boxps_ptr_->EndFeedPass(agent);
   PADDLE_ENFORCE_EQ(ret, 0, platform::errors::PreconditionNotMet(
@@ -542,7 +545,8 @@ void BoxWrapper::EndPass(bool need_save_delta) {
                  << ", push span: " << dev.all_push_timer.ElapsedSec()
                  << ", boxps span:" << dev.boxps_push_timer.ElapsedSec()
                  << ", dense nccl:" << dev.dense_nccl_timer.ElapsedSec()
-                 << ", sync stream:" << dev.dense_sync_timer.ElapsedSec();
+                 << ", sync stream:" << dev.dense_sync_timer.ElapsedSec()
+                 << ", wrapper gpu memory:" << dev.GpuMemUsed() << "MB";
   }
 }
 
