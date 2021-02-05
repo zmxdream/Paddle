@@ -10,6 +10,11 @@ See the License for the specific language governing permissions and
 limitations under the License. */
 
 #if defined(PADDLE_WITH_NCCL)
+#include <float.h>
+#include "paddle/fluid/framework/executor_gc_helper.h"
+#include "paddle/fluid/framework/garbage_collector.h"
+#include "paddle/fluid/framework/program_desc.h"
+
 #include "google/protobuf/io/zero_copy_stream_impl.h"
 #include "google/protobuf/message.h"
 #include "google/protobuf/text_format.h"
@@ -25,504 +30,94 @@ limitations under the License. */
 namespace paddle {
 namespace framework {
 
-uint64_t SyncFunctor::sync_flag_ = 0;
-std::vector<Scope*> SyncFunctor::pipeline_scopes_;
+uint64_t SectionWorker::batch_id_(0);
 
-SyncFunctor::SyncFunctor(int rank_id, int rank_num, int sync_steps)
-    : rank_id_(rank_id), rank_num_(rank_num), sync_steps_(sync_steps) {
-  PADDLE_ENFORCE(rank_num > 1, "rank_num should larger than 1");
-  counter_ = 0;
-  sync_signal_ = 0;
-  uint8_t* ptr = reinterpret_cast<uint8_t*>(&sync_signal_);
-  for (int i = 0; i < rank_num_; ++i) {
-    ptr[i] = 0xFF;
-  }
-}
-
-int SyncFunctor::operator()(Scope* scope) {
-  ++counter_;
-  if (counter_ < sync_steps_) {
-    return 0;
-  }
-  if (counter_ == sync_steps_) {
-    reinterpret_cast<uint8_t*>(&sync_flag_)[rank_id_] = 0xFF;
-  }
-
-  if (sync_flag_ == sync_signal_) {
-    static std::mutex mutex;
-    if (mutex.try_lock()) {
-      if (sync_flag_ == sync_signal_) {
-        Synchronize();
-        sync_flag_ = 0;
-      }
-      mutex.unlock();
-    }
-  }
-
-  if (sync_flag_ == 0) {
-    counter_ = 0;
-  }
-  return 0;
-}
-
-void SyncFunctor::Synchronize() {
-  for (const std::string& name : *sync_param_) {
-    platform::NCCLGroupGuard guard;
-    for (int i = 0; i < rank_num_; ++i) {
-      const platform::NCCLContext& nccl_ctx = nccl_ctx_map_->at(i);
-      LoDTensor* tensor =
-          pipeline_scopes_[i]->Var(name)->GetMutable<LoDTensor>();
-      // TODO(hutuxian): do not depend on data type explicitly
-      float* data =
-          tensor->mutable_data<float>(nccl_ctx_map_->DevCtx(i)->GetPlace());
-      const int numel = tensor->numel();
-
-      paddle::framework::AttributeMap attrs;
-      attrs.insert({"scale", static_cast<float>(1. / rank_num_)});
-      auto scale_op = framework::OpRegistry::CreateOp("scale", {{"X", {name}}},
-                                                      {{"Out", {name}}}, attrs);
-      scale_op->Run(*(pipeline_scopes_[i]),
-                    nccl_ctx_map_->DevCtx(i)->GetPlace());
-      PADDLE_ENFORCE(platform::dynload::ncclAllReduce(
-          data, data, numel, ncclFloat, ncclSum, nccl_ctx.comm(),
-          dynamic_cast<platform::CUDADeviceContext*>(
-              platform::DeviceContextPool::Instance().Get(
-                  platform::CUDAPlace(i)))
-              ->stream()));
-    }
-  }
-  nccl_ctx_map_->WaitAll();
-}
-
-std::atomic<int> SectionWorker::cpu_id_(0);
 void SectionWorker::Initialize(const TrainerDesc& desc) {
   dev_ctx_ = platform::DeviceContextPool::Instance().Get(place_);
-  std::shared_ptr<framework::ProgramDesc> program;
-  program.reset(new ProgramDesc(
-      desc.section_param().section_config(section_id_).program_desc()));
-  for (auto& op_desc : program->Block(0).AllOps()) {
+  program_.reset(
+      new ProgramDesc(desc.section_param().section_config().program_desc()));
+  for (auto& op_desc : program_->Block(0).AllOps()) {
     ops_.push_back(OpRegistry::CreateOp(*op_desc));
   }
 }
 
-void SectionWorker::AutoSetCPUAffinity(bool reuse) {
-#ifdef PADDLE_WITH_BOX_PS
-  std::vector<int>& train_cores = boxps::get_train_cores();
-  if (train_cores.empty()) {
-    LOG(WARNING) << "not found binding train cores";
-    return;
-  }
-
-  int cpuid = train_cores[pipeline_id_];
-  cpu_set_t mask;
-  CPU_ZERO(&mask);
-  CPU_SET(cpuid, &mask);
-  pthread_setaffinity_np(pthread_self(), sizeof(mask), &mask);
-
-// VLOG(0) << "binding card = " << pipeline_id_ << ", cpuid = " << cpuid;
-#else
-  int thread_cpu_id = cpu_id_.fetch_add(1);
-
-  unsigned concurrency_cap = std::thread::hardware_concurrency();
-  unsigned proc = thread_cpu_id;
-
-  if (proc >= concurrency_cap) {
-    if (reuse) {
-      proc %= concurrency_cap;
-    } else {
-      LOG(INFO) << "All " << concurrency_cap
-                << " CPUs have been set affinities. Fail to set "
-                << thread_cpu_id << "th thread";
-      return;
-    }
-  }
-
-  cpu_set_t mask;
-  CPU_ZERO(&mask);
-  CPU_SET(proc, &mask);
-
-  if (-1 == sched_setaffinity(0, sizeof(mask), &mask)) {
-    LOG(WARNING) << "Fail to set thread affinity to CPU " << proc;
-    return;
-  }
-
-  CPU_ZERO(&mask);
-  if ((0 != sched_getaffinity(0, sizeof(mask), &mask)) ||
-      (0 == CPU_ISSET(proc, &mask))) {
-    LOG(WARNING) << "Fail to set thread affinity to CPU " << proc;
-  }
-  SEC_LOG << "Set " << thread_cpu_id << "th thread affinity to CPU " << proc;
-#endif
-}
-
-void SectionWorker::PullDense(const Scope& scope) {
-  // while(ps_buffer_->Size() != 0) {//Size have lock, may have perf problem.
-  // And will hang when the lock was removed
-  //   ;
-  // }
-  AutoRDLock ps_lock(ps_lock_);
-  for (size_t i = 0; i < async_param_list_->size(); ++i) {
-    if (i % 3 != 0) {
-      continue;
-    }
-    const std::string& param_name = (*async_param_list_)[i];
-    Variable* var = scope.FindVar(param_name);
-    LoDTensor* tensor = var->GetMutable<LoDTensor>();
-    TensorCopy(*static_cast<const Tensor*>(&(*ps_)[i]), place_,
-               static_cast<Tensor*>(tensor));
-
-    // float *p = (*ps_)[i].mutable_data<float>(platform::CPUPlace());
-    // VLOG(0) << "pull dense for " << (*async_param_list_)[i] << ", and the
-    // first ele is " << p[0];
-  }
-  VLOG(0) << "card[" << pipeline_id_ << "] pull dense done";
-}
-
-void SectionWorker::PushDense(const Scope& scope) {
-  for (size_t i = 0; i < async_param_list_->size(); ++i) {
-    if (i % 3 != 0) {
-      continue;
-    }
-    // VLOG(0) << "push dense for " << (*async_param_list_)[i] << "@GRAD";
-    std::string grad_name = (*async_param_list_)[i] + "@GRAD";
-    Variable* var = scope.FindVar(grad_name);
-    CHECK(var != nullptr) << "var[" << grad_name << "] not found";
-    LoDTensor* tensor = var->GetMutable<LoDTensor>();
-    // For Debug
-    float* g = tensor->mutable_data<float>(place_);
-    float tmp;
-    cudaMemcpy(&tmp, g, 1 * sizeof(float), cudaMemcpyDeviceToHost);
-    // VLOG(0) << "the first element of grad_name is: " << tmp;
-    TensorCopy(*static_cast<const Tensor*>(tensor), platform::CPUPlace(),
-               static_cast<Tensor*>(&grad_[i / 3]));
-  }
-  ps_buffer_->Send(&grad_);
-  VLOG(0) << "card[" << pipeline_id_ << "] push dense done";
-}
-
 void SectionWorker::TrainFiles() {
-  SEC_LOG << "begin section_worker TrainFiles";
-  AutoSetCPUAffinity(true);
+  VLOG(5) << "begin section_worker TrainFiles";
 
-  int64_t step_cnt = 0;
-  int64_t accum_num = 0;
-  int batch_size = 0;
-  Scope* scope = nullptr;
-  if (device_reader_ != nullptr) {
-    device_reader_->Start();
-  }
-  if (async_mode_) {
-    grad_.resize(async_param_size_->size() / 3);
-    for (size_t i = 0; i < async_param_size_->size(); ++i) {
-      if (i % 3 != 0) continue;
-      grad_[i / 3].mutable_data<float>(
-          {static_cast<int64_t>((*async_param_size_)[i]), 1}, place_);
-    }
-  }
-
-  while (in_scope_queue_->Receive(&scope)) {
-    if (device_reader_ != nullptr) {
-      device_reader_->AssignFeedVar(*scope);
-      batch_size = device_reader_->Next();
-      if (batch_size <= 0) {
-        break;
+  int64_t max_memory_size = GetEagerDeletionThreshold();
+  std::unique_ptr<GarbageCollector> gc;
+  auto unused_vars_ = GetUnusedVars(program_->Block(0), ops_, skip_vars_);
+  if (max_memory_size >= 0) {
+#ifdef PADDLE_WITH_CUDA
+    if (platform::is_gpu_place(place_)) {
+      if (IsFastEagerDeletionModeEnabled()) {
+        gc.reset(new UnsafeFastGPUGarbageCollector(
+            BOOST_GET_CONST(platform::CUDAPlace, place_), max_memory_size));
       }
-      SEC_LOG << "read batch size: " << batch_size;
-    } else {
-      // TODO(hutuxian): Keep batch_size in scope? Or is there a better way to
-      // fetch batch_size? Some variables may not have batch_size.
-      PADDLE_ENFORCE(
-          in_var_names_->size(),
-          "Section without a reader or in variable is not supported by now");
-      const LoDTensor& tensor =
-          scope->FindVar(in_var_names_->at(0))->Get<LoDTensor>();
-      batch_size =
-          tensor.lod().size() ? tensor.lod()[0].size() - 1 : tensor.dims()[0];
-      SEC_LOG << "input batch size: " << batch_size;
-    }
-
-    Scope* exe_scope = scope;
-    if (section_id_ > 0 && platform::is_gpu_place(place_)) {
-      SEC_LOG << "CPU2GPU memory copy";
-
-      if (scope->kids().empty()) {
-        exe_scope = &scope->NewScope();
-      } else {
-        exe_scope = scope->kids().front();
-        PADDLE_ENFORCE(scope->kids().size() == 1, "scope->kids().size(): %zu",
-                       scope->kids().size());
-      }
-
-      for (const std::string& name : *in_var_names_) {
-        const LoDTensor& src_tensor = scope->FindVar(name)->Get<LoDTensor>();
-        if (platform::is_gpu_place(src_tensor.place())) {
-          continue;
-        }
-        LoDTensor* gpu_tensor = exe_scope->Var(name)->GetMutable<LoDTensor>();
-        gpu_tensor->set_lod(src_tensor.lod());
-        TensorCopy(*static_cast<const Tensor*>(&src_tensor), place_, *dev_ctx_,
-                   static_cast<Tensor*>(gpu_tensor));
-      }
-    }
-
-    SEC_LOG << "begin running ops";
-
-    if (async_mode_) {
-      PullDense(*exe_scope);
-    }
-    for (auto& op : ops_) {
-      op->Run(*exe_scope, place_);
-    }
-    if (async_mode_) {
-      PushDense(*exe_scope);
-    }
-    exe_scope->DropKids();
-    // Wait for GPU calc finising, as the cudaMemcpy and GPU calc may be in
-    // different streams
-    // No effect when it is a CPUDeviceContext
-    dev_ctx_->Wait();
-
-#ifdef PADDLE_WITH_BOX_PS
-    auto box_ptr = BoxWrapper::GetInstance();
-    auto& metric_list = box_ptr->GetMetricList();
-    for (auto iter = metric_list.begin(); iter != metric_list.end(); iter++) {
-      auto* metric_msg = iter->second;
-      if (box_ptr->Phase() != metric_msg->MetricPhase()) {
-        continue;
-      }
-      metric_msg->add_data(exe_scope, place_);
     }
 #endif
-    if (section_id_ != section_num_ - 1 && platform::is_gpu_place(place_)) {
-      // FIXME: Temporarily we assume two adjacent sections are in different
-      // places,
-      // and we do data transformation only in sections in GPU place, so the
-      // data is
-      // transform from GPU to CPU
-      // A better way to handle such a data transformation is to record each
-      // place of
-      // joint-out variables, and do transform as required
+  }
 
-      SEC_LOG << "GPU2CPU memory copy";
-
-      for (const std::string& name : *out_var_names_) {
-        const LoDTensor& src_tensor =
-            exe_scope->FindVar(name)->Get<LoDTensor>();
-        LoDTensor* dst_tensor = scope->Var(name)->GetMutable<LoDTensor>();
-        dst_tensor->set_lod(src_tensor.lod());
-        TensorCopy(*static_cast<const Tensor*>(&src_tensor),
-                   next_section_place_, *dev_ctx_,
-                   static_cast<Tensor*>(dst_tensor));
+  for (int i = 0; i < num_microbatches_; ++i) {
+    for (auto& op : ops_) {
+      int op_role = op->Attr<int>(std::string("op_role"));
+      // We run op with op_role = kLRSched only for the first microbatch
+      // to avoid increasing the @LR_DECAY_STEP@ multiple times.
+      bool run_first_mbatch = op_role == static_cast<int>(OpRole::kForward) ||
+                              op_role == (static_cast<int>(OpRole::kForward) |
+                                          static_cast<int>(OpRole::kLoss)) ||
+                              op_role == static_cast<int>(OpRole::kLRSched);
+      bool run_others = op_role == static_cast<int>(OpRole::kForward) ||
+                        op_role == (static_cast<int>(OpRole::kForward) |
+                                    static_cast<int>(OpRole::kLoss));
+      if ((i == 0 && run_first_mbatch) || (i != 0 && run_others)) {
+        VLOG(3) << "Forward: running op " << op->Type() << " for micro-batch "
+                << i;
+        op->Run(*microbatch_scopes_[i], place_);
+        if (gc) {
+          DeleteUnusedTensors(*microbatch_scopes_[i], op.get(), unused_vars_,
+                              gc.get());
+        }
       }
     }
-
-    out_scope_queue_->Send(scope);
-
-    if (sync_func_) {
-      (*sync_func_)(scope);
-    }
-
-    ++step_cnt;
-    accum_num += batch_size;
+    cudaDeviceSynchronize();
   }
 
-  worker_count_mutex_->lock();
-  --(*worker_count_);
-  worker_count_mutex_->unlock();
-
-  if (*worker_count_ <= 0) {
-    while (section_id_ < section_num_ - 1 && out_scope_queue_->Size()) {
-      sleep(1);
+  // backward pass
+  for (int i = 0; i < num_microbatches_; ++i) {
+    for (auto& op : ops_) {
+      int op_role = op->Attr<int>(std::string("op_role"));
+      if (op_role == static_cast<int>(OpRole::kBackward) ||
+          op_role == (static_cast<int>(OpRole::kBackward) |
+                      static_cast<int>(OpRole::kLoss))) {
+        VLOG(3) << "Backward: running op " << op->Type() << " for micro-batch "
+                << i;
+        op->Run(*microbatch_scopes_[i], place_);
+        if (gc) {
+          DeleteUnusedTensors(*microbatch_scopes_[i], op.get(), unused_vars_,
+                              gc.get());
+        }
+      }
     }
-    out_scope_queue_->Close();
+    cudaDeviceSynchronize();
   }
-}
 
-void SectionWorker::TrainFilesWithProfiler() {
-  SEC_LOG << "begin section_worker TrainFiles with profiler";
-  AutoSetCPUAffinity(true);
-
-  int64_t step_cnt = 0;
-  int64_t accum_num = 0;
-  int batch_size = 0;
-  Scope* scope = nullptr;
-
-  platform::Timer reader_timer;
-  platform::Timer cal_timer;
-  platform::Timer trans_timer;
-  platform::Timer sync_timer;
-  platform::Timer main_timer;
-  platform::Timer outer_timer;
-
-  std::vector<double> op_total_time;
-  std::vector<std::string> op_name;
+  // update pass
   for (auto& op : ops_) {
-    op_name.push_back(op->Type());
-  }
-  op_total_time.resize(ops_.size());
-  for (size_t i = 0; i < op_total_time.size(); ++i) {
-    op_total_time[i] = 0.0;
-  }
-  platform::Timer timeline;
-  if (device_reader_ != nullptr) {
-    device_reader_->Start();
-  }
-
-  bool started = false;
-  while (in_scope_queue_->Receive(&scope)) {
-    if (UNLIKELY(!started)) {
-      outer_timer.Start();
-      started = true;
-    }
-    main_timer.Resume();
-
-    if (device_reader_ != nullptr) {
-      reader_timer.Resume();
-      device_reader_->AssignFeedVar(*scope);
-      batch_size = device_reader_->Next();
-      reader_timer.Pause();
-      if (batch_size <= 0) {
-        break;
+    int op_role = op->Attr<int>(std::string("op_role"));
+    if (op_role == static_cast<int>(OpRole::kOptimize)) {
+      VLOG(3) << "Update: running op " << op->Type();
+      op->Run(*microbatch_scopes_[0], place_);
+      if (gc) {
+        DeleteUnusedTensors(*microbatch_scopes_[0], op.get(), unused_vars_,
+                            gc.get());
       }
-      SEC_LOG << "read batch size: " << batch_size;
-    } else {
-      PADDLE_ENFORCE(
-          in_var_names_->size(),
-          "Section without a reader or in variable is not supported by now");
-      const LoDTensor& tensor =
-          scope->FindVar(in_var_names_->at(0))->Get<LoDTensor>();
-      batch_size =
-          tensor.lod().size() ? tensor.lod()[0].size() - 1 : tensor.dims()[0];
-      SEC_LOG << "input batch size: " << batch_size;
     }
-
-    Scope* exe_scope = scope;
-    if (section_id_ > 0 && platform::is_gpu_place(place_)) {
-      SEC_LOG << "CPU2GPU memory copy";
-      trans_timer.Resume();
-      if (scope->kids().empty()) {
-        exe_scope = &scope->NewScope();
-      } else {
-        exe_scope = scope->kids().front();
-        PADDLE_ENFORCE(scope->kids().size() == 1, "scope->kids().size(): %zu",
-                       scope->kids().size());
-      }
-
-      for (const std::string& name : *in_var_names_) {
-        const LoDTensor& src_tensor = scope->FindVar(name)->Get<LoDTensor>();
-        if (platform::is_gpu_place(src_tensor.place())) {
-          continue;
-        }
-        LoDTensor* gpu_tensor = exe_scope->Var(name)->GetMutable<LoDTensor>();
-        gpu_tensor->set_lod(src_tensor.lod());
-        TensorCopy(*static_cast<const Tensor*>(&src_tensor), place_, *dev_ctx_,
-                   static_cast<Tensor*>(gpu_tensor));
-      }
-      trans_timer.Pause();
-    }
-
-    SEC_LOG << "begin running ops";
-    cal_timer.Resume();
-    int op_id = 0;
-    dev_ctx_->Wait();
-    for (auto& op : ops_) {
-      timeline.Start();
-      op->Run(*exe_scope, place_);
-      dev_ctx_->Wait();
-      timeline.Pause();
-      op_total_time[op_id++] += timeline.ElapsedUS();
-    }
-    exe_scope->DropKids();
-    // Wait for GPU calc finising, as the cudaMemcpy and GPU calc may be in
-    // different streams
-    // No effect when it is a CPUDeviceContext
-    dev_ctx_->Wait();
-    cal_timer.Pause();
-#ifdef PADDLE_WITH_BOX_PS
-    auto box_ptr = BoxWrapper::GetInstance();
-    auto& metric_list = box_ptr->GetMetricList();
-    for (auto iter = metric_list.begin(); iter != metric_list.end(); iter++) {
-      auto* metric_msg = iter->second;
-      if (box_ptr->Phase() != metric_msg->MetricPhase()) {
-        continue;
-      }
-      metric_msg->add_data(exe_scope, place_);
-    }
-#endif
-    if (need_dump_field_) {
-      DumpField(*scope, dump_mode_, dump_interval_);
-    }
-    if (need_dump_param_ && pipeline_id_ == 0) {
-      DumpParam(*scope, step_cnt);
-    }
-
-    if (section_id_ != section_num_ - 1 && platform::is_gpu_place(place_)) {
-      // FIXME: Temporarily we assume two adjacent sections are in different
-      // places,
-      // and we do data transformation only in sections in GPU place, so the
-      // data is
-      // transform from GPU to CPU
-      // A better way to handle such a data transformation is to record each
-      // place of
-      // joint-out variables, and do transform as required
-
-      SEC_LOG << "GPU2CPU memory copy";
-      trans_timer.Resume();
-      for (const std::string& name : *out_var_names_) {
-        const LoDTensor& src_tensor =
-            exe_scope->FindVar(name)->Get<LoDTensor>();
-        LoDTensor* dst_tensor = scope->Var(name)->GetMutable<LoDTensor>();
-        dst_tensor->set_lod(src_tensor.lod());
-        TensorCopy(*static_cast<const Tensor*>(&src_tensor),
-                   next_section_place_, *dev_ctx_,
-                   static_cast<Tensor*>(dst_tensor));
-      }
-      trans_timer.Pause();
-    }
-
-    out_scope_queue_->Send(scope);
-
-    if (sync_func_) {
-      sync_timer.Resume();
-      (*sync_func_)(scope);
-      sync_timer.Pause();
-    }
-
-    ++step_cnt;
-    accum_num += batch_size;
-    main_timer.Pause();
   }
-  if (need_dump_field_ || need_dump_param_) {
-    writer_.Flush();
-  }
-  outer_timer.Pause();
-
-  worker_count_mutex_->lock();
-  --(*worker_count_);
-  worker_count_mutex_->unlock();
-
-  if (*worker_count_ <= 0) {
-    while (section_id_ < section_num_ - 1 && out_scope_queue_->Size()) {
-      sleep(1);
-    }
-    out_scope_queue_->Close();
-  }
-  LOG(ERROR) << "log_for_profile"
-             << " card:" << pipeline_id_ << " thread:" << thread_id_
-             << " section:" << section_id_ << " step_count:" << step_cnt
-             << " batch_count:" << accum_num
-             << " read_time:" << reader_timer.ElapsedUS()
-             << " trans_time:" << trans_timer.ElapsedUS()
-             << " cal_time:" << cal_timer.ElapsedUS()
-             << " sync_time:" << sync_timer.ElapsedUS()
-             << " main_time:" << main_timer.ElapsedUS()
-             << " outer_time:" << outer_timer.ElapsedUS();
-  for (size_t i = 0; i < ops_.size(); ++i) {
-    LOG(ERROR) << "card:" << pipeline_id_ << ", op: " << op_name[i]
-               << ", mean time: " << op_total_time[i] / accum_num
-               << "us, sum:" << op_total_time[i] / 1000000.0 << "sec";
-  }
+  dev_ctx_->Wait();
+  ++batch_id_;
 }
+
 }  // namespace framework
 }  // namespace paddle
 #endif

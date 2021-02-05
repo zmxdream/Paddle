@@ -18,14 +18,44 @@ import ast
 import astor
 import atexit
 import copy
+import collections
 import gast
-import imp
 import inspect
 import os
 import six
 import tempfile
+import textwrap
+import numpy as np
 
 from paddle.fluid import unique_name
+
+
+class BaseNodeVisitor(gast.NodeVisitor):
+    """
+    Implement customized NodeVisitor inherited from gast.NodeVisitor. 
+    Ancestor nodes are traced to easily support more operations of currently
+    visited node.
+    """
+
+    def __init__(self):
+        self.ancestor_nodes = []
+
+    def visit(self, node):
+        """Visit a node."""
+        self.ancestor_nodes.append(node)
+
+        method = 'visit_' + node.__class__.__name__
+        visitor = getattr(self, method, self.generic_visit)
+        ret = visitor(node)
+        self.ancestor_nodes.pop()
+        return ret
+
+
+# imp is deprecated in python3
+if six.PY2:
+    import imp
+else:
+    from importlib.machinery import SourceFileLoader
 
 dygraph_class_to_static_api = {
     "CosineDecay": "cosine_decay",
@@ -39,6 +69,87 @@ dygraph_class_to_static_api = {
 
 FOR_ITER_INDEX_PREFIX = '__for_loop_var_index'
 FOR_ITER_VAR_LEN_PREFIX = '__for_loop_var_len'
+FOR_ITER_VAR_NAME_PREFIX = '__for_loop_iter_var'
+
+# FullArgSpec is valid from Python3. Defined a Namedtuple to
+# to make it available in Python2.
+FullArgSpec = collections.namedtuple('FullArgSpec', [
+    'args', 'varargs', 'varkw', 'defaults', 'kwonlyargs', 'kwonlydefaults',
+    'annotations'
+])
+
+
+def getfullargspec(target):
+    if hasattr(inspect, "getfullargspec"):
+        return inspect.getfullargspec(target)
+    else:
+        argspec = inspect.getargspec(target)
+        return FullArgSpec(
+            args=argspec.args,
+            varargs=argspec.varargs,
+            varkw=argspec.keywords,
+            defaults=argspec.defaults,
+            kwonlyargs=[],
+            kwonlydefaults=None,
+            annotations={})
+
+
+def parse_arg_and_kwargs(function):
+    """
+    Returns full argument names as list. e.g ['x', 'y', 'z']
+    """
+    fullargspec = getfullargspec(function)
+    arg_names = fullargspec.args
+    if arg_names and 'self' == arg_names[0]:
+        arg_names = fullargspec.args[1:]
+
+    # parse default kwargs
+    default_kwargs = {}
+    default_values = fullargspec.defaults
+    if default_values:
+        assert len(default_values) <= len(arg_names)
+        default_kwarg_names = arg_names[-len(default_values):]
+        default_kwargs = dict(zip(default_kwarg_names, default_values))
+
+    return arg_names, default_kwargs
+
+
+def parse_varargs_name(function):
+    """
+    Returns varargs name string of function. e.g: 'input' from `foo(x, *input)`
+    """
+    fullargspec = getfullargspec(function)
+    varargs = fullargspec.varargs
+    return varargs
+
+
+def type_name(v):
+    return type(v).__name__
+
+
+def make_hashable(x, error_msg=None):
+    """
+    Makes input `x` hashable.
+
+    For some unhashable objects, such as `dict/list/np.ndarray`,applying hash function by using their values.
+    """
+    if isinstance(x, (tuple, list)):
+        return tuple(map(make_hashable, x))
+
+    try:
+        hash(x)
+    except TypeError:
+        if isinstance(x, np.ndarray):
+            # Note: `tostring()` will return the binary data from np.ndarray that
+            # means different value will lead to different hash code.
+            return hash(x.tostring())
+        elif isinstance(x, dict):
+            return tuple(map(make_hashable, x.values()))
+
+        error_msg = error_msg or "Requires a hashable object."
+        raise ValueError(error_msg + " But received type: %s" % type_name(x))
+
+    return x
 
 
 def _is_api_in_module_helper(obj, module_prefix):
@@ -48,7 +159,14 @@ def _is_api_in_module_helper(obj, module_prefix):
 
 def is_api_in_module(node, module_prefix):
     assert isinstance(node, gast.Call), "Input non-Call node for is_dygraph_api"
-    func_str = astor.to_source(gast.gast_to_ast(node.func))
+
+    # Python can have gast.Call as function, for example: covert_call(func)(x)
+    # We only check the most outside function
+    func_node = node.func
+    while isinstance(func_node, gast.Call):
+        func_node = func_node.func
+
+    func_str = astor.to_source(gast.gast_to_ast(func_node)).strip()
     try:
         # TODO(liym27):
         #  Consider a better to import modules like:
@@ -57,9 +175,12 @@ def is_api_in_module(node, module_prefix):
         #  import_str = "".join(import_statements)
         import paddle
         import paddle.fluid as fluid
-        import paddle.fluid.layers as layers
-        from paddle.fluid.dygraph import to_variable
         import paddle.fluid.dygraph as dygraph
+        import paddle.fluid.layers as layers
+
+        from paddle.fluid.dygraph import to_variable
+        from paddle import to_tensor
+
         return eval("_is_api_in_module_helper({}, '{}')".format(func_str,
                                                                 module_prefix))
     except NameError:
@@ -67,15 +188,18 @@ def is_api_in_module(node, module_prefix):
 
 
 def is_dygraph_api(node):
+
     # Note: A api in module dygraph_to_static is not a real dygraph api.
     if is_api_in_module(node, "paddle.fluid.dygraph.dygraph_to_static"):
         return False
 
+    # TODO(liym27): A better way to determine whether it is a dygraph api.
+    #  Consider the decorator @dygraph_only
     return is_api_in_module(node, "paddle.fluid.dygraph")
 
 
 def is_paddle_api(node):
-    return is_api_in_module(node, "paddle.fluid")
+    return is_api_in_module(node, "paddle")
 
 
 # Is numpy_api cannot reuse is_api_in_module because of numpy module problem
@@ -154,14 +278,6 @@ def _add_keywords_to(node, dygraph_api_name):
     return
 
 
-def is_to_variable(node):
-    assert isinstance(node, gast.Call)
-    if is_dygraph_api(node):
-        api_name = ast_to_source_code(node.func).strip()
-        return api_name.endswith("to_variable")
-    return False
-
-
 def to_static_ast(node, class_node):
     assert isinstance(node, gast.Call)
     assert isinstance(class_node, gast.Call)
@@ -186,29 +302,6 @@ def to_static_ast(node, class_node):
 
     gast.fix_missing_locations(node)
 
-    return node
-
-
-def to_assign_node(node):
-    # Transform dygraph api `fluid.dygraph.to_variable` to static api `fluid.layers.assign`.
-    # NOTE:
-    #   1. Api `to_variable` supports data type {float16, float32, float64, int16, int32, int64, uint8, uint16},
-    #   but api `assign` only supports {float32, float64, int32, int64, bool};
-    #   2. If the input of api `assign` is numpy.ndarray, its size cannot be greater than 1024 * 1024.
-    assert isinstance(node, gast.Call)
-    assign_api = gast.parse('fluid.layers.assign').body[0].value
-    node.func = assign_api
-
-    if node.args:
-        node.args = [node.args[0]]
-        node.keywords = []
-    else:
-        for idx, kw in enumerate(node.keywords):
-            if kw.arg == 'value':
-                node.keywords[idx].arg = 'input'
-                node.keywords = [node.keywords[idx]]
-                node.args = []
-                break
     return node
 
 
@@ -367,7 +460,15 @@ def ast_to_func(ast_root, dyfunc, delete_on_exit=True):
     TODO: If only decorate one of inner function instead of decorating the main
     function, the other inner functions are invisible for the decorated function.
     """
+
+    def remove_if_exit(filepath):
+        if os.path.exists(filepath):
+            os.remove(filepath)
+
     source = ast_to_source_code(ast_root)
+    import_fluid = "import paddle\nimport paddle.fluid as fluid\n"
+    source = import_fluid + source
+
     if six.PY2:
         source = source.encode('utf-8')
         f = tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False)
@@ -379,14 +480,25 @@ def ast_to_func(ast_root, dyfunc, delete_on_exit=True):
         f.write(source)
 
     if delete_on_exit:
-        atexit.register(lambda: os.remove(f.name))
-    module = imp.load_source(module_name, f.name)
+        atexit.register(lambda: remove_if_exit(f.name))
+        atexit.register(lambda: remove_if_exit(f.name[:-3] + ".pyc"))
+
+    if six.PY2:
+        module = imp.load_source(module_name, f.name)
+    else:
+        module = SourceFileLoader(module_name, f.name).load_module()
     func_name = dyfunc.__name__
-    if not hasattr(module, func_name):
+    # The 'forward' or 'another_forward' of 'TranslatedLayer' cannot be obtained
+    # through 'func_name'. So set the special function name '__i_m_p_l__'.
+    if hasattr(module, '__i_m_p_l__'):
+        callable_func = getattr(module, '__i_m_p_l__')
+        callable_func.__name__ = func_name
+    elif hasattr(module, func_name):
+        callable_func = getattr(module, func_name)
+    else:
         raise ValueError(
             'Function: %s doesn\'t exist in the Module transformed from AST.' %
             func_name)
-    callable_func = getattr(module, func_name)
     # After transform dygraph function into callable_func saved in tmp file,
     # it lost the global variables from imported statements or defined in source file.
     # Recovers the necessary variables by `__globals__`.
@@ -401,15 +513,30 @@ def recover_globals_attribute(src_obj, dst_obj):
     src_globals = getattr(src_obj, attr_name, {})
     dst_globals = getattr(dst_obj, attr_name, {})
 
-    for k, v in src_globals.items():
+    for k, v in six.iteritems(src_globals):
         # ignore builtin attribute.
         if not (k.startswith('__') and k.endswith('__')):
             dst_globals[k] = v
 
 
+def func_to_source_code(function, dedent=True):
+    """
+    Transforms function into raw string of source code.
+    """
+    if not (inspect.isfunction(function) or inspect.ismethod(function)):
+        raise TypeError(
+            "The type of 'function' should be a function or method, but received {}.".
+            format(type(function).__name__))
+    source_code = inspect.getsource(function)
+    if dedent:
+        source_code = textwrap.dedent(source_code)
+
+    return source_code
+
+
 def ast_to_source_code(ast_node):
     """
-    Transformers ast node into source code.
+    Transforms ast node into source code.
     """
     if not isinstance(ast_node, (gast.AST, ast.AST)):
         raise TypeError(
@@ -646,6 +773,20 @@ class NameNodeReplaceTransformer(gast.NodeTransformer):
 
     def __init__(self, root_node, target_name, replace_node):
         assert isinstance(target_name, str)
+
+        # NOTE(liym27):
+        # Use gast.Name to replace gast.Name, otherwise, errors may occur.
+        #
+        # For examples:
+        # If using a gast.Subscript to replace gast.Name, and the original gast.Name
+        # is in the arguments of FunctionDef, an exception will be raised.
+        #
+        # ```
+        # def func(x[i])) # x[i] can not be a argument
+        #    # ...
+        # ```
+
+        assert isinstance(replace_node, gast.Name)
         self.target_name = target_name
         self.replace_node = replace_node
 
@@ -782,10 +923,14 @@ class ForNodeVisitor(object):
         cond_stmt = self._build_cond_stmt(step_node, compare_node)
 
         body_stmts = self.body
-        var_slice_node = self._build_var_slice_node()
+
+        # NOTE(liym27): Here add a gast.Assign, and the target of it is gast.Name.
+        # In NameNodeReplaceTransformer, using gast.Name to replace gast.Name is safe.
+        target_node, assign_node = self._build_assign_var_slice_node()
+        body_stmts[0:0] = [assign_node]
         for body_node in body_stmts:
             NameNodeReplaceTransformer(body_node, self.iter_var_name,
-                                       var_slice_node)
+                                       target_node)
         body_stmts.append(self._build_index_increase_node(step_node))
 
         return init_stmts, cond_stmt, body_stmts
@@ -801,10 +946,13 @@ class ForNodeVisitor(object):
         cond_stmt = self._build_cond_stmt(step_node, compare_node)
 
         body_stmts = self.body
-        var_slice_node = self._build_var_slice_node()
+
+        target_node, assign_node = self._build_assign_var_slice_node()
+        body_stmts[0:0] = [assign_node]
         for body_node in body_stmts:
             NameNodeReplaceTransformer(body_node, self.iter_var_name,
-                                       var_slice_node)
+                                       target_node)
+
         body_stmts.append(self._build_index_increase_node(step_node))
         body_stmts.append(self._build_enum_increase_node())
 
@@ -840,7 +988,7 @@ class ForNodeVisitor(object):
         else:
             iter_var_name = ast_to_source_code(self.iter_node).strip()
 
-        convert_len_node_source_str = '{} = fluid.dygraph.dygraph_to_static.convert_operators.convert_len({})'.format(
+        convert_len_node_source_str = '{} = paddle.jit.dy2static.convert_len({})'.format(
             self.iter_var_len_name, iter_var_name)
 
         convert_len_node = gast.parse(convert_len_node_source_str).body[0]
@@ -880,18 +1028,40 @@ class ForNodeVisitor(object):
         return step_node
 
     def _build_cond_stmt(self, step_node, compare_node):
-        return gast.Compare(
-            left=gast.BinOp(
+        if not isinstance(step_node, (gast.Constant, gast.UnaryOp)):
+            raise NotImplementedError(
+                "Dynamic-to-Static only supports the step value is a constant or negative constant in 'for-range' statements, "
+                "such as '2', '-3'. But received: '{}'. Please fix code to be compatible with Dynamic-to-Static."
+                .format(ast_to_source_code(step_node).strip()))
+
+        if isinstance(step_node, gast.UnaryOp) or step_node.value < 0:
+            # eg:
+            # range(max, min, -2)
+            # ->
+            # i > min
+            return gast.Compare(
                 left=gast.Name(
                     id=self.iter_var_name
                     if self.is_for_range_iter() else self.iter_idx_name,
                     ctx=gast.Load(),
                     annotation=None,
                     type_comment=None),
-                op=gast.Add(),
-                right=step_node),
-            ops=[gast.LtE()],
-            comparators=[compare_node])
+                ops=[gast.Gt()],
+                comparators=[compare_node])
+        else:
+            # eg:
+            # range(min, max, 2)
+            # ->
+            # i < max
+            return gast.Compare(
+                left=gast.Name(
+                    id=self.iter_var_name
+                    if self.is_for_range_iter() else self.iter_idx_name,
+                    ctx=gast.Load(),
+                    annotation=None,
+                    type_comment=None),
+                ops=[gast.Lt()],
+                comparators=[compare_node])
 
     def _build_index_increase_node(self, step_node):
         return gast.AugAssign(
@@ -904,15 +1074,19 @@ class ForNodeVisitor(object):
             op=gast.Add(),
             value=step_node)
 
-    def _build_var_slice_node(self):
-        return gast.Subscript(
+    def _build_assign_var_slice_node(self):
+        var_slice_node = gast.Subscript(
             value=self.iter_node,
             slice=gast.Index(value=gast.Name(
                 id=self.iter_idx_name,
                 ctx=gast.Load(),
                 annotation=None,
                 type_comment=None)),
-            ctx=gast.Load())
+            ctx=gast.Load(), )
+        new_iter_var_name = unique_name.generate(FOR_ITER_VAR_NAME_PREFIX)
+        target_node, assign_node = create_assign_node(new_iter_var_name,
+                                                      var_slice_node)
+        return target_node, assign_node
 
     def _build_enum_increase_node(self):
         return gast.AugAssign(
@@ -1027,3 +1201,19 @@ class SplitAssignTransformer(gast.NodeTransformer):
             value_node = target
 
         return new_nodes
+
+
+# NOTE: inspect.unwrap() exits in PY3 but not in PY2.
+def unwrap(func):
+    """
+    Returns the object wrapped by decorators.
+    """
+
+    def _is_wrapped(f):
+        return hasattr(f, '__wrapped__')
+
+    unwrapped_f = func
+    while (_is_wrapped(unwrapped_f)):
+        unwrapped_f = unwrapped_f.__wrapped__
+
+    return unwrapped_f

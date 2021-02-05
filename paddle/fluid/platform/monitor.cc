@@ -36,5 +36,4 @@ DEFINE_INT_STATUS(STAT_gpu12_mem_size)
 DEFINE_INT_STATUS(STAT_gpu13_mem_size)
 DEFINE_INT_STATUS(STAT_gpu14_mem_size)
 DEFINE_INT_STATUS(STAT_gpu15_mem_size)
-
 DEFINE_INT_STATUS(STAT_slot_pool_size)

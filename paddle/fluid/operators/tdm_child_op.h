@@ -44,11 +44,14 @@ void TDMChildInner(const framework::ExecutionContext &context,
   int input_ids_num = input.numel();
   VLOG(4) << "TDM child op: input numel ->  " << input_ids_num;
 
-  std::vector<OutT> child_vec{};
-  std::vector<OutT> item_mask_vec{};
+  //  std::vector<OutT> child_vec{};
+  //  std::vector<OutT> item_mask_vec{};
 
   auto *input_data = input.data<T>();
   auto *tree_info_data = tree_info.data<InfoT>();
+
+  auto *child_data = child->mutable_data<OutT>(context.GetPlace());
+  auto *leaf_mask_data = mask->mutable_data<OutT>(context.GetPlace());
 
   // TreeInfo: node_id : item_id; layer_id; ancestor_id; child_id
   for (int input_ids = 0; input_ids < input_ids_num; ++input_ids) {
@@ -74,30 +77,33 @@ void TDMChildInner(const framework::ExecutionContext &context,
             ? false
             : true;
 
+    int offset = input_ids * child_nums;
     if (has_child) {
       for (int child_ids = 0; child_ids < child_nums; ++child_ids) {
         OutT child_id = static_cast<OutT>(
             tree_info_data[static_cast<int>(input_data[input_ids]) * length +
                            3 + child_ids]);
-        child_vec.push_back(child_id);
+        child_data[offset] = child_id;
         OutT child_is_item = static_cast<OutT>(
             tree_info_data[static_cast<int>(child_id) * length] == 0 ? 0 : 1);
-        item_mask_vec.push_back(child_is_item);
+        leaf_mask_data[offset] = child_is_item;
+        offset = offset + 1;
       }
     } else {
       for (int child_ids = 0; child_ids < child_nums; ++child_ids) {
-        child_vec.push_back(0);
-        item_mask_vec.push_back(0);
+        child_data[offset] = 0;
+        leaf_mask_data[offset] = 0;
+        offset = offset + 1;
       }
     }
   }
 
-  int output_nums = child_vec.size();
-  auto *child_data = child->mutable_data<OutT>(context.GetPlace());
-  auto *leaf_mask_data = mask->mutable_data<OutT>(context.GetPlace());
-
-  memcpy(child_data, &child_vec[0], sizeof(OutT) * output_nums);
-  memcpy(leaf_mask_data, &item_mask_vec[0], sizeof(OutT) * output_nums);
+  //  int output_nums = child_vec.size();
+  //  auto *child_data = child->mutable_data<OutT>(context.GetPlace());
+  //  auto *leaf_mask_data = mask->mutable_data<OutT>(context.GetPlace());
+  //
+  //  memcpy(child_data, &child_vec[0], sizeof(OutT) * output_nums);
+  //  memcpy(leaf_mask_data, &item_mask_vec[0], sizeof(OutT) * output_nums);
 }
 
 template <typename DeviceContext, typename T>

@@ -105,8 +105,11 @@ class TestDnnlMatMulOpInt8NoScales(TestDnnlMatMulOp):
 
 
 class TestDnnlMatMulOpInt8(TestDnnlMatMulOp):
+    # Due to limitation in int8 matmul implementation
+    # on older platforms (BDW, SKX) we needed to reduce
+    # range from [-127, 127] to [-63, 63]
     def quantize(self, tensor):
-        scale = 127. / np.abs(np.amax(tensor))
+        scale = 63. / np.abs(np.amax(tensor))
         quantized = np.round(scale * tensor).astype("int8")
         return scale, quantized
 
@@ -434,7 +437,7 @@ class TestMatMulOpTransposeReshapeTransposeAxisNotSupportedException(
 
     def test_check_output(self):
         self.assertRaises(AttributeError, self.check_raise_error,
-                          'InvalidArgumentError: supported transpose axis '
+                          'supported transpose axis '
                           'for the fuse are {0, 2, 1, 3}')
 
 
@@ -446,9 +449,8 @@ class TestMatMulOpTransposeReshapeTransposeRankNotSupportedException(
         self.out = np.matmul(self.x, self.y)
 
     def test_check_output(self):
-        self.assertRaises(
-            AttributeError, self.check_raise_error,
-            'InvalidArgumentError: transpose_out supported rank is 4')
+        self.assertRaises(AttributeError, self.check_raise_error,
+                          'transpose_out supported rank is 4')
 
 
 class TestMatMulOpTransposeReshapeRankOfReshapeNotSupportedException(
@@ -459,9 +461,8 @@ class TestMatMulOpTransposeReshapeRankOfReshapeNotSupportedException(
         self.out = np.matmul(self.x, self.y)
 
     def test_check_output(self):
-        self.assertRaises(
-            AttributeError, self.check_raise_error,
-            'InvalidArgumentError: reshape_out supported rank is 3')
+        self.assertRaises(AttributeError, self.check_raise_error,
+                          'reshape_out supported rank is 3')
 
 
 if __name__ == "__main__":

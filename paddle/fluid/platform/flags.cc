@@ -489,3 +489,90 @@ DEFINE_int32(gpu_replica_cache_dim, 8, "use_gpu_replica_cache,the dim");
 DEFINE_bool(padbox_dataset_disable_shuffle, false,
             "if true ,will disable data shuffle");
 DEFINE_int32(padbox_slotrecord_extend_dim, 0, "paddlebox pcoc extend dim");
+DEFINE_bool(padbox_auc_runner_mode, false, "auc runner mode");
+DEFINE_bool(padbox_dataset_disable_polling, false, "if true ,will disable input file list polling");
+
+/**
+ * MKLDNN related FLAG
+ * Name: use_mkldnn
+ * Since Version:
+ * Value Range: bool, default=false
+ * Example:
+ * Note:
+ */
+DEFINE_bool(use_mkldnn, false, "Use MKLDNN to run");
+
+/**
+ * Debug related FLAG
+ * Name: FLAGS_call_stack_level
+ * Since Version: 2.0.0
+ * Value Range: int, default=2
+ * Example:
+ * Note: Used to debug. Determine the call stack to print when error or
+ * exeception happens.
+ * If FLAGS_call_stack_level == 0, only the error message summary will be shown.
+ * If FLAGS_call_stack_level == 1, the python stack and  error message summary
+ * will be shown.
+ * If FLAGS_call_stack_level == 2, the python stack, c++ stack, and error
+ * message summary will be shown.
+ */
+DEFINE_int32(
+    call_stack_level, 1,
+    "Determine the call stack to print when error or exeception happens."
+    // TODO(zhiqiu): implement logic of FLAGS_call_stack_level==0
+    // "If FLAGS_call_stack_level == 0, only the error message summary will be "
+    // "shown. "
+    "If FLAGS_call_stack_level == 1, the python stack and error message "
+    "summary will be shown."
+    "If FLAGS_call_stack_level == 2, the python stack, c++ stack, and "
+    "error message summary will be shown.");
+
+/**
+ * Debug related FLAG
+ * Name: sort_sum_gradient
+ * Since Version: 2.0.0
+ * Value Range: bool, default=false
+ * Example:
+ * Note: If True, gradients are summed by the reverse order of
+ * the forward execution sequence.
+ */
+DEFINE_bool(sort_sum_gradient, false,
+            "Sum gradients by the reverse order of "
+            "the forward execution sequence.");
+
+/**
+ * Performance related FLAG
+ * Name: max_inplace_grad_add
+ * Since Version: 2.0.0
+ * Value Range: int32, default=0
+ * Example:
+ * Note: The maximum number of inplace grad_add.
+ */
+DEFINE_int32(
+    max_inplace_grad_add, 0,
+    "The maximum number of inplace grad_add. When doing "
+    "gradient accumulation, if the number of gradients need to that "
+    "less FLAGS_max_inplace_grad_add, than it will be use several grad_add"
+    "instead of sum. Default is 0.");
+
+/**
+ * Debug related FLAG
+ * Name: tracer_mkldnn_ops_on
+ * Since Version: 2.0.0
+ * Value Range: string, default=empty
+ * Example:
+ * Note: Holds list of operation types with OneDNN kernels to be enabled.
+ */
+DEFINE_string(tracer_mkldnn_ops_on, "",
+              "List of OneDNN operation types to be turned on");
+
+/**
+ * Debug related FLAG
+ * Name: tracer_mkldnn_ops_off
+ * Since Version: 2.0.0
+ * Value Range: string, default=empty
+ * Example:
+ * Note: Holds list of operation types with OneDNN kernels to be disabled.
+ */
+DEFINE_string(tracer_mkldnn_ops_off, "",
+              "List of OneDNN operation types to be turned off");

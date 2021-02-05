@@ -14,8 +14,8 @@
 
 package paddle
 
-// #cgo CFLAGS: -Ipaddle_c/paddle/include
-// #cgo LDFLAGS: -Lpaddle_c/paddle/lib -lpaddle_fluid_c
+// #cgo CFLAGS: -I${SRCDIR}/../paddle_c/paddle/include
+// #cgo LDFLAGS: -L${SRCDIR}/../paddle_c/paddle/lib -lpaddle_fluid_c
 // #include <stdbool.h>
 // #include <stdlib.h>
 // #include <paddle_c_api.h>
@@ -154,10 +154,17 @@ func (config *AnalysisConfig) EnableMkldnnQuantizer() {
 	C.PD_EnableMkldnnQuantizer(config.c)
 }
 
+func (config *AnalysisConfig) EnableMkldnnBfloat16() {
+	C.PD_EnableMkldnnBfloat16(config.c)
+}
+
 func (config *AnalysisConfig) MkldnnQuantizerEnabled() bool {
 	return ConvertCBooleanToGo(C.PD_MkldnnQuantizerEnabled(config.c))
 }
 
+func (config *AnalysisConfig) MkldnnBfloat16Enabled() bool {
+	return ConvertCBooleanToGo(C.PD_MkldnnBfloat16Enabled(config.c))
+}
 // SetModelBuffer
 // ModelFromMemory
 

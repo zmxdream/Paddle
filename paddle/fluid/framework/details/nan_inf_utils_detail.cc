@@ -60,7 +60,10 @@ static const std::unordered_map<std::string, int>& role_str2int() {
 
 static std::unordered_set<std::string>& op_type_nan_inf_white_list() {
   static std::unordered_set<std::string> _op_type_nan_inf_white_list = {
-      "coalesce_tensor", /* This Op will alloc tensor, and may not init space */
+      "coalesce_tensor",  // This Op will alloc tensor, and may not init space
+      "rank_attention",   // This Op input param too large init spent time too
+                          // long not zero
+      "c_mixallgather"    // This Op alloc more space not need init
   };
   return _op_type_nan_inf_white_list;
 }
@@ -152,14 +155,12 @@ static void PrintNanInf(const T* value, const size_t numel, int print_num,
              static_cast<uint64_t>(i), static_cast<float>(value[i]));
     }
   }
-  bool has_nan_inf = true;
   printf("In cpu, there has %lu,%lu,%lu nan,inf,num\n",
          static_cast<uint64_t>(nan_count), static_cast<uint64_t>(inf_count),
          static_cast<uint64_t>(num_count));
-  PADDLE_ENFORCE_EQ(has_nan_inf, false,
-                    platform::errors::PreconditionNotMet(
-                        "===ERROR: in [op=%s] [tensor=%s] find nan or inf===",
-                        op_type, var_name));
+  PADDLE_THROW(platform::errors::PreconditionNotMet(
+      "There are `nan` or `inf` in tensor (%s) of operator (%s).", var_name,
+      op_type));
 }
 
 // openmp 4.0, reduction with fp16
@@ -167,6 +168,12 @@ static void PrintNanInf(const T* value, const size_t numel, int print_num,
 // more detail see: 180 page of
 // https://www.openmp.org/wp-content/uploads/OpenMP4.0.0.pdf
 #pragma omp declare reduction(+ : paddle::platform::float16 : omp_out += omp_in)
+#pragma omp declare reduction(+ : paddle::platform::bfloat16 : omp_out += \
+                              omp_in)
+#pragma omp declare reduction(+ : paddle::platform::complex64 : omp_out += \
+                              omp_in)
+#pragma omp declare reduction(+ : paddle::platform::complex128 : omp_out += \
+                              omp_in)
 #endif
 
 template <typename T>
@@ -203,6 +210,73 @@ void CheckNanInf<paddle::platform::float16>(
 
   if (std::isnan(sum) || std::isinf(sum)) {
     PrintNanInf(value, numel, print_num, op_type, var_name);
+  }
+}
+
+template <>
+void CheckNanInf<paddle::platform::bfloat16>(
+    const paddle::platform::bfloat16* value, const size_t numel, int print_num,
+    const std::string& op_type, const std::string& var_name) {
+  float sum = 0.0f;
+#pragma omp parallel for reduction(+ : sum)
+  for (size_t i = 0; i < numel; ++i) {
+    sum += static_cast<float>(value[i] - value[i]);
+  }
+
+  if (std::isnan(sum) || std::isinf(sum)) {
+    PrintNanInf(value, numel, print_num, op_type, var_name);
+  }
+}
+
+template <>
+void CheckNanInf<paddle::platform::complex64>(
+    const paddle::platform::complex64* value, const size_t numel, int print_num,
+    const std::string& op_type, const std::string& var_name) {
+  float real_sum = 0.0f;
+#pragma omp parallel for reduction(+ : real_sum)
+  for (size_t i = 0; i < numel; ++i) {
+    real_sum += (value[i].real - value[i].real);
+  }
+
+  float imag_sum = 0.0f;
+#pragma omp parallel for reduction(+ : imag_sum)
+  for (size_t i = 0; i < numel; ++i) {
+    imag_sum += (value[i].imag - value[i].imag);
+  }
+
+  if (std::isnan(real_sum) || std::isinf(real_sum) || std::isnan(imag_sum) ||
+      std::isinf(imag_sum)) {
+    // hot fix for compile failed in gcc4.8
+    // here also need print detail info of nan or inf later
+    PADDLE_THROW(platform::errors::PreconditionNotMet(
+        "There are `nan` or `inf` in tensor (%s) of operator (%s).", var_name,
+        op_type));
+  }
+}
+
+template <>
+void CheckNanInf<paddle::platform::complex128>(
+    const paddle::platform::complex128* value, const size_t numel,
+    int print_num, const std::string& op_type, const std::string& var_name) {
+  double real_sum = 0.0;
+#pragma omp parallel for reduction(+ : real_sum)
+  for (size_t i = 0; i < numel; ++i) {
+    real_sum += (value[i].real - value[i].real);
+  }
+
+  double imag_sum = 0.0;
+#pragma omp parallel for reduction(+ : imag_sum)
+  for (size_t i = 0; i < numel; ++i) {
+    imag_sum += (value[i].imag - value[i].imag);
+  }
+
+  if (std::isnan(real_sum) || std::isinf(real_sum) || std::isnan(imag_sum) ||
+      std::isinf(imag_sum)) {
+    // hot fix for compile failed in gcc4.8
+    // here also need print detail info of nan or inf later
+    PADDLE_THROW(platform::errors::PreconditionNotMet(
+        "There are `nan` or `inf` in tensor (%s) of operator (%s).", var_name,
+        op_type));
   }
 }
 #endif

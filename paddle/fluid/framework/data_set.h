@@ -239,6 +239,22 @@ class DatasetImpl : public Dataset {
                                        bool discard_remaining_ins = false);
   virtual void DynamicAdjustReadersNum(int thread_num);
   virtual void SetFleetSendSleepSeconds(int seconds);
+  virtual std::vector<T>& GetInputRecord() { return input_records_; }
+
+  virtual std::set<uint16_t> GetSlotsIdx(
+      const std::set<std::string>& str_slots) {
+    std::set<uint16_t> slots_idx;
+
+    auto multi_slot_desc = data_feed_desc_.multi_slot_desc();
+    for (int i = 0; i < multi_slot_desc.slots_size(); ++i) {
+      std::string cur_slot = multi_slot_desc.slots(i).name();
+      if (str_slots.find(cur_slot) != str_slots.end()) {
+        slots_idx.insert(i);
+      }
+    }
+
+    return slots_idx;
+  }
 
  protected:
   virtual int ReceiveFromClient(int msg_type, int client_id,
