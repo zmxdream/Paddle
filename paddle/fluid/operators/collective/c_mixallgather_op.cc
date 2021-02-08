@@ -145,7 +145,9 @@ class CMixAllGatherOpCUDAKernel : public framework::OpKernel<T> {
     GetTensorMemSize(in_tensors, &numel);
 
     int64_t offset = 0;
+    int64_t ranks_numel = 0;
     size_t recv_len = 0;
+    size_t pad_len = 0;
     T *recvbuff = nullptr;
     T *sendbuff = nullptr;
 
@@ -155,27 +157,43 @@ class CMixAllGatherOpCUDAKernel : public framework::OpKernel<T> {
 
     if (nccl_mode == NCCL_ALLGATHER) {  // allgather
       if (comm_rank_num == device_num) {
-        offset = numel * (device_num * rank_id + device_id);
+        if (multi_nccl) {
+          offset = numel * (rank_id + device_id * nranks);
+        } else {
+          offset = numel * (device_num * rank_id + device_id);
+        }
       } else {
         offset = numel * comm->rank();
       }
-      recvbuff = fused_tensor->mutable_data<T>(
-          {static_cast<int>(numel * nranks * device_num), 1}, place);
-      sendbuff = &recvbuff[offset];
       recv_len = numel * nranks * device_num;
+      recvbuff = fused_tensor->mutable_data<T>(
+          {static_cast<int64_t>(recv_len), 1}, place);
+      sendbuff = &recvbuff[offset];
     } else if (nccl_mode == NCCL_MIXALLGATHER) {  // mixallgather
       CHECK(comm_rank_num == device_num);
-      offset = numel * rank_id;
-      recvbuff = fused_tensor->mutable_data<T>(
-          {static_cast<int>(numel * nranks), 1}, place);
-      sendbuff = &recvbuff[offset];
-      recv_len = numel * nranks;
-    } else {  // allreduce
-      if (multi_nccl && ((numel % device_num) != 0)) {
-        numel = numel + (device_num - (numel % device_num));
+      if (nranks > 1 && multi_nccl) {
+        pad_len = device_num - (numel % device_num);
+        numel = numel + pad_len;
+        offset = 0;
+        ranks_numel = numel * (nranks - 1);
+        recv_len = numel * nranks + ranks_numel;
+        recvbuff = fused_tensor->mutable_data<T>(
+            {static_cast<int64_t>(recv_len), 1}, place);
+        sendbuff = &recvbuff[offset];
+      } else {
+        offset = numel * rank_id;
+        recv_len = numel * nranks;
+        recvbuff = fused_tensor->mutable_data<T>(
+            {static_cast<int64_t>(recv_len), 1}, place);
+        sendbuff = &recvbuff[offset];
       }
-      recvbuff =
-          fused_tensor->mutable_data<T>({static_cast<int>(numel), 1}, place);
+    } else {  // allreduce
+      if (nranks > 0 && ((numel % device_num) != 0)) {
+        pad_len = device_num - (numel % device_num);
+        numel = numel + pad_len;
+      }
+      recvbuff = fused_tensor->mutable_data<T>({static_cast<int64_t>(numel), 1},
+                                               place);
       sendbuff = recvbuff;
       recv_len = numel;
     }
@@ -206,19 +224,62 @@ class CMixAllGatherOpCUDAKernel : public framework::OpKernel<T> {
     ncclDataType_t nccl_dtype = platform::ToNCCLDataType(dtype);
     // reduce device 0
     if (nranks > 1 && comm_rank_num == device_num) {  // multi node
-      if (multi_nccl && nccl_mode == NCCL_ALLREDUCE) {
-        int part_param_len = numel / device_num;
-        T *recv_ptr = &recvbuff[device_id * part_param_len];
-        PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclGroupStart());
-        PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclReduceScatter(
-            sendbuff, recv_ptr, part_param_len, nccl_dtype, ncclSum,
-            comm->comm(), stream));
-        CHECK(box_ptr->SyncDense(stream, part_param_len, recv_ptr, recv_ptr,
-                                 device_id, false));
-        PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclGroupEnd());
-        PADDLE_ENFORCE_CUDA_SUCCESS(
-            platform::dynload::ncclAllGather(recv_ptr, recvbuff, part_param_len,
-                                             nccl_dtype, comm->comm(), stream));
+      if (multi_nccl) {
+        if (nccl_mode == NCCL_ALLREDUCE) {
+          int part_param_len = numel / device_num;
+          T *recv_ptr = &recvbuff[device_id * part_param_len];
+          PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclGroupStart());
+          PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclReduceScatter(
+              sendbuff, recv_ptr, part_param_len, nccl_dtype, ncclSum,
+              comm->comm(), stream));
+          CHECK(box_ptr->SyncDense(stream, part_param_len, recv_ptr, recv_ptr,
+                                   device_id, false));
+          PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclGroupEnd());
+          PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclAllGather(
+              recv_ptr, recvbuff, part_param_len, nccl_dtype, comm->comm(),
+              stream));
+        } else if (nccl_mode == NCCL_ALLGATHER) {
+          // node allgather 0->0 1->1 2->2 ...
+          CHECK(box_ptr->SyncDense(stream, numel, sendbuff,
+                                   &recvbuff[numel * device_id * nranks],
+                                   device_id, true));
+          // inter allgather  0, 1, 2 ...
+          PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclAllGather(
+              &recvbuff[numel * device_id * nranks], recvbuff, numel * nranks,
+              nccl_dtype, comm->comm(), stream));
+        } else {  // mixallgather
+          int part_param_len = numel / device_num;
+          T *recv_ptr = &recvbuff[device_id * part_param_len];
+          PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclGroupStart());
+          PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclReduceScatter(
+              sendbuff, recv_ptr, part_param_len, nccl_dtype, ncclSum,
+              comm->comm(), stream));
+          T *recv_ptr2 =
+              &recvbuff[ranks_numel + device_id * part_param_len * nranks];
+          CHECK(box_ptr->SyncDense(stream, part_param_len, recv_ptr, recv_ptr2,
+                                   device_id, true));
+          PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclGroupEnd());
+          PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclAllGather(
+              recv_ptr2, &recvbuff[ranks_numel], part_param_len * nranks,
+              nccl_dtype, comm->comm(), stream));
+          // copy cuda memory
+          offset = 0;
+          for (int rank = 0; rank < nranks; ++rank) {
+            for (int id = 0; id < device_num; ++id) {
+              cudaMemcpyAsync(&recvbuff[offset],
+                              &recvbuff[ranks_numel +
+                                        part_param_len * (id * nranks + rank)],
+                              part_param_len * sizeof(T),
+                              cudaMemcpyDeviceToDevice, stream);
+              if (id == device_num - 1) {
+                offset += (part_param_len - pad_len);
+              } else {
+                offset += part_param_len;
+              }
+            }
+            PADDLE_ENFORCE_CUDA_SUCCESS(cudaStreamSynchronize(stream));
+          }
+        }
       } else {
         PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclGroupStart());
         if (nccl_mode == NCCL_ALLGATHER) {  // allgather
