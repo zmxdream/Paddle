@@ -56,6 +56,7 @@ namespace paddle {
 namespace framework {
 
 #ifdef PADDLE_WITH_BOX_PS
+#define MAX_GPU_NUM     16
 class BasicAucCalculator {
  public:
   explicit BasicAucCalculator(bool mode_collect_in_gpu = false)
@@ -295,24 +296,7 @@ class BoxWrapper {
   std::deque<GpuReplicaCache> gpu_replica_cache;
   std::deque<InputTable> input_table_deque_;
 
-  virtual ~BoxWrapper() {
-    if (file_manager_ != nullptr) {
-      file_manager_->destory();
-      file_manager_ = nullptr;
-    }
-    if (data_shuffle_ != nullptr) {
-      data_shuffle_->destory();
-      data_shuffle_ = nullptr;
-    }
-    if (p_agent_ != nullptr) {
-      delete p_agent_;
-      p_agent_ = nullptr;
-    }
-    if (device_caches_ != nullptr) {
-      delete device_caches_;
-      device_caches_ = nullptr;
-    }
-  }
+  virtual ~BoxWrapper() {}
   BoxWrapper() {
     fprintf(stdout, "init box wrapper\n");
     boxps::MPICluster::Ins();
@@ -384,6 +368,8 @@ class BoxWrapper {
       VLOG(3) << "Begin InitializeGPU";
       std::vector<cudaStream_t*> stream_list;
       int gpu_num = platform::GetCUDADeviceCount();
+      CHECK(gpu_num <= MAX_GPU_NUM) << "gpu card num: "
+              << gpu_num << ", more than max num: " << MAX_GPU_NUM;
       for (int i = 0; i < gpu_num; ++i) {
         VLOG(3) << "before get context i[" << i << "]";
         platform::CUDADeviceContext* context =
@@ -395,8 +381,8 @@ class BoxWrapper {
       }
       VLOG(2) << "Begin call InitializeGPU in BoxPS";
       // the second parameter is useless
-      s_instance_->boxps_ptr_->InitializeGPUAndLoadModel(
-          conf_file, -1, stream_list, slot_vector, model_path);
+      boxps_ptr_->InitializeGPUAndLoadModel(conf_file, -1, stream_list,
+                                            slot_vector, model_path);
       p_agent_ = boxps::PSAgentBase::GetIns(feedpass_thread_num_);
       p_agent_->Init();
       for (const auto& slot_name : slot_omit_in_feedpass) {
@@ -420,10 +406,30 @@ class BoxWrapper {
 
   void Finalize() {
     VLOG(3) << "Begin Finalize";
-    if (nullptr != s_instance_ && s_instance_->boxps_ptr_ != nullptr) {
-      s_instance_->boxps_ptr_->Finalize();
-      s_instance_->boxps_ptr_ = nullptr;
+    if (s_instance_ == nullptr) {
+      return;
     }
+    if (file_manager_ != nullptr) {
+      file_manager_->destory();
+      file_manager_ = nullptr;
+    }
+    if (data_shuffle_ != nullptr) {
+      data_shuffle_->destory();
+      data_shuffle_ = nullptr;
+    }
+    if (boxps_ptr_ != nullptr) {
+      boxps_ptr_->Finalize();
+      boxps_ptr_ = nullptr;
+    }
+    if (p_agent_ != nullptr) {
+      delete p_agent_;
+      p_agent_ = nullptr;
+    }
+    if (device_caches_ != nullptr) {
+      delete device_caches_;
+      device_caches_ = nullptr;
+    }
+    s_instance_ = nullptr;
   }
 
   void ReleasePool(void) {
@@ -487,40 +493,33 @@ class BoxWrapper {
   static std::shared_ptr<BoxWrapper> SetInstance(
       int embedx_dim = 8, int expand_embed_dim = 0, int feature_type = 0,
       float pull_embedx_scale = 1.0) {
+    static std::mutex mutex;
+    std::lock_guard<std::mutex> lock(mutex);
     if (nullptr == s_instance_) {
-      // If main thread is guaranteed to init this, this lock can be removed
-      static std::mutex mutex;
-      std::lock_guard<std::mutex> lock(mutex);
-      if (nullptr == s_instance_) {
-        VLOG(3) << "s_instance_ is null";
-        s_instance_.reset(new paddle::framework::BoxWrapper());
-        s_instance_->boxps_ptr_.reset(boxps::BoxPSBase::GetInsEx(
-            embedx_dim, expand_embed_dim, feature_type));
-        embedx_dim_ = embedx_dim;
-        expand_embed_dim_ = expand_embed_dim;
-        feature_type_ = feature_type;
-        pull_embedx_scale_ = pull_embedx_scale;
-        // ToDo: feature gpu value param set diffent value
-        if (feature_type_ == static_cast<int>(boxps::FEATURE_PCOC)) {
-          s_instance_->cvm_offset_ = 8;
-        } else {
-          s_instance_->cvm_offset_ = 3;
-        }
+      VLOG(3) << "s_instance_ is null";
+      s_instance_.reset(new paddle::framework::BoxWrapper());
+      s_instance_->boxps_ptr_.reset(boxps::BoxPSBase::GetInsEx(
+          embedx_dim, expand_embed_dim, feature_type));
+      s_instance_->embedx_dim_ = embedx_dim;
+      s_instance_->expand_embed_dim_ = expand_embed_dim;
+      s_instance_->feature_type_ = feature_type;
+      s_instance_->pull_embedx_scale_ = pull_embedx_scale;
+      // ToDo: feature gpu value param set diffent value
+      if (s_instance_->feature_type_ == static_cast<int>(boxps::FEATURE_PCOC)) {
+        s_instance_->cvm_offset_ = 8;
+      } else {
+        s_instance_->cvm_offset_ = 3;
+      }
 
-        if (boxps::MPICluster::Ins().size() > 1) {
-          data_shuffle_.reset(boxps::PaddleShuffler::New());
-          data_shuffle_->init(10);
-        }
+      if (boxps::MPICluster::Ins().size() > 1) {
+        data_shuffle_.reset(boxps::PaddleShuffler::New());
+        data_shuffle_->init(10);
       }
     } else {
       if (nullptr == s_instance_->boxps_ptr_) {
-        static std::mutex ps_mtx;
-        std::lock_guard<std::mutex> ps_lock(ps_mtx);
-        if (nullptr == s_instance_->boxps_ptr_) {
-          VLOG(0) << "reset boxps ptr";
-          s_instance_->boxps_ptr_.reset(boxps::BoxPSBase::GetInsEx(
-              embedx_dim, expand_embed_dim, feature_type));
-        }
+        VLOG(0) << "reset boxps ptr";
+        s_instance_->boxps_ptr_.reset(boxps::BoxPSBase::GetInsEx(
+            embedx_dim, expand_embed_dim, feature_type));
       }
       LOG(WARNING) << "You have already used SetInstance() before";
     }
@@ -1040,18 +1039,20 @@ class BoxWrapper {
   LoDTensor& GetQTensor(int device) { return device_caches_[device].qvalue; }
 
  private:
-  static cudaStream_t stream_list_[8];
+  static cudaStream_t stream_list_[MAX_GPU_NUM];
+  static std::shared_ptr<BoxWrapper> s_instance_;
   std::shared_ptr<boxps::BoxPSBase> boxps_ptr_ = nullptr;
+
+ private:
   boxps::PSAgentBase* p_agent_ = nullptr;
   // TODO(hutuxian): magic number, will add a config to specify
   const int feedpass_thread_num_ = 30;  // magic number
-  static std::shared_ptr<BoxWrapper> s_instance_;
   std::unordered_set<std::string> slot_name_omited_in_feedpass_;
   // EMBEDX_DIM and EXPAND_EMBED_DIM
-  static int embedx_dim_;
-  static int expand_embed_dim_;
-  static int feature_type_;
-  static float pull_embedx_scale_;
+  int embedx_dim_ = 8;
+  int expand_embed_dim_ = 0;
+  int feature_type_ = 0;
+  float pull_embedx_scale_ = 1.0;
   int cvm_offset_ = 3;
 
   // Metric Related

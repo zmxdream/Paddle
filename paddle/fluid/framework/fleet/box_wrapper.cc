@@ -30,11 +30,11 @@ namespace framework {
 
 std::shared_ptr<BoxWrapper> BoxWrapper::s_instance_ = nullptr;
 std::shared_ptr<boxps::PaddleShuffler> BoxWrapper::data_shuffle_ = nullptr;
-cudaStream_t BoxWrapper::stream_list_[8];
-int BoxWrapper::embedx_dim_ = 8;
-int BoxWrapper::expand_embed_dim_ = 0;
-int BoxWrapper::feature_type_ = 0;
-float BoxWrapper::pull_embedx_scale_ = 1.0;
+cudaStream_t BoxWrapper::stream_list_[MAX_GPU_NUM];
+// int BoxWrapper::embedx_dim_ = 8;
+// int BoxWrapper::expand_embed_dim_ = 0;
+// int BoxWrapper::feature_type_ = 0;
+// float BoxWrapper::pull_embedx_scale_ = 1.0;
 
 void BasicAucCalculator::add_unlock_data(double pred, int label) {
   PADDLE_ENFORCE_GE(pred, 0.0, platform::errors::PreconditionNotMet(
@@ -357,10 +357,10 @@ void BoxWrapper::PullSparse(const paddle::platform::Place& place,
   case i: {                                                                  \
     constexpr size_t ExpandDim = i;                                          \
     if (feature_type_ == static_cast<int>(boxps::FEATURE_PCOC)) {            \
-      PullSparseCase<boxps::FeatureValueGpuPCOC<EmbedxDim, ExpandDim>>(      \
+      PullSparseCase<boxps::FeaturePullValueGpuPCOC<EmbedxDim, ExpandDim>>(  \
           place, keys, values, slot_lengths, hidden_size, expand_embed_dim); \
     } else if (feature_type_ == static_cast<int>(boxps::FEATURE_QUANT)) {    \
-      PullSparseCase<boxps::FeatureValueGpuQuant<EmbedxDim, ExpandDim>>(     \
+      PullSparseCase<boxps::FeaturePullValueGpuQuant<EmbedxDim, ExpandDim>>( \
           place, keys, values, slot_lengths, hidden_size, expand_embed_dim); \
     } else {                                                                 \
       PullSparseCase<boxps::FeaturePullValueGpu<EmbedxDim, ExpandDim>>(      \

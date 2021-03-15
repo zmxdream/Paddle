@@ -53,6 +53,7 @@ namespace framework {
 using platform::Timer;
 
 class BufferedLineFileReader {
+  typedef std::function<bool(const std::string& s)> LineFunc;
   static const int MAX_FILE_BUFF_SIZE = 4 * 1024 * 1024;
   class FILEReader {
    public:
@@ -65,23 +66,28 @@ class BufferedLineFileReader {
 
  private:
   template <typename T>
-  int read_lines(T* reader, std::function<void(const std::string& s)> func) {
+  int read_lines(T* reader, LineFunc func, int skip_lines) {
     int lines = 0;
     size_t ret = 0;
     char* ptr = NULL;
     char* eol = NULL;
-    _total_len = 0;
+    total_len_ = 0;
+    error_line_ = 0;
 
     std::string x;
-    while ((ret = reader->read(_buff, MAX_FILE_BUFF_SIZE)) > 0) {
-      _total_len += ret;
-      ptr = _buff;
+    while (!is_error() && (ret = reader->read(buff_, MAX_FILE_BUFF_SIZE)) > 0) {
+      total_len_ += ret;
+      ptr = buff_;
       eol = reinterpret_cast<char*>(memchr(ptr, '\n', ret));
       while (eol != NULL) {
         int size = static_cast<int>((eol - ptr) + 1);
         x.append(ptr, size - 1);
         ++lines;
-        func(x);
+        if (lines > skip_lines) {
+          if (!func(x)) {
+            ++error_line_;
+          }
+        }
 
         x.clear();
         ptr += size;
@@ -94,33 +100,40 @@ class BufferedLineFileReader {
     }
     if (!x.empty()) {
       ++lines;
-      func(x);
+      if (lines > skip_lines) {
+        if (!func(x)) {
+          ++error_line_;
+        }
+      }
     }
     return lines;
   }
 
   template <typename T>
-  int read_lines_sample(T* reader,
-                        std::function<void(const std::string& s)> func,
-                        float sample_rate) {
+  int read_lines_sample(T* reader, LineFunc func, float sample_rate,
+                        int skip_lines) {
     int lines = 0;
     size_t ret = 0;
     char* ptr = NULL;
     char* eol = NULL;
-    _total_len = 0;
+    total_len_ = 0;
     sample_line_ = 0;
+    error_line_ = 0;
 
     std::string x;
-    while ((ret = reader->read(_buff, MAX_FILE_BUFF_SIZE)) > 0) {
-      _total_len += ret;
-      ptr = _buff;
+    while (!is_error() && (ret = reader->read(buff_, MAX_FILE_BUFF_SIZE)) > 0) {
+      total_len_ += ret;
+      ptr = buff_;
       eol = reinterpret_cast<char*>(memchr(ptr, '\n', ret));
       while (eol != NULL) {
         int size = static_cast<int>((eol - ptr) + 1);
         x.append(ptr, size - 1);
         ++lines;
-        if (uniform_distribution_(random_engine_) < sample_rate_) {
-          func(x);
+        if (lines > skip_lines &&
+            uniform_distribution_(random_engine_) < sample_rate_) {
+          if (!func(x)) {
+            ++error_line_;
+          }
           ++sample_line_;
         }
 
@@ -135,8 +148,11 @@ class BufferedLineFileReader {
     }
     if (!x.empty()) {
       ++lines;
-      if (uniform_distribution_(random_engine_) < sample_rate_) {
-        func(x);
+      if (lines > skip_lines &&
+          uniform_distribution_(random_engine_) < sample_rate_) {
+        if (!func(x)) {
+          ++error_line_;
+        }
         ++sample_line_;
       }
     }
@@ -147,46 +163,47 @@ class BufferedLineFileReader {
   BufferedLineFileReader()
       : random_engine_(std::random_device()()),
         uniform_distribution_(0.0f, 1.0f) {
-    _total_len = 0;
+    total_len_ = 0;
     sample_line_ = 0;
-    _buff =
+    buff_ =
         reinterpret_cast<char*>(calloc(MAX_FILE_BUFF_SIZE + 1, sizeof(char)));
   }
-  ~BufferedLineFileReader() { free(_buff); }
+  ~BufferedLineFileReader() { free(buff_); }
 
 #ifdef PADDLE_WITH_BOX_PS
-  int read_api(boxps::PaddleDataReader* reader,
-               std::function<void(const std::string& s)> func) {
+  int read_api(boxps::PaddleDataReader* reader, LineFunc func, int skip_lines) {
     if (std::abs(sample_rate_ - 1.0f) < 1e-5f) {
-      return read_lines<boxps::PaddleDataReader>(reader, func);
+      return read_lines<boxps::PaddleDataReader>(reader, func, skip_lines);
     } else {
-      return read_lines_sample<boxps::PaddleDataReader>(reader, func,
-                                                        sample_rate_);
+      return read_lines_sample<boxps::PaddleDataReader>(
+          reader, func, sample_rate_, skip_lines);
     }
   }
 #endif
-
-  int read_file(FILE* fp, std::function<void(const std::string& s)> func) {
+  int read_file(FILE* fp, LineFunc func, int skip_lines) {
     FILEReader reader(fp);
     if (std::abs(sample_rate_ - 1.0f) < 1e-5f) {
-      return read_lines<FILEReader>(&reader, func);
+      return read_lines<FILEReader>(&reader, func, skip_lines);
     } else {
-      return read_lines_sample<FILEReader>(&reader, func, sample_rate_);
+      return read_lines_sample<FILEReader>(&reader, func, sample_rate_,
+                                           skip_lines);
     }
   }
 
-  uint64_t file_size(void) { return _total_len; }
+  uint64_t file_size(void) { return total_len_; }
   void set_sample_rate(float r) { sample_rate_ = r; }
   size_t get_sample_line() { return sample_line_; }
+  bool is_error(void) { return (error_line_ > 10); }
 
  private:
-  char* _buff = nullptr;
-  uint64_t _total_len = 0;
+  char* buff_ = nullptr;
+  uint64_t total_len_ = 0;
 
   std::default_random_engine random_engine_;
   std::uniform_real_distribution<float> uniform_distribution_;
   float sample_rate_ = 1.0f;
   size_t sample_line_ = 0;
+  size_t error_line_ = 0;
 };
 
 void RecordCandidateList::ReSize(size_t length) {
@@ -545,32 +562,39 @@ void InMemoryDataFeed<T>::LoadIntoMemory() {
   while (this->PickOneFile(&filename)) {
     VLOG(3) << "PickOneFile, filename=" << filename
             << ", thread_id=" << thread_id_;
-#ifdef PADDLE_WITH_BOX_PS
-    if (BoxWrapper::GetInstance()->UseAfsApi()) {
-      this->fp_ = BoxWrapper::GetInstance()->OpenReadFile(filename,
-                                                          this->pipe_command_);
-    } else {
-#endif
-      int err_no = 0;
-      this->fp_ = fs_open_read(filename, &err_no, this->pipe_command_);
-#ifdef PADDLE_WITH_BOX_PS
-    }
-#endif
-    CHECK(this->fp_ != nullptr);
-    __fsetlocking(&*(this->fp_), FSETLOCKING_BYCALLER);
+    int lines = 0;
+    BufferedLineFileReader file_reader;
+    file_reader.set_sample_rate(sample_rate_);
     paddle::framework::ChannelWriter<T> writer(input_channel_);
     platform::Timer timeline;
     timeline.Start();
 
-    BufferedLineFileReader file_reader;
-    file_reader.set_sample_rate(sample_rate_);
-    int lines = file_reader.read_file(
-        this->fp_.get(), [this, &writer](const std::string& line) {
-          T instance;
-          ParseOneInstanceFromPipe(&instance, line);
-          writer << std::move(instance);
-        });
-
+    do {
+#ifdef PADDLE_WITH_BOX_PS
+      if (BoxWrapper::GetInstance()->UseAfsApi()) {
+        this->fp_ = BoxWrapper::GetInstance()->OpenReadFile(
+            filename, this->pipe_command_);
+      } else {
+#endif
+        int err_no = 0;
+        this->fp_ = fs_open_read(filename, &err_no, this->pipe_command_);
+#ifdef PADDLE_WITH_BOX_PS
+      }
+#endif
+      CHECK(this->fp_ != nullptr);
+      __fsetlocking(&*(this->fp_), FSETLOCKING_BYCALLER);
+      lines = file_reader.read_file(
+          this->fp_.get(),
+          [this, &writer](const std::string& line) {
+            T instance;
+            if (!ParseOneInstanceFromPipe(&instance, line)) {
+              return false;
+            }
+            writer << std::move(instance);
+            return true;
+          },
+          lines);
+    } while (file_reader.is_error());
     STAT_ADD(STAT_total_feasign_num_in_mem, fea_num_);
     {
       std::lock_guard<std::mutex> flock(*mutex_for_fea_num_);
@@ -2740,6 +2764,7 @@ void SlotPaddleBoxDataFeed::LoadIntoMemoryByLib(void) {
         offset = old_offset;
         LOG(WARNING) << "read file:[" << filename << "] item error, line:["
                      << line << "]";
+        return false;
       }
       if (offset >= max_fetch_num) {
         input_channel_->Write(std::move(record_vec));
@@ -2750,26 +2775,29 @@ void SlotPaddleBoxDataFeed::LoadIntoMemoryByLib(void) {
         from_pool_num = GetTotalFeaNum(record_vec, max_fetch_num);
         offset = 0;
       }
+      return true;
     };
     int lines = 0;
-    if (BoxWrapper::GetInstance()->UseAfsApi() && pipe_command_.empty()) {
-      while (reader->open(filename) < 0) {
-        sleep(1);
-      }
-      lines = line_reader.read_api(reader, func);
-      reader->close();
-    } else {
-      if (BoxWrapper::GetInstance()->UseAfsApi()) {
-        this->fp_ = BoxWrapper::GetInstance()->OpenReadFile(
-            filename, this->pipe_command_);
+    do {
+      if (BoxWrapper::GetInstance()->UseAfsApi() && pipe_command_.empty()) {
+        while (reader->open(filename) < 0) {
+          sleep(1);
+        }
+        lines = line_reader.read_api(reader, func, lines);
+        reader->close();
       } else {
-        int err_no = 0;
-        this->fp_ = fs_open_read(filename, &err_no, this->pipe_command_);
+        if (BoxWrapper::GetInstance()->UseAfsApi()) {
+          this->fp_ = BoxWrapper::GetInstance()->OpenReadFile(
+              filename, this->pipe_command_);
+        } else {
+          int err_no = 0;
+          this->fp_ = fs_open_read(filename, &err_no, this->pipe_command_);
+        }
+        CHECK(this->fp_ != nullptr);
+        __fsetlocking(&*(this->fp_), FSETLOCKING_BYCALLER);
+        lines = line_reader.read_file(this->fp_.get(), func, lines);
       }
-      CHECK(this->fp_ != nullptr);
-      __fsetlocking(&*(this->fp_), FSETLOCKING_BYCALLER);
-      lines = line_reader.read_file(this->fp_.get(), func);
-    }
+    } while (line_reader.is_error());
     if (offset > 0) {
       input_channel_->WriteMove(offset, &record_vec[0]);
       STAT_ADD(STAT_total_feasign_num_in_mem,
@@ -2805,40 +2833,46 @@ void SlotPaddleBoxDataFeed::LoadIntoMemoryByCommand(void) {
   while (this->PickOneFile(&filename)) {
     VLOG(3) << "PickOneFile, filename=" << filename
             << ", thread_id=" << thread_id_;
-    if (BoxWrapper::GetInstance()->UseAfsApi()) {
-      this->fp_ = BoxWrapper::GetInstance()->OpenReadFile(filename,
-                                                          this->pipe_command_);
-    } else {
-      int err_no = 0;
-      this->fp_ = fs_open_read(filename, &err_no, this->pipe_command_);
-    }
-    CHECK(this->fp_ != nullptr);
-    __fsetlocking(&*(this->fp_), FSETLOCKING_BYCALLER);
-
+    int lines = 0;
     std::vector<SlotRecord> record_vec;
     platform::Timer timeline;
     timeline.Start();
     int max_fetch_num = 10000;
     SlotRecordPool().get(&record_vec, max_fetch_num);
-
     int offset = 0;
-    int lines = 0;
-    lines = line_reader.read_file(
-        this->fp_.get(), [this, &record_vec, &offset, &max_fetch_num,
-                          &filename](const std::string& line) {
-          if (ParseOneInstance(line, &record_vec[offset])) {
-            ++offset;
-          } else {
-            LOG(WARNING) << "read file:[" << filename << "] item error, line:["
-                         << line << "]";
-          }
-          if (offset >= max_fetch_num) {
-            input_channel_->Write(std::move(record_vec));
-            record_vec.clear();
-            SlotRecordPool().get(&record_vec, max_fetch_num);
-            offset = 0;
-          }
-        });
+
+    do {
+      if (BoxWrapper::GetInstance()->UseAfsApi()) {
+        this->fp_ = BoxWrapper::GetInstance()->OpenReadFile(
+            filename, this->pipe_command_);
+      } else {
+        int err_no = 0;
+        this->fp_ = fs_open_read(filename, &err_no, this->pipe_command_);
+      }
+      CHECK(this->fp_ != nullptr);
+      __fsetlocking(&*(this->fp_), FSETLOCKING_BYCALLER);
+
+      lines = line_reader.read_file(
+          this->fp_.get(),
+          [this, &record_vec, &offset, &max_fetch_num,
+           &filename](const std::string& line) {
+            if (ParseOneInstance(line, &record_vec[offset])) {
+              ++offset;
+            } else {
+              LOG(WARNING) << "read file:[" << filename
+                           << "] item error, line:[" << line << "]";
+              return false;
+            }
+            if (offset >= max_fetch_num) {
+              input_channel_->Write(std::move(record_vec));
+              record_vec.clear();
+              SlotRecordPool().get(&record_vec, max_fetch_num);
+              offset = 0;
+            }
+            return true;
+          },
+          lines);
+    } while (line_reader.is_error());
     if (offset > 0) {
       input_channel_->WriteMove(offset, &record_vec[0]);
       if (offset < max_fetch_num) {
@@ -3037,6 +3071,7 @@ void SlotPaddleBoxDataFeedWithGpuReplicaCache::LoadIntoMemoryByLib(void) {
         offset = old_offset;
         LOG(WARNING) << "read file:[" << filename << "] item error, line:["
                      << line << "]";
+        return false;
       }
       if (offset >= max_fetch_num) {
         input_channel_->Write(std::move(record_vec));
@@ -3047,26 +3082,29 @@ void SlotPaddleBoxDataFeedWithGpuReplicaCache::LoadIntoMemoryByLib(void) {
         from_pool_num = GetTotalFeaNum(record_vec, max_fetch_num);
         offset = 0;
       }
+      return true;
     };
     int lines = 0;
-    if (BoxWrapper::GetInstance()->UseAfsApi() && pipe_command_.empty()) {
-      while (reader->open(filename) < 0) {
-        sleep(1);
-      }
-      lines = line_reader.read_api(reader, func);
-      reader->close();
-    } else {
-      if (BoxWrapper::GetInstance()->UseAfsApi()) {
-        this->fp_ = BoxWrapper::GetInstance()->OpenReadFile(
-            filename, this->pipe_command_);
+    do {
+      if (BoxWrapper::GetInstance()->UseAfsApi() && pipe_command_.empty()) {
+        while (reader->open(filename) < 0) {
+          sleep(1);
+        }
+        lines = line_reader.read_api(reader, func, lines);
+        reader->close();
       } else {
-        int err_no = 0;
-        this->fp_ = fs_open_read(filename, &err_no, this->pipe_command_);
+        if (BoxWrapper::GetInstance()->UseAfsApi()) {
+          this->fp_ = BoxWrapper::GetInstance()->OpenReadFile(
+              filename, this->pipe_command_);
+        } else {
+          int err_no = 0;
+          this->fp_ = fs_open_read(filename, &err_no, this->pipe_command_);
+        }
+        CHECK(this->fp_ != nullptr);
+        __fsetlocking(&*(this->fp_), FSETLOCKING_BYCALLER);
+        lines = line_reader.read_file(this->fp_.get(), func, lines);
       }
-      CHECK(this->fp_ != nullptr);
-      __fsetlocking(&*(this->fp_), FSETLOCKING_BYCALLER);
-      lines = line_reader.read_file(this->fp_.get(), func);
-    }
+    } while (line_reader.is_error());
     if (offset > 0) {
       input_channel_->WriteMove(offset, &record_vec[0]);
       STAT_ADD(STAT_total_feasign_num_in_mem,
@@ -3096,56 +3134,59 @@ void SlotPaddleBoxDataFeedWithGpuReplicaCache::LoadIntoMemoryByLib(void) {
 void SlotPaddleBoxDataFeedWithGpuReplicaCache::LoadIntoMemoryByCommand(void) {
   std::string filename;
   BufferedLineFileReader line_reader;
+  std::vector<SlotRecord> record_vec;
+  platform::Timer timeline;
+  auto box_ptr = paddle::framework::BoxWrapper::GetInstance();
   while (this->PickOneFile(&filename)) {
     VLOG(3) << "PickOneFile, filename=" << filename
             << ", thread_id=" << thread_id_;
-    if (BoxWrapper::GetInstance()->UseAfsApi()) {
-      this->fp_ = BoxWrapper::GetInstance()->OpenReadFile(filename,
-                                                          this->pipe_command_);
-    } else {
-      int err_no = 0;
-      this->fp_ = fs_open_read(filename, &err_no, this->pipe_command_);
-    }
-    CHECK(this->fp_ != nullptr);
-    __fsetlocking(&*(this->fp_), FSETLOCKING_BYCALLER);
-
-    std::vector<SlotRecord> record_vec;
-    platform::Timer timeline;
+    int lines = 0;
     timeline.Start();
-    int max_fetch_num = 10000;
-    SlotRecordPool().get(&record_vec, max_fetch_num);
-
     int offset = 0;
     int gpu_cache_offset;
-    auto box_ptr = paddle::framework::BoxWrapper::GetInstance();
-    line_reader.read_file(
-        this->fp_.get(),
-        [this, &record_vec, &offset, &max_fetch_num, &gpu_cache_offset,
-         &box_ptr, &filename](const std::string& line) {
-          if (line[0] == '#') {
-            std::vector<float> gpu_cache;
-            char* pos = const_cast<char*>(line.c_str() + 1);
-            auto& set = box_ptr->gpu_replica_cache.back();
-            for (int i = 0; i < set.emb_dim_; ++i) {
-              float feasign = strtof(pos, &pos);
-              gpu_cache.push_back(feasign);
+    int max_fetch_num = 10000;
+    SlotRecordPool().get(&record_vec, max_fetch_num);
+    do {
+      if (box_ptr->UseAfsApi()) {
+        this->fp_ = box_ptr->OpenReadFile(filename, this->pipe_command_);
+      } else {
+        int err_no = 0;
+        this->fp_ = fs_open_read(filename, &err_no, this->pipe_command_);
+      }
+      CHECK(this->fp_ != nullptr);
+      __fsetlocking(&*(this->fp_), FSETLOCKING_BYCALLER);
+      lines = line_reader.read_file(
+          this->fp_.get(),
+          [this, &record_vec, &offset, &max_fetch_num, &gpu_cache_offset,
+           &box_ptr, &filename](const std::string& line) {
+            if (line[0] == '#') {
+              std::vector<float> gpu_cache;
+              char* pos = const_cast<char*>(line.c_str() + 1);
+              auto& set = box_ptr->gpu_replica_cache.back();
+              for (int i = 0; i < set.emb_dim_; ++i) {
+                float feasign = strtof(pos, &pos);
+                gpu_cache.push_back(feasign);
+              }
+              gpu_cache_offset = set.AddItems(gpu_cache);
+              return true;
             }
-            gpu_cache_offset = set.AddItems(gpu_cache);
-            return;
-          }
-          if (ParseOneInstance(line, &record_vec[offset], gpu_cache_offset)) {
-            ++offset;
-          } else {
-            LOG(WARNING) << "read file:[" << filename << "] item error, line:["
-                         << line << "]";
-          }
-          if (offset >= max_fetch_num) {
-            input_channel_->Write(std::move(record_vec));
-            record_vec.clear();
-            SlotRecordPool().get(&record_vec, max_fetch_num);
-            offset = 0;
-          }
-        });
+            if (ParseOneInstance(line, &record_vec[offset], gpu_cache_offset)) {
+              ++offset;
+            } else {
+              LOG(WARNING) << "read file:[" << filename
+                           << "] item error, line:[" << line << "]";
+              return false;
+            }
+            if (offset >= max_fetch_num) {
+              input_channel_->Write(std::move(record_vec));
+              record_vec.clear();
+              SlotRecordPool().get(&record_vec, max_fetch_num);
+              offset = 0;
+            }
+            return true;
+          },
+          lines);
+    } while (line_reader.is_error());
     if (offset > 0) {
       input_channel_->WriteMove(offset, &record_vec[0]);
       if (offset < max_fetch_num) {
@@ -3334,6 +3375,7 @@ void InputTableDataFeed::LoadIntoMemoryByLib() {
         offset = old_offset;
         LOG(WARNING) << "read file:[" << filename << "] item error, line:["
                      << line << "]";
+        return false;
       }
       if (offset >= max_fetch_num) {
         input_channel_->Write(std::move(record_vec));
@@ -3344,26 +3386,29 @@ void InputTableDataFeed::LoadIntoMemoryByLib() {
         from_pool_num = GetTotalFeaNum(record_vec, max_fetch_num);
         offset = 0;
       }
+      return true;
     };
     int lines = 0;
-    if (BoxWrapper::GetInstance()->UseAfsApi() && pipe_command_.empty()) {
-      while (reader->open(filename) < 0) {
-        sleep(1);
-      }
-      lines = line_reader.read_api(reader, func);
-      reader->close();
-    } else {
-      if (BoxWrapper::GetInstance()->UseAfsApi()) {
-        this->fp_ = BoxWrapper::GetInstance()->OpenReadFile(
-            filename, this->pipe_command_);
+    do {
+      if (BoxWrapper::GetInstance()->UseAfsApi() && pipe_command_.empty()) {
+        while (reader->open(filename) < 0) {
+          sleep(1);
+        }
+        lines = line_reader.read_api(reader, func, lines);
+        reader->close();
       } else {
-        int err_no = 0;
-        this->fp_ = fs_open_read(filename, &err_no, this->pipe_command_);
+        if (BoxWrapper::GetInstance()->UseAfsApi()) {
+          this->fp_ = BoxWrapper::GetInstance()->OpenReadFile(
+              filename, this->pipe_command_);
+        } else {
+          int err_no = 0;
+          this->fp_ = fs_open_read(filename, &err_no, this->pipe_command_);
+        }
+        CHECK(this->fp_ != nullptr);
+        __fsetlocking(&*(this->fp_), FSETLOCKING_BYCALLER);
+        lines = line_reader.read_file(this->fp_.get(), func, lines);
       }
-      CHECK(this->fp_ != nullptr);
-      __fsetlocking(&*(this->fp_), FSETLOCKING_BYCALLER);
-      lines = line_reader.read_file(this->fp_.get(), func);
-    }
+    } while (line_reader.is_error());
     if (offset > 0) {
       input_channel_->WriteMove(offset, &record_vec[0]);
       STAT_ADD(STAT_total_feasign_num_in_mem,
@@ -3419,29 +3464,32 @@ void InputIndexDataFeed::LoadIntoMemory() {
       if (!ret) {
         LOG(WARNING) << "read file:[" << filename << "] item error, line:["
                      << line << "]";
+        return false;
       }
+      return true;
     };
 
     int lines = 0;
-    if (BoxWrapper::GetInstance()->UseAfsApi() && pipe_command_.empty()) {
-      while (reader->open(filename) < 0) {
-        sleep(1);
-      }
-      lines = line_reader.read_api(reader, func);
-      reader->close();
-    } else {
-      if (BoxWrapper::GetInstance()->UseAfsApi()) {
-        this->fp_ = BoxWrapper::GetInstance()->OpenReadFile(
-            filename, this->pipe_command_);
+    do {
+      if (BoxWrapper::GetInstance()->UseAfsApi() && pipe_command_.empty()) {
+        while (reader->open(filename) < 0) {
+          sleep(1);
+        }
+        lines = line_reader.read_api(reader, func, lines);
+        reader->close();
       } else {
-        int err_no = 0;
-        this->fp_ = fs_open_read(filename, &err_no, this->pipe_command_);
+        if (BoxWrapper::GetInstance()->UseAfsApi()) {
+          this->fp_ = BoxWrapper::GetInstance()->OpenReadFile(
+              filename, this->pipe_command_);
+        } else {
+          int err_no = 0;
+          this->fp_ = fs_open_read(filename, &err_no, this->pipe_command_);
+        }
+        CHECK(this->fp_ != nullptr);
+        __fsetlocking(&*(this->fp_), FSETLOCKING_BYCALLER);
+        lines = line_reader.read_file(this->fp_.get(), func, lines);
       }
-      CHECK(this->fp_ != nullptr);
-      __fsetlocking(&*(this->fp_), FSETLOCKING_BYCALLER);
-      lines = line_reader.read_file(this->fp_.get(), func);
-    }
-
+    } while (line_reader.is_error());
     VLOG(3) << "read file:[" << filename << "], lines:[" << lines << "]";
   }
 
