@@ -229,9 +229,9 @@ std::shared_ptr<FILE> shell_popen(const std::string& cmd,
 
             if (WIFEXITED(wstatus) || wstatus == (128 + SIGPIPE) * 256) {
             } else {
-                PADDLE_ENFORCE_NE(
-                    errno, ECHILD,
-                    platform::errors::Fatal("Must not be ECHILD errno here!"));
+              PADDLE_ENFORCE_NE(
+                  errno, ECHILD,
+                  platform::errors::Fatal("Must not be ECHILD errno here!"));
               *err_no = -1;
             }
 
