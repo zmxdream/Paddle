@@ -56,6 +56,7 @@ namespace paddle {
 namespace framework {
 
 #ifdef PADDLE_WITH_BOX_PS
+#define MAX_GPU_NUM     16
 class BasicAucCalculator {
  public:
   explicit BasicAucCalculator(bool mode_collect_in_gpu = false)
@@ -367,14 +368,16 @@ class BoxWrapper {
       VLOG(3) << "Begin InitializeGPU";
       std::vector<cudaStream_t*> stream_list;
       int gpu_num = platform::GetCUDADeviceCount();
+      CHECK(gpu_num <= MAX_GPU_NUM) << "gpu card num: "
+              << gpu_num << ", more than max num: " << MAX_GPU_NUM;
       for (int i = 0; i < gpu_num; ++i) {
         VLOG(3) << "before get context i[" << i << "]";
         platform::CUDADeviceContext* context =
             dynamic_cast<platform::CUDADeviceContext*>(
                 platform::DeviceContextPool::Instance().Get(
                     platform::CUDAPlace(i)));
-        cudaStream_t stream = const_cast<cudaStream_t>(context->stream());
-        stream_list.push_back(&stream);
+        stream_list_[i] = context->stream();
+        stream_list.push_back(&stream_list_[i]);
       }
       VLOG(2) << "Begin call InitializeGPU in BoxPS";
       // the second parameter is useless
@@ -937,8 +940,11 @@ class BoxWrapper {
   LoDTensor& GetQTensor(int device) { return device_caches_[device].qvalue; }
 
  private:
+  static cudaStream_t stream_list_[MAX_GPU_NUM];
   static std::shared_ptr<BoxWrapper> s_instance_;
   std::shared_ptr<boxps::BoxPSBase> boxps_ptr_ = nullptr;
+
+ private:
   boxps::PSAgentBase* p_agent_ = nullptr;
   // TODO(hutuxian): magic number, will add a config to specify
   const int feedpass_thread_num_ = 30;  // magic number

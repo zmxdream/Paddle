@@ -140,8 +140,7 @@ static int shell_popen_fork_internal(const char* real_cmd, bool do_read,
   PCHECK(execl("/bin/bash", "bash", "-c", real_cmd, NULL) >= 0);
 #endif
   // Note: just for compilation. the child don't run this line.
-  //  _exit(0);
-  exit(127);
+  _exit(0);
 #endif
 }
 
@@ -196,8 +195,8 @@ std::shared_ptr<FILE> shell_popen(const std::string& cmd,
     child_end = pipe_fds[0];
   }
 
-  //  sighandler_t old_handler;
-  //  old_handler = signal(SIGCHLD, SIG_DFL);
+  sighandler_t old_handler;
+  old_handler = signal(SIGCHLD, SIG_DFL);
 
   fcntl(parent_end, F_SETFD, FD_CLOEXEC);
 
@@ -209,11 +208,11 @@ std::shared_ptr<FILE> shell_popen(const std::string& cmd,
   FILE* fp = NULL;
   if ((fp = fdopen(parent_end, mode.c_str())) == NULL) {
     *err_no = -1;
-    //    signal(SIGCHLD, old_handler);
+    signal(SIGCHLD, old_handler);
     return NULL;
   }
 
-  return {fp, [cmd, child_pid, /**old_handler,*/ err_no, status](FILE* fp) {
+  return {fp, [cmd, child_pid, old_handler, err_no, status](FILE* fp) {
             VLOG(3) << "Closing pipe[" << cmd << "]";
             if (fclose(fp)) {
               *err_no = -1;
@@ -230,14 +229,13 @@ std::shared_ptr<FILE> shell_popen(const std::string& cmd,
 
             if (WIFEXITED(wstatus) || wstatus == (128 + SIGPIPE) * 256) {
             } else {
-              //              PADDLE_ENFORCE_NE(
-              //                  errno, ECHILD,
-              //                  platform::errors::Fatal("Must not be ECHILD
-              //                  errno here!"));
+                PADDLE_ENFORCE_NE(
+                    errno, ECHILD,
+                    platform::errors::Fatal("Must not be ECHILD errno here!"));
               *err_no = -1;
             }
 
-            //            signal(SIGCHLD, old_handler);
+            signal(SIGCHLD, old_handler);
           }};
 #endif
 }
