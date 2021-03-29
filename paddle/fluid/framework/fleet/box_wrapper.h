@@ -506,10 +506,10 @@ class BoxWrapper {
       s_instance_->feature_type_ = feature_type;
       s_instance_->pull_embedx_scale_ = pull_embedx_scale;
       // ToDo: feature gpu value param set diffent value
-      if (feature_type_ == static_cast<int>(boxps::FEATURE_SHARE_EMBEDDING)) {
+      if (s_instance_->feature_type_ == static_cast<int>(boxps::FEATURE_SHARE_EMBEDDING)) {
         s_instance_->cvm_offset_ = FLAGS_padbox_share_embedding_num + 2;
         s_instance_->share_embedding_num_ = FLAGS_padbox_share_embedding_num;
-      } else if (feature_type_ == static_cast<int>(boxps::FEATURE_PCOC)) {
+      } else if (s_instance_->feature_type_ == static_cast<int>(boxps::FEATURE_PCOC)) {
         s_instance_->cvm_offset_ = 8;
       } else {
         s_instance_->cvm_offset_ = 3;
