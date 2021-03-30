@@ -710,7 +710,7 @@ void BoxWrapper::CopyForPush(const paddle::platform::Place& place,
   case i: {                                                                    \
     constexpr size_t ExpandDim = i;                                            \
     if (feature_type_ == static_cast<int>(boxps::FEATURE_SHARE_EMBEDDING)) {              \
-      constexpr size_t SingleEmbedxDim = EmbedxDim / boxps::SHARE_EMBEDDING_NUM;                    \
+      constexpr size_t SingleEmbedxDim = EmbedxDim / boxps::SHARE_EMBEDDING_NUM;          \
       PushCopyBaseShareEmbedding<                                                         \
           boxps::FeaturePushValueGpuShareEmbedding<SingleEmbedxDim, ExpandDim>><<<        \
               (total_length + 512 - 1) / 512, 512, 0, stream>>>(                          \

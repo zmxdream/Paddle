@@ -375,16 +375,16 @@ void BoxWrapper::PullSparse(const paddle::platform::Place& place,
       constexpr size_t SingleEmbedxDim = EmbedxDim / boxps::SHARE_EMBEDDING_NUM;             \
       PullSparseCase<boxps::FeaturePullValueGpuShareEmbedding<SingleEmbedxDim, ExpandDim>>(  \
           place, keys, values, slot_lengths, hidden_size, expand_embed_dim);                 \
-    } else if (feature_type_ == static_cast<int>(boxps::FEATURE_PCOC)) {                     \
-      PullSparseCase<boxps::FeaturePullValueGpuPCOC<EmbedxDim, ExpandDim>>(                  \
-          place, keys, values, slot_lengths, hidden_size, expand_embed_dim);                 \
-    } else if (feature_type_ == static_cast<int>(boxps::FEATURE_QUANT)) {                    \
-      PullSparseCase<boxps::FeaturePullValueGpuQuant<EmbedxDim, ExpandDim>>(                 \
-          place, keys, values, slot_lengths, hidden_size, expand_embed_dim);                 \
-    } else {                                                                                 \
-      PullSparseCase<boxps::FeaturePullValueGpu<EmbedxDim, ExpandDim>>(                      \
-          place, keys, values, slot_lengths, hidden_size, expand_embed_dim);                 \
-    }                                                                                        \
+    } else if (feature_type_ == static_cast<int>(boxps::FEATURE_PCOC)) {     \
+      PullSparseCase<boxps::FeaturePullValueGpuPCOC<EmbedxDim, ExpandDim>>(  \
+          place, keys, values, slot_lengths, hidden_size, expand_embed_dim); \
+    } else if (feature_type_ == static_cast<int>(boxps::FEATURE_QUANT)) {    \
+      PullSparseCase<boxps::FeaturePullValueGpuQuant<EmbedxDim, ExpandDim>>( \
+          place, keys, values, slot_lengths, hidden_size, expand_embed_dim); \
+    } else {                                                                 \
+      PullSparseCase<boxps::FeaturePullValueGpu<EmbedxDim, ExpandDim>>(      \
+          place, keys, values, slot_lengths, hidden_size, expand_embed_dim); \
+    }                                                                        \
   } break
 
   CheckEmbedSizeIsValid(hidden_size - cvm_offset_, expand_embed_dim);
