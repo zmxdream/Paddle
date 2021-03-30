@@ -325,6 +325,21 @@ void BasicAucCalculator::compute() {
 }
 
 void BoxWrapper::CheckEmbedSizeIsValid(int embedx_dim, int expand_embed_dim) {
+  if (feature_type_ == static_cast<int>(boxps::FEATURE_SHARE_EMBEDDING)) {
+      PADDLE_ENFORCE_GE(FLAGS_padbox_share_embedding_num, 0,
+                        platform::errors::InvalidArgument(
+                            "share_embedding_num should be greater than 0 "
+                            "but its value is %d",
+                            FLAGS_padbox_share_embedding_num));
+
+      PADDLE_ENFORCE_EQ((embedx_dim % FLAGS_padbox_share_embedding_num), 0,
+                        platform::errors::InvalidArgument(
+                            "SetInstance(): invalid embedx_dim. "
+                            "embedx_dim % FLAGS_padbox_share_embedding_num shoule be 0"
+                            ));
+
+      embedx_dim = embedx_dim / FLAGS_padbox_share_embedding_num;
+  }
   PADDLE_ENFORCE_EQ(
       embedx_dim_, embedx_dim,
       platform::errors::InvalidArgument("SetInstance(): invalid embedx_dim. "
@@ -353,10 +368,14 @@ void BoxWrapper::PullSparse(const paddle::platform::Place& place,
     }                                                                        \
   } break
 
-#define PULLSPARSE_CASE(i, ...)                                              \
-  case i: {                                                                  \
-    constexpr size_t ExpandDim = i;                                          \
-    if (feature_type_ == static_cast<int>(boxps::FEATURE_PCOC)) {            \
+#define PULLSPARSE_CASE(i, ...)                                                              \
+  case i: {                                                                                  \
+    constexpr size_t ExpandDim = i;                                                          \
+    if (feature_type_ == static_cast<int>(boxps::FEATURE_SHARE_EMBEDDING)) {                 \
+      constexpr size_t SingleEmbedxDim = EmbedxDim / boxps::SHARE_EMBEDDING_NUM;             \
+      PullSparseCase<boxps::FeaturePullValueGpuShareEmbedding<SingleEmbedxDim, ExpandDim>>(  \
+          place, keys, values, slot_lengths, hidden_size, expand_embed_dim);                 \
+    } else if (feature_type_ == static_cast<int>(boxps::FEATURE_PCOC)) {     \
       PullSparseCase<boxps::FeaturePullValueGpuPCOC<EmbedxDim, ExpandDim>>(  \
           place, keys, values, slot_lengths, hidden_size, expand_embed_dim); \
     } else if (feature_type_ == static_cast<int>(boxps::FEATURE_QUANT)) {    \
@@ -407,7 +426,13 @@ void BoxWrapper::PushSparseGrad(const paddle::platform::Place& place,
 #define PUSHSPARSE_CASE(i, ...)                                             \
   case i: {                                                                 \
     constexpr size_t ExpandDim = i;                                         \
-    if (feature_type_ == static_cast<int>(boxps::FEATURE_PCOC)) {           \
+    if (feature_type_ == static_cast<int>(boxps::FEATURE_SHARE_EMBEDDING)) {            \
+      constexpr size_t SingleEmbedxDim = EmbedxDim / boxps::SHARE_EMBEDDING_NUM;        \
+      PushSparseGradCase<                                                               \
+          boxps::FeaturePushValueGpuShareEmbedding<SingleEmbedxDim, ExpandDim>>(        \
+          place, keys, grad_values, slot_lengths, hidden_size,                          \
+          expand_embed_dim, batch_size);                                                \
+    } else if (feature_type_ == static_cast<int>(boxps::FEATURE_PCOC)) {    \
       PushSparseGradCase<                                                   \
           boxps::FeaturePushValueGpuPCOC<EmbedxDim, ExpandDim>>(            \
           place, keys, grad_values, slot_lengths, hidden_size,              \
