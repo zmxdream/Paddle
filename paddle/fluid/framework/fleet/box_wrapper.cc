@@ -701,6 +701,79 @@ void BoxWrapper::AddReplaceFeasign(boxps::PSAgentBase* p_agent,
   VLOG(0) << "End AddReplaceFeasign: " << timer.ElapsedMS();
 }
 
+//===================== box filemgr ===============================
+BoxFileMgr::BoxFileMgr() {}
+BoxFileMgr::~BoxFileMgr() { destory(); }
+bool BoxFileMgr::init(const std::string& fs_name, const std::string& fs_ugi,
+                      const std::string& conf_path) {
+  if (mgr_ != nullptr) {
+    mgr_->destory();
+  }
+  mgr_.reset(boxps::PaddleFileMgr::New());
+  auto split = fs_ugi.find(",");
+  std::string user = fs_ugi.substr(0, split);
+  std::string pwd = fs_ugi.substr(split + 1);
+  bool ret = mgr_->initialize(fs_name, user, pwd, conf_path);
+  if (!ret) {
+    LOG(WARNING) << "init afs api[" << fs_name << "," << fs_ugi << ","
+                 << conf_path << "] failed";
+    mgr_ = nullptr;
+  }
+  return ret;
+}
+void BoxFileMgr::destory(void) {
+  if (mgr_ == nullptr) {
+    return;
+  }
+  mgr_->destory();
+  mgr_ = nullptr;
+}
+std::vector<std::string> BoxFileMgr::list_dir(const std::string& path) {
+  std::vector<std::string> files;
+  if (!mgr_->list_dir(path, files)) {
+    LOG(WARNING) << "list dir path:[" << path << "] failed";
+  }
+  return files;
+}
+bool BoxFileMgr::makedir(const std::string& path) {
+  return mgr_->makedir(path);
+}
+bool BoxFileMgr::exists(const std::string& path) { return mgr_->exists(path); }
+bool BoxFileMgr::down(const std::string& remote, const std::string& local) {
+  return mgr_->down(remote, local);
+}
+bool BoxFileMgr::upload(const std::string& local, const std::string& remote) {
+  return mgr_->upload(local, remote);
+}
+bool BoxFileMgr::remove(const std::string& path) { return mgr_->remove(path); }
+size_t BoxFileMgr::file_size(const std::string& path) {
+  return mgr_->file_size(path);
+}
+std::vector<std::pair<std::string, size_t>> BoxFileMgr::dus(
+    const std::string& path) {
+  std::vector<std::pair<std::string, size_t>> files;
+  if (!mgr_->dus(path, files)) {
+    LOG(WARNING) << "dus dir path:[" << path << "] failed";
+  }
+  return files;
+}
+bool BoxFileMgr::truncate(const std::string& path, const size_t len) {
+  return mgr_->truncate(path, len);
+}
+bool BoxFileMgr::touch(const std::string& path) { return mgr_->touch(path); }
+bool BoxFileMgr::rename(const std::string& src, const std::string& dest) {
+  return mgr_->rename(src, dest);
+}
+std::vector<std::pair<std::string, size_t>> BoxFileMgr::list_info(
+    const std::string& path) {
+  std::vector<std::pair<std::string, size_t>> files;
+  if (!mgr_->list_info(path, files)) {
+    LOG(WARNING) << "list dir info path:[" << path << "] failed";
+  }
+  return files;
+}
+size_t BoxFileMgr::count(const std::string& path) { return mgr_->count(path); }
+
 }  // end namespace framework
 }  // end namespace paddle
 #endif

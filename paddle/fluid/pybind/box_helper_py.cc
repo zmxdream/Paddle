@@ -103,6 +103,41 @@ void BindBoxWrapper(py::module* m) {
       .def("set_input_table_dim", &framework::BoxWrapper::SetInputTableDim,
            py::call_guard<py::gil_scoped_release>());
 }  // end BoxWrapper
+void BindBoxFileMgr(py::module* m) {
+  py::class_<framework::BoxFileMgr, std::shared_ptr<framework::BoxFileMgr>>(
+      *m, "BoxFileMgr")
+      .def(py::init([]() { return std::make_shared<framework::BoxFileMgr>(); }))
+      .def("init", &framework::BoxFileMgr::init,
+           py::call_guard<py::gil_scoped_release>())
+      .def("list_dir", &framework::BoxFileMgr::list_dir,
+           py::call_guard<py::gil_scoped_release>())
+      .def("makedir", &framework::BoxFileMgr::makedir,
+           py::call_guard<py::gil_scoped_release>())
+      .def("exists", &framework::BoxFileMgr::exists,
+           py::call_guard<py::gil_scoped_release>())
+      .def("download", &framework::BoxFileMgr::down,
+           py::call_guard<py::gil_scoped_release>())
+      .def("upload", &framework::BoxFileMgr::upload,
+           py::call_guard<py::gil_scoped_release>())
+      .def("remove", &framework::BoxFileMgr::remove,
+           py::call_guard<py::gil_scoped_release>())
+      .def("file_size", &framework::BoxFileMgr::file_size,
+           py::call_guard<py::gil_scoped_release>())
+      .def("dus", &framework::BoxFileMgr::dus,
+           py::call_guard<py::gil_scoped_release>())
+      .def("truncate", &framework::BoxFileMgr::truncate,
+           py::call_guard<py::gil_scoped_release>())
+      .def("touch", &framework::BoxFileMgr::touch,
+           py::call_guard<py::gil_scoped_release>())
+      .def("rename", &framework::BoxFileMgr::rename,
+           py::call_guard<py::gil_scoped_release>())
+      .def("list_info", &framework::BoxFileMgr::list_info,
+           py::call_guard<py::gil_scoped_release>())
+      .def("count", &framework::BoxFileMgr::count,
+           py::call_guard<py::gil_scoped_release>())
+      .def("finalize", &framework::BoxFileMgr::destory,
+           py::call_guard<py::gil_scoped_release>());
+}  // end BoxFileMgr
 #endif
 
 }  // end namespace pybind

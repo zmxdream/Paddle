@@ -25,6 +25,7 @@ limitations under the License. */
 #include "paddle/fluid/platform/gpu_info.h"
 #include "paddle/fluid/platform/lodtensor_printer.h"
 
+DECLARE_bool(enable_binding_train_cpu);
 namespace paddle {
 namespace framework {
 
@@ -301,14 +302,16 @@ inline void AddAucMonitor(const Scope* scope, const platform::Place& place) {
 
 void BoxPSWorker::TrainFiles() {
   VLOG(3) << "begin gpubox_worker TrainFiles";
-  AutoSetCPUAffinity(true);
+  if (FLAGS_enable_binding_train_cpu) {
+    AutoSetCPUAffinity(true);
+  }
 
   int64_t accum_num = 0;
   int batch_size = 0;
   if (device_reader_ != nullptr) {
     device_reader_->Start();
   }
-
+  platform::SetDeviceId(device_id_);
   while ((batch_size = PackBatchTask()) > 0) {
     VLOG(3) << "begin running ops, batch size:" << batch_size;
     if (dense_table_) {
@@ -388,7 +391,9 @@ private:
 */
 void BoxPSWorker::TrainFilesWithProfiler() {
   VLOG(3) << "begin section_worker TrainFiles with profiler";
-  AutoSetCPUAffinity(true);
+  if (FLAGS_enable_binding_train_cpu) {
+    AutoSetCPUAffinity(true);
+  }
 
   int64_t step_cnt = 0;
   int64_t accum_num = 0;
@@ -416,7 +421,7 @@ void BoxPSWorker::TrainFilesWithProfiler() {
   //  print_hbm_mem(device_id_, "BoxPSWorker");
   //
   //  GPUOpMemStat op_mem(device_id_);
-
+  platform::SetDeviceId(device_id_);
   outer_timer.Start();
   while (true) {
     main_timer.Resume();

@@ -47,23 +47,12 @@ void BoxWrapper::PullSparseCase(const paddle::platform::Place& place,
     total_length += slot_lengths[i];
     slot_lengths_lod.push_back(total_length);
   }
-  size_t total_bytes =
-      reinterpret_cast<size_t>(total_length * sizeof(FEATURE_VALUE_GPU_TYPE));
-#if defined(PADDLE_WITH_CUDA) && !defined(_WIN32)
   dev.total_key_length = total_length;
-  auto& pull_buf = dev.pull_push_buf;
-  if (pull_buf == nullptr) {
-    pull_buf = memory::AllocShared(place, total_bytes);
-  } else if (total_bytes > pull_buf->size()) {
-    auto buf = memory::AllocShared(place, total_bytes);
-    pull_buf.swap(buf);
-    buf = nullptr;
-  }
-#else
-  auto pull_buf = memory::AllocShared(place, total_bytes);
-#endif
+
+  int64_t total_bytes = total_length * sizeof(FEATURE_VALUE_GPU_TYPE);
   FEATURE_VALUE_GPU_TYPE* total_values_gpu =
-      reinterpret_cast<FEATURE_VALUE_GPU_TYPE*>(pull_buf->ptr());
+      reinterpret_cast<FEATURE_VALUE_GPU_TYPE*>(
+          dev.pull_push_tensor.mutable_data<int8_t>({total_bytes, 1}, place));
 
   if (platform::is_cpu_place(place)) {
     PADDLE_THROW(platform::errors::Unimplemented(
@@ -78,14 +67,11 @@ void BoxWrapper::PullSparseCase(const paddle::platform::Place& place,
         dev.keys_tensor.mutable_data<int64_t>({total_length, 1}, place));
     int* total_dims = reinterpret_cast<int*>(
         dev.dims_tensor.mutable_data<int>({total_length, 1}, place));
-    if (dev.gpu_keys_ptr == nullptr) {
-      dev.gpu_keys_ptr =
-          memory::AllocShared(place, keys.size() * sizeof(uint64_t*));
-    }
-
     int* key2slot = reinterpret_cast<int*>(
         dev.keys2slot.mutable_data<int>({total_length, 1}, place));
-    uint64_t** gpu_keys = reinterpret_cast<uint64_t**>(dev.gpu_keys_ptr->ptr());
+    uint64_t** gpu_keys =
+        reinterpret_cast<uint64_t**>(dev.keys_ptr_tensor.mutable_data<int8_t>(
+            {static_cast<int>(slot_num * sizeof(uint64_t*)), 1}, place));
     int64_t* slot_lens = reinterpret_cast<int64_t*>(
         dev.slot_lens.mutable_data<int64_t>({(slot_num + 1), 1}, place));
     cudaMemcpyAsync(gpu_keys, keys.data(), keys.size() * sizeof(uint64_t*),
@@ -104,11 +90,9 @@ void BoxWrapper::PullSparseCase(const paddle::platform::Place& place,
                                   "PullSparseGPU failed in BoxPS."));
     pull_boxps_timer.Pause();
 
-    if (dev.gpu_values_ptr == nullptr) {
-      dev.gpu_values_ptr =
-          memory::AllocShared(place, values.size() * sizeof(float*));
-    }
-    float** gpu_values = reinterpret_cast<float**>(dev.gpu_values_ptr->ptr());
+    float** gpu_values =
+        reinterpret_cast<float**>(dev.values_ptr_tensor.mutable_data<int8_t>(
+            {static_cast<int>(slot_num * sizeof(float*)), 1}, place));
     cudaMemcpyAsync(gpu_values, values.data(), values.size() * sizeof(float*),
                     cudaMemcpyHostToDevice, stream);
 
@@ -145,24 +129,11 @@ void BoxWrapper::PushSparseGradCase(
 #endif
   all_timer.Resume();
 
-#if defined(PADDLE_WITH_CUDA) && !defined(_WIN32)
   int64_t total_length = dev.total_key_length;
-  // std::accumulate(slot_lengths.begin(), slot_lengths.end(), 0UL);
-  size_t total_bytes =
-      reinterpret_cast<size_t>(total_length * sizeof(FeaturePushValueGpuType));
-  auto& push_buf = dev.pull_push_buf;
-  if (push_buf == nullptr) {
-    push_buf = memory::AllocShared(place, total_bytes);
-  } else if (total_bytes > push_buf->size()) {
-    auto buf = memory::AllocShared(place, total_bytes);
-    push_buf.swap(buf);
-    buf = nullptr;
-  }
-#else
-  auto push_buf = memory::AllocShared(place, total_bytes);
-#endif
+  int64_t total_bytes = total_length * sizeof(FeaturePushValueGpuType);
   FeaturePushValueGpuType* total_grad_values_gpu =
-      reinterpret_cast<FeaturePushValueGpuType*>(push_buf->ptr());
+      reinterpret_cast<FeaturePushValueGpuType*>(
+          dev.pull_push_tensor.mutable_data<int8_t>({total_bytes, 1}, place));
   if (platform::is_cpu_place(place)) {
     PADDLE_THROW(platform::errors::Unimplemented(
         "Warning:: CPUPlace is not supported in PaddleBox now."));
@@ -187,7 +158,8 @@ void BoxWrapper::PushSparseGradCase(
         reinterpret_cast<int64_t*>(dev.slot_lens.data<int64_t>());
     const int* d_slot_vector = dev.d_slot_vector.data<int>();
     const int* key2slot = reinterpret_cast<int*>(dev.keys2slot.data<int>());
-    float** gpu_values = reinterpret_cast<float**>(dev.gpu_values_ptr->ptr());
+    float** gpu_values =
+        reinterpret_cast<float**>(dev.values_ptr_tensor.data<int8_t>());
     cudaMemcpyAsync(gpu_values, grad_values.data(),
                     grad_values.size() * sizeof(float*), cudaMemcpyHostToDevice,
                     stream);

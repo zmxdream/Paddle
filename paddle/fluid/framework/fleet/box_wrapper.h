@@ -56,7 +56,7 @@ namespace paddle {
 namespace framework {
 
 #ifdef PADDLE_WITH_BOX_PS
-#define MAX_GPU_NUM     16
+#define MAX_GPU_NUM 16
 class BasicAucCalculator {
  public:
   explicit BasicAucCalculator(bool mode_collect_in_gpu = false)
@@ -245,9 +245,9 @@ class BoxWrapper {
   struct DeviceBoxData {
     LoDTensor keys_tensor;
     LoDTensor dims_tensor;
-    std::shared_ptr<memory::Allocation> pull_push_buf = nullptr;
-    std::shared_ptr<memory::Allocation> gpu_keys_ptr = nullptr;
-    std::shared_ptr<memory::Allocation> gpu_values_ptr = nullptr;
+    LoDTensor pull_push_tensor;
+    LoDTensor keys_ptr_tensor;
+    LoDTensor values_ptr_tensor;
 
     LoDTensor slot_lens;
     LoDTensor d_slot_vector;
@@ -275,15 +275,9 @@ class BoxWrapper {
       size_t total = 0;
       total += keys_tensor.memory_size();
       total += dims_tensor.memory_size();
-      if (pull_push_buf != nullptr) {
-        total += pull_push_buf->size();
-      }
-      if (gpu_keys_ptr != nullptr) {
-        total += gpu_keys_ptr->size();
-      }
-      if (gpu_values_ptr != nullptr) {
-        total += gpu_values_ptr->size();
-      }
+      total += pull_push_tensor.memory_size();
+      total += keys_ptr_tensor.memory_size();
+      total += values_ptr_tensor.memory_size();
       total += slot_lens.memory_size();
       total += d_slot_vector.memory_size();
       total += keys2slot.memory_size();
@@ -368,8 +362,8 @@ class BoxWrapper {
       VLOG(3) << "Begin InitializeGPU";
       std::vector<cudaStream_t*> stream_list;
       int gpu_num = platform::GetCUDADeviceCount();
-      CHECK(gpu_num <= MAX_GPU_NUM) << "gpu card num: "
-              << gpu_num << ", more than max num: " << MAX_GPU_NUM;
+      CHECK(gpu_num <= MAX_GPU_NUM) << "gpu card num: " << gpu_num
+                                    << ", more than max num: " << MAX_GPU_NUM;
       for (int i = 0; i < gpu_num; ++i) {
         VLOG(3) << "before get context i[" << i << "]";
         platform::CUDADeviceContext* context =
@@ -852,12 +846,12 @@ class BoxWrapper {
   class CmatchRankMaskMetricMsg : public MetricMsg {
    public:
     CmatchRankMaskMetricMsg(const std::string& label_varname,
-                        const std::string& pred_varname, int metric_phase,
-                        const std::string& cmatch_rank_group,
-                        const std::string& cmatch_rank_varname,
-                        bool ignore_rank = false,
-                        const std::string& mask_varname = "",
-                        int bucket_size = 1000000) {
+                            const std::string& pred_varname, int metric_phase,
+                            const std::string& cmatch_rank_group,
+                            const std::string& cmatch_rank_varname,
+                            bool ignore_rank = false,
+                            const std::string& mask_varname = "",
+                            int bucket_size = 1000000) {
       label_varname_ = label_varname;
       pred_varname_ = pred_varname;
       cmatch_rank_varname_ = cmatch_rank_varname;
@@ -1166,6 +1160,34 @@ class BoxWrapper {
   std::set<uint16_t> slot_index_to_replace_;
   std::vector<FeasignValuesCandidateList> random_ins_pool_list;
   std::mutex mutex4random_pool_;
+};
+/**
+ * @brief file mgr
+ */
+class BoxFileMgr {
+ public:
+  BoxFileMgr();
+  ~BoxFileMgr();
+  bool init(const std::string& fs_name, const std::string& fs_ugi,
+            const std::string& conf_path);
+  void destory(void);
+  std::vector<std::string> list_dir(const std::string& path);
+  bool makedir(const std::string& path);
+  bool exists(const std::string& path);
+  bool down(const std::string& remote, const std::string& local);
+  bool upload(const std::string& local, const std::string& remote);
+  bool remove(const std::string& path);
+  size_t file_size(const std::string& path);
+  std::vector<std::pair<std::string, size_t>> dus(const std::string& path);
+  bool truncate(const std::string& path, const size_t len);
+  bool touch(const std::string& path);
+  bool rename(const std::string& src, const std::string& dest);
+  std::vector<std::pair<std::string, size_t>> list_info(
+      const std::string& path);
+  size_t count(const std::string& path);
+
+ private:
+  std::shared_ptr<boxps::PaddleFileMgr> mgr_ = nullptr;
 };
 #endif
 
