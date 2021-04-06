@@ -499,7 +499,11 @@ class BoxWrapper {
       s_instance_->feature_type_ = feature_type;
       s_instance_->pull_embedx_scale_ = pull_embedx_scale;
       // ToDo: feature gpu value param set diffent value
-      if (s_instance_->feature_type_ == static_cast<int>(boxps::FEATURE_PCOC)) {
+      if (s_instance_->feature_type_ ==
+          static_cast<int>(boxps::FEATURE_SHARE_EMBEDDING)) {
+        s_instance_->cvm_offset_ = boxps::SHARE_EMBEDDING_NUM + 2;
+      } else if (s_instance_->feature_type_ ==
+                 static_cast<int>(boxps::FEATURE_PCOC)) {
         s_instance_->cvm_offset_ = 8;
       } else {
         s_instance_->cvm_offset_ = 3;
@@ -1177,14 +1181,14 @@ class BoxFileMgr {
   bool down(const std::string& remote, const std::string& local);
   bool upload(const std::string& local, const std::string& remote);
   bool remove(const std::string& path);
-  size_t file_size(const std::string& path);
-  std::vector<std::pair<std::string, size_t>> dus(const std::string& path);
+  int64_t file_size(const std::string& path);
+  std::vector<std::pair<std::string, int64_t>> dus(const std::string& path);
   bool truncate(const std::string& path, const size_t len);
   bool touch(const std::string& path);
   bool rename(const std::string& src, const std::string& dest);
-  std::vector<std::pair<std::string, size_t>> list_info(
+  std::vector<std::pair<std::string, int64_t>> list_info(
       const std::string& path);
-  size_t count(const std::string& path);
+  int64_t count(const std::string& path);
 
  private:
   std::shared_ptr<boxps::PaddleFileMgr> mgr_ = nullptr;
