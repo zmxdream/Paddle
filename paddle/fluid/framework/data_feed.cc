@@ -98,7 +98,7 @@ class BufferedLineFileReader {
         x.append(ptr, ret);
       }
     }
-    if (!x.empty()) {
+    if (!is_error() && !x.empty()) {
       ++lines;
       if (lines > skip_lines) {
         if (!func(x)) {
@@ -146,7 +146,7 @@ class BufferedLineFileReader {
         x.append(ptr, ret);
       }
     }
-    if (!x.empty()) {
+    if (!is_error() && !x.empty()) {
       ++lines;
       if (lines > skip_lines &&
           uniform_distribution_(random_engine_) < sample_rate_) {
