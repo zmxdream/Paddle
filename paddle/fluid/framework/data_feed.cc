@@ -3015,6 +3015,19 @@ bool SlotPaddleBoxDataFeed::ParseOneInstance(const std::string& line,
   return (uint64_total_slot_num > 0);
 }
 
+void SlotPaddleBoxDataFeed::UnrollInstance(std::vector<SlotRecord>& items) {
+    paddle::framework::ISlotParser* parser =
+      global_parser_pool().Get(parser_so_path_, all_slots_info_);
+    CHECK(parser != nullptr);
+    if (parser->UnrollInstance(
+          items,items.size(), [this](std::vector<SlotRecord> & release) {
+                  SlotRecordPool().put(&release);
+                  release.clear();
+                  release.shrink_to_fit();
+            })) {
+  }
+}
+
 void SlotPaddleBoxDataFeedWithGpuReplicaCache::LoadIntoMemoryByLib(void) {
   paddle::framework::ISlotParser* parser =
       global_parser_pool().Get(parser_so_path_, all_slots_info_);

@@ -1512,7 +1512,7 @@ void PadBoxSlotDataset::LoadIntoMemory() {
   }
   //  shuffle_channel_->Clear();
   //  input_channel_->Clear();
-
+  UnrollInstance();
   timeline.Pause();
   VLOG(1) << "PadBoxSlotDataset::LoadIntoMemory() end"
           << ", memory data size=" << input_records_.size()
@@ -2055,6 +2055,11 @@ void PadBoxSlotDataset::PrepareTrain(void) {
   }
 }
 
+void PadBoxSlotDataset::UnrollInstance() {
+  auto feed_obj = reinterpret_cast<SlotPaddleBoxDataFeed*>(readers_[0].get());
+  feed_obj->UnrollInstance(input_records_);
+}
+
 void InputTableDataset::LoadIntoMemory() {
   VLOG(3) << "InputTableDataset<T>::LoadIntoMemory() begin";
 
@@ -2117,6 +2122,11 @@ void InputTableDataset::LoadIntoMemory() {
   VLOG(1) << "PadBoxSlotDataset::LoadIntoMemory() end"
           << ", memory data size=" << input_records_.size()
           << ", cost time=" << timeline.ElapsedSec() << " seconds";
+  timeline.Start();
+  UnrollInstance();
+  timeline.Pause();
+  VLOG(1) << "PadBoxSlotDataset::UnrollInstance(), cost time= " << timer.ElapsedSec();
+  
 }
 
 void InputTableDataset::LoadIndexIntoMemory() {
@@ -2148,6 +2158,13 @@ void InputTableDataset::LoadIndexIntoMemory() {
   }
 
   VLOG(3) << "end LoadIndexIntoMemory()";
+}
+
+void InputTableDataset::UnrollInstance() {
+  VLOG(3) << "DatasetImpl<T>::LoadIntoMemory() begin";
+  auto feed_obj = reinterpret_cast<InputTableDataFeed*>(readers_[0].get());
+  feed_obj->UnrollInstance(input_records_);
+
 }
 
 #endif

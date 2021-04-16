@@ -372,6 +372,9 @@ class PadBoxSlotDataset : public DatasetImpl<SlotRecord> {
   virtual int64_t GetMemoryDataSize() { return input_records_.size(); }
   virtual int64_t GetPvDataSize() { return input_pv_ins_.size(); }
   virtual int64_t GetShuffleDataSize() { return input_records_.size(); }
+  // merge ins from multiple sources and unroll
+  virtual void UnrollInstance();
+
 
  protected:
   // shuffle data
@@ -403,7 +406,7 @@ class InputTableDataset : public PadBoxSlotDataset {
   virtual void SetIndexFileList(const std::vector<std::string>& filelist) {
     index_filelist_ = filelist;
   }
-
+  virtual void UnrollInstance();
  private:
   void LoadIndexIntoMemory();
 
