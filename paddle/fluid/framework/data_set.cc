@@ -1574,6 +1574,7 @@ void PadBoxSlotDataset::WaitPreLoadDone() {
     delete reinterpret_cast<PadBoxSlotDataConsumer*>(data_consumer_);
     data_consumer_ = nullptr;
   }
+  UnrollInstance();
   VLOG(1) << "PadBoxSlotDataset::WaitPreLoadDone() end"
           << ", memory data size=" << input_records_.size()
           << ", cost time=" << max_read_ins_span_ << " seconds";
@@ -1619,6 +1620,7 @@ void PadBoxSlotDataset::LoadIntoMemory() {
     delete reinterpret_cast<PadBoxSlotDataConsumer*>(data_consumer_);
     data_consumer_ = nullptr;
   }
+  UnrollInstance();
   timeline.Pause();
 
   VLOG(1) << "PadBoxSlotDataset::LoadIntoMemory() end"
@@ -2162,6 +2164,11 @@ void PadBoxSlotDataset::PrepareTrain(void) {
           ->AddBatchOffset(offset[i]);
     }
   }
+}
+
+void PadBoxSlotDataset::UnrollInstance() {
+  auto feed_obj = reinterpret_cast<SlotPaddleBoxDataFeed*>(readers_[0].get());
+  feed_obj->UnrollInstance(input_records_);
 }
 
 void InputTableDataset::LoadIndexIntoMemory() {
