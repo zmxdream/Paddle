@@ -37,6 +37,7 @@
 
 DECLARE_bool(padbox_dataset_disable_shuffle);
 DECLARE_bool(padbox_dataset_disable_polling);
+DECLARE_bool(padbox_dataset_enable_unrollinstance);
 
 namespace paddle {
 namespace framework {
@@ -1574,7 +1575,9 @@ void PadBoxSlotDataset::WaitPreLoadDone() {
     delete reinterpret_cast<PadBoxSlotDataConsumer*>(data_consumer_);
     data_consumer_ = nullptr;
   }
-  UnrollInstance();
+  if (FLAGS_padbox_dataset_enable_unrollinstance) {
+    UnrollInstance();
+  }
   VLOG(1) << "PadBoxSlotDataset::WaitPreLoadDone() end"
           << ", memory data size=" << input_records_.size()
           << ", cost time=" << max_read_ins_span_ << " seconds";
@@ -1620,7 +1623,9 @@ void PadBoxSlotDataset::LoadIntoMemory() {
     delete reinterpret_cast<PadBoxSlotDataConsumer*>(data_consumer_);
     data_consumer_ = nullptr;
   }
-  UnrollInstance();
+  if (FLAGS_padbox_dataset_enable_unrollinstance) {
+    UnrollInstance();
+  }
   timeline.Pause();
 
   VLOG(1) << "PadBoxSlotDataset::LoadIntoMemory() end"
