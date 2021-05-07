@@ -68,7 +68,7 @@ message TrainerDesc {
   optional PullDenseWorkerParameter pull_dense_param = 102;
   optional SectionWorkerParameter section_param = 104;
   optional BoxPSWorkerParameter boxps_param = 105;
-  
+
   // datafeed desc
   optional DataFeedDesc data_desc = 201;
 }
@@ -102,6 +102,9 @@ message BoxPSWorkerParameter {
   optional bool async_mode = 2;
   optional int32 dump_thread_num = 3;
   optional proto.ProgramDesc program_desc = 4;
+  optional int32 sync_dense_mode = 5;
+  optional int32 sync_weight_step = 6;
+  optional bool sync_one_ring = 7;
 }
 
 message SectionConfig {

@@ -582,3 +582,5 @@ DEFINE_string(tracer_mkldnn_ops_off, "",
  */
 DEFINE_bool(enable_binding_train_cpu, true,
             "enable train binding cpu, default true");
+DEFINE_bool(enable_sync_dense_moment, false,
+            "enable sync dense moment, default false");

@@ -531,14 +531,10 @@ void BoxWrapper::EndFeedPass(boxps::PSAgentBase* agent) {
   int ret = boxps_ptr_->EndFeedPass(agent);
   PADDLE_ENFORCE_EQ(ret, 0, platform::errors::PreconditionNotMet(
                                 "EndFeedPass failed in BoxPS."));
+  RelaseAgent(agent);
 }
 
 void BoxWrapper::BeginPass() {
-  int gpu_num = platform::GetCUDADeviceCount();
-  for (int i = 0; i < gpu_num; ++i) {
-    DeviceBoxData& dev = device_caches_[i];
-    dev.ResetTimer();
-  }
   int ret = boxps_ptr_->BeginPass();
   PADDLE_ENFORCE_EQ(ret, 0, platform::errors::PreconditionNotMet(
                                 "BeginPass failed in BoxPS."));
@@ -558,18 +554,6 @@ void BoxWrapper::EndPass(bool need_save_delta) {
   int ret = boxps_ptr_->EndPass(need_save_delta);
   PADDLE_ENFORCE_EQ(
       ret, 0, platform::errors::PreconditionNotMet("EndPass failed in BoxPS."));
-  int gpu_num = platform::GetCUDADeviceCount();
-  for (int i = 0; i < gpu_num; ++i) {
-    auto& dev = device_caches_[i];
-    LOG(WARNING) << "gpu[" << i
-                 << "] sparse pull span: " << dev.all_pull_timer.ElapsedSec()
-                 << ", boxps span: " << dev.boxps_pull_timer.ElapsedSec()
-                 << ", push span: " << dev.all_push_timer.ElapsedSec()
-                 << ", boxps span:" << dev.boxps_push_timer.ElapsedSec()
-                 << ", dense nccl:" << dev.dense_nccl_timer.ElapsedSec()
-                 << ", sync stream:" << dev.dense_sync_timer.ElapsedSec()
-                 << ", wrapper gpu memory:" << dev.GpuMemUsed() << "MB";
-  }
 }
 
 void BoxWrapper::RecordReplace(std::vector<SlotRecord>* records,

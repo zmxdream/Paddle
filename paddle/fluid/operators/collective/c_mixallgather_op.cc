@@ -139,14 +139,14 @@ class CMixAllGatherOpCUDAKernel : public framework::OpKernel<T> {
 
     box_ptr->DenseNcclTimer(device_id, false, 0x03);
 
-    size_t numel = 0;
+    int64_t numel = 0;
     auto dtype =
         static_cast<framework::proto::VarType::Type>(in_tensors[0]->type());
     GetTensorMemSize(in_tensors, &numel);
 
     int64_t offset = 0;
-    size_t recv_len = 0;
-    size_t pad_len = 0;
+    int64_t recv_len = 0;
+    int64_t pad_len = 0;
     T *recvbuff = nullptr;
     T *sendbuff = nullptr;
 
@@ -188,37 +188,29 @@ class CMixAllGatherOpCUDAKernel : public framework::OpKernel<T> {
         sendbuff = &recvbuff[offset];
       }
     } else {  // allreduce
-      if (nranks > 1 && ((numel % device_num) != 0)) {
+      if (nranks > 1 && comm_rank_num == device_num &&
+          ((numel % device_num) != 0)) {
         pad_len = device_num - (numel % device_num);
         numel = numel + pad_len;
       }
-      recvbuff = fused_tensor->mutable_data<T>({static_cast<int64_t>(numel), 1},
-                                               place);
+      recvbuff = fused_tensor->mutable_data<T>({numel, 1}, place);
       sendbuff = recvbuff;
       recv_len = numel;
     }
-    CHECK(static_cast<int64_t>(recv_len) == fused_tensor->numel());
 
     auto dev_ctx = paddle::platform::DeviceContextPool::Instance().Get(place);
+    CHECK(static_cast<int64_t>(recv_len) == fused_tensor->numel());
     // copy input datas
     for (size_t i = 0; i < in_tensors.size(); ++i) {
-      size_t len = static_cast<size_t>(in_tensors[i]->numel());
-      auto sub_tensor = fused_tensor->Slice(static_cast<int64_t>(offset),
-                                            static_cast<int64_t>(offset + len));
+      int64_t len = in_tensors[i]->numel();
+      auto sub_tensor = fused_tensor->Slice(offset, offset + len);
       framework::TensorCopy(*in_tensors[i], place, *dev_ctx, &sub_tensor);
       offset += len;
     }
 
-    cudaStream_t stream = nullptr;
-    if (ctx.Attr<bool>("use_calc_stream")) {
-      stream = static_cast<platform::CUDADeviceContext *>(dev_ctx)->stream();
-    } else {
-      stream = static_cast<platform::CUDADeviceContext *>(dev_ctx)->stream();
-      PADDLE_ENFORCE_CUDA_SUCCESS(cudaStreamSynchronize(stream));
-      stream = comm->stream();
-    }
+    cudaStream_t stream =
+        static_cast<platform::CUDADeviceContext *>(dev_ctx)->stream();
     PADDLE_ENFORCE_CUDA_SUCCESS(cudaStreamSynchronize(stream));
-
     box_ptr->DenseNcclTimer(device_id, true, 0x02);
 
     ncclDataType_t nccl_dtype = platform::ToNCCLDataType(dtype);
@@ -226,7 +218,7 @@ class CMixAllGatherOpCUDAKernel : public framework::OpKernel<T> {
       if (multi_nccl) {  // multi node nccl more than two network card
         if (nccl_mode == NCCL_ALLREDUCE) {  // allreduce
           // [inner reducescatter->node allreduce->allgather]
-          int part_param_len = numel / device_num;
+          int64_t part_param_len = numel / device_num;
           T *recv_ptr = &recvbuff[device_id * part_param_len];
           PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclGroupStart());
           PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclReduceScatter(
@@ -248,7 +240,7 @@ class CMixAllGatherOpCUDAKernel : public framework::OpKernel<T> {
               nccl_dtype, comm->comm(), stream));
         } else {  // mixallgather
           // [inner reducescatter->node allgather->inner allgather]
-          int part_param_len = numel / device_num;
+          int64_t part_param_len = numel / device_num;
           T *recv_ptr = &recvbuff[device_id * part_param_len];
           PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclGroupStart());
           PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclReduceScatter(
@@ -344,7 +336,7 @@ class CMixAllGatherOpCUDAKernel : public framework::OpKernel<T> {
  protected:
   void GetTensorMemSize(
       const std::vector<const framework::LoDTensor *> &lod_tensors,
-      size_t *numel) const {
+      int64_t *numel) const {
     *numel = 0;
     for (size_t i = 0; i < lod_tensors.size(); ++i) {
       CHECK(lod_tensors[i]->IsInitialized());
