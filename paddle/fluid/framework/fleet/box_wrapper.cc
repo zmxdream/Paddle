@@ -374,7 +374,8 @@ void BoxWrapper::PullSparse(const paddle::platform::Place& place,
     } else if (feature_type_ == static_cast<int>(boxps::FEATURE_PCOC)) {       \
       PullSparseCase<boxps::FeaturePullValueGpuPCOC<EmbedxDim, ExpandDim>>(    \
           place, keys, values, slot_lengths, hidden_size, expand_embed_dim);   \
-    } else if (feature_type_ == static_cast<int>(boxps::FEATURE_QUANT)) {      \
+    } else if (feature_type_ == static_cast<int>(boxps::FEATURE_QUANT) ||      \
+               feature_type_ == static_cast<int>(boxps::FEATURE_SHOWCLK)) {    \
       PullSparseCase<boxps::FeaturePullValueGpuQuant<EmbedxDim, ExpandDim>>(   \
           place, keys, values, slot_lengths, hidden_size, expand_embed_dim);   \
     } else {                                                                   \
