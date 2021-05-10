@@ -466,7 +466,8 @@ void BoxWrapper::CopyForPull(const paddle::platform::Place& place,
               total_values_gpu),                                               \
           hidden_size, expand_embed_dim, total_length, gpu_keys, total_dims,   \
           slot_lens, slot_num, key2slot, pull_embedx_scale_, cvm_offset_);     \
-    } else if (feature_type_ == static_cast<int>(boxps::FEATURE_QUANT)) {      \
+    } else if (feature_type_ == static_cast<int>(boxps::FEATURE_QUANT) ||      \
+               feature_type_ == static_cast<int>(boxps::FEATURE_SHOWCLK)) {    \
       PullCopy<boxps::FeaturePullValueGpuQuant<EmbedxDim, ExpandDim>><<<       \
           (total_length + 512 - 1) / 512, 512, 0, stream>>>(                   \
           gpu_values,                                                          \
@@ -524,7 +525,8 @@ void BoxWrapper::CopyForPull(const paddle::platform::Place& place,
               total_values_gpu),                                               \
           EmbedxDim, embedx_total_length, total_dims, slot_lens, slot_num,     \
           key2slot, pull_embedx_scale_, cvm_offset_);                          \
-    } else if (feature_type_ == static_cast<int>(boxps::FEATURE_QUANT)) {      \
+    } else if (feature_type_ == static_cast<int>(boxps::FEATURE_QUANT) ||      \
+               feature_type_ == static_cast<int>(boxps::FEATURE_SHOWCLK)) {    \
       PullCopyBase<boxps::FeaturePullValueGpuQuant<EmbedxDim, ExpandDim>><<<   \
           (total_length + 512 - 1) / 512, 512, 0, stream>>>(                   \
           gpu_values,                                                          \
@@ -585,7 +587,8 @@ void BoxWrapper::CopyForPull(const paddle::platform::Place& place,
           (EmbedxDim + ExpandDim), EmbedxDim, ExpandDim, embedx_total_length,  \
           total_dims, slot_lens, slot_num, key2slot, pull_embedx_scale_,       \
           cvm_offset_);                                                        \
-    } else if (feature_type_ == static_cast<int>(boxps::FEATURE_QUANT)) {      \
+    } else if (feature_type_ == static_cast<int>(boxps::FEATURE_QUANT) ||      \
+               feature_type_ == static_cast<int>(boxps::FEATURE_SHOWCLK)) {    \
       PullCopyBaseNNCross<boxps::FeaturePullValueGpuQuant<                     \
           EmbedxDim,                                                           \
           ExpandDim>><<<(total_length + 512 - 1) / 512, 512, 0, stream>>>(     \
