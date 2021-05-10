@@ -260,6 +260,7 @@ def __bootstrap__():
             'padbox_slotrecord_extend_dim',
             'padbox_auc_runner_mode',
             'padbox_dataset_enable_unrollinstance',
+            'enable_binding_train_cpu',
         ]
     core.init_gflags(["--tryfromenv=" + ",".join(read_env_flags)])
     core.init_glog(sys.argv[0])
