@@ -56,7 +56,7 @@ namespace paddle {
 namespace framework {
 
 #ifdef PADDLE_WITH_BOX_PS
-#define MAX_GPU_NUM     16
+#define MAX_GPU_NUM 16
 class BasicAucCalculator {
  public:
   explicit BasicAucCalculator(bool mode_collect_in_gpu = false)
@@ -245,9 +245,9 @@ class BoxWrapper {
   struct DeviceBoxData {
     LoDTensor keys_tensor;
     LoDTensor dims_tensor;
-    std::shared_ptr<memory::Allocation> pull_push_buf = nullptr;
-    std::shared_ptr<memory::Allocation> gpu_keys_ptr = nullptr;
-    std::shared_ptr<memory::Allocation> gpu_values_ptr = nullptr;
+    LoDTensor pull_push_tensor;
+    LoDTensor keys_ptr_tensor;
+    LoDTensor values_ptr_tensor;
 
     LoDTensor slot_lens;
     LoDTensor d_slot_vector;
@@ -275,15 +275,9 @@ class BoxWrapper {
       size_t total = 0;
       total += keys_tensor.memory_size();
       total += dims_tensor.memory_size();
-      if (pull_push_buf != nullptr) {
-        total += pull_push_buf->size();
-      }
-      if (gpu_keys_ptr != nullptr) {
-        total += gpu_keys_ptr->size();
-      }
-      if (gpu_values_ptr != nullptr) {
-        total += gpu_values_ptr->size();
-      }
+      total += pull_push_tensor.memory_size();
+      total += keys_ptr_tensor.memory_size();
+      total += values_ptr_tensor.memory_size();
       total += slot_lens.memory_size();
       total += d_slot_vector.memory_size();
       total += keys2slot.memory_size();
@@ -358,7 +352,22 @@ class BoxWrapper {
 
   void CheckEmbedSizeIsValid(int embedx_dim, int expand_embed_dim);
 
-  boxps::PSAgentBase* GetAgent() { return p_agent_; }
+  boxps::PSAgentBase* GetAgent() {
+    boxps::PSAgentBase* p_agent = nullptr;
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (psagents_.empty()) {
+      p_agent = boxps::PSAgentBase::GetIns(feedpass_thread_num_);
+      p_agent->Init();
+    } else {
+      p_agent = psagents_.front();
+      psagents_.pop_front();
+    }
+    return p_agent;
+  }
+  void RelaseAgent(boxps::PSAgentBase* agent) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    psagents_.push_back(agent);
+  }
   void InitializeGPUAndLoadModel(
       const char* conf_file, const std::vector<int>& slot_vector,
       const std::vector<std::string>& slot_omit_in_feedpass,
@@ -368,8 +377,8 @@ class BoxWrapper {
       VLOG(3) << "Begin InitializeGPU";
       std::vector<cudaStream_t*> stream_list;
       int gpu_num = platform::GetCUDADeviceCount();
-      CHECK(gpu_num <= MAX_GPU_NUM) << "gpu card num: "
-              << gpu_num << ", more than max num: " << MAX_GPU_NUM;
+      CHECK(gpu_num <= MAX_GPU_NUM) << "gpu card num: " << gpu_num
+                                    << ", more than max num: " << MAX_GPU_NUM;
       for (int i = 0; i < gpu_num; ++i) {
         VLOG(3) << "before get context i[" << i << "]";
         platform::CUDADeviceContext* context =
@@ -383,8 +392,6 @@ class BoxWrapper {
       // the second parameter is useless
       boxps_ptr_->InitializeGPUAndLoadModel(conf_file, -1, stream_list,
                                             slot_vector, model_path);
-      p_agent_ = boxps::PSAgentBase::GetIns(feedpass_thread_num_);
-      p_agent_->Init();
       for (const auto& slot_name : slot_omit_in_feedpass) {
         slot_name_omited_in_feedpass_.insert(slot_name);
       }
@@ -421,9 +428,11 @@ class BoxWrapper {
       boxps_ptr_->Finalize();
       boxps_ptr_ = nullptr;
     }
-    if (p_agent_ != nullptr) {
-      delete p_agent_;
-      p_agent_ = nullptr;
+    if (!psagents_.empty()) {
+      for (auto agent : psagents_) {
+        delete agent;
+      }
+      psagents_.clear();
     }
     if (device_caches_ != nullptr) {
       delete device_caches_;
@@ -505,7 +514,11 @@ class BoxWrapper {
       s_instance_->feature_type_ = feature_type;
       s_instance_->pull_embedx_scale_ = pull_embedx_scale;
       // ToDo: feature gpu value param set diffent value
-      if (s_instance_->feature_type_ == static_cast<int>(boxps::FEATURE_PCOC)) {
+      if (s_instance_->feature_type_ ==
+          static_cast<int>(boxps::FEATURE_SHARE_EMBEDDING)) {
+        s_instance_->cvm_offset_ = boxps::SHARE_EMBEDDING_NUM + 2;
+      } else if (s_instance_->feature_type_ ==
+                 static_cast<int>(boxps::FEATURE_PCOC)) {
         s_instance_->cvm_offset_ = 8;
       } else {
         s_instance_->cvm_offset_ = 3;
@@ -852,12 +865,12 @@ class BoxWrapper {
   class CmatchRankMaskMetricMsg : public MetricMsg {
    public:
     CmatchRankMaskMetricMsg(const std::string& label_varname,
-                        const std::string& pred_varname, int metric_phase,
-                        const std::string& cmatch_rank_group,
-                        const std::string& cmatch_rank_varname,
-                        bool ignore_rank = false,
-                        const std::string& mask_varname = "",
-                        int bucket_size = 1000000) {
+                            const std::string& pred_varname, int metric_phase,
+                            const std::string& cmatch_rank_group,
+                            const std::string& cmatch_rank_varname,
+                            bool ignore_rank = false,
+                            const std::string& mask_varname = "",
+                            int bucket_size = 1000000) {
       label_varname_ = label_varname;
       pred_varname_ = pred_varname;
       cmatch_rank_varname_ = cmatch_rank_varname;
@@ -1037,6 +1050,19 @@ class BoxWrapper {
   }
   // pcoc qvalue tensor
   LoDTensor& GetQTensor(int device) { return device_caches_[device].qvalue; }
+  void PrintSyncTimer(int device, double train_span) {
+    auto& dev = device_caches_[device];
+    LOG(WARNING) << "gpu: " << device << ", phase: " << phase_
+                 << ", train dnn: " << train_span
+                 << ", sparse pull span: " << dev.all_pull_timer.ElapsedSec()
+                 << ", boxps span: " << dev.boxps_pull_timer.ElapsedSec()
+                 << ", push span: " << dev.all_push_timer.ElapsedSec()
+                 << ", boxps span:" << dev.boxps_push_timer.ElapsedSec()
+                 << ", dense nccl:" << dev.dense_nccl_timer.ElapsedSec()
+                 << ", sync stream:" << dev.dense_sync_timer.ElapsedSec()
+                 << ", wrapper gpu memory:" << dev.GpuMemUsed() << "MB";
+    dev.ResetTimer();
+  }
 
  private:
   static cudaStream_t stream_list_[MAX_GPU_NUM];
@@ -1044,7 +1070,8 @@ class BoxWrapper {
   std::shared_ptr<boxps::BoxPSBase> boxps_ptr_ = nullptr;
 
  private:
-  boxps::PSAgentBase* p_agent_ = nullptr;
+  std::mutex mutex_;
+  std::deque<boxps::PSAgentBase*> psagents_;
   // TODO(hutuxian): magic number, will add a config to specify
   const int feedpass_thread_num_ = 30;  // magic number
   std::unordered_set<std::string> slot_name_omited_in_feedpass_;
@@ -1167,6 +1194,34 @@ class BoxWrapper {
   std::vector<FeasignValuesCandidateList> random_ins_pool_list;
   std::mutex mutex4random_pool_;
 };
+/**
+ * @brief file mgr
+ */
+class BoxFileMgr {
+ public:
+  BoxFileMgr();
+  ~BoxFileMgr();
+  bool init(const std::string& fs_name, const std::string& fs_ugi,
+            const std::string& conf_path);
+  void destory(void);
+  std::vector<std::string> list_dir(const std::string& path);
+  bool makedir(const std::string& path);
+  bool exists(const std::string& path);
+  bool down(const std::string& remote, const std::string& local);
+  bool upload(const std::string& local, const std::string& remote);
+  bool remove(const std::string& path);
+  int64_t file_size(const std::string& path);
+  std::vector<std::pair<std::string, int64_t>> dus(const std::string& path);
+  bool truncate(const std::string& path, const size_t len);
+  bool touch(const std::string& path);
+  bool rename(const std::string& src, const std::string& dest);
+  std::vector<std::pair<std::string, int64_t>> list_info(
+      const std::string& path);
+  int64_t count(const std::string& path);
+
+ private:
+  std::shared_ptr<boxps::PaddleFileMgr> mgr_ = nullptr;
+};
 #endif
 
 class BoxHelper {
@@ -1219,6 +1274,9 @@ class BoxHelper {
 
     feed_pass_span = timer.ElapsedSec();
 
+    PadBoxSlotDataset* dataset = dynamic_cast<PadBoxSlotDataset*>(dataset_);
+    dataset->SetPSAgent(agent);
+
     timer.Start();
     // add 0 key
     agent->AddKey(0ul, 0);
@@ -1230,9 +1288,6 @@ class BoxHelper {
     // auc runner
     if (box_ptr->Mode() == 1) {
       box_ptr->AddReplaceFeasign(agent, box_ptr->GetFeedpassThreadNum());
-
-      PadBoxSlotDataset* dataset = dynamic_cast<PadBoxSlotDataset*>(dataset_);
-      CHECK(dataset);
       auto& records = dataset->GetInputRecord();
       box_ptr->PushAucRunnerResource(records.size());
       box_ptr->GetRandomReplace(&records);
@@ -1261,14 +1316,55 @@ class BoxHelper {
     VLOG(3) << "End LoadIntoMemory(), dataset[" << dataset_ << "]";
   }
   void PreLoadIntoMemory() {
+#ifdef PADDLE_WITH_BOX_PS
+    struct std::tm b;
+    b.tm_year = year_ - 1900;
+    b.tm_mon = month_ - 1;
+    b.tm_mday = day_;
+    b.tm_min = b.tm_hour = b.tm_sec = 0;
+    std::time_t x = std::mktime(&b);
+
+    auto box_ptr = BoxWrapper::GetInstance();
+    boxps::PSAgentBase* agent = box_ptr->GetAgent();
+    VLOG(3) << "Begin PreLoadIntoMemory BeginFeedPass in BoxPS";
+    box_ptr->BeginFeedPass(x / 86400, &agent);
+    PadBoxSlotDataset* dataset = dynamic_cast<PadBoxSlotDataset*>(dataset_);
+    dataset->SetPSAgent(agent);
+    // add 0 key
+    agent->AddKey(0ul, 0);
     dataset_->PreLoadIntoMemory();
-    feed_data_thread_.reset(new std::thread([&]() {
-      dataset_->WaitPreLoadDone();
-      FeedPass();
-    }));
-    VLOG(3) << "After PreLoadIntoMemory()";
+#endif
   }
-  void WaitFeedPassDone() { feed_data_thread_->join(); }
+  void WaitFeedPassDone() {
+#ifdef PADDLE_WITH_BOX_PS
+    platform::Timer timer;
+    timer.Start();
+    dataset_->WaitPreLoadDone();
+    timer.Pause();
+
+    double wait_done_span = timer.ElapsedSec();
+
+    timer.Start();
+    PadBoxSlotDataset* dataset = dynamic_cast<PadBoxSlotDataset*>(dataset_);
+    boxps::PSAgentBase* agent = dataset->GetPSAgent();
+    auto box_ptr = BoxWrapper::GetInstance();
+    // auc runner
+    if (box_ptr->Mode() == 1) {
+      box_ptr->AddReplaceFeasign(agent, box_ptr->GetFeedpassThreadNum());
+      auto& records = dataset->GetInputRecord();
+      box_ptr->PushAucRunnerResource(records.size());
+      box_ptr->GetRandomReplace(&records);
+    }
+    box_ptr->EndFeedPass(agent);
+    timer.Pause();
+
+    VLOG(0) << "WaitFeedPassDone cost: " << wait_done_span
+            << "s, read ins cost: " << dataset->GetReadInsTime()
+            << "s, merge cost: " << dataset->GetMergeTime()
+            << "s, other cost: " << dataset->GetOtherTime()
+            << "s, end feedpass:" << timer.ElapsedSec() << "s";
+#endif
+  }
 
   void SlotsShuffle(const std::set<std::string>& slots_to_replace) {
 #ifdef PADDLE_WITH_BOX_PS
@@ -1379,7 +1475,6 @@ class BoxHelper {
 
  private:
   Dataset* dataset_;
-  std::shared_ptr<std::thread> feed_data_thread_;
   int year_;
   int month_;
   int day_;

@@ -451,7 +451,7 @@ class HeterBoxWorker : public HogwildWorker {
   virtual void CacheProgram(const ProgramDesc& main_program) {
     new (&program_) ProgramDesc(main_program);
   }
-  virtual void ProduceTasks() override;
+  virtual void ProduceTasks();
   virtual void SetStream(const cudaStream_t stream) { copy_stream_ = stream; }
   virtual void SetEvent(const cudaEvent_t event) { event_ = event; }
   virtual void TrainFilesWithProfiler() {}
@@ -584,34 +584,36 @@ class SectionWorker : public DeviceWorker {
 
 #ifdef PADDLE_WITH_BOX_PS
 class BoxPSAsynDenseTable {
-    typedef operators::reader::BlockingQueue<std::vector<LoDTensor>*> PSBufferQueue;
-public:
-    BoxPSAsynDenseTable(const int device_num);
-    ~BoxPSAsynDenseTable();
+  typedef operators::reader::BlockingQueue<std::vector<LoDTensor>*>
+      PSBufferQueue;
 
-    void Init(const Scope& root_scope,
-            const std::vector<std::string> &param_need_sync,
-            const std::vector<std::string> &persistable_vars);
-    void Finalize(void);
+ public:
+  explicit BoxPSAsynDenseTable(const int device_num);
+  ~BoxPSAsynDenseTable();
 
-    // async
-    void ReShape(const platform::Place& place);
-    void PullDense(const platform::Place& place, const Scope& scope);
-    void PushDense(const platform::Place& place, const Scope& scope);
-    void AsyncUpdate();
+  void Init(const Scope& root_scope,
+            const std::vector<std::string>& param_need_sync,
+            const std::vector<std::string>& persistable_vars);
+  void Finalize(void);
 
-private:
-    int device_num_ = 0;
-    std::vector<std::vector<LoDTensor>> device_grads_;
-    std::vector<std::string> async_param_list_;
-    std::vector<LoDTensor> ps_;
-    std::vector<size_t> async_param_size_;
-    std::shared_ptr<PSBufferQueue> ps_buffer_ = nullptr;
-    Scope *root_scope_ = nullptr;
+  // async
+  void ReShape(const platform::Place& place);
+  void PullDense(const platform::Place& place, const Scope& scope);
+  void PushDense(const platform::Place& place, const Scope& scope);
+  void AsyncUpdate();
 
-    RWLock ps_lock_;
-    std::thread *update_thread_ = nullptr;
-    float base_lr_ = -1;
+ private:
+  int device_num_ = 0;
+  std::vector<std::vector<LoDTensor>> device_grads_;
+  std::vector<std::string> async_param_list_;
+  std::vector<LoDTensor> ps_;
+  std::vector<size_t> async_param_size_;
+  std::shared_ptr<PSBufferQueue> ps_buffer_ = nullptr;
+  Scope* root_scope_ = nullptr;
+
+  RWLock ps_lock_;
+  std::thread* update_thread_ = nullptr;
+  float base_lr_ = -1;
 };
 
 class BoxPSWorker : public DeviceWorker {
@@ -634,11 +636,16 @@ class BoxPSWorker : public DeviceWorker {
   void SetDeviceIndex(int tid) override { device_id_ = tid; }
   void SetThreadIndex(int thread_id) { thread_id_ = thread_id; }
   // Async
-  void SetDenseTable(BoxPSAsynDenseTable *dense);
+  void SetDenseTable(BoxPSAsynDenseTable* dense);
+  void SetParamSyncStep(int step) { param_sync_step_ = step; }
+  void SetDenseSyncMode(int mode) { sync_mode_ = mode; }
+  void SetOneRing(bool one_ring) { one_ring_ = one_ring; }
 
  protected:
   int PackBatchTask(void);
-  void AutoSetCPUAffinity(bool reuse);
+  int CheckNeedParam(VarDesc* var);
+  int64_t AllocParamTensor(int64_t* pad_len);
+  void SyncParam(void);
 
  protected:
   int device_id_;
@@ -649,7 +656,13 @@ class BoxPSWorker : public DeviceWorker {
   platform::DeviceContext* dev_ctx_ = nullptr;
 
   // dense async table
-  BoxPSAsynDenseTable *dense_table_ = nullptr;
+  BoxPSAsynDenseTable* dense_table_ = nullptr;
+  Tensor param_sync_;
+  int param_sync_step_ = 0;
+  int sync_mode_ = 0;
+  bool one_ring_ = false;
+  int device_num_ = 0;
+  int node_size_ = 1;
 };
 #endif
 

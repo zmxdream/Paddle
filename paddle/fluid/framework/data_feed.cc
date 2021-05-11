@@ -98,7 +98,7 @@ class BufferedLineFileReader {
         x.append(ptr, ret);
       }
     }
-    if (!x.empty()) {
+    if (!is_error() && !x.empty()) {
       ++lines;
       if (lines > skip_lines) {
         if (!func(x)) {
@@ -146,7 +146,7 @@ class BufferedLineFileReader {
         x.append(ptr, ret);
       }
     }
-    if (!x.empty()) {
+    if (!is_error() && !x.empty()) {
       ++lines;
       if (lines > skip_lines &&
           uniform_distribution_(random_engine_) < sample_rate_) {
@@ -3016,8 +3016,12 @@ bool SlotPaddleBoxDataFeed::ParseOneInstance(const std::string& line,
 }
 
 void SlotPaddleBoxDataFeed::UnrollInstance(std::vector<SlotRecord>& items) {
+    if (parser_so_path_.empty()) {
+        return;
+    }
     paddle::framework::ISlotParser* parser =
       global_parser_pool().Get(parser_so_path_, all_slots_info_);
+
     CHECK(parser != nullptr);
     if (parser->UnrollInstance(
           items,items.size(), [this](std::vector<SlotRecord> & release) {

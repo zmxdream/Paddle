@@ -14,8 +14,6 @@
 
 #pragma once
 
-#include <ThreadPool.h>
-
 #include <fstream>
 #include <memory>
 #include <mutex>  // NOLINT
@@ -27,9 +25,12 @@
 #include <vector>
 
 #include "paddle/fluid/framework/data_feed.h"
+#include "paddle/fluid/framework/threadpool.h"
 DECLARE_int32(padbox_dataset_shuffle_thread_num);
 DECLARE_int32(padbox_dataset_merge_thread_num);
-
+namespace boxps {
+class PSAgentBase;
+}
 namespace paddle {
 namespace framework {
 
@@ -307,7 +308,8 @@ class DatasetImpl : public Dataset {
   int preload_thread_num_;
   std::mutex global_index_mutex_;
   int64_t global_index_ = 0;
-  std::vector<std::shared_ptr<ThreadPool>> consume_task_pool_;
+  std::vector<std::shared_ptr<paddle::framework::ThreadPool>>
+      consume_task_pool_;
   std::vector<T> input_records_;  // only for paddleboxdatafeed
 };
 
@@ -376,16 +378,30 @@ class PadBoxSlotDataset : public DatasetImpl<SlotRecord> {
   virtual void UnrollInstance();
 
 
+  // pre load
+  virtual void LoadIndexIntoMemory() {}
+  virtual void PreLoadIntoMemory();
+  virtual void WaitPreLoadDone();
+
  protected:
   // shuffle data
-  virtual void ShuffleData(std::vector<std::thread>* shuffle_threads,
-                           int thread_num = -1);
+  virtual void ShuffleData(int thread_num = -1);
 
  public:
   virtual void ReceiveSuffleData(const int client_id, const char* msg, int len);
 
+ public:
+  void SetPSAgent(boxps::PSAgentBase* agent) { p_agent_ = agent; }
+  boxps::PSAgentBase* GetPSAgent(void) { return p_agent_; }
+  double GetReadInsTime(void) { return max_read_ins_span_; }
+  double GetOtherTime(void) { return other_timer_.ElapsedSec(); }
+  double GetMergeTime(void) { return max_merge_ins_span_; }
+
  protected:
   void MergeInsKeys(const Channel<SlotRecord>& in);
+  void CheckThreadPool(void);
+  int GetMaxShuffleThreadId(void);
+  int GetMaxMergeThreadId(void);
 
  protected:
   Channel<SlotRecord> shuffle_channel_ = nullptr;
@@ -398,18 +414,30 @@ class PadBoxSlotDataset : public DatasetImpl<SlotRecord> {
   std::atomic<int> shuffle_counter_{0};
   void* data_consumer_ = nullptr;
   std::atomic<int> receiver_cnt_{0};
+  boxps::PSAgentBase* p_agent_ = nullptr;
+  paddle::framework::ThreadPool* thread_pool_ = nullptr;
+  std::vector<std::future<void>> wait_futures_;
+  double max_read_ins_span_ = 0;
+  double min_read_ins_span_ = 0;
+  platform::Timer other_timer_;
+  double max_merge_ins_span_ = 0;
+  double min_merge_ins_span_ = 0;
+  std::atomic<int> read_ins_ref_{0};
+  std::atomic<int> merge_ins_ref_{0};
+  std::mutex merge_mutex_;
+  std::vector<int> used_fea_index_;
+  int merge_thread_num_ = FLAGS_padbox_dataset_merge_thread_num;
+  paddle::framework::ThreadPool* merge_pool_ = nullptr;
+  paddle::framework::ThreadPool* shuffle_pool_ = nullptr;
 };
 
 class InputTableDataset : public PadBoxSlotDataset {
  public:
-  virtual void LoadIntoMemory();
   virtual void SetIndexFileList(const std::vector<std::string>& filelist) {
     index_filelist_ = filelist;
   }
-  virtual void UnrollInstance();
+  virtual void LoadIndexIntoMemory();
  private:
-  void LoadIndexIntoMemory();
-
   std::vector<std::string> index_filelist_;
 };
 #endif

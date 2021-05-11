@@ -16,7 +16,8 @@
 from __future__ import print_function
 
 __all__ = [
-    'DeviceWorker', 'Hogwild', 'DownpourSGD', 'Section', 'DownpourSGDOPT', 'BoxPSWorker'
+    'DeviceWorker', 'Hogwild', 'DownpourSGD', 'Section', 'DownpourSGDOPT',
+    'BoxPSWorker'
 ]
 
 
@@ -424,10 +425,11 @@ class Section(DeviceWorker):
         assert isinstance(place, core.CUDAPlace)
         cfg.place = cfg.CUDAPlace
         cfg.place_id = place_id
-        
+
 
 class BoxPSWorker(DeviceWorker):
     """ BoxPSWorker """
+
     def __init__(self):
         """Init."""
         super(DeviceWorker, self).__init__()
@@ -444,14 +446,18 @@ class BoxPSWorker(DeviceWorker):
         pipeline_opt = self._program._pipeline_opt
         boxps_param = trainer_desc.boxps_param
         boxps_param.async_mode = pipeline_opt.get("async_mode", False)
+        boxps_param.sync_dense_mode = pipeline_opt.get("sync_dense_mode", 0)
+        boxps_param.sync_weight_step = pipeline_opt.get("sync_weight_step", 0)
+        boxps_param.sync_one_ring = pipeline_opt.get("sync_one_ring", False)
         for e in pipeline_opt["param_need_sync"]:
             boxps_param.param_need_sync.append(e)
         boxps_param.dump_thread_num = pipeline_opt.get("dump_thread_num", 1)
-        
+
         program_list = pipeline_opt.get("section_program_list", [])
         if len(program_list) > 0:
-            boxps_param.program_desc.ParseFromString(
-                program_list[0]["program"]._get_desc().serialize_to_string())
+            boxps_param.program_desc.ParseFromString(program_list[0][
+                "program"]._get_desc().serialize_to_string())
+
 
 class DeviceWorkerFactory(object):
     def _create_device_worker(self, worker_type):

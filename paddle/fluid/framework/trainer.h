@@ -335,7 +335,8 @@ class BoxPSTrainer : public TrainerBase {
   BoxPSWorkerParameter param_config_;
 
   std::vector<std::shared_ptr<paddle::framework::DeviceWorker>> workers_;
-  std::vector<std::thread> worker_threads_;
+  //  std::vector<std::thread> worker_threads_;
+  std::vector<std::future<void>> wait_futures_;
   std::vector<DataFeed*> readers_;
 
   std::shared_ptr<std::vector<std::string>> param_need_sync_;
@@ -343,7 +344,6 @@ class BoxPSTrainer : public TrainerBase {
 
   bool async_mode_ = false;
   std::shared_ptr<BoxPSAsynDenseTable> dense_table_ = nullptr;
-
 };
 #endif
 }  // namespace framework

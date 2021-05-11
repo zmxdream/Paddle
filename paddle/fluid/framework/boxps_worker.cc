@@ -25,6 +25,10 @@ limitations under the License. */
 #include "paddle/fluid/platform/gpu_info.h"
 #include "paddle/fluid/platform/lodtensor_printer.h"
 
+#include "paddle/fluid/platform/collective_helper.h"
+#include "paddle/fluid/platform/nccl_helper.h"
+
+DECLARE_bool(enable_sync_dense_moment);
 namespace paddle {
 namespace framework {
 
@@ -232,53 +236,162 @@ void BoxPSAsynDenseTable::PushDense(const platform::Place& place,
   ps_buffer_->Send(&grad);
 }
 
+static const int DenseKStepNode = 1;
+static const int DenseKStepALL = 2;
 void BoxPSWorker::Initialize(const TrainerDesc& desc) {
   dev_ctx_ = platform::DeviceContextPool::Instance().Get(place_);
+  node_size_ = boxps::MPICluster::Ins().size();
+  device_num_ = platform::GetCUDADeviceCount();
 }
 
 void BoxPSWorker::SetDenseTable(BoxPSAsynDenseTable* dense) {
   dense_table_ = dense;
   dense_table_->ReShape(place_);
 }
-
-void BoxPSWorker::AutoSetCPUAffinity(bool reuse) {
-  std::vector<int>& train_cores = boxps::get_train_cores();
-  if (train_cores.empty()) {
-    LOG(WARNING) << "not found binding train cores";
-    return;
+int BoxPSWorker::CheckNeedParam(VarDesc* var) {
+  if (!var->Persistable()) {
+    return 0;
   }
 
-  int cpuid = train_cores[device_id_];
-  cpu_set_t mask;
-  CPU_ZERO(&mask);
-  CPU_SET(cpuid, &mask);
-  pthread_setaffinity_np(pthread_self(), sizeof(mask), &mask);
+  std::string name = var->Name();
+  size_t len = name.length();
+  const char* ext = name.c_str() + len - 4;
+  // .w_0  .b_0
+  if (strncmp(ext, ".w_0", 4) == 0 || strncmp(ext, ".b_0", 4) == 0) {
+    return 1;
+  }
+  if (FLAGS_enable_sync_dense_moment) {
+    if (len < 14) {
+      return 0;
+    }
+    ext = name.c_str() + len - 14;
+    // .w_0_moment1_0  .b_0_moment2_0
+    if (strncmp(ext, ".w_0_moment1_0", 14) == 0 ||
+        strncmp(ext, ".w_0_moment2_0", 14) == 0 ||
+        strncmp(ext, ".b_0_moment1_0", 14) == 0 ||
+        strncmp(ext, ".b_0_moment2_0", 14) == 0) {
+      return 2;
+    }
+  }
+  return 0;
 }
+int64_t BoxPSWorker::AllocParamTensor(int64_t* pad_len) {
+  auto& block = program_->Block(0);
+  // init var and copy persistable
+  int64_t total_param_len = 0;
+  int64_t total_moment_len = 0;
+  for (auto& var : block.AllVars()) {
+    std::string name = var->Name();
+    if (!var->Persistable()) {
+      continue;
+    }
+    int flag = CheckNeedParam(var);
+    if (flag == 0) {
+      continue;
+    }
+    const LoDTensor& root_tensor = root_scope_->FindVar(name)->Get<LoDTensor>();
+    int64_t numel = root_tensor.numel();
+    if (flag == 1) {
+      total_param_len += numel;
+      //        grad_params->insert(std::make_pair(name + "@GRAD", numel));
+    } else {
+      total_moment_len += numel;
+    }
+    //    VLOG(0) << "param name:" << name;
+  }
 
+  *pad_len = 0;
+  int64_t all_sync_param_len = total_param_len + total_moment_len;
+  if (sync_mode_ == DenseKStepNode || (node_size_ > 1 && !one_ring_)) {
+    if ((all_sync_param_len % device_num_) != 0) {
+      *pad_len = (device_num_ - (all_sync_param_len % device_num_));
+      all_sync_param_len += *pad_len;
+    }
+  }
+  VLOG(2) << "param length:" << total_param_len
+          << ", sync length:" << all_sync_param_len
+          << ", sync mode:" << sync_mode_ << ", node size:" << node_size_
+          << ", device num:" << device_num_ << ", one ring:" << one_ring_;
+  param_sync_.mutable_data<float>({all_sync_param_len, 1}, place_);
+  return total_param_len;
+}
 void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
   program_.reset(new ProgramDesc(main_prog));
   for (auto& op_desc : program_->Block(0).AllOps()) {
     ops_.push_back(OpRegistry::CreateOp(*op_desc));
   }
+
+  int64_t pad_len = 0;
+  AllocParamTensor(&pad_len);
+
   auto& block = program_->Block(0);
   thread_scope_ = &(root_scope_->NewScope());
+
+  int64_t offset = 0;
   // init var and copy persistable
   for (auto& var : block.AllVars()) {
     std::string name = var->Name();
     if (!var->Persistable()) {
       auto* ptr = thread_scope_->Var(name);
-      //      printf("init tensor var name: %s\n", var->Name().c_str());
       InitializeVariable(ptr, var->GetType());
     } else {
       const LoDTensor& root_tensor =
           root_scope_->FindVar(name)->Get<LoDTensor>();
       LoDTensor* gpu_tensor = thread_scope_->Var(name)->GetMutable<LoDTensor>();
+      if (CheckNeedParam(var)) {
+        auto dim = root_tensor.dims();
+        size_t len = root_tensor.numel();
+        gpu_tensor->ShareDataWith(param_sync_.Slice(offset, offset + len))
+            .Resize(dim);
+        offset += len;
+      }
       TensorCopy(*static_cast<const Tensor*>(&root_tensor), place_,
                  static_cast<Tensor*>(gpu_tensor));
     }
   }
+  CHECK(offset <= (param_sync_.numel() - pad_len));
 }
+void BoxPSWorker::SyncParam(void) {
+  if (sync_mode_ == DenseKStepNode && node_size_ == 1) {
+    return;
+  }
 
+  auto box_ptr = BoxWrapper::GetInstance();
+  box_ptr->DenseNcclTimer(device_id_, false, 0x03);
+  auto comm = platform::NCCLCommContext::Instance().Get(0, device_id_);
+  auto stream = static_cast<platform::CUDADeviceContext*>(dev_ctx_)->stream();
+
+  PADDLE_ENFORCE_CUDA_SUCCESS(cudaStreamSynchronize(stream));
+  box_ptr->DenseNcclTimer(device_id_, true, 0x02);
+
+  int64_t numel = param_sync_.numel();
+  float* sendbuff = param_sync_.data<float>();
+
+  if (sync_mode_ == DenseKStepNode ||
+      (node_size_ > 1 && sync_mode_ == DenseKStepALL &&
+       !one_ring_)) {  // KStep Node
+    int part_param_len = numel / device_num_;
+    float* recv_ptr = &sendbuff[device_id_ * part_param_len];
+
+    PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclGroupStart());
+    PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclReduceScatter(
+        sendbuff, recv_ptr, part_param_len, ncclFloat32, ncclSum, comm->comm(),
+        stream));
+    CHECK(box_ptr->SyncDense(stream, part_param_len, recv_ptr, recv_ptr,
+                             device_id_, false));
+    PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclGroupEnd());
+    PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclAllGather(
+        recv_ptr, sendbuff, part_param_len, ncclFloat32, comm->comm(), stream));
+  } else if (sync_mode_ == DenseKStepALL) {  // KStep ALL
+    PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclAllReduce(
+        sendbuff, sendbuff, numel, ncclFloat32, ncclSum, comm->comm(), stream));
+  } else {
+  }
+  const float scale = 1.0 / (device_num_ * node_size_);
+  TensorScaleValue(place_, param_sync_, &param_sync_, scale);
+  PADDLE_ENFORCE_CUDA_SUCCESS(cudaStreamSynchronize(stream));
+  box_ptr->DenseNcclTimer(device_id_, true, 0x01);
+}
 int BoxPSWorker::PackBatchTask(void) {
   device_reader_->AssignFeedVar(*thread_scope_);
   return device_reader_->Next();
@@ -301,14 +414,16 @@ inline void AddAucMonitor(const Scope* scope, const platform::Place& place) {
 
 void BoxPSWorker::TrainFiles() {
   VLOG(3) << "begin gpubox_worker TrainFiles";
-  AutoSetCPUAffinity(true);
+  platform::Timer timer;
+  timer.Start();
 
   int64_t accum_num = 0;
   int batch_size = 0;
   if (device_reader_ != nullptr) {
     device_reader_->Start();
   }
-
+  int step = 0;
+  platform::SetDeviceId(device_id_);
   while ((batch_size = PackBatchTask()) > 0) {
     VLOG(3) << "begin running ops, batch size:" << batch_size;
     if (dense_table_) {
@@ -319,14 +434,28 @@ void BoxPSWorker::TrainFiles() {
     }
     if (dense_table_) {
       dense_table_->PushDense(place_, *thread_scope_);
+    } else if (sync_mode_ == DenseKStepNode || sync_mode_ == DenseKStepALL) {
+      if (step > param_sync_step_) {
+        step = 0;
+        SyncParam();
+      }
     }
     AddAucMonitor(thread_scope_, place_);
 
     accum_num += batch_size;
     thread_scope_->DropKids();
+    ++step;
+  }
+  // sync param step
+  if (sync_mode_ == DenseKStepNode || sync_mode_ == DenseKStepALL) {
+    SyncParam();
   }
   dev_ctx_->Wait();
   thread_scope_->DropKids();
+
+  timer.Pause();
+  auto box_ptr = BoxWrapper::GetInstance();
+  box_ptr->PrintSyncTimer(device_id_, timer.ElapsedSec());
 }
 /**
 static
@@ -388,7 +517,6 @@ private:
 */
 void BoxPSWorker::TrainFilesWithProfiler() {
   VLOG(3) << "begin section_worker TrainFiles with profiler";
-  AutoSetCPUAffinity(true);
 
   int64_t step_cnt = 0;
   int64_t accum_num = 0;
@@ -416,7 +544,7 @@ void BoxPSWorker::TrainFilesWithProfiler() {
   //  print_hbm_mem(device_id_, "BoxPSWorker");
   //
   //  GPUOpMemStat op_mem(device_id_);
-
+  platform::SetDeviceId(device_id_);
   outer_timer.Start();
   while (true) {
     main_timer.Resume();

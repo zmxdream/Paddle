@@ -490,8 +490,10 @@ DEFINE_bool(padbox_dataset_disable_shuffle, false,
             "if true ,will disable data shuffle");
 DEFINE_int32(padbox_slotrecord_extend_dim, 0, "paddlebox pcoc extend dim");
 DEFINE_bool(padbox_auc_runner_mode, false, "auc runner mode");
-DEFINE_bool(padbox_dataset_disable_polling, false, "if true ,will disable input file list polling");
-
+DEFINE_bool(padbox_dataset_disable_polling, false,
+            "if true ,will disable input file list polling");
+DEFINE_bool(padbox_dataset_enable_unrollinstance, false,
+            "if true ,will enable unrollinstance");
 /**
  * MKLDNN related FLAG
  * Name: use_mkldnn
@@ -576,3 +578,10 @@ DEFINE_string(tracer_mkldnn_ops_on, "",
  */
 DEFINE_string(tracer_mkldnn_ops_off, "",
               "List of OneDNN operation types to be turned off");
+/**
+ * enable train dnn binding cpu
+ */
+DEFINE_bool(enable_binding_train_cpu, true,
+            "enable train binding cpu, default true");
+DEFINE_bool(enable_sync_dense_moment, false,
+            "enable sync dense moment, default false");

@@ -100,6 +100,31 @@ class ThreadPool {
     scheduled_.notify_one();
     return f;
   }
+  // binding cpu cores
+  void SetCPUAffinity(const std::vector<int>& cores, bool one_by_one = false) {
+    if (cores.empty()) {
+      return;
+    }
+    size_t core_num = cores.size();
+    cpu_set_t mask;
+    CPU_ZERO(&mask);
+    if (one_by_one) {
+      for (size_t i = 0; i < threads_.size(); ++i) {
+        CPU_SET(cores[i % core_num], &mask);
+        pthread_setaffinity_np(threads_[i]->native_handle(), sizeof(mask),
+                               &mask);
+      }
+    } else {
+      for (size_t i = 0; i < core_num; ++i) {
+        CPU_SET(cores[i], &mask);
+      }
+      for (size_t i = 0; i < threads_.size(); ++i) {
+        pthread_setaffinity_np(threads_[i]->native_handle(), sizeof(mask),
+                               &mask);
+      }
+    }
+    // VLOG(0) << "binding read ins thread_id = " << tid << ", cpunum = " <<
+  }
 
  private:
   DISABLE_COPY_AND_ASSIGN(ThreadPool);
