@@ -287,6 +287,30 @@ __global__ void FusedSeqpoolCVMGradKernelWithCVM(
     }
   }
 }
+// join only show not has click
+template <typename T>
+__global__ void FusedSeqpoolCVMGradKernelWithShow(
+    const size_t N, T **out_grads_values, T **in_grads_values, T **cvm_values,
+    size_t **lods_values, const int batch_size, const int embedding_size,
+    const int cvm_offset) {
+  CUDA_KERNEL_LOOP(i, N) {
+    int key = i / embedding_size;
+    int offset = i % embedding_size;  // embedx offset
+    int x = key / batch_size;         // slot id
+    int y = key % batch_size;         // ins id
+
+    T &val =
+        (offset < cvm_offset)
+            ? *(cvm_values[x] + y * cvm_offset + offset)
+            : *(out_grads_values[x] + y * (embedding_size - 1) + offset - 1);
+
+    auto &start = *(lods_values[x] + y);
+    auto &end = *(lods_values[x] + y + 1);
+    for (auto k = start; k < end; ++k) {
+      *(in_grads_values[x] + k * embedding_size + offset) = val;
+    }
+  }
+}
 // update grad
 template <typename T>
 __global__ void FusedSeqpoolCVMGradKernelNoCVM(
@@ -319,7 +343,7 @@ void FusedSeqpoolCVMGrad(const paddle::platform::Place &place,
                          const std::vector<const size_t *> &lods,
                          const int batch_size, const int slot_num,
                          const int embedding_size, const bool use_cvm,
-                         const int cvm_offset) {
+                         const int cvm_offset, const bool clk_filter) {
   auto stream = dynamic_cast<platform::CUDADeviceContext *>(
                     platform::DeviceContextPool::Instance().Get(
                         BOOST_GET_CONST(platform::CUDAPlace, place)))
@@ -351,11 +375,18 @@ void FusedSeqpoolCVMGrad(const paddle::platform::Place &place,
 
   size_t N = static_cast<size_t>(batch_size * slot_num * embedding_size);
   if (use_cvm) {
-    // join grad
-    FusedSeqpoolCVMGradKernelWithCVM<<<GET_BLOCK(N), PADDLE_CUDA_NUM_THREADS, 0,
-                                       stream>>>(
-        N, gpu_out_grads_values, gpu_in_grads_values, gpu_cvm_values,
-        lods_values, batch_size, embedding_size, cvm_offset);
+    if (clk_filter) {
+      FusedSeqpoolCVMGradKernelWithShow<<<GET_BLOCK(N), PADDLE_CUDA_NUM_THREADS,
+                                          0, stream>>>(
+          N, gpu_out_grads_values, gpu_in_grads_values, gpu_cvm_values,
+          lods_values, batch_size, embedding_size, cvm_offset);
+    } else {
+      // join grad
+      FusedSeqpoolCVMGradKernelWithCVM<<<GET_BLOCK(N), PADDLE_CUDA_NUM_THREADS,
+                                         0, stream>>>(
+          N, gpu_out_grads_values, gpu_in_grads_values, gpu_cvm_values,
+          lods_values, batch_size, embedding_size, cvm_offset);
+    }
   } else {
     // update grad
     FusedSeqpoolCVMGradKernelNoCVM<<<GET_BLOCK(N), PADDLE_CUDA_NUM_THREADS, 0,
@@ -443,6 +474,7 @@ class FusedSeqpoolCVMGradCUDAKernel : public framework::OpKernel<T> {
     std::string pooltype = ctx.Attr<std::string>("pooltype");
     auto use_cvm = ctx.Attr<bool>("use_cvm");
     const int cvm_offset = ctx.Attr<int>("cvm_offset");
+    bool clk_filter = ctx.Attr<bool>("clk_filter");
 
     const auto slot_size = in_grads.size();
     std::vector<const T *> out_grads_data(slot_size);
@@ -475,7 +507,7 @@ class FusedSeqpoolCVMGradCUDAKernel : public framework::OpKernel<T> {
     }
     FusedSeqpoolCVMGrad(ctx.GetPlace(), out_grads_data, in_grads_data, cvm_data,
                         lods_data, batch_size, slot_size, embedding_size,
-                        use_cvm, cvm_offset);
+                        use_cvm, cvm_offset, clk_filter);
   }
 };
 
