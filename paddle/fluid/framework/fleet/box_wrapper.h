@@ -240,14 +240,45 @@ class InputTable {
   std::vector<float> table_;
   std::atomic<size_t> miss_;
 };
+class DCacheBuffer {
+ public:
+  DCacheBuffer() : buf_(nullptr) {}
+  ~DCacheBuffer() {}
+  /**
+   * @Brief get data
+   */
+  template <typename T>
+  T* mutable_data(const size_t total_bytes,
+                  const paddle::platform::Place& place) {
+    if (buf_ == nullptr) {
+      buf_ = memory::AllocShared(place, total_bytes);
+    } else if (buf_->size() < total_bytes) {
+      buf_.reset();
+      buf_ = memory::AllocShared(place, total_bytes);
+    }
+    return reinterpret_cast<T*>(buf_->ptr());
+  }
+  template <typename T>
+  T* data() {
+    return reinterpret_cast<T*>(buf_->ptr());
+  }
+  size_t memory_size() {
+    if (buf_ == nullptr) {
+      return 0;
+    }
+    return buf_->size();
+  }
 
+ private:
+  std::shared_ptr<memory::Allocation> buf_ = nullptr;
+};
 class BoxWrapper {
   struct DeviceBoxData {
     LoDTensor keys_tensor;
     LoDTensor dims_tensor;
-    LoDTensor pull_push_tensor;
-    LoDTensor keys_ptr_tensor;
-    LoDTensor values_ptr_tensor;
+    DCacheBuffer pull_push_tensor;
+    DCacheBuffer keys_ptr_tensor;
+    DCacheBuffer values_ptr_tensor;
 
     LoDTensor slot_lens;
     LoDTensor d_slot_vector;

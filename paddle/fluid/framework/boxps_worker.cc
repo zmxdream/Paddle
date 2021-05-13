@@ -322,8 +322,9 @@ void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
   }
 
   int64_t pad_len = 0;
-  AllocParamTensor(&pad_len);
-
+  if (sync_mode_ > 0) {
+    AllocParamTensor(&pad_len);
+  }
   auto& block = program_->Block(0);
   thread_scope_ = &(root_scope_->NewScope());
 
@@ -338,18 +339,22 @@ void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
       const LoDTensor& root_tensor =
           root_scope_->FindVar(name)->Get<LoDTensor>();
       LoDTensor* gpu_tensor = thread_scope_->Var(name)->GetMutable<LoDTensor>();
-      if (CheckNeedParam(var)) {
-        auto dim = root_tensor.dims();
-        size_t len = root_tensor.numel();
-        gpu_tensor->ShareDataWith(param_sync_.Slice(offset, offset + len))
-            .Resize(dim);
-        offset += len;
+      if (sync_mode_ > 0) {
+        if (CheckNeedParam(var)) {
+          auto dim = root_tensor.dims();
+          size_t len = root_tensor.numel();
+          gpu_tensor->ShareDataWith(param_sync_.Slice(offset, offset + len))
+              .Resize(dim);
+          offset += len;
+        }
       }
       TensorCopy(*static_cast<const Tensor*>(&root_tensor), place_,
                  static_cast<Tensor*>(gpu_tensor));
     }
   }
-  CHECK(offset <= (param_sync_.numel() - pad_len));
+  if (sync_mode_ > 0) {
+    CHECK(offset <= (param_sync_.numel() - pad_len));
+  }
 }
 void BoxPSWorker::SyncParam(void) {
   if (sync_mode_ == DenseKStepNode && node_size_ == 1) {
