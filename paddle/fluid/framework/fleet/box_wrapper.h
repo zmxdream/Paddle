@@ -616,6 +616,8 @@ class BoxWrapper {
   }
 
   boxps::PaddleFileMgr* GetFileMgr(void) { return file_manager_.get(); }
+  // get dataset id
+  uint16_t GetDataSetId(void) { return dataset_id_.fetch_add(1); }
 
   // this performs better than rand_r, especially large data
   static std::default_random_engine& LocalRandomEngine() {
@@ -1225,6 +1227,7 @@ class BoxWrapper {
   std::vector<FeasignValuesCandidateList> random_ins_pool_list;
   std::mutex mutex4random_pool_;
   std::set<std::string> slot_eval_set_;
+  std::atomic<uint16_t> dataset_id_{0};
 };
 /**
  * @brief file mgr
@@ -1302,11 +1305,11 @@ class BoxHelper {
   void ReadData2Memory() {
     platform::Timer timer;
     VLOG(3) << "Begin ReadData2Memory(), dataset[" << dataset_ << "]";
+#ifdef PADDLE_WITH_BOX_PS
     double feed_pass_span = 0.0;
     double read_ins_span = 0.0;
 
     timer.Start();
-#ifdef PADDLE_WITH_BOX_PS
     struct std::tm b;
     b.tm_year = year_ - 1900;
     b.tm_mon = month_ - 1;
@@ -1338,12 +1341,14 @@ class BoxHelper {
       LoadAucRunnerData(dataset, agent);
     }
     box_ptr->EndFeedPass(agent);
-#endif
+
     timer.Pause();
 
-    VLOG(0) << "begin feedpass: " << feed_pass_span
+    VLOG(0) << "passid = " << dataset->GetPassId()
+            << ", begin feedpass: " << feed_pass_span
             << "s, download + parse cost: " << read_ins_span
             << "s, end feedpass:" << timer.ElapsedSec() << "s";
+#endif
   }
 
   void LoadIntoMemory() {
@@ -1371,9 +1376,10 @@ class BoxHelper {
 
     auto box_ptr = BoxWrapper::GetInstance();
     boxps::PSAgentBase* agent = box_ptr->GetAgent();
-    VLOG(3) << "Begin PreLoadIntoMemory BeginFeedPass in BoxPS";
-    box_ptr->BeginFeedPass(x / 86400, &agent);
     PadBoxSlotDataset* dataset = dynamic_cast<PadBoxSlotDataset*>(dataset_);
+    VLOG(0) << "passid = " << dataset->GetPassId()
+            << ", Begin PreLoadIntoMemory BeginFeedPass in BoxPS";
+    box_ptr->BeginFeedPass(x / 86400, &agent);
     dataset->SetPSAgent(agent);
     // add 0 key
     agent->AddKey(0ul, 0);
@@ -1400,7 +1406,8 @@ class BoxHelper {
     box_ptr->EndFeedPass(agent);
     timer.Pause();
 
-    VLOG(0) << "WaitFeedPassDone cost: " << wait_done_span
+    VLOG(0) << "passid = " << dataset->GetPassId()
+            << ", WaitFeedPassDone cost: " << wait_done_span
             << "s, read ins cost: " << dataset->GetReadInsTime()
             << "s, merge cost: " << dataset->GetMergeTime()
             << "s, other cost: " << dataset->GetOtherTime()
