@@ -51,6 +51,9 @@ limitations under the License. */
 
 DECLARE_int32(fix_dayid);
 DECLARE_bool(padbox_auc_runner_mode);
+#ifdef PADDLE_WITH_BOX_PS
+DECLARE_bool(enable_sparse_push_barrier);
+#endif
 
 namespace paddle {
 namespace framework {
@@ -521,6 +524,8 @@ class BoxWrapper {
                                   "SaveDelta failed in BoxPS."));
     return ret_str;
   }
+  // mem table shrink
+  bool ShrinkTable() { return boxps_ptr_->ShrinkTable(); }
 
   static std::shared_ptr<BoxWrapper> GetInstance() {
     PADDLE_ENFORCE_EQ(
@@ -589,6 +594,9 @@ class BoxWrapper {
     }
     if (flag & 0x02) {
       if (pause) {
+        if (FLAGS_enable_sparse_push_barrier) {
+          boxps::MPICluster::Ins().barrier();
+        }
         dev.dense_sync_timer.Pause();
       } else {
         dev.dense_sync_timer.Resume();

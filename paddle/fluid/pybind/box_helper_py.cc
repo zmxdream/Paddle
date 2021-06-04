@@ -101,6 +101,8 @@ void BindBoxWrapper(py::module* m) {
       .def("set_dataset_name", &framework::BoxWrapper::SetDatasetName,
            py::call_guard<py::gil_scoped_release>())
       .def("set_input_table_dim", &framework::BoxWrapper::SetInputTableDim,
+           py::call_guard<py::gil_scoped_release>())
+      .def("shrink_table", &framework::BoxWrapper::ShrinkTable,
            py::call_guard<py::gil_scoped_release>());
 }  // end BoxWrapper
 void BindBoxFileMgr(py::module* m) {
