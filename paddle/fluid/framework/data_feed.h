@@ -937,6 +937,7 @@ class SlotObjPool {
     for (int i = 0; i < FLAGS_padbox_slotpool_thread_num; ++i) {
       threads_.push_back(std::thread([this]() { run(); }));
     }
+    disable_pool_ = false;
   }
   ~SlotObjPool() {
     ins_chan_->Close();
@@ -944,6 +945,7 @@ class SlotObjPool {
       t.join();
     }
   }
+  void disable_pool(bool disable) { disable_pool_ = disable; }
   void set_max_capacity(size_t max_capacity) { max_capacity_ = max_capacity; }
   void get(std::vector<SlotRecord>* output, int n) {
     output->resize(n);
@@ -986,7 +988,7 @@ class SlotObjPool {
         continue;
       }
       // over max capacity
-      if (input.size() + capacity() > max_capacity_) {
+      if (disable_pool_ || input.size() + capacity() > max_capacity_) {
         for (auto& t : input) {
           free_slotrecord(t);
         }
@@ -1019,6 +1021,7 @@ class SlotObjPool {
   std::vector<std::thread> threads_;
   std::mutex mutex_;
   SlotObjAllocator<SlotRecordObject> alloc_;
+  bool disable_pool_;
 };
 
 inline SlotObjPool& SlotRecordPool() {

@@ -537,8 +537,10 @@ void BoxWrapper::EndFeedPass(boxps::PSAgentBase* agent) {
 
 void BoxWrapper::BeginPass() {
   int ret = boxps_ptr_->BeginPass();
-  PADDLE_ENFORCE_EQ(ret, 0, platform::errors::PreconditionNotMet(
+  PADDLE_ENFORCE_GE(ret, 0, platform::errors::PreconditionNotMet(
                                 "BeginPass failed in BoxPS."));
+  // ret == 0, enable, ret > 0 disable slotrecord pool recyle memory
+  SlotRecordPool().disable_pool((ret > 0));
 }
 
 void BoxWrapper::SetTestMode(bool is_test) const {
