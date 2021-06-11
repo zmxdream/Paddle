@@ -796,12 +796,6 @@ struct SlotValues {
   }
   void add_slot_feasigns(const std::vector<std::vector<T>>& slot_feasigns,
                          uint32_t fea_num) {
-    if (slot_values.capacity() < fea_num) {
-      // Only pipe mode will call this
-      // The calling of lib mode is in the islotparser.h, so we update stat in
-      // LoadIntoMemoryByLib
-      STAT_ADD(STAT_total_feasign_num_in_mem, fea_num - slot_values.capacity());
-    }
     slot_values.reserve(fea_num);
     int slot_num = static_cast<int>(slot_feasigns.size());
     slot_offsets.resize(slot_num + 1);
@@ -943,6 +937,7 @@ class SlotObjPool {
     for (int i = 0; i < FLAGS_padbox_slotpool_thread_num; ++i) {
       threads_.push_back(std::thread([this]() { run(); }));
     }
+    disable_pool_ = false;
   }
   ~SlotObjPool() {
     ins_chan_->Close();
@@ -950,6 +945,7 @@ class SlotObjPool {
       t.join();
     }
   }
+  void disable_pool(bool disable) { disable_pool_ = disable; }
   void set_max_capacity(size_t max_capacity) { max_capacity_ = max_capacity; }
   void get(std::vector<SlotRecord>* output, int n) {
     output->resize(n);
@@ -972,7 +968,6 @@ class SlotObjPool {
     for (int i = size; i < n; ++i) {
       output[i] = make_slotrecord();
     }
-    STAT_ADD(STAT_slot_pool_size, n - size);
   }
   void put(std::vector<SlotRecord>* input) {
     size_t size = input->size();
@@ -993,10 +988,7 @@ class SlotObjPool {
         continue;
       }
       // over max capacity
-      if (input.size() + capacity() > max_capacity_) {
-        STAT_SUB(STAT_total_feasign_num_in_mem,
-                 GetTotalFeaNum(input, input.size()));
-        STAT_SUB(STAT_slot_pool_size, input.size());
+      if (disable_pool_ || input.size() + capacity() > max_capacity_) {
         for (auto& t : input) {
           free_slotrecord(t);
         }
@@ -1029,6 +1021,7 @@ class SlotObjPool {
   std::vector<std::thread> threads_;
   std::mutex mutex_;
   SlotObjAllocator<SlotRecordObject> alloc_;
+  bool disable_pool_;
 };
 
 inline SlotObjPool& SlotRecordPool() {
@@ -1241,29 +1234,42 @@ class ISlotParser {
   virtual bool Init(const std::vector<AllSlotInfo>& slots) = 0;
   virtual bool ParseOneInstance(
       const std::string& line,
-      std::function<int(std::vector<float>&)> GetGpuCacheIndexFunc,
-      std::function<void(std::vector<SlotRecord>&, int)> GetInsFunc) {
+      std::function<int(std::vector<float>&)> GetGpuCacheIndexFunc,  // NOLINT
+      std::function<void(std::vector<SlotRecord>&, int)>
+          GetInsFunc) {  // NOLINT
     return true;
   }
   virtual bool ParseOneInstance(
       const std::string& line,
-      std::function<void(std::vector<SlotRecord>&, int)> GetInsFunc) {
+      std::function<void(std::vector<SlotRecord>&, int)>
+          GetInsFunc) {  // NOLINT
     return true;
   }
   virtual bool ParseOneInstance(
       const std::string& line,
-      std::function<uint64_t(std::string&)> GetOffsetFunc,
-      std::function<void(std::vector<SlotRecord>&, int)> GetInsFunc) {
+      std::function<uint64_t(std::string&)> GetOffsetFunc,  // NOLINT
+      std::function<void(std::vector<SlotRecord>&, int)>
+          GetInsFunc) {  // NOLINT
     return true;
   }
   virtual bool ParseIndexData(
       const std::string& line,
-      std::function<void(std::string&, std::vector<float>&)> AddIndexDataFunc) {
+      std::function<void(std::string&, std::vector<float>&)>
+          AddIndexDataFunc) {  // NOLINT
     return true;
   }
-  virtual int UnrollInstance(std::vector<SlotRecord>& items, int ins_num,
-      std::function<void(std::vector<SlotRecord> & )> RealeseMemory) {
+  virtual int UnrollInstance(
+      std::vector<SlotRecord>& items, int ins_num,                    // NOLINT
+      std::function<void(std::vector<SlotRecord>&)> RealeseMemory) {  // NOLINT
     return 1;
+  }
+  // user defined file format analysis
+  virtual bool ParseFileInstance(
+      std::function<int(char* buf, int len)> ReadBuffFunc,
+      std::function<void(std::vector<SlotRecord>&, int, int)>
+          PullRecordsFunc,  // NOLINT
+      int& lines) {         // NOLINT
+    return false;
   }
 };
 struct UsedSlotInfo {
@@ -1624,7 +1630,8 @@ class SlotPaddleBoxDataFeed : public DataFeed {
   virtual void AssignFeedVar(const Scope& scope);
   virtual int GetCurrentPhase();
   virtual void LoadIntoMemory();
-  virtual void UnrollInstance(std::vector<SlotRecord>& items);
+  virtual void UnrollInstance(std::vector<SlotRecord>& items);  // NOLINT
+
  protected:
   virtual void LoadIntoMemoryByCommand(void);
   virtual void LoadIntoMemoryByLib(void);
@@ -1634,6 +1641,12 @@ class SlotPaddleBoxDataFeed : public DataFeed {
   void GetRankOffsetGPU(const int pv_num, const int ins_num);
   void GetRankOffset(const SlotPvInstance* pv_vec, int pv_num, int ins_number);
   bool ParseOneInstance(const std::string& line, SlotRecord* rec);
+
+ protected:
+  // \n split by line
+  virtual void LoadIntoMemoryByLine(void);
+  // split all file
+  virtual void LoadIntoMemoryByFile(void);
 
  private:
 #if defined(PADDLE_WITH_CUDA) && defined(_LINUX)

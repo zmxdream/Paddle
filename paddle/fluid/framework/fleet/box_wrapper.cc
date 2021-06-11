@@ -539,6 +539,8 @@ void BoxWrapper::BeginPass() {
   int ret = boxps_ptr_->BeginPass();
   PADDLE_ENFORCE_EQ(ret, 0, platform::errors::PreconditionNotMet(
                                 "BeginPass failed in BoxPS."));
+  // auto disable or enable slotrecord pool recyle memory
+  SlotRecordPool().disable_pool(boxps_ptr_->CheckNeedLimitMem());
 }
 
 void BoxWrapper::SetTestMode(bool is_test) const {

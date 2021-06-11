@@ -378,6 +378,7 @@ class PadBoxSlotDataset : public DatasetImpl<SlotRecord> {
   double GetReadInsTime(void) { return max_read_ins_span_; }
   double GetOtherTime(void) { return other_timer_.ElapsedSec(); }
   double GetMergeTime(void) { return max_merge_ins_span_; }
+  uint16_t GetPassId(void) { return pass_id_; }
   // aucrunner
   std::set<uint16_t> GetSlotsIdx(const std::set<std::string>& str_slots) {
     std::set<uint16_t> slots_idx;
@@ -429,6 +430,7 @@ class PadBoxSlotDataset : public DatasetImpl<SlotRecord> {
   int merge_thread_num_ = FLAGS_padbox_dataset_merge_thread_num;
   paddle::framework::ThreadPool* merge_pool_ = nullptr;
   paddle::framework::ThreadPool* shuffle_pool_ = nullptr;
+  uint16_t pass_id_ = 0;
 };
 
 class InputTableDataset : public PadBoxSlotDataset {

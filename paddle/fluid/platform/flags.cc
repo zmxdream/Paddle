@@ -585,3 +585,5 @@ DEFINE_bool(enable_binding_train_cpu, true,
             "enable train binding cpu, default true");
 DEFINE_bool(enable_sync_dense_moment, false,
             "enable sync dense moment, default false");
+DEFINE_bool(enable_ins_parser_file, false,
+            "enable parser ins file , default false");

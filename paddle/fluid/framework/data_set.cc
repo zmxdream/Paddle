@@ -1430,6 +1430,7 @@ PadBoxSlotDataset::PadBoxSlotDataset() {
     thread_num = FLAGS_padbox_dataset_merge_thread_num;
   }
   merge_thread_num_ = thread_num;
+  pass_id_ = boxps_ptr->GetDataSetId();
 }
 PadBoxSlotDataset::~PadBoxSlotDataset() {}
 // create input channel and output channel
@@ -1548,7 +1549,8 @@ void PadBoxSlotDataset::PreLoadIntoMemory() {
       if (--read_ins_ref_ == 0) {
         input_channel_->Close();
         other_timer_.Start();
-        VLOG(0) << "read ins thread end, max:" << max_read_ins_span_
+        VLOG(0) << "passid = " << pass_id_
+                << ", read ins thread end, max:" << max_read_ins_span_
                 << ", min:" << min_read_ins_span_;
       }
     }));
@@ -1578,7 +1580,8 @@ void PadBoxSlotDataset::WaitPreLoadDone() {
   if (FLAGS_padbox_dataset_enable_unrollinstance) {
     UnrollInstance();
   }
-  VLOG(1) << "PadBoxSlotDataset::WaitPreLoadDone() end"
+  VLOG(0) << "passid = " << pass_id_
+          << ", PadBoxSlotDataset::WaitPreLoadDone() end"
           << ", memory data size=" << input_records_.size()
           << ", cost time=" << max_read_ins_span_ << " seconds";
 }
@@ -1680,8 +1683,8 @@ void PadBoxSlotDataset::MergeInsKeys(const Channel<SlotRecord>& in) {
       // end merge thread
       if (--merge_ins_ref_ == 0) {
         other_timer_.Pause();
-        VLOG(0) << "merge thread id: " << tid << ", span time: " << span
-                << ", max:" << max_merge_ins_span_
+        VLOG(0) << "passid = " << pass_id_ << ", merge thread id: " << tid
+                << ", span time: " << span << ", max:" << max_merge_ins_span_
                 << ", min:" << min_merge_ins_span_;
       }
       //      else {
@@ -1801,20 +1804,20 @@ void PadBoxSlotDataset::ShuffleData(int thread_num) {
         shuffle_channel_->Write(std::move(loc_datas));
 
         wg.wait();
-        int send_count = 0;
+        wg.add(mpi_size_);
         for (int i = 0; i < mpi_size_; ++i) {
           if (i == mpi_rank_) {
+            wg.done();
             continue;
           }
           auto& ar = ars[i];
           if (ar.Length() == 0) {
+            wg.done();
             continue;
           }
-          ++send_count;
           handler->send_message_callback(i, ar.Buffer(), ar.Length(), &wg);
           ar.Clear();
         }
-        wg.add(send_count);
 
         data.clear();
         loc_datas.clear();
@@ -1828,9 +1831,10 @@ void PadBoxSlotDataset::ShuffleData(int thread_num) {
       // only one thread send finish notify
       if (--shuffle_counter_ == 0) {
         // send closed
-        wg.add(mpi_size_ - 1);
+        wg.add(mpi_size_);
         for (int i = 0; i < mpi_size_; ++i) {
           if (i == mpi_rank_) {
+            wg.done();
             continue;
           }
           handler->send_message_callback(i, NULL, 0, &wg);
@@ -1842,7 +1846,8 @@ void PadBoxSlotDataset::ShuffleData(int thread_num) {
             usleep(100);
           }
           shuffle_channel_->Close();
-          LOG(WARNING) << "ShuffleData rank_id=" << mpi_rank_
+          LOG(WARNING) << "passid = " << pass_id_
+                       << ", ShuffleData rank_id=" << mpi_rank_
                        << " close channel";
         }
       }
@@ -1866,7 +1871,8 @@ void PadBoxSlotDataset::ReceiveSuffleData(int client_id, const char* buf,
         usleep(100);
       }
       shuffle_channel_->Close();
-      LOG(WARNING) << "ReceiveFromClient client_id=" << client_id
+      LOG(WARNING) << "passid = " << pass_id_
+                   << ", ReceiveFromClient client_id=" << client_id
                    << " close channel";
     }
     return;

@@ -48,12 +48,14 @@ typedef void (*MyPadBoxFreeObject)(paddle::framework::ISlotParser*);
 }
 #endif
 
+DECLARE_bool(enable_ins_parser_file);
+
 namespace paddle {
 namespace framework {
 using platform::Timer;
 
 class BufferedLineFileReader {
-  typedef std::function<bool(const std::string& s)> LineFunc;
+  typedef std::function<bool()> SampleFunc;
   static const int MAX_FILE_BUFF_SIZE = 4 * 1024 * 1024;
   class FILEReader {
    public:
@@ -63,6 +65,9 @@ class BufferedLineFileReader {
    private:
     FILE* fp_;
   };
+
+ public:
+  typedef std::function<bool(const std::string&)> LineFunc;
 
  private:
   template <typename T>
@@ -74,6 +79,7 @@ class BufferedLineFileReader {
     total_len_ = 0;
     error_line_ = 0;
 
+    SampleFunc spfunc = get_sample_func();
     std::string x;
     while (!is_error() && (ret = reader->read(buff_, MAX_FILE_BUFF_SIZE)) > 0) {
       total_len_ += ret;
@@ -83,7 +89,7 @@ class BufferedLineFileReader {
         int size = static_cast<int>((eol - ptr) + 1);
         x.append(ptr, size - 1);
         ++lines;
-        if (lines > skip_lines) {
+        if (lines > skip_lines && spfunc()) {
           if (!func(x)) {
             ++error_line_;
           }
@@ -100,60 +106,10 @@ class BufferedLineFileReader {
     }
     if (!is_error() && !x.empty()) {
       ++lines;
-      if (lines > skip_lines) {
+      if (lines > skip_lines && spfunc()) {
         if (!func(x)) {
           ++error_line_;
         }
-      }
-    }
-    return lines;
-  }
-
-  template <typename T>
-  int read_lines_sample(T* reader, LineFunc func, float sample_rate,
-                        int skip_lines) {
-    int lines = 0;
-    size_t ret = 0;
-    char* ptr = NULL;
-    char* eol = NULL;
-    total_len_ = 0;
-    sample_line_ = 0;
-    error_line_ = 0;
-
-    std::string x;
-    while (!is_error() && (ret = reader->read(buff_, MAX_FILE_BUFF_SIZE)) > 0) {
-      total_len_ += ret;
-      ptr = buff_;
-      eol = reinterpret_cast<char*>(memchr(ptr, '\n', ret));
-      while (eol != NULL) {
-        int size = static_cast<int>((eol - ptr) + 1);
-        x.append(ptr, size - 1);
-        ++lines;
-        if (lines > skip_lines &&
-            uniform_distribution_(random_engine_) < sample_rate_) {
-          if (!func(x)) {
-            ++error_line_;
-          }
-          ++sample_line_;
-        }
-
-        x.clear();
-        ptr += size;
-        ret -= size;
-        eol = reinterpret_cast<char*>(memchr(ptr, '\n', ret));
-      }
-      if (ret > 0) {
-        x.append(ptr, ret);
-      }
-    }
-    if (!is_error() && !x.empty()) {
-      ++lines;
-      if (lines > skip_lines &&
-          uniform_distribution_(random_engine_) < sample_rate_) {
-        if (!func(x)) {
-          ++error_line_;
-        }
-        ++sample_line_;
       }
     }
     return lines;
@@ -172,28 +128,27 @@ class BufferedLineFileReader {
 
 #ifdef PADDLE_WITH_BOX_PS
   int read_api(boxps::PaddleDataReader* reader, LineFunc func, int skip_lines) {
-    if (std::abs(sample_rate_ - 1.0f) < 1e-5f) {
-      return read_lines<boxps::PaddleDataReader>(reader, func, skip_lines);
-    } else {
-      return read_lines_sample<boxps::PaddleDataReader>(
-          reader, func, sample_rate_, skip_lines);
-    }
+    return read_lines<boxps::PaddleDataReader>(reader, func, skip_lines);
   }
 #endif
   int read_file(FILE* fp, LineFunc func, int skip_lines) {
     FILEReader reader(fp);
-    if (std::abs(sample_rate_ - 1.0f) < 1e-5f) {
-      return read_lines<FILEReader>(&reader, func, skip_lines);
-    } else {
-      return read_lines_sample<FILEReader>(&reader, func, sample_rate_,
-                                           skip_lines);
-    }
+    return read_lines<FILEReader>(&reader, func, skip_lines);
   }
-
   uint64_t file_size(void) { return total_len_; }
   void set_sample_rate(float r) { sample_rate_ = r; }
   size_t get_sample_line() { return sample_line_; }
   bool is_error(void) { return (error_line_ > 10); }
+
+ private:
+  SampleFunc get_sample_func() {
+    if (std::abs(sample_rate_ - 1.0f) < 1e-5f) {
+      return [this](void) { return true; };
+    }
+    return [this](void) {
+      return (uniform_distribution_(random_engine_) < sample_rate_);
+    };
+  }
 
  private:
   char* buff_ = nullptr;
@@ -2710,8 +2665,8 @@ void SlotPaddleBoxDataFeed::LoadIntoMemory() {
     LoadIntoMemoryByCommand();
   }
 }
-
-void SlotPaddleBoxDataFeed::LoadIntoMemoryByLib(void) {
+// \n split by line
+void SlotPaddleBoxDataFeed::LoadIntoMemoryByLine(void) {
   paddle::framework::ISlotParser* parser =
       global_parser_pool().Get(parser_so_path_, all_slots_info_);
   CHECK(parser != nullptr);
@@ -2726,7 +2681,8 @@ void SlotPaddleBoxDataFeed::LoadIntoMemoryByLib(void) {
   BufferedLineFileReader line_reader;
   line_reader.set_sample_rate(sample_rate_);
 
-  int from_pool_num = 0;
+  BufferedLineFileReader::LineFunc line_func = nullptr;
+
   while (this->PickOneFile(&filename)) {
     VLOG(3) << "PickOneFile, filename=" << filename
             << ", thread_id=" << thread_id_;
@@ -2735,32 +2691,32 @@ void SlotPaddleBoxDataFeed::LoadIntoMemoryByLib(void) {
     timeline.Start();
     const int max_fetch_num = 10000;
     int offset = 0;
+    int old_offset = 0;
 
     SlotRecordPool().get(&record_vec, max_fetch_num);
-    from_pool_num = GetTotalFeaNum(record_vec, max_fetch_num);
-    auto func = [this, &parser, &record_vec, &offset, &max_fetch_num,
-                 &from_pool_num, &filename](const std::string& line) {
-      int old_offset = offset;
-      if (!parser->ParseOneInstance(
-              line, [this, &offset, &record_vec, &max_fetch_num, &old_offset](
-                        std::vector<SlotRecord>& vec, int num) {
-                vec.resize(num);
-                if (offset + num > max_fetch_num) {
-                  // Considering the prob of show expanding is low, so we don't
-                  // update STAT here
-                  input_channel_->WriteMove(offset, &record_vec[0]);
-                  SlotRecordPool().get(&record_vec[0], offset);
-                  record_vec.resize(max_fetch_num);
-                  offset = 0;
-                  old_offset = 0;
-                }
-                for (int i = 0; i < num; ++i) {
-                  auto& ins = record_vec[offset + i];
-                  ins->reset();
-                  vec[i] = ins;
-                }
-                offset = offset + num;
-              })) {
+    // get slotrecord object function
+    auto record_func = [this, &offset, &record_vec, &max_fetch_num,
+                        &old_offset](std::vector<SlotRecord>& vec, int num) {
+      vec.resize(num);
+      if (offset + num > max_fetch_num) {
+        input_channel_->WriteMove(offset, &record_vec[0]);
+        SlotRecordPool().get(&record_vec[0], offset);
+        record_vec.resize(max_fetch_num);
+        offset = 0;
+        old_offset = 0;
+      }
+      for (int i = 0; i < num; ++i) {
+        auto& ins = record_vec[offset + i];
+        ins->reset();
+        vec[i] = ins;
+      }
+      offset = offset + num;
+    };
+
+    line_func = [this, &parser, &record_vec, &offset, &max_fetch_num, &filename,
+                 &record_func, &old_offset](const std::string& line) {
+      old_offset = offset;
+      if (!parser->ParseOneInstance(line, record_func)) {
         offset = old_offset;
         LOG(WARNING) << "read file:[" << filename << "] item error, line:["
                      << line << "]";
@@ -2768,22 +2724,20 @@ void SlotPaddleBoxDataFeed::LoadIntoMemoryByLib(void) {
       }
       if (offset >= max_fetch_num) {
         input_channel_->Write(std::move(record_vec));
-        STAT_ADD(STAT_total_feasign_num_in_mem,
-                 GetTotalFeaNum(record_vec, max_fetch_num) - from_pool_num);
         record_vec.clear();
         SlotRecordPool().get(&record_vec, max_fetch_num);
-        from_pool_num = GetTotalFeaNum(record_vec, max_fetch_num);
         offset = 0;
       }
       return true;
     };
+
     int lines = 0;
     do {
       if (BoxWrapper::GetInstance()->UseAfsApi() && pipe_command_.empty()) {
         while (reader->open(filename) < 0) {
           sleep(1);
         }
-        lines = line_reader.read_api(reader, func, lines);
+        lines = line_reader.read_api(reader, line_func, lines);
         reader->close();
       } else {
         if (BoxWrapper::GetInstance()->UseAfsApi()) {
@@ -2795,13 +2749,11 @@ void SlotPaddleBoxDataFeed::LoadIntoMemoryByLib(void) {
         }
         CHECK(this->fp_ != nullptr);
         __fsetlocking(&*(this->fp_), FSETLOCKING_BYCALLER);
-        lines = line_reader.read_file(this->fp_.get(), func, lines);
+        lines = line_reader.read_file(this->fp_.get(), line_func, lines);
       }
     } while (line_reader.is_error());
     if (offset > 0) {
       input_channel_->WriteMove(offset, &record_vec[0]);
-      STAT_ADD(STAT_total_feasign_num_in_mem,
-               GetTotalFeaNum(record_vec, max_fetch_num) - from_pool_num);
       if (offset < max_fetch_num) {
         SlotRecordPool().put(&record_vec[offset], (max_fetch_num - offset));
       }
@@ -2823,6 +2775,96 @@ void SlotPaddleBoxDataFeed::LoadIntoMemoryByLib(void) {
 
   VLOG(3) << "LoadIntoMemoryByLib() end, thread_id=" << thread_id_
           << ", total size: " << line_reader.file_size();
+}
+// split all file
+void SlotPaddleBoxDataFeed::LoadIntoMemoryByFile(void) {
+  paddle::framework::ISlotParser* parser =
+      global_parser_pool().Get(parser_so_path_, all_slots_info_);
+  CHECK(parser != nullptr);
+
+  boxps::PaddleDataReader* reader = nullptr;
+  if (BoxWrapper::GetInstance()->UseAfsApi() && pipe_command_.empty()) {
+    reader =
+        boxps::PaddleDataReader::New(BoxWrapper::GetInstance()->GetFileMgr());
+  }
+  // get slotrecord object
+  auto pull_record_func = [this](std::vector<SlotRecord>& record_vec,
+                                 int max_fetch_num, int offset) {
+    if (offset > 0) {
+      input_channel_->WriteMove(offset, &record_vec[0]);
+      if (max_fetch_num > 0) {
+        SlotRecordPool().get(&record_vec[0], offset);
+      } else {  // free all
+        max_fetch_num = static_cast<int>(record_vec.size());
+        if (max_fetch_num > offset) {
+          SlotRecordPool().put(&record_vec[offset], (max_fetch_num - offset));
+        }
+      }
+    } else if (max_fetch_num > 0) {
+      SlotRecordPool().get(&record_vec, max_fetch_num);
+    } else {
+      SlotRecordPool().put(&record_vec);
+    }
+  };
+
+  std::string filename;
+  while (this->PickOneFile(&filename)) {
+    VLOG(3) << "PickOneFile, filename=" << filename
+            << ", thread_id=" << thread_id_;
+    platform::Timer timeline;
+    timeline.Start();
+
+    int lines = 0;
+    bool is_error = false;
+    do {
+      if (BoxWrapper::GetInstance()->UseAfsApi() && pipe_command_.empty()) {
+        while (reader->open(filename) < 0) {
+          sleep(1);
+        }
+        if (!parser->ParseFileInstance(
+                [this, reader](char* buf, int len) {
+                  return reader->read(buf, len);
+                },
+                pull_record_func, lines)) {
+          is_error = true;
+        }
+        reader->close();
+      } else {
+        if (BoxWrapper::GetInstance()->UseAfsApi()) {
+          this->fp_ = BoxWrapper::GetInstance()->OpenReadFile(
+              filename, this->pipe_command_);
+        } else {
+          int err_no = 0;
+          this->fp_ = fs_open_read(filename, &err_no, this->pipe_command_);
+        }
+        CHECK(this->fp_ != nullptr);
+        __fsetlocking(&*(this->fp_), FSETLOCKING_BYCALLER);
+        if (!parser->ParseFileInstance(
+                [this](char* buf, int len) {
+                  return fread(buf, sizeof(char), len, this->fp_.get());
+                },
+                pull_record_func, lines)) {
+          is_error = true;
+        }
+      }
+    } while (is_error);
+    timeline.Pause();
+    VLOG(3) << "LoadIntoMemoryByLib() read all file, file=" << filename
+            << ", cost time=" << timeline.ElapsedSec()
+            << " seconds, thread_id=" << thread_id_ << ", lines=" << lines;
+  }
+  if (reader != nullptr) {
+    delete reader;
+  }
+}
+
+void SlotPaddleBoxDataFeed::LoadIntoMemoryByLib(void) {
+  if (FLAGS_enable_ins_parser_file) {
+    // user defined file format analysis
+    LoadIntoMemoryByFile();
+  } else {
+    LoadIntoMemoryByLine();
+  }
 }
 
 void SlotPaddleBoxDataFeed::LoadIntoMemoryByCommand(void) {
@@ -3016,19 +3058,20 @@ bool SlotPaddleBoxDataFeed::ParseOneInstance(const std::string& line,
 }
 
 void SlotPaddleBoxDataFeed::UnrollInstance(std::vector<SlotRecord>& items) {
-    if (parser_so_path_.empty()) {
-        return;
-    }
-    paddle::framework::ISlotParser* parser =
+  if (parser_so_path_.empty()) {
+    return;
+  }
+  paddle::framework::ISlotParser* parser =
       global_parser_pool().Get(parser_so_path_, all_slots_info_);
 
-    CHECK(parser != nullptr);
-    if (parser->UnrollInstance(
-          items,items.size(), [this](std::vector<SlotRecord> & release) {
-                  SlotRecordPool().put(&release);
-                  release.clear();
-                  release.shrink_to_fit();
-            })) {
+  CHECK(parser != nullptr);
+  if (parser->UnrollInstance(items, items.size(),
+                             [this](std::vector<SlotRecord>& release) {
+                               SlotRecordPool().put(&release);
+                               release.clear();
+                               release.shrink_to_fit();
+                             })) {
+    return;
   }
 }
 
