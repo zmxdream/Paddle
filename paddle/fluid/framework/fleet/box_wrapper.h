@@ -526,6 +526,22 @@ class BoxWrapper {
   }
   // mem table shrink
   bool ShrinkTable() { return boxps_ptr_->ShrinkTable(); }
+  bool LoadSSD2Mem(const std::string& date) {
+    VLOG(3) << "Begin Load SSD to Memory";
+    int year = std::stoi(date.substr(0, 4));
+    int month = std::stoi(date.substr(4, 2));
+    int day = std::stoi(date.substr(6, 2));
+
+    struct std::tm b;
+    b.tm_year = year - 1900;
+    b.tm_mon = month - 1;
+    b.tm_mday = day;
+    b.tm_hour = FLAGS_fix_dayid ? 8 : 0;
+    b.tm_min = b.tm_sec = 0;
+    std::time_t seconds_from_1970 = std::mktime(&b);
+    int day_id = seconds_from_1970 / 86400;
+    return boxps_ptr_->LoadSSD2Mem(day_id);
+  }
 
   static std::shared_ptr<BoxWrapper> GetInstance() {
     PADDLE_ENFORCE_EQ(
