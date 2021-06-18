@@ -14,6 +14,8 @@ limitations under the License. */
 
 #include "paddle/fluid/framework/device_worker.h"
 
+DECLARE_bool(lineid_have_extend_info);
+DECLARE_bool(dump_filed_same_as_aibox);
 namespace paddle {
 namespace framework {
 
@@ -151,7 +153,16 @@ void DeviceWorker::DumpField(const Scope& scope, int dump_mode,
       continue;
     }
     hit[i] = true;
-    ars[i] += lineid;
+    if (FLAGS_lineid_have_extend_info) {
+        size_t pos = lineid.find(" ");
+        if (pos != std::string::npos) {
+          ars[i] += lineid.substr(0, pos);
+        } else {
+          ars[i] += lineid;
+        }
+    } else {
+        ars[i] += lineid;
+    }
   }
   for (auto& field : *dump_fields_) {
     Variable* var = scope.FindVar(field);
@@ -183,8 +194,17 @@ void DeviceWorker::DumpField(const Scope& scope, int dump_mode,
         continue;
       }
       auto bound = GetTensorBound(tensor, i);
-      ars[i] = ars[i] + "\t" + field + ":" +
-               std::to_string(bound.second - bound.first);
+      if (FLAGS_dump_filed_same_as_aibox) {
+        size_t pos = field.find(".");
+        std::string new_field = field;
+        if (pos != std::string::npos) {
+          new_field = field.substr(0, pos);
+        }
+        ars[i] = ars[i] + "\t" + new_field;
+      } else {
+        ars[i] = ars[i] + "\t" + field + ":" +
+                 std::to_string(bound.second - bound.first);
+      }
       ars[i] += PrintLodTensor(tensor, bound.first, bound.second);
     }
   }
@@ -193,6 +213,15 @@ void DeviceWorker::DumpField(const Scope& scope, int dump_mode,
     if (ars[i].length() == 0) {
       continue;
     }
+
+    if (FLAGS_lineid_have_extend_info) {
+      const std::string& lineid = device_reader_->GetLineId(i);
+      size_t pos = lineid.find(" ");
+      if (pos != std::string::npos) {
+          ars[i] = ars[i] + "\t" + lineid.substr(pos + 1);
+      }
+    }
+
     writer_ << ars[i];
   }
 }

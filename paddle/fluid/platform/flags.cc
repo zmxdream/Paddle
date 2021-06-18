@@ -494,6 +494,11 @@ DEFINE_bool(padbox_dataset_disable_polling, false,
             "if true ,will disable input file list polling");
 DEFINE_bool(padbox_dataset_enable_unrollinstance, false,
             "if true ,will enable unrollinstance");
+DEFINE_bool(lineid_have_extend_info, false,
+            "if true , will split line id by space into 2 part, the second part will dump at the last of line");
+DEFINE_bool(dump_filed_same_as_aibox, false,
+            "if true , will change dump format from abc.tmp0:2:1:1 into abc:1:1, which same as aibox");
+
 /**
  * MKLDNN related FLAG
  * Name: use_mkldnn
