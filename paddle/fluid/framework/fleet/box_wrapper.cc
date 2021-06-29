@@ -60,6 +60,32 @@ void BasicAucCalculator::add_unlock_data(double pred, int label) {
   ++_table[label][pos];
 }
 
+void BasicAucCalculator::add_unlock_data(double pred, int label,
+                                         float sample_scale) {
+  PADDLE_ENFORCE_GE(pred, 0.0, platform::errors::PreconditionNotMet(
+                                   "pred should be greater than 0"));
+  PADDLE_ENFORCE_LE(pred, 1.0, platform::errors::PreconditionNotMet(
+                                   "pred should be lower than 1"));
+  PADDLE_ENFORCE_EQ(
+      label * label, label,
+      platform::errors::PreconditionNotMet(
+          "label must be equal to 0 or 1, but its value is: %d", label));
+  int pos = std::min(static_cast<int>(pred * _table_size), _table_size - 1);
+  PADDLE_ENFORCE_GE(
+      pos, 0,
+      platform::errors::PreconditionNotMet(
+          "pos must be equal or greater than 0, but its value is: %d", pos));
+  PADDLE_ENFORCE_LT(
+      pos, _table_size,
+      platform::errors::PreconditionNotMet(
+          "pos must be less than table_size, but its value is: %d", pos));
+  _local_abserr += fabs(pred - label);
+  _local_sqrerr += (pred - label) * (pred - label);
+
+  _local_pred += pred * sample_scale;
+  _table[label][pos] += sample_scale;
+}
+
 void BasicAucCalculator::add_data(const float* d_pred, const int64_t* d_label,
                                   int batch_size,
                                   const paddle::platform::Place& place) {
@@ -81,6 +107,26 @@ void BasicAucCalculator::add_data(const float* d_pred, const int64_t* d_label,
     }
   }
 }
+
+void BasicAucCalculator::add_sample_data(
+    const float* d_pred, const int64_t* d_label,
+    const std::vector<float>& d_sample_scale, int batch_size,
+    const paddle::platform::Place& place) {
+  thread_local std::vector<float> h_pred;
+  thread_local std::vector<int64_t> h_label;
+  h_pred.resize(batch_size);
+  h_label.resize(batch_size);
+  cudaMemcpy(h_pred.data(), d_pred, sizeof(float) * batch_size,
+             cudaMemcpyDeviceToHost);
+  cudaMemcpy(h_label.data(), d_label, sizeof(int64_t) * batch_size,
+             cudaMemcpyDeviceToHost);
+
+  std::lock_guard<std::mutex> lock(_table_mutex);
+  for (int i = 0; i < batch_size; ++i) {
+    add_unlock_data(h_pred[i], h_label[i], d_sample_scale[i]);
+  }
+}
+
 // add mask data
 void BasicAucCalculator::add_mask_data(const float* d_pred,
                                        const int64_t* d_label,
