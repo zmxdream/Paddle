@@ -61,7 +61,7 @@ __all__ = [
     'tdm_sampler', 'batch_fc', '_pull_box_extended_sparse', 'bilateral_slice',
     'correlation', 'fused_bn_add_act', 'fused_seqpool_cvm',
     'cross_norm_layer_hadamard', 'fused_seqpool_cvm_with_pcoc',
-    'scaled_fc'
+    'scaled_fc', 'scaled_int8fc'
 ]
 
 
@@ -2106,6 +2106,78 @@ def scaled_fc(input,
                 "W": w,
                 "Bias": b},
         attrs={'input_scale_factor': input_scale_factor, 'bias_scale_factor': bias_scale_factor, 'grad_scale_factor': grad_scale_factor},
+        outputs={"Out": pre_act})
+
+    return helper.append_activation(pre_act)
+
+def scaled_int8fc(input,
+             param_size,
+             param_attr,
+             bias_size,
+             bias_attr,
+             input_scale_factor = 1.0,
+             bias_scale_factor = 1.0,
+             grad_scale_factor = 1.0,
+             input_expand_factor = 1.0,
+             input_clip_factor = 2.0,
+             weight_expand_factor = 1.0,
+             weight_clip_factor = 2.0,
+             int8_range = 240.0,
+             act=None):
+    """
+    **Int8 FC layer **
+    Notice: It currently supports GPU device.
+
+    Args:
+        input: Tensor with data type float32, float64.
+        param_size: The size of w.
+        param_attr: Attribute initializer of w.
+        bias_size: The size of bias.
+        bias_attr: Attribute initializer of bias.
+        act: Activation to be applied to the output of this layer.
+        input_scale_factor: the scale of the input
+        bias_scale_factoe: the scale of the bias
+        grad_scale_factoe: the scale during bp
+        expand_factor: input first mul expand_factor then quantivite to int8
+        clip_factor: clip inut's range
+
+    Returns:
+        Variable: A Tensor with the same data type as input's.
+    """
+
+    helper = LayerHelper("scaled_int8fc", **locals())
+    check_type(input, 'input', (Variable), 'scaled_int8fc')
+    input_shape = input.shape
+
+    dtype = helper.input_dtype()
+    check_dtype(dtype, 'input', ['float32', 'float64'], 'scaled_int8fc')
+
+    if input_scale_factor != bias_scale_factor:
+        raise ValueError(
+            "input_scale_factor != bias_scale_factor. ")
+
+    # init fp32 weight & bias
+    w = helper.create_parameter(
+        attr=param_attr, shape=param_size, dtype='float32', is_bias=False)
+    b = helper.create_parameter(
+        attr=bias_attr, shape=bias_size, dtype='float32', is_bias=False)
+    pre_act = helper.create_variable_for_type_inference('float32')
+
+    print("int8fc, input_scale_factor=%.2f, bias_scale_factor=%.2f, grad_scale_factor=%.2f, input_expand_factor=%.2f, input_clip_factor=%.2f, weight_expand_factor=%.2f, weight_clip_factor=%.2f, int8_range=%.2f" % (input_scale_factor, bias_scale_factor, grad_scale_factor, input_expand_factor, input_clip_factor, weight_expand_factor, weight_clip_factor, int8_range))
+    # scaled fc
+    helper.append_op(
+        type="scaled_int8fc",
+        inputs={"Input": input,
+                "W": w,
+                "Bias": b},
+        attrs={'input_scale_factor': input_scale_factor,
+                'bias_scale_factor': bias_scale_factor,
+                'grad_scale_factor': grad_scale_factor,
+                'expand_factor': input_expand_factor,
+                'clip_factor': input_clip_factor,
+                'weight_expand_factor': weight_expand_factor,
+                'weight_clip_factor': weight_clip_factor,
+                'int8_range': int8_range},
         outputs={"Out": pre_act})
 
     return helper.append_activation(pre_act)
