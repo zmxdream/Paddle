@@ -62,8 +62,8 @@ class BilinearTensorProductKernel : public framework::OpKernel<T> {
       Tensor weight_mat =
           weight->Slice(i, i + 1).Resize(framework::make_ddim({x_dim, y_dim}));
       math::GetBlas<DeviceContext, T>(dev_ctx).GEMM(
-          CblasNoTrans, CblasNoTrans, batch_size, y_dim, x_dim, 1, x->data<T>(),
-          weight_mat.data<T>(), 0, left_mul.data<T>());
+          CblasNoTrans, CblasNoTrans, batch_size, y_dim, x_dim, static_cast<T>(1), x->data<T>(),
+          weight_mat.data<T>(), static_cast<T>(0), left_mul.data<T>());
       output_col_vec.device(place) =
           (left_mul_mat * y_mat).sum(Eigen::DSizes<int, 1>(1));
     }
@@ -145,8 +145,8 @@ class BilinearTensorProductGradKernel : public framework::OpKernel<T> {
               output_vec.reshape(Eigen::DSizes<int, 2>(batch_size, 1))
                   .broadcast(bcast_for_x) *
               y_mat;
-          blas.GEMM(CblasNoTrans, CblasTrans, batch_size, x_dim, y_dim, 1,
-                    y_scale.data<T>(), weight_i.data<T>(), 1, d_x->data<T>());
+          blas.GEMM(CblasNoTrans, CblasTrans, batch_size, x_dim, y_dim, static_cast<T>(1),
+                    y_scale.data<T>(), weight_i.data<T>(), static_cast<T>(1), d_x->data<T>());
         }
 
         if (d_y || d_weight) {
@@ -155,14 +155,14 @@ class BilinearTensorProductGradKernel : public framework::OpKernel<T> {
                   .broadcast(bcast_for_y);
           x_scale_mat.device(place) = output_vec_y * x_mat;
           if (d_y) {
-            blas.GEMM(CblasNoTrans, CblasNoTrans, batch_size, y_dim, x_dim, 1,
-                      x_scale.data<T>(), weight_i.data<T>(), 1, d_y->data<T>());
+            blas.GEMM(CblasNoTrans, CblasNoTrans, batch_size, y_dim, x_dim, static_cast<T>(1),
+                      x_scale.data<T>(), weight_i.data<T>(), static_cast<T>(1), d_y->data<T>());
           }
           if (d_weight) {
             Tensor d_weight_i = d_weight->Slice(i, i + 1).Resize(
                 framework::make_ddim({x_dim, y_dim}));
-            blas.GEMM(CblasTrans, CblasNoTrans, x_dim, y_dim, batch_size, 1,
-                      x_scale.data<T>(), y->data<T>(), 0, d_weight_i.data<T>());
+            blas.GEMM(CblasTrans, CblasNoTrans, x_dim, y_dim, batch_size, static_cast<T>(1),
+                      x_scale.data<T>(), y->data<T>(), static_cast<T>(0), d_weight_i.data<T>());
           }
         }
       }
