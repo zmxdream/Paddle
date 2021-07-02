@@ -2815,19 +2815,17 @@ void SlotPaddleBoxDataFeed::LoadIntoMemoryByFile(void) {
     timeline.Start();
 
     int lines = 0;
-    bool is_error = false;
+    bool is_ok = true;
     do {
       if (BoxWrapper::GetInstance()->UseAfsApi() && pipe_command_.empty()) {
         while (reader->open(filename) < 0) {
           sleep(1);
         }
-        if (!parser->ParseFileInstance(
-                [this, reader](char* buf, int len) {
-                  return reader->read(buf, len);
-                },
-                pull_record_func, lines)) {
-          is_error = true;
-        }
+        is_ok = parser->ParseFileInstance(
+            [this, reader](char* buf, int len) {
+              return reader->read(buf, len);
+            },
+            pull_record_func, lines);
         reader->close();
       } else {
         if (BoxWrapper::GetInstance()->UseAfsApi()) {
@@ -2839,15 +2837,17 @@ void SlotPaddleBoxDataFeed::LoadIntoMemoryByFile(void) {
         }
         CHECK(this->fp_ != nullptr);
         __fsetlocking(&*(this->fp_), FSETLOCKING_BYCALLER);
-        if (!parser->ParseFileInstance(
-                [this](char* buf, int len) {
-                  return fread(buf, sizeof(char), len, this->fp_.get());
-                },
-                pull_record_func, lines)) {
-          is_error = true;
-        }
+        is_ok = parser->ParseFileInstance(
+            [this](char* buf, int len) {
+              return fread(buf, sizeof(char), len, this->fp_.get());
+            },
+            pull_record_func, lines);
       }
-    } while (is_error);
+      if (!is_ok) {
+        LOG(WARNING) << "parser error, filename=" << filename
+                     << ", lines=" << lines;
+      }
+    } while (!is_ok);
     timeline.Pause();
     VLOG(3) << "LoadIntoMemoryByLib() read all file, file=" << filename
             << ", cost time=" << timeline.ElapsedSec()
