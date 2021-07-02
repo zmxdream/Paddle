@@ -68,6 +68,7 @@ class BasicAucCalculator {
   void reset();
   // add single data in CPU with LOCK, deprecated
   void add_unlock_data(double pred, int label);
+  void add_unlock_data(double pred, int label, float sample_scale);
   // add batch data
   void add_data(const float* d_pred, const int64_t* d_label, int batch_size,
                 const paddle::platform::Place& place);
@@ -75,6 +76,10 @@ class BasicAucCalculator {
   void add_mask_data(const float* d_pred, const int64_t* d_label,
                      const int64_t* d_mask, int batch_size,
                      const paddle::platform::Place& place);
+  // add sample data
+  void add_sample_data(const float* d_pred, const int64_t* d_label,
+                       const std::vector<float>& d_sample_scale, int batch_size,
+                       const paddle::platform::Place& place);
   void compute();
   int table_size() const { return _table_size; }
   double bucket_error() const { return _bucket_error; }
@@ -669,9 +674,11 @@ class BoxWrapper {
     MetricMsg() {}
     MetricMsg(const std::string& label_varname, const std::string& pred_varname,
               int metric_phase, int bucket_size = 1000000,
-              bool mode_collect_in_gpu = false, int max_batch_size = 0)
+              bool mode_collect_in_gpu = false, int max_batch_size = 0,
+              const std::string& sample_scale_varname = "")
         : label_varname_(label_varname),
           pred_varname_(pred_varname),
+          sample_scale_varname_(sample_scale_varname),
           metric_phase_(metric_phase) {
       calculator = new BasicAucCalculator(mode_collect_in_gpu);
       calculator->init(bucket_size, max_batch_size);
@@ -692,7 +699,19 @@ class BoxWrapper {
                         platform::errors::PreconditionNotMet(
                             "the predict data length should be consistent with "
                             "the label data length"));
-      calculator->add_data(pred_data, label_data, label_len, place);
+      std::vector<float> sample_scale_data;
+      if (!sample_scale_varname_.empty()) {
+        get_data<float>(exe_scope, sample_scale_varname_, &sample_scale_data);
+        PADDLE_ENFORCE_EQ(
+            label_len, sample_scale_data.size(),
+            platform::errors::PreconditionNotMet(
+                "lable size [%lu] and sample_scale_data[%lu] should be same",
+                label_len, sample_scale_data.size()));
+        calculator->add_sample_data(pred_data, label_data, sample_scale_data,
+                                    label_len, place);
+      } else {
+        calculator->add_data(pred_data, label_data, label_len, place);
+      }
     }
     template <class T = float>
     static void get_data(const Scope* exe_scope, const std::string& varname,
@@ -728,6 +747,7 @@ class BoxWrapper {
    protected:
     std::string label_varname_;
     std::string pred_varname_;
+    std::string sample_scale_varname_;
     int metric_phase_;
     BasicAucCalculator* calculator;
   };
@@ -1050,12 +1070,13 @@ class BoxWrapper {
                   const std::string& mask_varname, int metric_phase,
                   const std::string& cmatch_rank_group, bool ignore_rank,
                   int bucket_size = 1000000, bool mode_collect_in_gpu = false,
-                  int max_batch_size = 0) {
+                  int max_batch_size = 0,
+                  const std::string& sample_scale_varname = "") {
     if (method == "AucCalculator") {
       metric_lists_.emplace(
-          name,
-          new MetricMsg(label_varname, pred_varname, metric_phase, bucket_size,
-                        mode_collect_in_gpu, max_batch_size));
+          name, new MetricMsg(label_varname, pred_varname, metric_phase,
+                              bucket_size, mode_collect_in_gpu, max_batch_size,
+                              sample_scale_varname));
     } else if (method == "MultiTaskAucCalculator") {
       metric_lists_.emplace(
           name, new MultiTaskMetricMsg(label_varname, pred_varname,
