@@ -374,6 +374,8 @@ PYBIND11_MODULE(core_noavx, m) {
 
 #ifdef PADDLE_WITH_CUDA
   m.def("cudnn_version", &platform::CudnnVersion);
+  m.def("cgpu_mem_acquire", &platform::CGPUMemBfcTimeSharingAcquire);
+  m.def("cgpu_mem_release", &platform::CGPUMemBfcTimeSharingRelease);
 #endif
 
   m.def("from_dlpack", [](py::capsule *dltensor) {

@@ -120,6 +120,10 @@ bool RecordedCudaMemGetInfo(size_t *avail, size_t *total, size_t *actual_avail,
 uint64_t RecordedCudaMallocSize(int dev_id);
 
 bool IsCudaMallocRecorded(int dev_id);
+//! cgpu acquire
+bool CGPUMemBfcTimeSharingAcquire(void);
+//! cgpu release
+bool CGPUMemBfcTimeSharingRelease(void);
 
 }  // namespace platform
 }  // namespace paddle

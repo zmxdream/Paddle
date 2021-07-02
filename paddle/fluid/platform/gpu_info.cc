@@ -19,6 +19,7 @@ limitations under the License. */
 
 #include "gflags/gflags.h"
 #include "paddle/fluid/platform/cuda_device_guard.h"
+#include "paddle/fluid/platform/dynload/cuda_driver.h"
 #include "paddle/fluid/platform/dynload/cudnn.h"
 #include "paddle/fluid/platform/enforce.h"
 #include "paddle/fluid/platform/lock_guard_ptr.h"
@@ -486,6 +487,17 @@ uint64_t RecordedCudaMallocSize(int dev_id) {
 
 bool IsCudaMallocRecorded(int dev_id) {
   return RecordedCudaMallocHelper::Instance(dev_id)->NeedRecord();
+}
+
+//! cgpu acquire
+bool CGPUMemBfcTimeSharingAcquire(void) {
+  int acquire = -1001;
+  return platform::dynload::cuDriverGetVersion(&acquire) == CUDA_SUCCESS;
+}
+//! cgpu release
+bool CGPUMemBfcTimeSharingRelease(void) {
+  int release = -1002;
+  return platform::dynload::cuDriverGetVersion(&release) == CUDA_SUCCESS;
 }
 
 }  // namespace platform
