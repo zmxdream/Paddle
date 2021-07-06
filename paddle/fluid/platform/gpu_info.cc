@@ -299,7 +299,7 @@ void GpuMemcpyAsync(void *dst, const void *src, size_t count,
 
 void GpuMemcpySync(void *dst, const void *src, size_t count,
                    enum cudaMemcpyKind kind) {
-  PADDLE_ENFORCE_CUDA_SUCCESS(cudaMemcpy(dst, src, count, kind));
+  CHECK(cudaMemcpy(dst, src, count, kind) == cudaSuccess);
 }
 
 void GpuMemcpyPeerAsync(void *dst, int dst_device, const void *src,
