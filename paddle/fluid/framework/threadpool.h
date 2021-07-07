@@ -74,18 +74,22 @@ class ThreadPool {
   std::future<std::unique_ptr<platform::EnforceNotMet>> RunAndGetException(
       Callback fn) {
     Task task([fn]() -> std::unique_ptr<platform::EnforceNotMet> {
-      //      try {
-      fn();
-      //      } catch (platform::EnforceNotMet& ex) {
-      //        return std::unique_ptr<platform::EnforceNotMet>(
-      //            new platform::EnforceNotMet(ex));
-      //      } catch (const std::exception& e) {
-      //        PADDLE_THROW(platform::errors::Fatal(
-      //            "Unexpected exception is catched in thread pool. All "
-      //            "throwable exception in Paddle should be an EnforceNotMet."
-      //            "The exception is:\n %s.",
-      //            e.what()));
-      //      }
+      try {
+        fn();
+      } catch (platform::EnforceNotMet& ex) {
+        CHECK(false) << "Unexpected exception is catched in thread pool: "
+                     << ex.what();
+        return std::unique_ptr<platform::EnforceNotMet>(
+            new platform::EnforceNotMet(ex));
+      } catch (const std::exception& e) {
+        CHECK(false) << "Unexpected exception is catched in thread pool: "
+                     << e.what();
+        PADDLE_THROW(platform::errors::Fatal(
+            "Unexpected exception is catched in thread pool. All "
+            "throwable exception in Paddle should be an EnforceNotMet."
+            "The exception is:\n %s.",
+            e.what()));
+      }
       return nullptr;
     });
     std::future<std::unique_ptr<platform::EnforceNotMet>> f = task.get_future();

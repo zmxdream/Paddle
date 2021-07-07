@@ -200,7 +200,7 @@ void BoxPSTrainer::Run() {
 
 void BoxPSTrainer::Finalize() {
   for (auto& th : wait_futures_) {
-    th.wait();
+    th.get();
   }
   if (async_mode_) {
     // must be after train thread, otherwise the ps_buffer_ will be closed first

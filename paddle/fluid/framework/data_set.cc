@@ -1571,7 +1571,7 @@ void PadBoxSlotDataset::PreLoadIntoMemory() {
 }
 void PadBoxSlotDataset::WaitPreLoadDone() {
   for (auto& f : wait_futures_) {
-    f.wait();
+    f.get();
   }
   if (data_consumer_ != nullptr) {
     delete reinterpret_cast<PadBoxSlotDataConsumer*>(data_consumer_);
@@ -1619,7 +1619,7 @@ void PadBoxSlotDataset::LoadIntoMemory() {
   }
   // wait all thread finish
   for (auto& f : wait_futures_) {
-    f.wait();
+    f.get();
   }
 
   if (data_consumer_ != nullptr) {
