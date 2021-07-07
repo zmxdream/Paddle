@@ -51,9 +51,7 @@ limitations under the License. */
 
 DECLARE_int32(fix_dayid);
 DECLARE_bool(padbox_auc_runner_mode);
-#ifdef PADDLE_WITH_BOX_PS
-DECLARE_bool(enable_sparse_push_barrier);
-#endif
+DECLARE_bool(enable_dense_nccl_barrier);
 
 namespace paddle {
 namespace framework {
@@ -615,7 +613,7 @@ class BoxWrapper {
     }
     if (flag & 0x02) {
       if (pause) {
-        if (FLAGS_enable_sparse_push_barrier) {
+        if (FLAGS_enable_dense_nccl_barrier) {
           boxps::MPICluster::Ins().barrier();
         }
         dev.dense_sync_timer.Pause();

@@ -477,11 +477,11 @@ DEFINE_double(local_exe_sub_scope_limit, 256.0,  // MBytes
 DEFINE_int32(fix_dayid, 0, "Whether fix dayid in PaddleBox");
 DEFINE_int32(padbox_record_pool_max_size, 2000000,
              "PadBoxSlotDataset slot record pool max size");
-DEFINE_int32(padbox_dataset_shuffle_thread_num, 10,
+DEFINE_int32(padbox_dataset_shuffle_thread_num, 20,
              "PadBoxSlotDataset shuffle thread num");
-DEFINE_int32(padbox_dataset_merge_thread_num, 10,
+DEFINE_int32(padbox_dataset_merge_thread_num, 20,
              "PadBoxSlotDataset shuffle thread num");
-DEFINE_int32(padbox_slotpool_thread_num, 1,
+DEFINE_int32(padbox_slotpool_thread_num, 20,
              "PadBoxSlotDataset slot pool thread num");
 DEFINE_bool(use_gpu_replica_cache, false,
             "if true ,will open use_gpu_replica_cache");
@@ -495,9 +495,11 @@ DEFINE_bool(padbox_dataset_disable_polling, false,
 DEFINE_bool(padbox_dataset_enable_unrollinstance, false,
             "if true ,will enable unrollinstance");
 DEFINE_bool(lineid_have_extend_info, false,
-            "if true , will split line id by space into 2 part, the second part will dump at the last of line");
+            "if true , will split line id by space into 2 part, the second "
+            "part will dump at the last of line");
 DEFINE_bool(dump_filed_same_as_aibox, false,
-            "if true , will change dump format from abc.tmp0:2:1:1 into abc:1:1, which same as aibox");
+            "if true , will change dump format from abc.tmp0:2:1:1 into "
+            "abc:1:1, which same as aibox");
 
 /**
  * MKLDNN related FLAG
@@ -592,3 +594,5 @@ DEFINE_bool(enable_sync_dense_moment, false,
             "enable sync dense moment, default false");
 DEFINE_bool(enable_ins_parser_file, false,
             "enable parser ins file , default false");
+DEFINE_bool(enable_dense_nccl_barrier, false,
+            "enable dense nccl barrier , default false");

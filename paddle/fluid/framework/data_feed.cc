@@ -2438,8 +2438,9 @@ void SlotPaddleBoxDataFeed::BuildSlotBatchGPU(const int ins_num) {
 
   copy_timer_.Resume();
   // copy index
-  cudaMemcpy(offsets.data(), d_slot_offsets, slot_total_num * sizeof(size_t),
-             cudaMemcpyDeviceToHost);
+  CUDA_CHECK(cudaMemcpy(offsets.data(), d_slot_offsets,
+                        slot_total_num * sizeof(size_t),
+                        cudaMemcpyDeviceToHost));
   copy_timer_.Pause();
 
   data_timer_.Resume();
@@ -2503,8 +2504,9 @@ void SlotPaddleBoxDataFeed::BuildSlotBatchGPU(const int ins_num) {
 
   trans_timer_.Resume();
   void** dest_gpu_p = reinterpret_cast<void**>(pack_->slot_buf_ptr());
-  cudaMemcpy(dest_gpu_p, h_tensor_ptrs.data(), use_slot_size_ * sizeof(void*),
-             cudaMemcpyHostToDevice);
+  CUDA_CHECK(cudaMemcpy(dest_gpu_p, h_tensor_ptrs.data(),
+                        use_slot_size_ * sizeof(void*),
+                        cudaMemcpyHostToDevice));
 
   CopyForTensor(ins_num, use_slot_size_, dest_gpu_p,
                 (const size_t*)pack_->gpu_slot_offsets(),
@@ -3610,7 +3612,10 @@ MiniBatchGpuPack::MiniBatchGpuPack(const paddle::platform::Place& place,
   slot_buf_ptr_ = memory::AllocShared(place_, used_slot_size_ * sizeof(void*));
 
   int device_id = boost::get<platform::CUDAPlace>(place).GetDeviceId();
+  VLOG(3) << "begin get batch pack device id: " << device_id;
   qvalue_tensor_ = &BoxWrapper::GetInstance()->GetQTensor(device_id);
+  // sync
+  CUDA_CHECK(cudaStreamSynchronize(stream_));
 }
 
 MiniBatchGpuPack::~MiniBatchGpuPack() {}
@@ -3853,7 +3858,7 @@ void MiniBatchGpuPack::transfer_to_gpu(void) {
   copy_host2device(&value_.d_float_lens, buf_.h_float_lens);
   copy_host2device(&value_.d_float_keys, buf_.h_float_keys);
   copy_host2device(&value_.d_float_offset, buf_.h_float_offset);
-  cudaStreamSynchronize(stream_);
+  CUDA_CHECK(cudaStreamSynchronize(stream_));
   trans_timer_.Pause();
 }
 
@@ -3878,9 +3883,9 @@ void MiniBatchGpuPack::pack_qvalue(void) {
 
   float* tensor_ptr =
       qvalue_tensor_->mutable_data<float>({len, 1}, this->place_);
-  cudaMemcpyAsync(tensor_ptr, &qvalue[0], len * sizeof(float),
-                  cudaMemcpyHostToDevice, stream_);
-  cudaStreamSynchronize(stream_);
+  CUDA_CHECK(cudaMemcpyAsync(tensor_ptr, &qvalue[0], len * sizeof(float),
+                             cudaMemcpyHostToDevice, stream_));
+  CUDA_CHECK(cudaStreamSynchronize(stream_));
 }
 
 // store pcoc q value
