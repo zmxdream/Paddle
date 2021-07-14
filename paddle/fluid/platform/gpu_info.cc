@@ -299,7 +299,9 @@ void GpuMemcpyAsync(void *dst, const void *src, size_t count,
 
 void GpuMemcpySync(void *dst, const void *src, size_t count,
                    enum cudaMemcpyKind kind) {
-  CHECK(cudaMemcpy(dst, src, count, kind) == cudaSuccess);
+  CHECK(cudaMemcpy(dst, src, count, kind) == cudaSuccess)
+      << "dst:" << dst << ", src:" << src << ", count:" << count
+      << ", kind:" << kind;
 }
 
 void GpuMemcpyPeerAsync(void *dst, int dst_device, const void *src,

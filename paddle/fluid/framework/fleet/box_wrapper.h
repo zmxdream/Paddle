@@ -52,6 +52,7 @@ limitations under the License. */
 DECLARE_int32(fix_dayid);
 DECLARE_bool(padbox_auc_runner_mode);
 DECLARE_bool(enable_dense_nccl_barrier);
+DECLARE_int32(padbox_dataset_shuffle_thread_num);
 
 namespace paddle {
 namespace framework {
@@ -581,7 +582,7 @@ class BoxWrapper {
 
       if (boxps::MPICluster::Ins().size() > 1) {
         data_shuffle_.reset(boxps::PaddleShuffler::New());
-        data_shuffle_->init(10);
+        data_shuffle_->init(FLAGS_padbox_dataset_shuffle_thread_num);
       }
     } else {
       if (nullptr == s_instance_->boxps_ptr_) {

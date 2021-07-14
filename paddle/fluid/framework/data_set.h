@@ -431,6 +431,8 @@ class PadBoxSlotDataset : public DatasetImpl<SlotRecord> {
   paddle::framework::ThreadPool* merge_pool_ = nullptr;
   paddle::framework::ThreadPool* shuffle_pool_ = nullptr;
   uint16_t pass_id_ = 0;
+  double max_shuffle_span_ = 0;
+  double min_shuffle_span_ = 0;
 };
 
 class InputTableDataset : public PadBoxSlotDataset {

@@ -2691,19 +2691,18 @@ void SlotPaddleBoxDataFeed::LoadIntoMemoryByLine(void) {
     std::vector<SlotRecord> record_vec;
     platform::Timer timeline;
     timeline.Start();
-    const int max_fetch_num = 10000;
     int offset = 0;
     int old_offset = 0;
 
-    SlotRecordPool().get(&record_vec, max_fetch_num);
+    SlotRecordPool().get(&record_vec, OBJPOOL_BLOCK_SIZE);
     // get slotrecord object function
-    auto record_func = [this, &offset, &record_vec, &max_fetch_num,
-                        &old_offset](std::vector<SlotRecord>& vec, int num) {
+    auto record_func = [this, &offset, &record_vec, &old_offset](
+        std::vector<SlotRecord>& vec, int num) {
       vec.resize(num);
-      if (offset + num > max_fetch_num) {
+      if (offset + num > OBJPOOL_BLOCK_SIZE) {
         input_channel_->WriteMove(offset, &record_vec[0]);
         SlotRecordPool().get(&record_vec[0], offset);
-        record_vec.resize(max_fetch_num);
+        record_vec.resize(OBJPOOL_BLOCK_SIZE);
         offset = 0;
         old_offset = 0;
       }
@@ -2715,8 +2714,8 @@ void SlotPaddleBoxDataFeed::LoadIntoMemoryByLine(void) {
       offset = offset + num;
     };
 
-    line_func = [this, &parser, &record_vec, &offset, &max_fetch_num, &filename,
-                 &record_func, &old_offset](const std::string& line) {
+    line_func = [this, &parser, &record_vec, &offset, &filename, &record_func,
+                 &old_offset](const std::string& line) {
       old_offset = offset;
       if (!parser->ParseOneInstance(line, record_func)) {
         offset = old_offset;
@@ -2724,10 +2723,10 @@ void SlotPaddleBoxDataFeed::LoadIntoMemoryByLine(void) {
                      << line << "]";
         return false;
       }
-      if (offset >= max_fetch_num) {
+      if (offset >= OBJPOOL_BLOCK_SIZE) {
         input_channel_->Write(std::move(record_vec));
         record_vec.clear();
-        SlotRecordPool().get(&record_vec, max_fetch_num);
+        SlotRecordPool().get(&record_vec, OBJPOOL_BLOCK_SIZE);
         offset = 0;
       }
       return true;
@@ -2756,8 +2755,9 @@ void SlotPaddleBoxDataFeed::LoadIntoMemoryByLine(void) {
     } while (line_reader.is_error());
     if (offset > 0) {
       input_channel_->WriteMove(offset, &record_vec[0]);
-      if (offset < max_fetch_num) {
-        SlotRecordPool().put(&record_vec[offset], (max_fetch_num - offset));
+      if (offset < OBJPOOL_BLOCK_SIZE) {
+        SlotRecordPool().put(&record_vec[offset],
+                             (OBJPOOL_BLOCK_SIZE - offset));
       }
     } else {
       SlotRecordPool().put(&record_vec);
@@ -2881,8 +2881,7 @@ void SlotPaddleBoxDataFeed::LoadIntoMemoryByCommand(void) {
     std::vector<SlotRecord> record_vec;
     platform::Timer timeline;
     timeline.Start();
-    int max_fetch_num = 10000;
-    SlotRecordPool().get(&record_vec, max_fetch_num);
+    SlotRecordPool().get(&record_vec, OBJPOOL_BLOCK_SIZE);
     int offset = 0;
 
     do {
@@ -2898,8 +2897,7 @@ void SlotPaddleBoxDataFeed::LoadIntoMemoryByCommand(void) {
 
       lines = line_reader.read_file(
           this->fp_.get(),
-          [this, &record_vec, &offset, &max_fetch_num,
-           &filename](const std::string& line) {
+          [this, &record_vec, &offset, &filename](const std::string& line) {
             if (ParseOneInstance(line, &record_vec[offset])) {
               ++offset;
             } else {
@@ -2907,10 +2905,10 @@ void SlotPaddleBoxDataFeed::LoadIntoMemoryByCommand(void) {
                            << "] item error, line:[" << line << "]";
               return false;
             }
-            if (offset >= max_fetch_num) {
+            if (offset >= OBJPOOL_BLOCK_SIZE) {
               input_channel_->Write(std::move(record_vec));
               record_vec.clear();
-              SlotRecordPool().get(&record_vec, max_fetch_num);
+              SlotRecordPool().get(&record_vec, OBJPOOL_BLOCK_SIZE);
               offset = 0;
             }
             return true;
@@ -2919,8 +2917,9 @@ void SlotPaddleBoxDataFeed::LoadIntoMemoryByCommand(void) {
     } while (line_reader.is_error());
     if (offset > 0) {
       input_channel_->WriteMove(offset, &record_vec[0]);
-      if (offset < max_fetch_num) {
-        SlotRecordPool().put(&record_vec[offset], (max_fetch_num - offset));
+      if (offset < OBJPOOL_BLOCK_SIZE) {
+        SlotRecordPool().put(&record_vec[offset],
+                             (OBJPOOL_BLOCK_SIZE - offset));
       }
     } else {
       SlotRecordPool().put(&record_vec);
@@ -3096,7 +3095,7 @@ void SlotPaddleBoxDataFeedWithGpuReplicaCache::LoadIntoMemoryByLib(void) {
     std::vector<SlotRecord> record_vec;
     platform::Timer timeline;
     timeline.Start();
-    const int max_fetch_num = 10000;
+    const int max_fetch_num = OBJPOOL_BLOCK_SIZE;
     int offset = 0;
 
     SlotRecordPool().get(&record_vec, max_fetch_num);
@@ -3206,7 +3205,7 @@ void SlotPaddleBoxDataFeedWithGpuReplicaCache::LoadIntoMemoryByCommand(void) {
     timeline.Start();
     int offset = 0;
     int gpu_cache_offset;
-    int max_fetch_num = 10000;
+    int max_fetch_num = OBJPOOL_BLOCK_SIZE;
     SlotRecordPool().get(&record_vec, max_fetch_num);
     do {
       if (box_ptr->UseAfsApi()) {
@@ -3401,7 +3400,7 @@ void InputTableDataFeed::LoadIntoMemoryByLib() {
     std::vector<SlotRecord> record_vec;
     platform::Timer timeline;
     timeline.Start();
-    const int max_fetch_num = 10000;
+    const int max_fetch_num = OBJPOOL_BLOCK_SIZE;
     int offset = 0;
 
     SlotRecordPool().get(&record_vec, max_fetch_num);
