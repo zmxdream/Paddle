@@ -1479,26 +1479,6 @@ inline paddle::framework::ThreadPool* GetShufflePool(int thread_num) {
   }
   return thread_pool.get();
 }
-int PadBoxSlotDataset::GetMaxShuffleThreadId(void) {
-  double rate = static_cast<double>(shuffle_thread_num_) /
-                static_cast<double>(thread_num_);
-  int thread_num = static_cast<int>(rate * read_ins_ref_);
-  int half_num = static_cast<int>(shuffle_thread_num_ >> 1);
-  if (thread_num < half_num) {
-    return half_num;
-  }
-  return thread_num;
-}
-int PadBoxSlotDataset::GetMaxMergeThreadId(void) {
-  double rate =
-      static_cast<double>(merge_thread_num_) / static_cast<double>(thread_num_);
-  int half_num = static_cast<int>(merge_thread_num_ >> 1);
-  int thread_num = static_cast<int>(rate * read_ins_ref_);
-  if (thread_num < half_num) {
-    return half_num;
-  }
-  return thread_num;
-}
 void PadBoxSlotDataset::CheckThreadPool(void) {
   wait_futures_.clear();
   if (thread_pool_ != nullptr && merge_pool_ != nullptr) {
@@ -1880,6 +1860,7 @@ void PadBoxSlotDataset::ReceiveSuffleData(int client_id, const char* buf,
     --receiver_cnt_;
 
     if (finished_counter_ == 0) {
+      usleep(10000);
       while (receiver_cnt_ > 0) {
         usleep(100);
       }

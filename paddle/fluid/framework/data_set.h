@@ -401,8 +401,6 @@ class PadBoxSlotDataset : public DatasetImpl<SlotRecord> {
  protected:
   void MergeInsKeys(const Channel<SlotRecord>& in);
   void CheckThreadPool(void);
-  int GetMaxShuffleThreadId(void);
-  int GetMaxMergeThreadId(void);
 
  protected:
   Channel<SlotRecord> shuffle_channel_ = nullptr;
