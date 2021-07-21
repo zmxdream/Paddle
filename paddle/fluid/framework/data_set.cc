@@ -1437,11 +1437,11 @@ PadBoxSlotDataset::~PadBoxSlotDataset() {}
 void PadBoxSlotDataset::CreateChannel() {
   if (input_channel_ == nullptr) {
     input_channel_ = MakeChannel<SlotRecord>();
-    input_channel_->SetBlockSize(10240);
+    input_channel_->SetBlockSize(OBJPOOL_BLOCK_SIZE);
   }
   if (shuffle_channel_ == nullptr) {
     shuffle_channel_ = MakeChannel<SlotRecord>();
-    shuffle_channel_->SetBlockSize(10240);
+    shuffle_channel_->SetBlockSize(OBJPOOL_BLOCK_SIZE);
   }
 }
 // set filelist, file_idx_ will reset to zero.
@@ -1479,26 +1479,6 @@ inline paddle::framework::ThreadPool* GetShufflePool(int thread_num) {
   }
   return thread_pool.get();
 }
-int PadBoxSlotDataset::GetMaxShuffleThreadId(void) {
-  double rate = static_cast<double>(shuffle_thread_num_) /
-                static_cast<double>(thread_num_);
-  int thread_num = static_cast<int>(rate * read_ins_ref_);
-  int half_num = static_cast<int>(shuffle_thread_num_ >> 1);
-  if (thread_num < half_num) {
-    return half_num;
-  }
-  return thread_num;
-}
-int PadBoxSlotDataset::GetMaxMergeThreadId(void) {
-  double rate =
-      static_cast<double>(merge_thread_num_) / static_cast<double>(thread_num_);
-  int half_num = static_cast<int>(merge_thread_num_ >> 1);
-  int thread_num = static_cast<int>(rate * read_ins_ref_);
-  if (thread_num < half_num) {
-    return half_num;
-  }
-  return thread_num;
-}
 void PadBoxSlotDataset::CheckThreadPool(void) {
   wait_futures_.clear();
   if (thread_pool_ != nullptr && merge_pool_ != nullptr) {
@@ -1511,10 +1491,10 @@ void PadBoxSlotDataset::CheckThreadPool(void) {
   // read ins thread
   thread_pool_ = GetThreadPool(thread_num_);
   // merge thread
-  merge_pool_ = GetMergePool(merge_thread_num_);
+  merge_pool_ = GetMergePool(merge_thread_num_ * 2);
   // shuffle thread
   if (!FLAGS_padbox_dataset_disable_shuffle && mpi_size_ > 1) {
-    shuffle_pool_ = GetShufflePool(shuffle_thread_num_);
+    shuffle_pool_ = GetShufflePool(shuffle_thread_num_ * 2);
   }
 
   std::vector<int>& cores = boxps::get_readins_cores();
@@ -1639,17 +1619,18 @@ void PadBoxSlotDataset::LoadIntoMemory() {
 void PadBoxSlotDataset::MergeInsKeys(const Channel<SlotRecord>& in) {
   merge_ins_ref_ = merge_thread_num_;
   input_records_.clear();
+  min_merge_ins_span_ = 1000;
   CHECK(p_agent_ != nullptr);
   for (int tid = 0; tid < merge_thread_num_; ++tid) {
     wait_futures_.emplace_back(merge_pool_->Run([this, &in, tid]() {
       //      VLOG(0) << "merge thread id: " << tid << "start";
       platform::Timer timer;
-      timer.Start();
       auto feed_obj =
           reinterpret_cast<SlotPaddleBoxDataFeed*>(readers_[0].get());
       size_t num = 0;
       std::vector<SlotRecord> datas;
-      while (in->ReadOnce(datas, 10240)) {
+      while (in->ReadOnce(datas, OBJPOOL_BLOCK_SIZE)) {
+        timer.Resume();
         for (auto& rec : datas) {
           for (auto& idx : used_fea_index_) {
             uint64_t* feas = rec->slot_uint64_feasigns_.get_values(idx, &num);
@@ -1666,18 +1647,15 @@ void PadBoxSlotDataset::MergeInsKeys(const Channel<SlotRecord>& in) {
         }
         merge_mutex_.unlock();
         datas.clear();
-        if (tid > GetMaxMergeThreadId()) {
-          break;
-        }
+        timer.Pause();
       }
       datas.shrink_to_fit();
-      timer.Pause();
 
       double span = timer.ElapsedSec();
       if (max_merge_ins_span_ < span) {
         max_merge_ins_span_ = span;
       }
-      if (min_merge_ins_span_ == 0 || min_merge_ins_span_ > span) {
+      if (min_merge_ins_span_ > span) {
         min_merge_ins_span_ = span;
       }
       // end merge thread
@@ -1771,8 +1749,10 @@ void PadBoxSlotDataset::ShuffleData(int thread_num) {
   CHECK_GT(thread_num, 0);
   VLOG(3) << "start global shuffle threads, num = " << thread_num;
   shuffle_counter_ = thread_num;
+  min_shuffle_span_ = 1000;
   for (int tid = 0; tid < thread_num; ++tid) {
     wait_futures_.emplace_back(shuffle_pool_->Run([this, tid]() {
+      platform::Timer timer;
       std::vector<SlotRecord> data;
       std::vector<SlotRecord> loc_datas;
       std::vector<SlotRecord> releases;
@@ -1780,7 +1760,8 @@ void PadBoxSlotDataset::ShuffleData(int thread_num) {
       PadBoxSlotDataConsumer* handler =
           reinterpret_cast<PadBoxSlotDataConsumer*>(data_consumer_);
       ShuffleResultWaitGroup wg;
-      while (input_channel_->ReadOnce(data, 10240)) {
+      while (input_channel_->Read(data)) {
+        timer.Resume();
         for (auto& t : data) {
           int client_id = 0;
           if (enable_pv_merge_) {  // shuffle by pv
@@ -1800,8 +1781,8 @@ void PadBoxSlotDataset::ShuffleData(int thread_num) {
         }
         SlotRecordPool().put(&releases);
         releases.clear();
-
-        shuffle_channel_->Write(std::move(loc_datas));
+        size_t loc_len = loc_datas.size();
+        CHECK(shuffle_channel_->Write(std::move(loc_datas)) == loc_len);
 
         wg.wait();
         wg.add(mpi_size_);
@@ -1821,13 +1802,21 @@ void PadBoxSlotDataset::ShuffleData(int thread_num) {
 
         data.clear();
         loc_datas.clear();
-        if (tid > GetMaxShuffleThreadId()) {
-          break;
-        }
+        timer.Pause();
       }
+      timer.Resume();
       wg.wait();
+      timer.Pause();
 
-      VLOG(3) << "end shuffle thread id = " << tid;
+      double span = timer.ElapsedSec();
+      if (span > max_shuffle_span_) {
+        max_shuffle_span_ = span;
+      }
+      if (span < min_shuffle_span_) {
+        min_shuffle_span_ = span;
+      }
+      VLOG(3) << "passid = " << pass_id_ << ", end shuffle thread id=" << tid
+              << ", span: " << span;
       // only one thread send finish notify
       if (--shuffle_counter_ == 0) {
         // send closed
@@ -1840,6 +1829,10 @@ void PadBoxSlotDataset::ShuffleData(int thread_num) {
           handler->send_message_callback(i, NULL, 0, &wg);
         }
         wg.wait();
+        // end shuffle thread
+        LOG(WARNING) << "passid = " << pass_id_
+                     << ", end shuffle span max:" << max_shuffle_span_
+                     << ", min:" << min_shuffle_span_;
         // local closed channel
         if (--finished_counter_ == 0) {
           while (receiver_cnt_ > 0) {
@@ -1867,6 +1860,7 @@ void PadBoxSlotDataset::ReceiveSuffleData(int client_id, const char* buf,
     --receiver_cnt_;
 
     if (finished_counter_ == 0) {
+      usleep(10000);
       while (receiver_cnt_ > 0) {
         usleep(100);
       }
@@ -1881,8 +1875,8 @@ void PadBoxSlotDataset::ReceiveSuffleData(int client_id, const char* buf,
   paddle::framework::BinaryArchive ar;
   ar.SetReadBuffer(const_cast<char*>(buf), len, nullptr);
 
+  static const int max_fetch_num = OBJPOOL_BLOCK_SIZE / mpi_size_;
   int offset = 0;
-  const int max_fetch_num = 1000;
   std::vector<SlotRecord> data;
   SlotRecordPool().get(&data, max_fetch_num);
   while (ar.Cursor() < ar.Finish()) {

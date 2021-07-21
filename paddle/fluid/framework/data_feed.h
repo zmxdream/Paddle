@@ -929,11 +929,12 @@ class SlotObjAllocator {
   Node* free_nodes_;  // a list
   size_t capacity_;
 };
-
+static const int OBJPOOL_BLOCK_SIZE = 10000;
 class SlotObjPool {
  public:
   SlotObjPool() : max_capacity_(FLAGS_padbox_record_pool_max_size) {
     ins_chan_ = MakeChannel<SlotRecord>();
+    ins_chan_->SetBlockSize(OBJPOOL_BLOCK_SIZE);
     for (int i = 0; i < FLAGS_padbox_slotpool_thread_num; ++i) {
       threads_.push_back(std::thread([this]() { run(); }));
     }
@@ -976,10 +977,9 @@ class SlotObjPool {
     }
     put(&(*input)[0], size);
     input->clear();
-    input->shrink_to_fit();
   }
   void put(SlotRecord* input, size_t size) {
-    ins_chan_->WriteMove(size, input);
+    CHECK(ins_chan_->WriteMove(size, input) == size);
   }
   void run(void) {
     std::vector<SlotRecord> input;
