@@ -572,7 +572,7 @@ class BoxWrapper {
       // ToDo: feature gpu value param set diffent value
       if (s_instance_->feature_type_ ==
           static_cast<int>(boxps::FEATURE_SHARE_EMBEDDING)) {
-        s_instance_->cvm_offset_ = boxps::SHARE_EMBEDDING_NUM + 2;
+        s_instance_->cvm_offset_ = expand_embed_dim + 2;
       } else if (s_instance_->feature_type_ ==
                  static_cast<int>(boxps::FEATURE_PCOC)) {
         s_instance_->cvm_offset_ = 8;
@@ -1140,6 +1140,8 @@ class BoxWrapper {
                  << ", wrapper gpu memory:" << dev.GpuMemUsed() << "MB";
     dev.ResetTimer();
   }
+  // get expand embed dim
+  int GetExpandEmbedDim(void) { return expand_embed_dim_; }
 
  private:
   static cudaStream_t stream_list_[MAX_GPU_NUM];

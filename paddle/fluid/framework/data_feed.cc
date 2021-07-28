@@ -2763,6 +2763,7 @@ void SlotPaddleBoxDataFeed::LoadIntoMemoryByLine(void) {
       SlotRecordPool().put(&record_vec);
     }
     record_vec.clear();
+    record_vec.shrink_to_fit();
     timeline.Pause();
     VLOG(3) << "LoadIntoMemoryByLib() read all lines, file=" << filename
             << ", cost time=" << timeline.ElapsedSec()
@@ -2925,6 +2926,7 @@ void SlotPaddleBoxDataFeed::LoadIntoMemoryByCommand(void) {
       SlotRecordPool().put(&record_vec);
     }
     record_vec.clear();
+    record_vec.shrink_to_fit();
     timeline.Pause();
     VLOG(3) << "LoadIntoMemory() read all lines, file=" << filename
             << ", lines=" << lines
@@ -3177,6 +3179,7 @@ void SlotPaddleBoxDataFeedWithGpuReplicaCache::LoadIntoMemoryByLib(void) {
       SlotRecordPool().put(&record_vec);
     }
     record_vec.clear();
+    record_vec.shrink_to_fit();
     timeline.Pause();
     VLOG(3) << "LoadIntoMemoryByLib() read all lines, file=" << filename
             << ", cost time=" << timeline.ElapsedSec()
@@ -3257,6 +3260,7 @@ void SlotPaddleBoxDataFeedWithGpuReplicaCache::LoadIntoMemoryByCommand(void) {
       SlotRecordPool().put(&record_vec);
     }
     record_vec.clear();
+    record_vec.shrink_to_fit();
     timeline.Pause();
     VLOG(3) << "LoadIntoMemory() read all lines, file=" << filename
             << ", cost time=" << timeline.ElapsedSec()
@@ -3481,6 +3485,7 @@ void InputTableDataFeed::LoadIntoMemoryByLib() {
       SlotRecordPool().put(&record_vec);
     }
     record_vec.clear();
+    record_vec.shrink_to_fit();
     timeline.Pause();
     VLOG(3) << "LoadIntoMemoryByLib() read all lines, file=" << filename
             << ", cost time=" << timeline.ElapsedSec()

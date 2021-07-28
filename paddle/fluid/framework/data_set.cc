@@ -1808,6 +1808,10 @@ void PadBoxSlotDataset::ShuffleData(int thread_num) {
       wg.wait();
       timer.Pause();
 
+      data.shrink_to_fit();
+      loc_datas.shrink_to_fit();
+      releases.shrink_to_fit();
+
       double span = timer.ElapsedSec();
       if (span > max_shuffle_span_) {
         max_shuffle_span_ = span;
