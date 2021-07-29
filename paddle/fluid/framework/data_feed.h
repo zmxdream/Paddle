@@ -54,6 +54,8 @@ DECLARE_int32(padbox_record_pool_max_size);
 DECLARE_int32(padbox_slotpool_thread_num);
 DECLARE_int32(padbox_slotrecord_extend_dim);
 DECLARE_bool(padbox_auc_runner_mode);
+DECLARE_bool(enable_slotrecord_reset_shrink);
+DECLARE_bool(enable_slotpool_wait_release);
 
 namespace paddle {
 namespace framework {
@@ -776,10 +778,6 @@ struct SlotValues {
   std::vector<T> slot_values;
   std::vector<uint32_t> slot_offsets;
 
-  ~SlotValues() {
-    slot_values.shrink_to_fit();
-    slot_offsets.shrink_to_fit();
-  }
   void add_values(const T* values, uint32_t num) {
     if (slot_offsets.empty()) {
       slot_offsets.push_back(0);
@@ -809,9 +807,13 @@ struct SlotValues {
     }
     slot_offsets[slot_num] = slot_values.size();
   }
-  void clear(void) {
+  void clear(bool shrink) {
     slot_offsets.clear();
     slot_values.clear();
+    if (shrink) {
+      slot_values.shrink_to_fit();
+      slot_offsets.shrink_to_fit();
+    }
   }
 };
 
@@ -830,14 +832,11 @@ struct SlotRecordObject {
   SlotValues<uint64_t> slot_uint64_feasigns_;
   SlotValues<float> slot_float_feasigns_;
 
-  ~SlotRecordObject() {
-    slot_uint64_feasigns_.clear();
-    slot_float_feasigns_.clear();
-  }
-
-  void reset(void) {
-    slot_uint64_feasigns_.clear();
-    slot_float_feasigns_.clear();
+  ~SlotRecordObject() { clear(true); }
+  void reset(void) { clear(FLAGS_enable_slotrecord_reset_shrink); }
+  void clear(bool shrink) {
+    slot_uint64_feasigns_.clear(shrink);
+    slot_float_feasigns_.clear(shrink);
   }
 };
 using SlotRecord = SlotRecordObject*;
@@ -891,15 +890,16 @@ inline int GetTotalFeaNum(const std::vector<SlotRecord>& slot_record,
 template <class T>
 class SlotObjAllocator {
  public:
-  SlotObjAllocator() : free_nodes_(NULL), capacity_(0) {}
+  explicit SlotObjAllocator(std::function<void(T*)> deleter)
+      : free_nodes_(NULL), capacity_(0), deleter_(deleter) {}
   ~SlotObjAllocator() { clear(); }
 
-  void clear(void) {
+  void clear() {
     T* tmp = NULL;
     while (free_nodes_ != NULL) {
       tmp = reinterpret_cast<T*>(reinterpret_cast<void*>(free_nodes_));
       free_nodes_ = free_nodes_->next;
-      delete tmp;
+      deleter_(tmp);
       --capacity_;
     }
     CHECK_EQ(capacity_, static_cast<size_t>(0));
@@ -928,17 +928,21 @@ class SlotObjAllocator {
   };
   Node* free_nodes_;  // a list
   size_t capacity_;
+  std::function<void(T*)> deleter_ = nullptr;
 };
 static const int OBJPOOL_BLOCK_SIZE = 10000;
 class SlotObjPool {
  public:
-  SlotObjPool() : max_capacity_(FLAGS_padbox_record_pool_max_size) {
+  SlotObjPool()
+      : max_capacity_(FLAGS_padbox_record_pool_max_size),
+        alloc_(free_slotrecord) {
     ins_chan_ = MakeChannel<SlotRecord>();
     ins_chan_->SetBlockSize(OBJPOOL_BLOCK_SIZE);
     for (int i = 0; i < FLAGS_padbox_slotpool_thread_num; ++i) {
       threads_.push_back(std::thread([this]() { run(); }));
     }
     disable_pool_ = false;
+    count_ = 0;
   }
   ~SlotObjPool() {
     ins_chan_->Close();
@@ -963,6 +967,7 @@ class SlotObjPool {
       }
     }
     mutex_.unlock();
+    count_ += n;
     if (size == n) {
       return;
     }
@@ -983,19 +988,23 @@ class SlotObjPool {
   }
   void run(void) {
     std::vector<SlotRecord> input;
-    while (ins_chan_->Read(input)) {
+    while (ins_chan_->ReadOnce(input, OBJPOOL_BLOCK_SIZE)) {
       if (input.empty()) {
         continue;
       }
       // over max capacity
-      if (disable_pool_ || input.size() + capacity() > max_capacity_) {
+      size_t n = input.size();
+      count_ -= n;
+      if (disable_pool_ || n + capacity() > max_capacity_) {
         for (auto& t : input) {
           free_slotrecord(t);
         }
       } else {
-        mutex_.lock();
         for (auto& t : input) {
           t->reset();
+        }
+        mutex_.lock();
+        for (auto& t : input) {
           alloc_.release(t);
         }
         mutex_.unlock();
@@ -1004,9 +1013,20 @@ class SlotObjPool {
     }
   }
   void clear(void) {
+    platform::Timer timeline;
+    timeline.Start();
     mutex_.lock();
     alloc_.clear();
     mutex_.unlock();
+    // wait release channel data
+    if (FLAGS_enable_slotpool_wait_release) {
+      while (!ins_chan_->Empty()) {
+        sleep(1);
+      }
+    }
+    timeline.Pause();
+    LOG(WARNING) << "clear slot pool data size=" << count_.load()
+                 << ", span=" << timeline.ElapsedSec();
   }
   size_t capacity(void) {
     mutex_.lock();
@@ -1022,6 +1042,7 @@ class SlotObjPool {
   std::mutex mutex_;
   SlotObjAllocator<SlotRecordObject> alloc_;
   bool disable_pool_;
+  std::atomic<long> count_;  // NOLINT
 };
 
 inline SlotObjPool& SlotRecordPool() {
@@ -1570,7 +1591,9 @@ class SlotPaddleBoxDataFeed : public DataFeed {
   virtual ~SlotPaddleBoxDataFeed() {
 #if defined(PADDLE_WITH_CUDA) && defined(_LINUX)
     if (pack_ != nullptr) {
-      LOG(WARNING) << "pack batch total time: " << batch_timer_.ElapsedSec()
+      LOG(WARNING) << "gpu: "
+                   << boost::get<platform::CUDAPlace>(place_).GetDeviceId()
+                   << ", pack batch total time: " << batch_timer_.ElapsedSec()
                    << "[copy:" << pack_->trans_time_span()
                    << ",fill:" << fill_timer_.ElapsedSec()
                    << ",memory:" << offset_timer_.ElapsedSec()

@@ -596,3 +596,7 @@ DEFINE_bool(enable_ins_parser_file, false,
             "enable parser ins file , default false");
 DEFINE_bool(enable_dense_nccl_barrier, false,
             "enable dense nccl barrier , default false");
+DEFINE_bool(enable_slotrecord_reset_shrink, false,
+            "enable slotrecord obejct reset shrink memory, default false");
+DEFINE_bool(enable_slotpool_wait_release, false,
+            "enable slotrecord obejct wait release, default false");

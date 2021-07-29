@@ -263,6 +263,7 @@ def __bootstrap__():
             'enable_binding_train_cpu',
             'enable_ins_parser_file',
             'enable_dense_nccl_barrier',
+            'enable_slotrecord_reset_shrink',
         ]
     core.init_gflags(["--tryfromenv=" + ",".join(read_env_flags)])
     core.init_glog(sys.argv[0])
