@@ -57,8 +57,9 @@ class CrossNormHadamardCUDAKernel : public framework::OpKernel<T> {
 
     Out->Resize({rows, cols});
     T* out_data = Out->mutable_data<T>(ctx.GetPlace());
-    auto out_eigen = framework::EigenVector<T>::Flatten(*Out);
-    out_eigen.device(place) = out_eigen.constant(static_cast<T>(0));
+    //    auto out_eigen = framework::EigenVector<T>::Flatten(*Out);
+    //    out_eigen.device(place) = out_eigen.constant(static_cast<T>(0));
+    math::set_constant(dev_ctx, Out, static_cast<T>(0));
 
     cuda_means->Resize({1, cols});
     cuda_scales->Resize({1, cols});
@@ -92,20 +93,25 @@ class CrossNormHadamardOpCUDAKernel : public framework::OpKernel<T> {
         ctx.Output<Tensor>(framework::GradVarName("SummaryInput"));
 
     auto& dev_ctx = ctx.template device_context<platform::CUDADeviceContext>();
-    auto& place = *ctx.template device_context<platform::CUDADeviceContext>()
-                       .eigen_device();
+    //    auto& place = *ctx.template
+    //    device_context<platform::CUDADeviceContext>()
+    //                       .eigen_device();
     auto stream = ctx.cuda_device_context().stream();
 
     // initialize
     input_grad->mutable_data<T>(ctx.GetPlace());
-    auto input_grad_eigen = framework::EigenVector<T>::Flatten(*input_grad);
-    input_grad_eigen.device(place) =
-        input_grad_eigen.constant(static_cast<T>(0));
+    math::set_constant(dev_ctx, input_grad, static_cast<T>(0));
+    //    auto input_grad_eigen =
+    //    framework::EigenVector<T>::Flatten(*input_grad);
+    //    input_grad_eigen.device(place) =
+    //        input_grad_eigen.constant(static_cast<T>(0));
 
     summary_grad->mutable_data<T>(ctx.GetPlace());
-    auto summary_grad_eigen = framework::EigenVector<T>::Flatten(*summary_grad);
-    summary_grad_eigen.device(place) =
-        summary_grad_eigen.constant(static_cast<T>(0));
+    math::set_constant(dev_ctx, summary_grad, static_cast<T>(0));
+    //    auto summary_grad_eigen =
+    //    framework::EigenVector<T>::Flatten(*summary_grad);
+    //    summary_grad_eigen.device(place) =
+    //        summary_grad_eigen.constant(static_cast<T>(0));
 
     auto cols = (embed_dim * 3 + 1) * fields_num;
     auto input_dims = input->dims();
