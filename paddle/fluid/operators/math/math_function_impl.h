@@ -44,6 +44,12 @@ template <typename DeviceContext, typename T, int Rank>
 void Transpose<DeviceContext, T, Rank>::operator()(
     const DeviceContext& context, const framework::Tensor& in,
     framework::Tensor* out, const std::vector<int>& axis) {
+  bool is_gpu_place = platform::is_gpu_place(context.GetPlace());
+  if (is_gpu_place || axis.size() > 6) {
+    TransposeNormal<DeviceContext, T> trans;
+    trans(context, in, out, axis);
+    return;
+  }
   Eigen::array<int, Rank> permute;
   for (int i = 0; i < Rank; i++) {
     permute[i] = axis[i];
@@ -53,7 +59,6 @@ void Transpose<DeviceContext, T, Rank>::operator()(
   auto* dev = context.eigen_device();
   // use 32bit index to speed up computation
   bool use_32bit_index = eigen_out.size() < Eigen::NumTraits<int>::highest();
-  bool is_gpu_place = platform::is_gpu_place(context.GetPlace());
   if (use_32bit_index && is_gpu_place) {
     To32BitIndex(eigen_out).device(*dev) =
         To32BitIndex(eigen_in).shuffle(permute);
