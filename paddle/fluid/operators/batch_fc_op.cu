@@ -143,18 +143,19 @@ class BatchFCCUDAKernel : public framework::OpKernel<T> {
     T* out_data = output->mutable_data<T>(ctx.GetPlace());
 
     // initialize
-    auto out_eigen = framework::EigenVector<T>::Flatten(*output);
+    //    auto out_eigen = framework::EigenVector<T>::Flatten(*output);
     auto& dev_ctx = ctx.template device_context<platform::CUDADeviceContext>();
-    auto& place = *ctx.template device_context<platform::CUDADeviceContext>()
-                       .eigen_device();
-    out_eigen.device(place) = out_eigen.constant(static_cast<T>(0));
-
+    //    auto& place = *ctx.template
+    //    device_context<platform::CUDADeviceContext>()
+    //                       .eigen_device();
+    //    out_eigen.device(place) = out_eigen.constant(static_cast<T>(0));
     math::Transpose<DeviceContext, T, 2> trans;
 
     Tensor out_help;
     out_help =
         ctx.AllocateTmpTensor<T, DeviceContext>({w_dims[1], ins_num}, dev_ctx);
-    trans(dev_ctx, *output, &out_help, {1, 0});
+    //    trans(dev_ctx, *output, &out_help, {1, 0});
+    math::set_constant(dev_ctx, &out_help, static_cast<T>(0));
 
     Tensor input_help;
     input_help = ctx.AllocateTmpTensor<T, DeviceContext>(
@@ -206,21 +207,25 @@ class BatchFCGradOpCUDAKernel : public framework::OpKernel<T> {
     auto ins_num = dout_dims[0];
 
     auto& dev_ctx = ctx.template device_context<platform::CUDADeviceContext>();
-    auto& place = *ctx.template device_context<platform::CUDADeviceContext>()
-                       .eigen_device();
+    //    auto& place = *ctx.template
+    //    device_context<platform::CUDADeviceContext>()
+    //                       .eigen_device();
     auto stream = ctx.cuda_device_context().stream();
     // initialize
     dx->mutable_data<T>(ctx.GetPlace());
-    auto dx_eigen = framework::EigenVector<T>::Flatten(*dx);
-    dx_eigen.device(place) = dx_eigen.constant(static_cast<T>(0));
+    //    auto dx_eigen = framework::EigenVector<T>::Flatten(*dx);
+    //    dx_eigen.device(place) = dx_eigen.constant(static_cast<T>(0));
+    math::set_constant(dev_ctx, dx, static_cast<T>(0));
 
     dw->mutable_data<T>(ctx.GetPlace());
-    auto dw_eigen = framework::EigenVector<T>::Flatten(*dw);
-    dw_eigen.device(place) = dw_eigen.constant(static_cast<T>(0));
+    //    auto dw_eigen = framework::EigenVector<T>::Flatten(*dw);
+    //    dw_eigen.device(place) = dw_eigen.constant(static_cast<T>(0));
+    math::set_constant(dev_ctx, dw, static_cast<T>(0));
 
     db->mutable_data<T>(ctx.GetPlace());
-    auto db_eigen = framework::EigenVector<T>::Flatten(*db);
-    db_eigen.device(place) = db_eigen.constant(static_cast<T>(0));
+    //    auto db_eigen = framework::EigenVector<T>::Flatten(*db);
+    //    db_eigen.device(place) = db_eigen.constant(static_cast<T>(0));
+    math::set_constant(dev_ctx, db, static_cast<T>(0));
 
     // get bias grad
     col_sum_mat(stream, ins_num, dout_coln, dout->data<T>(), db->data<T>(), 1);
@@ -243,15 +248,19 @@ class BatchFCGradOpCUDAKernel : public framework::OpKernel<T> {
     Tensor dx_help;
     dx_help = ctx.AllocateTmpTensor<T, DeviceContext>(
         {input_dims[0] * batchcount, input_dims[1] / batchcount}, dev_ctx);
-    auto dx_help_eigen = framework::EigenVector<T>::Flatten(dx_help);
-    dx_help_eigen.device(place) = dx_help_eigen.constant(static_cast<T>(0));
+    //    auto dx_help_eigen = framework::EigenVector<T>::Flatten(dx_help);
+    //    dx_help_eigen.device(place) =
+    //    dx_help_eigen.constant(static_cast<T>(0));
+    math::set_constant(dev_ctx, &dx_help, static_cast<T>(0));
 
     Tensor dw_help;
     dw_help = ctx.AllocateTmpTensor<T, DeviceContext>(
         {w_dims[0] * batchcount, w_dims[1] / batchcount}, dev_ctx);
-    auto dw_help_eigen = framework::EigenVector<T>::Flatten(dw_help);
+    //    auto dw_help_eigen = framework::EigenVector<T>::Flatten(dw_help);
+    //    dx_help_eigen.device(place) =
+    //    dx_help_eigen.constant(static_cast<T>(0));
+    math::set_constant(dev_ctx, &dw_help, static_cast<T>(0));
 
-    dx_help_eigen.device(place) = dx_help_eigen.constant(static_cast<T>(0));
     transpose_split_col(stream, dout_dims[0], dout_dims[1], batchcount,
                         dout->data<T>(), dout_help.data<T>());
     transpose_split_col(stream, input_dims[0], input_dims[1], batchcount,

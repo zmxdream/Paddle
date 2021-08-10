@@ -54,14 +54,33 @@ from paddle.fluid.layers import slice, reshape
 import warnings
 
 __all__ = [
-    'fused_elemwise_activation', 'sequence_topk_avg_pooling', 'var_conv_2d',
-    'match_matrix_tensor', 'tree_conv', 'fused_embedding_seq_pool',
-    'multiclass_nms2', 'search_pyramid_hash', 'shuffle_batch', 'partial_concat',
-    'sparse_embedding', 'partial_sum', 'tdm_child', 'rank_attention',
-    'tdm_sampler', 'batch_fc', '_pull_box_extended_sparse', 'bilateral_slice',
-    'correlation', 'fused_bn_add_act', 'fused_seqpool_cvm',
-    'cross_norm_layer_hadamard', 'fused_seqpool_cvm_with_pcoc',
-    'scaled_fc', 'scaled_int8fc'
+    'fused_elemwise_activation',
+    'sequence_topk_avg_pooling',
+    'var_conv_2d',
+    'match_matrix_tensor',
+    'tree_conv',
+    'fused_embedding_seq_pool',
+    'multiclass_nms2',
+    'search_pyramid_hash',
+    'shuffle_batch',
+    'partial_concat',
+    'sparse_embedding',
+    'partial_sum',
+    'tdm_child',
+    'rank_attention',
+    'tdm_sampler',
+    'batch_fc',
+    '_pull_box_extended_sparse',
+    'bilateral_slice',
+    'correlation',
+    'fused_bn_add_act',
+    'fused_seqpool_cvm',
+    'cross_norm_layer_hadamard',
+    'fused_seqpool_cvm_with_pcoc',
+    'scaled_fc',
+    'scaled_int8fc',
+    'fused_seqpool_concat',
+    'fused_concat',
 ]
 
 
@@ -2053,15 +2072,16 @@ def fused_bn_add_act(x,
 
     return batch_norm_out
 
+
 def scaled_fc(input,
-             param_size,
-             param_attr,
-             bias_size,
-             bias_attr,
-             input_scale_factor,
-             bias_scale_factor,
-             grad_scale_factor = 256.0,
-             act=None):
+              param_size,
+              param_attr,
+              bias_size,
+              bias_attr,
+              input_scale_factor,
+              bias_scale_factor,
+              grad_scale_factor=256.0,
+              act=None):
     """
     **Scaled FC layer**
     Notice: It currently supports GPU device.
@@ -2089,8 +2109,7 @@ def scaled_fc(input,
     check_dtype(dtype, 'input', ['float32', 'float64'], 'scaled_fc')
 
     if input_scale_factor != bias_scale_factor:
-        raise ValueError(
-            "input_scale_factor != bias_scale_factor. ")
+        raise ValueError("input_scale_factor != bias_scale_factor. ")
 
     # init fp32 weight & bias
     w = helper.create_parameter(
@@ -2105,25 +2124,30 @@ def scaled_fc(input,
         inputs={"Input": input,
                 "W": w,
                 "Bias": b},
-        attrs={'input_scale_factor': input_scale_factor, 'bias_scale_factor': bias_scale_factor, 'grad_scale_factor': grad_scale_factor},
+        attrs={
+            'input_scale_factor': input_scale_factor,
+            'bias_scale_factor': bias_scale_factor,
+            'grad_scale_factor': grad_scale_factor
+        },
         outputs={"Out": pre_act})
 
     return helper.append_activation(pre_act)
 
+
 def scaled_int8fc(input,
-             param_size,
-             param_attr,
-             bias_size,
-             bias_attr,
-             input_scale_factor = 1.0,
-             bias_scale_factor = 1.0,
-             grad_scale_factor = 1.0,
-             input_expand_factor = 1.0,
-             input_clip_factor = 2.0,
-             weight_expand_factor = 1.0,
-             weight_clip_factor = 2.0,
-             int8_range = 240.0,
-             act=None):
+                  param_size,
+                  param_attr,
+                  bias_size,
+                  bias_attr,
+                  input_scale_factor=1.0,
+                  bias_scale_factor=1.0,
+                  grad_scale_factor=1.0,
+                  input_expand_factor=1.0,
+                  input_clip_factor=2.0,
+                  weight_expand_factor=1.0,
+                  weight_clip_factor=2.0,
+                  int8_range=240.0,
+                  act=None):
     """
     **Int8 FC layer **
     Notice: It currently supports GPU device.
@@ -2153,8 +2177,7 @@ def scaled_int8fc(input,
     check_dtype(dtype, 'input', ['float32', 'float64'], 'scaled_int8fc')
 
     if input_scale_factor != bias_scale_factor:
-        raise ValueError(
-            "input_scale_factor != bias_scale_factor. ")
+        raise ValueError("input_scale_factor != bias_scale_factor. ")
 
     # init fp32 weight & bias
     w = helper.create_parameter(
@@ -2163,22 +2186,136 @@ def scaled_int8fc(input,
         attr=bias_attr, shape=bias_size, dtype='float32', is_bias=False)
     pre_act = helper.create_variable_for_type_inference('float32')
 
-    print("int8fc, input_scale_factor=%.2f, bias_scale_factor=%.2f, grad_scale_factor=%.2f, input_expand_factor=%.2f, input_clip_factor=%.2f, weight_expand_factor=%.2f, weight_clip_factor=%.2f, int8_range=%.2f" % (input_scale_factor, bias_scale_factor, grad_scale_factor, input_expand_factor, input_clip_factor, weight_expand_factor, weight_clip_factor, int8_range))
+    print(
+        "int8fc, input_scale_factor=%.2f, bias_scale_factor=%.2f, grad_scale_factor=%.2f, input_expand_factor=%.2f, input_clip_factor=%.2f, weight_expand_factor=%.2f, weight_clip_factor=%.2f, int8_range=%.2f"
+        % (input_scale_factor, bias_scale_factor, grad_scale_factor,
+           input_expand_factor, input_clip_factor, weight_expand_factor,
+           weight_clip_factor, int8_range))
     # scaled fc
     helper.append_op(
         type="scaled_int8fc",
         inputs={"Input": input,
                 "W": w,
                 "Bias": b},
-        attrs={'input_scale_factor': input_scale_factor,
-                'bias_scale_factor': bias_scale_factor,
-                'grad_scale_factor': grad_scale_factor,
-                'expand_factor': input_expand_factor,
-                'clip_factor': input_clip_factor,
-                'weight_expand_factor': weight_expand_factor,
-                'weight_clip_factor': weight_clip_factor,
-                'int8_range': int8_range},
+        attrs={
+            'input_scale_factor': input_scale_factor,
+            'bias_scale_factor': bias_scale_factor,
+            'grad_scale_factor': grad_scale_factor,
+            'expand_factor': input_expand_factor,
+            'clip_factor': input_clip_factor,
+            'weight_expand_factor': weight_expand_factor,
+            'weight_clip_factor': weight_clip_factor,
+            'int8_range': int8_range
+        },
         outputs={"Out": pre_act})
 
     return helper.append_activation(pre_act)
 
+
+def fused_seqpool_concat(input, offsets=None, dims=None):
+    """
+     **Notes: The Op only receives List of LoDTensor as input, only support SUM pooling now.
+    :attr:`input`.
+    Args:
+        input(Variable|list of Variable): Input is List of LoDTensor.
+    Returns:
+        Variable|list of Variable: The tensor variable storing sequence pool and cvm
+        of input.
+    """
+    helper = LayerHelper('fused_seqpool_concat', **locals())
+    check_type(input, "input", list, 'fused_seqpool_concat')
+    if len(input) != 2:
+        raise ValueError("concat total input only support two error")
+    if len(input[0]) != len(input[1]):
+        raise ValueError("concat total input not equal two error")
+    ## get inputs
+    def get_multiple_input(helper, inputs):
+        ret = []
+        for inp in inputs:
+            ret.append(helper.to_variable(inp))
+        return ret
+
+    inputs = get_multiple_input(helper, input[0])
+    outs = [
+        helper.create_variable_for_type_inference(inputs[i].dtype)
+        for i in range(len(inputs))
+    ]
+
+    total_cols_idx = 0
+    idxs = []
+    ptr_idx = []
+    ptr_dim = []
+    for i in range(len(input)):
+        inputs = get_multiple_input(helper, input[i])
+        start = 0
+        if isinstance(offsets, list) and i < len(offsets):
+            start = offsets[i]
+        if start < 0:
+            start = 0
+        dim = 0
+        total_dim = inputs[0].shape[1]
+        if isinstance(dims, list) and i < len(dims):
+            dim = dims[i]
+        if dim <= 0:
+            dim = total_dim - start
+        for j in range(dim):
+            idxs.append(start + j)  # record real data pos
+            ptr_idx.append(i)  # ptr pos
+            ptr_dim.append(total_dim)  # real cols dim
+            total_cols_idx = total_cols_idx + 1
+
+    idxs.extend(ptr_idx)
+    idxs.extend(ptr_dim)
+    # print("dim: %s, %s, input: %s, outs: %s" % (total_cols_idx, idxs, input, outs))
+
+    if len(idxs) != (total_cols_idx * 3):
+        raise ValueError("concat total cols idx error")
+    helper.append_op(
+        type="fused_seqpool_concat",
+        inputs={"X1": input[0],
+                "X2": input[1]},
+        outputs={"Out": outs},
+        attrs={"output_idx": idxs,
+               "output_dim": total_cols_idx})
+
+    return outs
+
+
+def fused_concat(input, start_index=0, length=-1, axis=1):
+    """
+     **Notes: The Op only receives List of LoDTensor as input, only support SUM pooling now.
+    :attr:`input`.
+    Args:
+        input(Variable|list of Variable): Input is List of LoDTensor.
+    Returns:
+        Variable|list of Variable: The tensor variable storing sequence pool and cvm
+        of input.
+    """
+    helper = LayerHelper('fused_concat', **locals())
+    check_type(input, "input", list, 'fused_concat')
+    if axis != 1:
+        raise ValueError("concat only support cols")
+    if len(input) < 1:
+        raise ValueError("concat total input only support two error")
+
+    dtype = helper.input_dtype()
+    inputs = helper.multiple_input()
+    out = helper.create_variable_for_type_inference(dtype)
+
+    ## equal cols concat
+    dim = inputs[0].shape[1]
+    for i in range(1, len(inputs)):
+        inp = inputs[i]
+        if inp.shape[1] != dim:
+            raise ValueError("concat input only support dim no equal data")
+    if start_index < 0:
+        start_index = 0
+    if length <= 0:
+        length = dim - start_index
+    helper.append_op(
+        type="fused_concat",
+        inputs={"X": input},
+        outputs={"Out": out},
+        attrs={"offset": start_index,
+               "length": length})
+    return out
