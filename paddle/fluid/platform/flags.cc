@@ -600,3 +600,5 @@ DEFINE_bool(enable_slotrecord_reset_shrink, false,
             "enable slotrecord obejct reset shrink memory, default false");
 DEFINE_bool(enable_slotpool_wait_release, false,
             "enable slotrecord obejct wait release, default false");
+DEFINE_bool(enable_pullpush_dedup_keys, false,
+            "enable pull push dedup keys, default false");
