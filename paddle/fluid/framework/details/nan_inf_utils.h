@@ -33,6 +33,9 @@ void CheckVarHasNanOrInf(const std::string& op_type,
 void CheckOpHasNanOrInf(const framework::OperatorBase& op,
                         const framework::Scope& scope,
                         const platform::Place& place);
+bool CheckOpHasNanOrInfRet(const framework::OperatorBase& op,
+                           const framework::Scope& scope,
+                           const platform::Place& place);
 }  // namespace details
 }  // namespace framework
 }  // namespace paddle

@@ -34,6 +34,14 @@ __global__ void ClipCudaKernel(const T* input, T* out, int num,
     out[idx] = op(input[idx]);
   }
 }
+template <typename T, typename UnaryOperation>
+__global__ void ClipGradCudaKernel(const T* dinput, const T* input, T* out,
+                                   int num, UnaryOperation op) {
+  int idx = threadIdx.x + blockDim.x * blockIdx.x;
+  if (idx < num) {
+    out[idx] = op(dinput[idx], input[idx]);
+  }
+}
 #endif
 
 template <typename T>
@@ -179,9 +187,22 @@ class ClipGradKernel : public framework::OpKernel<T> {
       auto* d_x_data = d_x->mutable_data<T>(context.GetPlace());
       const T* d_out_data = d_out->data<T>();
       const T* x_data = x->data<T>();
-      Transform<DeviceContext> trans;
-      trans(context.template device_context<DeviceContext>(), d_out_data,
-            d_out_data + numel, x_data, d_x_data, ClipGradFunctor<T>(min, max));
+      if (platform::is_gpu_place(context.GetPlace())) {
+#ifdef __NVCC__
+        int threads = 256;
+        int blocks = (numel + threads - 1) / threads;
+        ClipGradCudaKernel<T, ClipGradFunctor<T>><<<
+            blocks, threads, 0,
+            context.template device_context<platform::CUDADeviceContext>()
+                .stream()>>>(d_out_data, x_data, d_x_data, numel,
+                             ClipGradFunctor<T>(min, max));
+#endif
+      } else {
+        Transform<DeviceContext> trans;
+        trans(context.template device_context<DeviceContext>(), d_out_data,
+              d_out_data + numel, x_data, d_x_data,
+              ClipGradFunctor<T>(min, max));
+      }
     }
   }
 };

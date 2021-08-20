@@ -28,6 +28,7 @@
 #include "paddle/fluid/framework/threadpool.h"
 DECLARE_int32(padbox_dataset_shuffle_thread_num);
 DECLARE_int32(padbox_dataset_merge_thread_num);
+DECLARE_int32(padbox_max_shuffle_wait_count);
 namespace boxps {
 class PSAgentBase;
 }

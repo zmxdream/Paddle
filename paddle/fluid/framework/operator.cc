@@ -209,7 +209,8 @@ void OperatorBase::Run(const Scope& scope, const platform::Place& place) {
                  << ", debug string: [" << DebugStringEx(&scope) << "]";
     std::rethrow_exception(std::current_exception());
   } catch (...) {
-    LOG(WARNING) << Type() << " raises an unknown exception" << GetExecutionPlace(place) << " " << DebugStringEx(&scope);
+    LOG(WARNING) << Type() << " raises an unknown exception"
+                 << GetExecutionPlace(place) << " " << DebugStringEx(&scope);
     std::rethrow_exception(std::current_exception());
   }
 }
@@ -1059,7 +1060,6 @@ void OperatorWithKernel::RunImpl(const Scope& scope,
     RunImpl(scope, place, runtime_ctx_.get());
   }
 }
-
 void OperatorWithKernel::RunImpl(const Scope& scope,
                                  const platform::Place& place,
                                  RuntimeContext* runtime_ctx) const {
@@ -1147,7 +1147,35 @@ void OperatorWithKernel::RunImpl(const Scope& scope,
   }
 
   if (FLAGS_check_nan_inf) {
-    framework::details::CheckOpHasNanOrInf(*this, exec_scope, place);
+    //    framework::details::CheckOpHasNanOrInf(*this, exec_scope, place);
+    if (framework::details::CheckOpHasNanOrInfRet(*this, exec_scope, place)) {
+      std::ostringstream os;
+      for (auto& iname : InputVars()) {
+        auto* var = exec_scope.FindVar(iname);
+        if (var == nullptr) continue;
+        os << "input name:" << iname << ", ";
+        if (var->IsType<framework::LoDTensor>()) {
+          os << var->Get<framework::LoDTensor>();
+        } else if (var->IsType<framework::SelectedRows>()) {
+          os << var->Get<framework::SelectedRows>().value();
+        }
+        os << "\n";
+      }
+      for (auto& iname : OutputVars(true)) {
+        auto* var = exec_scope.FindVar(iname);
+        if (var == nullptr) continue;
+        os << "output name:" << iname << ", ";
+        if (var->IsType<framework::LoDTensor>()) {
+          os << var->Get<framework::LoDTensor>();
+        } else if (var->IsType<framework::SelectedRows>()) {
+          os << var->Get<framework::SelectedRows>().value();
+        }
+        os << "\n";
+      }
+      printf("%s", os.str().c_str());
+      PADDLE_ENFORCE(false, "ERROR: check INF and NAN: %s",
+                     DebugStringEx(&exec_scope).c_str());
+    }
   }
 
   // To solve issue #15032, have a discussion with @Luotao for cpu inference,
