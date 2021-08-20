@@ -12,14 +12,25 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License. */
 
-#include <cub/cub.cuh>
+#ifdef __NVCC__
+#include "cub/cub.cuh"
+#endif
+#ifdef __HIPCC__
+#include <hipcub/hipcub.hpp>
+namespace cub = hipcub;
+#endif
 #include <memory>
 #include <vector>
 
 #include "paddle/fluid/framework/ddim.h"
 #include "paddle/fluid/operators/layer_norm_op.h"
-#include "paddle/fluid/platform/cudnn_helper.h"
 #include "paddle/fluid/platform/float16.h"
+#ifdef PADDLE_WITH_CUDA
+#include "paddle/fluid/platform/cudnn_helper.h"
+#endif
+#ifdef PADDLE_WITH_HIP
+#include "paddle/fluid/platform/miopen_helper.h"
+#endif
 
 namespace paddle {
 namespace operators {
@@ -31,11 +42,45 @@ using CudnnDataType = platform::CudnnDataType<T>;
 template <typename T>
 using LayerNormParamType = typename CudnnDataType<T>::BatchNormParamType;
 
-inline static int GetDesiredBlockDim(int block_dim) {
+inline static int GetDesiredBlockDim(int64_t block_dim) {
+#ifdef __HIPCC__
+  const int kMaxBlockDim = 256;
+  const int lwarpSize = 64;
+#else
   const int kMaxBlockDim = 512;
-  return block_dim >= kMaxBlockDim
-             ? kMaxBlockDim
-             : (1 << (static_cast<int>(std::log2f(block_dim))));
+  const int lwarpSize = 32;
+#endif
+  return block_dim >= kMaxBlockDim ? kMaxBlockDim : lwarpSize;
+}
+
+template <typename U>
+static __forceinline__ __device__ U WarpReduceSum(U val) {
+  unsigned mask = 0u;
+  CREATE_SHFL_MASK(mask, true);
+  for (int offset = warpSize / 2; offset > 0; offset /= 2) {
+    val += paddle::platform::CudaShuffleDownSync(mask, val, offset);
+  }
+  return val;
+}
+
+template <typename U>
+__forceinline__ __device__ U BlockReduceSum(U val, U *shared) {
+  int lane = threadIdx.x % warpSize;
+  int wid = threadIdx.x / warpSize;
+
+  val = WarpReduceSum(val);  // Each warp performs partial reduction
+
+  __syncthreads();
+  if (lane == 0) shared[wid] = val;  // Write reduced value to shared memory
+
+  __syncthreads();  // Wait for all partial reductions
+  // read from shared memory only if that warp existed
+  val =
+      (threadIdx.x < blockDim.x / warpSize) ? shared[lane] : static_cast<U>(0);
+
+  if (wid == 0) val = WarpReduceSum(val);  // Final reduce within first warp
+
+  return val;
 }
 
 #define FIXED_BLOCK_DIM_CASE_BASE(log2_block_dim, ...)  \
@@ -55,15 +100,17 @@ inline static int GetDesiredBlockDim(int block_dim) {
   FIXED_BLOCK_DIM_CASE_BASE(2, ##__VA_ARGS__); \
   FIXED_BLOCK_DIM_CASE_BASE(1, ##__VA_ARGS__)
 
-#define FIXED_BLOCK_DIM_FIXED_BLOCK_NUM_CASE_BASE(                             \
-    log2_block_dim, feature_size, kMaxBlockNum, ...)                           \
-  case (1 << (log2_block_dim)): {                                              \
-    for (int i = 0; i < std::ceil(feature_size / (1.0 * kMaxBlockNum)); i++) { \
-      int col_offset = i * kMaxBlockNum;                                       \
-      int block_num = std::min(feature_size - col_offset, kMaxBlockNum);       \
-      constexpr auto kBlockDim = (1 << (log2_block_dim));                      \
-      __VA_ARGS__;                                                             \
-    }                                                                          \
+#define FIXED_BLOCK_DIM_FIXED_BLOCK_NUM_CASE_BASE(                          \
+    log2_block_dim, feature_size, kMaxBlockNum, ...)                        \
+  case (1 << (log2_block_dim)): {                                           \
+    for (int64_t i = 0; i < std::ceil(feature_size / (1.0 * kMaxBlockNum)); \
+         i++) {                                                             \
+      int64_t col_offset = i * static_cast<int64_t>(kMaxBlockNum);          \
+      int block_num = static_cast<int>(std::min(                            \
+          feature_size - col_offset, static_cast<int64_t>(kMaxBlockNum)));  \
+      constexpr auto kBlockDim = (1 << (log2_block_dim));                   \
+      __VA_ARGS__;                                                          \
+    }                                                                       \
   } break
 
 #define FIXED_BLOCK_DIM_FIXED_BLOCK_NUM_CASE(feature_size, kMaxBlockNum, ...) \
@@ -108,106 +155,144 @@ struct PairForLayerNormAddFunctor {
 };
 
 template <typename T>
-__inline__ __device__ T rsqrt(const T val) {
+__inline__ __device__ T rsqrt_(const T val) {
   return static_cast<T>(1) / sqrt(val);
 }
 
 template <>
-__inline__ __device__ float rsqrt(const float val) {
+__inline__ __device__ float rsqrt_(const float val) {
   return rsqrtf(val);
 }
 
 template <>
-__inline__ __device__ double rsqrt(const double val) {
+__inline__ __device__ double rsqrt_(const double val) {
   return rsqrt(val);
 }
 
 #if CUDA_ARCH_FP16_SUPPORTED(__CUDA_ARCH__)
 template <>
-__inline__ __device__ half rsqrt(const half val) {
+__inline__ __device__ half rsqrt_(const half val) {
   return hrsqrt(val);
 }
 #endif
 
+#define __LAYER_NORM_PART_FUNC__                                            \
+  __shared__ U mean_share;                                                  \
+  __shared__ U var_share;                                                   \
+  __shared__ U shared_mean[32];                                             \
+  __shared__ U shared_var[32];                                              \
+  int64_t beg_idx = blockIdx.x * feature_size + threadIdx.x;                \
+  int64_t end_idx = (blockIdx.x + 1) * feature_size;                        \
+  U mean_val = 0;                                                           \
+  U var_val = 0;                                                            \
+  for (int64_t i = beg_idx; i < end_idx; i += BlockDim) {                   \
+    U tmp = static_cast<U>(x[i]);                                           \
+    mean_val += tmp;                                                        \
+    var_val += (tmp * tmp);                                                 \
+  }                                                                         \
+  mean_val = BlockReduceSum<U>(mean_val, shared_mean);                      \
+  var_val = BlockReduceSum<U>(var_val, shared_var);                         \
+  if (threadIdx.x == 0) {                                                   \
+    auto scale = static_cast<float>(1.) / static_cast<float>(feature_size); \
+    auto tmp = mean_val * scale;                                            \
+    mean[blockIdx.x] = mean_share = static_cast<U>(tmp);                    \
+    var_share = static_cast<U>(var_val * scale - mean_share * mean_share);  \
+    var_share = var_share > U(0) ? var_share : U(0);                        \
+    var[blockIdx.x] = var_share;                                            \
+  }                                                                         \
+  __syncthreads();                                                          \
+  mean_val = mean_share;                                                    \
+  U invvar = rsqrt_<U>(var_share + static_cast<U>(epsilon));
+
 template <typename T, typename U, int BlockDim>
-__global__ void LayerNormForward(const T *x, const U *scale, const U *bias,
-                                 T *y, U *mean, U *var, float epsilon,
-                                 int feature_size) {
-  using BlockReduce = cub::BlockReduce<PairForLayerNorm<U>, BlockDim>;
-  __shared__ typename BlockReduce::TempStorage temp_storage;
-  __shared__ U mean_share;
-  __shared__ U var_share;
-
-  int beg_idx = blockIdx.x * feature_size + threadIdx.x;
-  int end_idx = (blockIdx.x + 1) * feature_size;
-
-  // Step 1: Reduce to calculate mean and var
-  U mean_val = 0;
-  U var_val = 0;
-  for (int i = beg_idx; i < end_idx; i += BlockDim) {
-    U tmp = static_cast<U>(x[i]);
-    mean_val += tmp;
-    var_val += (tmp * tmp);
-  }
-  auto pair = BlockReduce(temp_storage)
-                  .Reduce(PairForLayerNorm<U>(mean_val, var_val),
-                          PairForLayerNormAddFunctor<U>());
-  if (threadIdx.x == 0) {
-    auto tmp = pair.first_ / feature_size;
-    mean[blockIdx.x] = mean_share = static_cast<U>(tmp);
-    var[blockIdx.x] = var_share =
-        static_cast<U>(pair.second_ / feature_size - tmp * tmp);
-  }
-  __syncthreads();
-
-  mean_val = mean_share;
-  U invvar = rsqrt<U>(var_share + static_cast<U>(epsilon));
+__global__ void LayerNormForwardWithAll(const T *x, const U *scale,
+                                        const U *bias, T *y, U *mean, U *var,
+                                        float epsilon, int64_t feature_size) {
+  __LAYER_NORM_PART_FUNC__
 
   // Step 2: Calculate y
-  if (scale != nullptr) {
-    if (bias != nullptr) {
-      for (int i = beg_idx, j = threadIdx.x; i < end_idx;
-           i += BlockDim, j += BlockDim) {
-        y[i] = static_cast<T>(
-            scale[j] * (static_cast<U>(x[i]) - mean_val) * invvar + bias[j]);
-      }
-    } else {
-      for (int i = beg_idx, j = threadIdx.x; i < end_idx;
-           i += BlockDim, j += BlockDim) {
-        y[i] = static_cast<T>(scale[j] * (static_cast<U>(x[i]) - mean_val) *
-                              invvar);
-      }
-    }
-  } else {  // scale == nullptr
-    if (bias != nullptr) {
-      for (int i = beg_idx, j = threadIdx.x; i < end_idx;
-           i += BlockDim, j += BlockDim) {
-        y[i] = static_cast<T>((static_cast<U>(x[i]) - mean_val) * invvar +
-                              bias[j]);
-      }
-    } else {
-      for (int i = beg_idx, j = threadIdx.x; i < end_idx;
-           i += BlockDim, j += BlockDim) {
-        y[i] = static_cast<T>((static_cast<U>(x[i]) - mean_val) * invvar);
-      }
-    }
+  for (int64_t i = beg_idx, j = threadIdx.x; i < end_idx;
+       i += BlockDim, j += BlockDim) {
+    y[i] = static_cast<T>(
+        scale[j] * (static_cast<U>(x[i]) - mean_val) * invvar + bias[j]);
+  }
+}
+
+template <typename T, typename U, int BlockDim>
+__global__ void LayerNormForwardWithScale(const T *x, const U *scale, T *y,
+                                          U *mean, U *var, float epsilon,
+                                          int64_t feature_size) {
+  __LAYER_NORM_PART_FUNC__
+
+  // Step 2: Calculate y
+  for (int64_t i = beg_idx, j = threadIdx.x; i < end_idx;
+       i += BlockDim, j += BlockDim) {
+    y[i] =
+        static_cast<T>(scale[j] * (static_cast<U>(x[i]) - mean_val) * invvar);
+  }
+}
+
+template <typename T, typename U, int BlockDim>
+__global__ void LayerNormForwardWithBias(const T *x, const U *bias, T *y,
+                                         U *mean, U *var, float epsilon,
+                                         int64_t feature_size) {
+  __LAYER_NORM_PART_FUNC__
+  // Step 2: Calculate y
+  for (int64_t i = beg_idx, j = threadIdx.x; i < end_idx;
+       i += BlockDim, j += BlockDim) {
+    y[i] = static_cast<T>((static_cast<U>(x[i]) - mean_val) * invvar + bias[j]);
+  }
+}
+
+template <typename T, typename U, int BlockDim>
+__global__ void LayerNormForwardNothing(const T *x, T *y, U *mean, U *var,
+                                        float epsilon, int64_t feature_size) {
+  __LAYER_NORM_PART_FUNC__
+
+  // Step 2: Calculate y
+  for (int64_t i = beg_idx, j = threadIdx.x; i < end_idx;
+       i += BlockDim, j += BlockDim) {
+    y[i] = static_cast<T>((static_cast<U>(x[i]) - mean_val) * invvar);
+  }
+}
+template <typename T, typename U, int kBlockDim>
+void LayerNormForward(cudaStream_t stream, const int64_t batch_size,
+                      const T *input, const U *scale, const U *bias, T *output,
+                      U *mean, U *variance, float epsilon,
+                      int64_t feature_size) {
+  if (scale != nullptr && bias != nullptr) {
+    LayerNormForwardWithAll<T, U,
+                            kBlockDim><<<batch_size, kBlockDim, 0, stream>>>(
+        input, scale, bias, output, mean, variance, epsilon, feature_size);
+  } else if (scale != nullptr) {
+    LayerNormForwardWithScale<T, U,
+                              kBlockDim><<<batch_size, kBlockDim, 0, stream>>>(
+        input, scale, output, mean, variance, epsilon, feature_size);
+  } else if (bias != nullptr) {
+    LayerNormForwardWithBias<T, U,
+                             kBlockDim><<<batch_size, kBlockDim, 0, stream>>>(
+        input, bias, output, mean, variance, epsilon, feature_size);
+  } else {
+    LayerNormForwardNothing<T, U,
+                            kBlockDim><<<batch_size, kBlockDim, 0, stream>>>(
+        input, output, mean, variance, epsilon, feature_size);
   }
 }
 
 template <typename T, typename U, int VPT>
 __inline__ __device__ void cuLoadAddStridedInputs(
-    const int i1_block, const int thr_load_row_off, const int thr_load_col_off,
-    const int i2_off, const int row_stride, U *warp_buf1, U *warp_buf2,
-    const T *input, const T *dout, const int i1_end, const int n2,
-    const U *__restrict__ mean, const U *__restrict__ var,
-    const float epsilon) {
-  const int i1 = i1_block + thr_load_row_off;
+    const int64_t i1_block, const int thr_load_row_off,
+    const int thr_load_col_off, const int i2_off, const int row_stride,
+    U *warp_buf1, U *warp_buf2, const T *input, const T *dout,
+    const int64_t i1_end, const int64_t n2, const U *__restrict__ mean,
+    const U *__restrict__ var, const float epsilon) {
+  const int64_t i1 = i1_block + thr_load_row_off;
   if (i1 >= i1_end) return;
   U curr_mean = mean[i1];
-  U curr_invvar = rsqrt<U>(var[i1] + epsilon);
+  U curr_invvar = rsqrt_<U>(var[i1] + epsilon);
   for (int k = 0; k < VPT; ++k) {
     const int i2 = i2_off + k;
-    const int load_idx = i1 * n2 + i2;
+    const int64_t load_idx = i1 * n2 + i2;
     const int write_idx = thr_load_row_off * row_stride + thr_load_col_off + k;
     if (i2 < n2) {
       U curr_input = static_cast<U>(input[load_idx]);
@@ -221,8 +306,8 @@ __inline__ __device__ void cuLoadAddStridedInputs(
 
 template <typename T, typename U, int BDIMX, int BDIMY, int VPTX>
 __global__ void LayerNormBackwardPartGradGammaBeta(
-    const T *__restrict__ dout, const T *__restrict__ input, const int n1,
-    const int n2, const U *__restrict__ mean, const U *__restrict__ var,
+    const T *__restrict__ dout, const T *__restrict__ input, const int64_t n1,
+    const int64_t n2, const U *__restrict__ mean, const U *__restrict__ var,
     float epsilon, U *part_grad_gamma, U *part_grad_beta) {
   // VPTX -> value per thread.x, BDIMX -> blockDim.x, BDIMY -> blockDim.y, BDIMX
   // -> blockDim.x
@@ -248,7 +333,7 @@ __global__ void LayerNormBackwardPartGradGammaBeta(
   }
   __syncthreads();
 
-  for (int i1_block = blockIdx.y * BDIMY * VPTX; i1_block < n1;
+  for (int64_t i1_block = blockIdx.y * BDIMY * VPTX; i1_block < n1;
        i1_block += VPTX * BDIMY * gridDim.y) {
     cuLoadAddStridedInputs<T, U, VPTX>(
         i1_block, thr_load_row_off, thr_load_col_off, i2_off, row_stride,
@@ -281,7 +366,7 @@ __global__ void LayerNormBackwardPartGradGammaBeta(
     }
     __syncthreads();
   }
-  int i2 = blockIdx.x * blockDim.x + threadIdx.x;
+  int64_t i2 = blockIdx.x * blockDim.x + threadIdx.x;
   if (threadIdx.y == 0 && i2 < n2) {
     int row1 = threadIdx.y;
     int row2 = threadIdx.y + 1;
@@ -299,7 +384,7 @@ __global__ void LayerNormBackwardSumGradGammaBeta(
     const int n1, const int n2, U *grad_gamma, U *grad_beta) {
   // sum partial gradients for gamma and beta
   __shared__ U buf[BDIMX * BDIMY];
-  int i2 = blockIdx.x * BDIMX + threadIdx.x;
+  int64_t i2 = blockIdx.x * BDIMX + threadIdx.x;
   if (i2 < n2) {
     // each warp does sequential reductions until reduced part_size is num_warps
     int num_warp_reductions = part_size / BDIMY;
@@ -348,11 +433,15 @@ __global__ void LayerNormBackwardComputeGradInput(
     // epsilon, const T* gamma,
     const U *__restrict__ mean, const U *__restrict__ var, const float epsilon,
     const U *gamma, T *grad_input) {
-  for (auto i1 = blockIdx.y; i1 < n1; i1 += gridDim.y) {
+#ifdef __HIPCC__
+  for (auto i1 = hipBlockIdx_x; i1 < n1; i1 += hipGridDim_x) {
+#else
+  for (auto i1 = blockIdx.x; i1 < n1; i1 += gridDim.x) {
+#endif
     U sum_loss1 = U(0);
     U sum_loss2 = U(0);
     const U c_mean = mean[i1];
-    const U c_invvar = rsqrt<U>(var[i1] + epsilon);
+    const U c_invvar = rsqrt_<U>(var[i1] + epsilon);
     const T *k_input = input + i1 * n2;
     const T *k_dout = dout + i1 * n2;
     constexpr int numx = BDIMX * BDIMY;
@@ -392,12 +481,19 @@ __global__ void LayerNormBackwardComputeGradInput(
     }
     // intra-warp reductions
     for (int mask = BDIMX / 2; mask > 0; mask /= 2) {
+#ifdef PADDLE_WITH_HIP
+      sum_loss1 += __shfl_xor(sum_loss1, mask,
+                              warpSize);  // WARP_SHFL_XOR(sum_loss1, mask);
+      sum_loss2 += __shfl_xor(sum_loss2, mask,
+                              warpSize);  // WARP_SHFL_XOR(sum_loss2, mask);
+#else
       sum_loss1 +=
           __shfl_xor_sync(0xffffffff, sum_loss1, mask,
                           warpSize);  // WARP_SHFL_XOR(sum_loss1, mask);
       sum_loss2 +=
           __shfl_xor_sync(0xffffffff, sum_loss2, mask,
                           warpSize);  // WARP_SHFL_XOR(sum_loss2, mask);
+#endif
     }
     // inter-warp reductions
     if (BDIMY > 1) {
@@ -459,22 +555,17 @@ __global__ void LayerNormBackwardComputeGradInput(
 // Make sure that d_scale != nullptr && d_bias != nullptr
 // Since d_scale != nullptr, scale would not be nullptr
 template <typename T, typename U, int BlockDim, bool HasDx>
-__global__ void LayerNormBackwardGradientAll(const T *x, const T *d_y,
-                                             U *d_scale, U *d_bias, T *d_x,
-                                             const U *mean, const U *var,
-                                             const U *scale, float epsilon,
-                                             int batch_size, int feature_size,
-                                             int col_offset) {
-  using BlockReduce = cub::BlockReduce<PairForLayerNorm<U>, BlockDim>;
-  __shared__ typename BlockReduce::TempStorage temp_storage;
-
-  int beg_idx = threadIdx.x * feature_size + (blockIdx.x + col_offset);
-  int end_idx = batch_size * feature_size + (blockIdx.x + col_offset);
-  int stride = BlockDim * feature_size;
+__global__ void LayerNormBackwardGradientAll(
+    const T *x, const T *d_y, U *d_scale, U *d_bias, T *d_x, const U *mean,
+    const U *var, const U *scale, float epsilon, int64_t batch_size,
+    int64_t feature_size, int64_t col_offset) {
+  int64_t beg_idx = threadIdx.x * feature_size + (blockIdx.x + col_offset);
+  int64_t end_idx = batch_size * feature_size + (blockIdx.x + col_offset);
+  int64_t stride = BlockDim * feature_size;
 
   U d_scale_partial = static_cast<U>(0), d_bias_partial = static_cast<U>(0);
 
-  for (int i = beg_idx; i < end_idx; i += stride) {
+  for (int64_t i = beg_idx; i < end_idx; i += stride) {
     int row_idx = i / feature_size;
     auto var_val = real_sqrt(static_cast<U>(var[row_idx]) + epsilon);
     d_scale_partial += static_cast<U>(d_y[i]) *
@@ -486,13 +577,14 @@ __global__ void LayerNormBackwardGradientAll(const T *x, const T *d_y,
     }
   }
 
-  auto pair = BlockReduce(temp_storage)
-                  .Reduce(PairForLayerNorm<U>(d_scale_partial, d_bias_partial),
-                          PairForLayerNormAddFunctor<U>());
+  __shared__ U shared_scale[32];
+  __shared__ U shared_bias[32];
+  d_scale_partial = BlockReduceSum<U>(d_scale_partial, shared_scale);
+  d_bias_partial = BlockReduceSum<U>(d_bias_partial, shared_bias);
 
   if (threadIdx.x == 0) {
-    d_scale[blockIdx.x + col_offset] = pair.first_;
-    d_bias[blockIdx.x + col_offset] = pair.second_;
+    d_scale[blockIdx.x + col_offset] = d_scale_partial;
+    d_bias[blockIdx.x + col_offset] = d_bias_partial;
   }
 }
 
@@ -502,16 +594,16 @@ __global__ void LayerNormBackwardGradientAll(const T *x, const T *d_y,
 template <typename T, typename U, int BlockDim, bool HasDx, bool HasDScale>
 __global__ void LayerNormBackwardGradientScaleOrBias(
     const T *x, const T *d_y, U *d_scale, U *d_bias, T *d_x, const U *mean,
-    const U *var, const U *scale, float epsilon, int batch_size,
-    int feature_size, int col_offset) {
+    const U *var, const U *scale, float epsilon, int64_t batch_size,
+    int64_t feature_size, int col_offset) {
   using BlockReduce = cub::BlockReduce<U, BlockDim>;
   __shared__ typename BlockReduce::TempStorage temp_storage;
-  int beg_idx = threadIdx.x * feature_size + blockIdx.x + col_offset;
-  int end_idx = batch_size * feature_size + blockIdx.x + col_offset;
+  int64_t beg_idx = threadIdx.x * feature_size + blockIdx.x + col_offset;
+  int64_t end_idx = batch_size * feature_size + blockIdx.x + col_offset;
   int stride = BlockDim * feature_size;
   U d_scale_or_d_bias_partial = static_cast<U>(0);
 
-  for (int i = beg_idx; i < end_idx; i += stride) {
+  for (int64_t i = beg_idx; i < end_idx; i += stride) {
     int row_idx = i / feature_size;
     auto var_val =
         static_cast<U>(real_sqrt(static_cast<float>(var[row_idx]) + epsilon));
@@ -546,22 +638,20 @@ __global__ void LayerNormBackwardGradientScaleOrBias(
 }
 
 template <typename T, typename U, int BlockDim>
-__global__ void LayerNormBackwardPostProcessToCalculateDX(const T *x, T *d_x,
-                                                          const U *mean,
-                                                          const U *var,
-                                                          float epsilon,
-                                                          int feature_size) {
+__global__ void LayerNormBackwardPostProcessToCalculateDX(
+    const T *x, T *d_x, const U *mean, const U *var, float epsilon,
+    int64_t feature_size) {
   using BlockReduce = cub::BlockReduce<PairForLayerNorm<U>, BlockDim>;
   __shared__ typename BlockReduce::TempStorage temp_storage;
   __shared__ U d_x_reduce_tmp[2];
 
-  int beg_idx = blockIdx.x * feature_size + threadIdx.x;
-  int end_idx = (blockIdx.x + 1) * feature_size;
+  int64_t beg_idx = blockIdx.x * feature_size + threadIdx.x;
+  int64_t end_idx = (blockIdx.x + 1) * feature_size;
 
   U block_mean = mean[blockIdx.x];
   U block_var = var[blockIdx.x];
   U d_x_mean_partial = static_cast<U>(0), d_x_var_partial = static_cast<U>(0);
-  for (int i = beg_idx; i < end_idx; i += BlockDim) {
+  for (int64_t i = beg_idx; i < end_idx; i += BlockDim) {
     d_x_mean_partial += static_cast<U>(d_x[i]);
     d_x_var_partial +=
         static_cast<U>(d_x[i]) * (static_cast<U>(x[i]) - block_mean);
@@ -582,7 +672,7 @@ __global__ void LayerNormBackwardPostProcessToCalculateDX(const T *x, T *d_x,
 
   d_x_mean_partial = d_x_reduce_tmp[0];
   d_x_var_partial = d_x_reduce_tmp[1];
-  for (int i = beg_idx; i < end_idx; i += BlockDim) {
+  for (int64_t i = beg_idx; i < end_idx; i += BlockDim) {
     d_x[i] -= static_cast<T>(d_x_mean_partial);
     d_x[i] -=
         static_cast<T>((static_cast<U>(x[i]) - block_mean) * d_x_var_partial);
@@ -595,17 +685,17 @@ __global__ void LayerNormBackwardGradientOnlyDX(const T *x, const T *d_y,
                                                 T *d_x, const U *mean,
                                                 const U *var, const U *scale,
                                                 float epsilon,
-                                                int feature_size) {
+                                                int64_t feature_size) {
   using BlockReduce = cub::BlockReduce<PairForLayerNorm<U>, BlockDim>;
   __shared__ typename BlockReduce::TempStorage temp_storage;
   __shared__ U d_x_reduce_tmp[2];
 
-  int beg_idx = blockIdx.x * feature_size + threadIdx.x;
-  int end_idx = (blockIdx.x + 1) * feature_size;
+  int64_t beg_idx = blockIdx.x * feature_size + threadIdx.x;
+  int64_t end_idx = (blockIdx.x + 1) * feature_size;
 
   U block_mean = mean[blockIdx.x], block_var = var[blockIdx.x];
   U d_x_mean_partial = static_cast<U>(0), d_x_var_partial = static_cast<U>(0);
-  for (int i = beg_idx; i < end_idx; i += BlockDim) {
+  for (int64_t i = beg_idx; i < end_idx; i += BlockDim) {
     auto var_val =
         static_cast<U>(real_sqrt(static_cast<float>(block_var) + epsilon));
     if (scale != nullptr) {
@@ -635,7 +725,7 @@ __global__ void LayerNormBackwardGradientOnlyDX(const T *x, const T *d_y,
 
   d_x_mean_partial = d_x_reduce_tmp[0];
   d_x_var_partial = d_x_reduce_tmp[1];
-  for (int i = beg_idx; i < end_idx; i += BlockDim) {
+  for (int64_t i = beg_idx; i < end_idx; i += BlockDim) {
     d_x[i] -= static_cast<T>(d_x_mean_partial);
     d_x[i] -=
         static_cast<T>((static_cast<U>(x[i]) - block_mean) * d_x_var_partial);
@@ -645,8 +735,8 @@ __global__ void LayerNormBackwardGradientOnlyDX(const T *x, const T *d_y,
 template <typename T, typename U>
 __global__ void LayerNormBackwardWhenBatchSizeIsOne(
     const T *x, const T *d_y, T *d_x, U *d_scale, U *d_bias, const U *mean,
-    const U *var, const U *scale, float epsilon, int feature_size) {
-  int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    const U *var, const U *scale, float epsilon, int64_t feature_size) {
+  int64_t idx = threadIdx.x + blockIdx.x * blockDim.x;
   if (idx < feature_size) {
     auto var_val =
         static_cast<U>(real_sqrt(static_cast<float>(var[idx]) + epsilon));
@@ -671,13 +761,16 @@ __global__ void LayerNormBackwardWhenBatchSizeIsOne(
 template <typename T, typename U>
 static void LayerNormBackward(const T *x, const T *d_y, const U *scale,
                               const U *mean, const U *var, T *d_x, U *d_scale,
-                              U *d_bias, float epsilon, int batch_size,
-                              int feature_size,
+                              U *d_bias, float epsilon, int64_t batch_size,
+                              int64_t feature_size,
                               const framework::ExecutionContext &ctx) {
   auto &dev_ctx = ctx.cuda_device_context();
   auto stream = dev_ctx.stream();
-
+#ifdef __HIPCC__
+  const int kMaxBlockDim = 256;
+#else
   const int kMaxBlockDim = 512;
+#endif
   const int kMaxBlockNum = 128;
   int gradient_flag = ((d_x != nullptr ? 1 : 0) << 2) |
                       ((d_scale != nullptr ? 1 : 0) << 1) |
@@ -809,9 +902,8 @@ static void LayerNormBackward(const T *x, const T *d_y, const U *scale,
       constexpr int BDIMX1 = 32;
       constexpr int BDIMY1 = 4;
       dim3 threads1(BDIMX1, BDIMY1, 1);
-      const dim3 blocks1(1, batch_size, 1);
       LayerNormBackwardComputeGradInput<
-          T, U, BDIMX1, BDIMY1><<<blocks1, threads1, 0, stream>>>(
+          T, U, BDIMX1, BDIMY1><<<batch_size, threads1, 0, stream>>>(
           d_y, x, batch_size, feature_size, mean, var, epsilon, scale, d_x);
       break;
     }
@@ -829,12 +921,12 @@ void LayerNormDirectCUDAFunctor<T>::operator()(cudaStream_t stream,
                                                int begin_norm_axis, float eps) {
   const auto x_dims = framework::make_ddim(input_shape);
   auto matrix_dim = framework::flatten_to_2d(x_dims, begin_norm_axis);
-  int batch_size = static_cast<int>(matrix_dim[0]);
-  int feature_size = static_cast<int>(matrix_dim[1]);
+  int64_t batch_size = static_cast<int64_t>(matrix_dim[0]);
+  int64_t feature_size = static_cast<int64_t>(matrix_dim[1]);
   switch (GetDesiredBlockDim(feature_size)) {
-    FIXED_BLOCK_DIM_CASE(
-        LayerNormForward<T, T, kBlockDim><<<batch_size, kBlockDim, 0, stream>>>(
-            input, scale, bias, output, mean, variance, eps, feature_size));
+    FIXED_BLOCK_DIM_CASE(LayerNormForward<T, T, kBlockDim>(
+        stream, batch_size, input, scale, bias, output, mean, variance, eps,
+        feature_size));
     default:
       PADDLE_THROW(platform::errors::InvalidArgument(
           "Product from begin_norm_axis to end in layer_norm must be larger "
@@ -868,17 +960,15 @@ class LayerNormKernel<platform::CUDADeviceContext, T>
     auto *bias_data = (bias == nullptr ? nullptr : bias->data<U>());
 
     auto matrix_dim = framework::flatten_to_2d(x_dims, begin_norm_axis);
-    int batch_size = static_cast<int>(matrix_dim[0]);
-    int feature_size = static_cast<int>(matrix_dim[1]);
+    int64_t batch_size = static_cast<int64_t>(matrix_dim[0]);
+    int64_t feature_size = static_cast<int64_t>(matrix_dim[1]);
 
     auto stream = ctx.cuda_device_context().stream();
 
     switch (GetDesiredBlockDim(feature_size)) {
-      FIXED_BLOCK_DIM_CASE(
-          LayerNormForward<T, U,
-                           kBlockDim><<<batch_size, kBlockDim, 0, stream>>>(
-              x_data, scale_data, bias_data, y_data, mean_data, var_data,
-              epsilon, feature_size));
+      FIXED_BLOCK_DIM_CASE(LayerNormForward<T, U, kBlockDim>(
+          stream, batch_size, x_data, scale_data, bias_data, y_data, mean_data,
+          var_data, epsilon, feature_size));
       default:
         PADDLE_THROW(platform::errors::InvalidArgument(
             "Product from begin_norm_axis to end must be larger than 1"));
@@ -922,8 +1012,8 @@ class LayerNormGradKernel<platform::CUDADeviceContext, T>
     const auto &x_dims = x->dims();
     const auto begin_norm_axis = ctx.Attr<int>("begin_norm_axis");
     auto matrix_dim = framework::flatten_to_2d(x_dims, begin_norm_axis);
-    int batch_size = static_cast<int>(matrix_dim[0]);
-    int feature_size = static_cast<int>(matrix_dim[1]);
+    int64_t batch_size = static_cast<int64_t>(matrix_dim[0]);
+    int64_t feature_size = static_cast<int64_t>(matrix_dim[1]);
 
     LayerNormBackward<T, U>(x_data, d_y_data, scale_data, mean_data, var_data,
                             d_x_data, d_scale_data, d_bias_data, epsilon,
@@ -942,6 +1032,18 @@ template class LayerNormDirectCUDAFunctor<float>;
 
 namespace ops = paddle::operators;
 namespace plat = paddle::platform;
+#ifdef PADDLE_WITH_HIP
+// MIOPEN do not support double
+REGISTER_OP_CUDA_KERNEL(
+    layer_norm,
+    ops::LayerNormKernel<paddle::platform::CUDADeviceContext, float>,
+    ops::LayerNormKernel<paddle::platform::CUDADeviceContext, plat::float16>);
+REGISTER_OP_CUDA_KERNEL(
+    layer_norm_grad,
+    ops::LayerNormGradKernel<paddle::platform::CUDADeviceContext, float>,
+    ops::LayerNormGradKernel<paddle::platform::CUDADeviceContext,
+                             plat::float16>);
+#else
 REGISTER_OP_CUDA_KERNEL(
     layer_norm,
     ops::LayerNormKernel<paddle::platform::CUDADeviceContext, float>,
@@ -953,3 +1055,4 @@ REGISTER_OP_CUDA_KERNEL(
     ops::LayerNormGradKernel<paddle::platform::CUDADeviceContext, double>,
     ops::LayerNormGradKernel<paddle::platform::CUDADeviceContext,
                              plat::float16>);
+#endif

@@ -364,6 +364,7 @@ __global__ void PullDedupCopyBaseVariable(
     for (int k = 0; k < cvm_offset; ++k) {
       dest_ptr[k] = src_ptr[k];
     }
+    //    assert(src_val.embed_w >= -10.0 && src_val.embed_w <= 10.0);
   }  // end kernel loop
 }
 template <typename FEATURE_VALUE_GPU_TYPE>
@@ -388,6 +389,8 @@ __global__ void PullDedupCopyExpandVariable(
       } else {
         *(dest[x + slot_num] + offset) = 0;
       }
+      //      assert(*(dest[x + slot_num] + offset) >= -10.0 && *(dest[x +
+      //      slot_num] + offset) <= 10.0);
     } else if (dest[x] != 0 && col < embedx_dim) {  // embedx
       int offset = y * (embedx_dim + cvm_offset) + cvm_offset + col;
       if (total_dims[idx] & 0x01) {
@@ -395,6 +398,8 @@ __global__ void PullDedupCopyExpandVariable(
       } else {
         *(dest[x] + offset) = 0;
       }
+      //      assert(*(dest[x] + offset) >= -10.0 && *(dest[x] + offset) <=
+      //      10.0);
     }
   }  // end kernel loop
 }

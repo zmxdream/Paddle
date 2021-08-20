@@ -1400,7 +1400,8 @@ class PadBoxSlotDataConsumer : public boxps::DataConsumer {
     CHECK_GE(_service_id, 0);
   }
   virtual ~PadBoxSlotDataConsumer() {
-    CHECK_GE(BoxWrapper::data_shuffle_->register_handler(this), 0);
+    //    CHECK_GE(BoxWrapper::data_shuffle_->register_handler(this), 0);
+    BoxWrapper::data_shuffle_->unregister_consumer(_service_id);
   }
   virtual void on_receive(const int client_id, const char* buff, int len) {
     _dataset->ReceiveSuffleData(client_id, buff, len);
@@ -1412,6 +1413,9 @@ class PadBoxSlotDataConsumer : public boxps::DataConsumer {
     int client_id = (_service_id << 16) | rank_id;
     BoxWrapper::data_shuffle_->send_message_callback(client_id, buf, len,
                                                      callback);
+  }
+  void wait_message_done(void) {
+    BoxWrapper::data_shuffle_->wait_done(_service_id);
   }
 
  private:
@@ -1823,6 +1827,7 @@ void PadBoxSlotDataset::ShuffleData(int thread_num) {
               << ", span: " << span;
       // only one thread send finish notify
       if (--shuffle_counter_ == 0) {
+        timer.Start();
         // send closed
         wg.add(mpi_size_);
         for (int i = 0; i < mpi_size_; ++i) {
@@ -1833,10 +1838,15 @@ void PadBoxSlotDataset::ShuffleData(int thread_num) {
           handler->send_message_callback(i, NULL, 0, &wg);
         }
         wg.wait();
+        // wait message done
+        handler->wait_message_done();
+        timer.Pause();
+
         // end shuffle thread
         LOG(WARNING) << "passid = " << pass_id_
                      << ", end shuffle span max:" << max_shuffle_span_
-                     << ", min:" << min_shuffle_span_;
+                     << ", min:" << min_shuffle_span_
+                     << ", wait:" << timer.ElapsedSec();
         // local closed channel
         if (--finished_counter_ == 0) {
           while (receiver_cnt_ > 0) {
