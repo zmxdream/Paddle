@@ -1783,14 +1783,16 @@ class InputIndexDataFeed : public DataFeed {
 template <class AR, class T>
 paddle::framework::Archive<AR>& operator<<(paddle::framework::Archive<AR>& ar,
                                            const SlotValues<T>& r) {
-  ar << r.slot_values;
+  uint16_t value_len = static_cast<uint16_t>(r.slot_values.size());
+  ar << value_len;
+  if (value_len > 0) {
+    ar.Write(&r.slot_values[0], value_len * sizeof(T));
 
-  uint16_t slot_num = (uint16_t)r.slot_offsets.size();
-  ar << slot_num;
-  if (slot_num > 0 && !r.slot_values.empty()) {
-    // remove first 0 and end data len
-    for (uint16_t i = 1; i < slot_num - 1; ++i) {
-      ar << r.slot_offsets[i];
+    uint16_t slot_num = static_cast<uint16_t>(r.slot_offsets.size());
+    ar << slot_num;
+    if (slot_num > 2) {
+      // remove first 0 and end data len
+      ar.Write(&r.slot_offsets[1], (slot_num - 2) * sizeof(uint32_t));
     }
   }
   return ar;
@@ -1798,25 +1800,22 @@ paddle::framework::Archive<AR>& operator<<(paddle::framework::Archive<AR>& ar,
 template <class AR, class T>
 paddle::framework::Archive<AR>& operator>>(paddle::framework::Archive<AR>& ar,
                                            SlotValues<T>& r) {
-  ar >> r.slot_values;
+  uint16_t value_len = 0;
+  ar >> value_len;
+  if (value_len > 0) {
+    r.slot_values.resize(value_len);
+    ar.Read(&r.slot_values[0], value_len * sizeof(T));
 
-  uint16_t slot_num = 0;
-  ar >> slot_num;
-  if (slot_num > 0) {
-    size_t value_len = r.slot_values.size();
-    if (value_len > 0) {
-      r.slot_offsets.resize(slot_num);
-      // fill first 0
-      r.slot_offsets[0] = 0;
-      for (uint16_t i = 1; i < slot_num - 1; ++i) {
-        ar >> r.slot_offsets[i];
-      }
-      // fill end data len
-      r.slot_offsets[slot_num - 1] = value_len;
-    } else {
-      // empty values set zero
-      r.slot_offsets.assign(slot_num, 0);
+    uint16_t slot_num = 0;
+    ar >> slot_num;
+    r.slot_offsets.resize(slot_num);
+    // fill first 0
+    r.slot_offsets[0] = 0;
+    if (slot_num > 2) {
+      ar.Read(&r.slot_offsets[1], (slot_num - 2) * sizeof(uint32_t));
     }
+    // fill end data len
+    r.slot_offsets[slot_num - 1] = value_len;
   }
   return ar;
 }

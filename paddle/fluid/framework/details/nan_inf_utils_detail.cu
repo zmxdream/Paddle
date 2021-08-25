@@ -184,6 +184,83 @@ void tensor_check<platform::CUDADeviceContext>(const std::string& op_type,
   VisitDataType(tensor.type(), vistor);
 }
 
+template <typename T>
+__global__ void CountNanInfNumKernel(const size_t len, const T* val,
+                                     unsigned int* nan_num,
+                                     unsigned int* inf_num) {
+  /* Per block accumulator */
+  __shared__ unsigned int block_nan, block_inf;
+  const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (threadIdx.x == 0) {
+    block_nan = 0;
+    block_inf = 0;
+  }
+  __syncthreads();
+
+  if (i < len) {
+    unsigned int count = 0;
+    if (isnan(val[i])) {
+      count = atomicAdd(&block_nan, 1);
+    } else if (isinf(val[i])) {
+      count = atomicAdd(&block_inf, 1);
+    }
+    // for cuda, print in every block
+    if (count > 0) {
+      printf("numel:%lu idx:%lu value:%f\n", static_cast<uint64_t>(len),
+             static_cast<uint64_t>(i), static_cast<float>(val[i]));
+    }
+  }
+  __syncthreads();
+
+  if (threadIdx.x == 0) {
+    atomicAdd(nan_num, block_nan);
+    atomicAdd(inf_num, block_inf);
+  }
+}
+
+bool CudaTensorCheckNanInf(const std::string& op_type,
+                           const std::string& var_name,
+                           const framework::Tensor& tensor) {
+  auto* dev_ctx = reinterpret_cast<platform::CUDADeviceContext*>(
+      platform::DeviceContextPool::Instance().Get(tensor.place()));
+  int dev_id = BOOST_GET_CONST(platform::CUDAPlace, tensor.place()).device;
+  auto stream = dev_ctx->stream();
+  auto gpu_tensor = paddle::memory::Alloc(*dev_ctx, sizeof(unsigned int) * 2);
+  unsigned int* num_ptr = reinterpret_cast<unsigned int*>(gpu_tensor->ptr());
+  PADDLE_ENFORCE_CUDA_SUCCESS(
+      cudaMemsetAsync(num_ptr, 0, sizeof(unsigned int) * 2, stream));
+
+  size_t len = static_cast<size_t>(tensor.numel());
+  const size_t threads = 1024;
+  size_t blocks = std::min(static_cast<size_t>(128),
+                           static_cast<size_t>((len + threads - 1) / threads));
+  if (tensor.type() == proto::VarType::FP32) {
+    CountNanInfNumKernel<<<blocks, threads, 0, dev_ctx->stream()>>>(
+        len, tensor.data<float>(), &num_ptr[0], &num_ptr[1]);
+  } else if (tensor.type() == proto::VarType::INT64) {
+    CountNanInfNumKernel<<<blocks, threads, 0, dev_ctx->stream()>>>(
+        len, tensor.data<int64_t>(), &num_ptr[0], &num_ptr[1]);
+  } else if (tensor.type() == proto::VarType::FP64) {
+    CountNanInfNumKernel<<<blocks, threads, 0, dev_ctx->stream()>>>(
+        len, tensor.data<double>(), &num_ptr[0], &num_ptr[1]);
+  } else {
+    return false;
+  }
+
+  unsigned int nan_inf_num[2] = {0};
+  PADDLE_ENFORCE_CUDA_SUCCESS(cudaMemcpyAsync(&nan_inf_num[0], num_ptr,
+                                              sizeof(unsigned int) * 2,
+                                              cudaMemcpyDeviceToHost, stream));
+  PADDLE_ENFORCE_CUDA_SUCCESS(cudaStreamSynchronize(stream));
+  if (nan_inf_num[0] > 0 || nan_inf_num[1] > 0) {
+    printf("device [%d], op %s, name: %s, there has %u,%u,%u nan,inf,num\n",
+           dev_id, op_type.c_str(), var_name.c_str(), nan_inf_num[0],
+           nan_inf_num[1], len);
+    return true;
+  }
+  return false;
+}
+
 }  // namespace details
 }  // namespace framework
 }  // namespace paddle

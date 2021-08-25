@@ -389,6 +389,70 @@ void CheckOpHasNanOrInf(const framework::OperatorBase& op,
   }
 }
 
+bool CheckVarHasNanOrInfRet(const std::string& op_type,
+                            const framework::Scope& scope,
+                            const std::string& var_name,
+                            const platform::Place& place) {
+  auto* var = scope.FindVar(var_name);
+  PADDLE_ENFORCE_NOT_NULL(
+      var, platform::errors::NotFound("In op=%s, can't find var:%s", op_type,
+                                      var_name));
+  const Tensor* tensor{nullptr};
+  if (var->IsType<framework::LoDTensor>()) {
+    tensor = &var->Get<framework::LoDTensor>();
+  } else if (var->IsType<framework::SelectedRows>()) {
+    tensor = &var->Get<framework::SelectedRows>().value();
+  } else {
+    return false;
+  }
+
+  if (tensor->memory_size() == 0) {
+    return false;
+  }
+  VLOG(10) << "begin check " << op_type << " var_name:" << var_name
+           << ", place:" << tensor->place() << ", numel:" << tensor->numel();
+
+  if (!platform::is_gpu_place(tensor->place())) {
+    return false;
+  }
+  return CudaTensorCheckNanInf(op_type, var_name, *tensor);
+}
+bool CheckOpHasNanOrInfRet(const framework::OperatorBase& op,
+                           const framework::Scope& exec_scope,
+                           const platform::Place& place) {
+  std::call_once(white_list_init_flag, InitWhiteListFormEnv);
+
+  if (IsSkipOp(op)) return false;
+
+  if (op_var_nan_inf_white_list().count(op.Type()) == 0) {
+    // NOTE. vname may destruct in the end of this func.
+    for (auto& vname : op.OutputVars(true)) {
+      auto* var = exec_scope.FindVar(vname);
+      if (var == nullptr) continue;
+      if (CheckVarHasNanOrInfRet(op.Type(), exec_scope, vname, place)) {
+        return true;
+      }
+    }
+  } else {
+    for (auto& vname : op.OutputVars(true)) {
+      bool need_check = true;
+      for (auto& white_vname : op_var_nan_inf_white_list().at(op.Type())) {
+        if (vname.find(white_vname) != std::string::npos) {
+          need_check = false;
+          break;
+        }
+      }
+      if (!need_check) continue;
+      auto* var = exec_scope.FindVar(vname);
+      if (var == nullptr) continue;
+      if (CheckVarHasNanOrInfRet(op.Type(), exec_scope, vname, place)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 }  // namespace details
 }  // namespace framework
 }  // namespace paddle

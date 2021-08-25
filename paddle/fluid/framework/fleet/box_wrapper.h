@@ -11,7 +11,6 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License. */
-
 #pragma once
 #ifdef PADDLE_WITH_BOX_PS
 #include <boxps_extends.h>
@@ -300,6 +299,7 @@ class BoxWrapper {
     platform::Timer dense_sync_timer;
 
     int64_t total_key_length = 0;
+    int64_t dedup_key_length = 0;
 
     void ResetTimer(void) {
       all_pull_timer.Reset();
@@ -375,14 +375,17 @@ class BoxWrapper {
                    const int64_t* slot_lens, const int slot_num,
                    const int* key2slot, const int hidden_size,
                    const int expand_embed_dim, const int64_t total_length,
-                   int* total_dims);
+                   int* total_dims, const uint32_t* gpu_restore_idx = nullptr);
 
   void CopyForPush(const paddle::platform::Place& place, float** grad_values,
                    void* total_grad_values_gpu, const int* slots,
                    const int64_t* slot_lens, const int slot_num,
                    const int hidden_size, const int expand_embed_dim,
                    const int64_t total_length, const int batch_size,
-                   const int* total_dims, const int* key2slot);
+                   const int* total_dims, const int* key2slot,
+                   const uint32_t* gpu_sort_idx = nullptr,
+                   const uint32_t* gpu_sort_offset = nullptr,
+                   const uint32_t* gpu_sort_lens = nullptr);
 
   void CopyKeys(const paddle::platform::Place& place, uint64_t** origin_keys,
                 uint64_t* total_keys, const int64_t* gpu_len, int slot_num,
