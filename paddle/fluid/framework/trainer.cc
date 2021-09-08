@@ -64,14 +64,10 @@ void TrainerBase::DumpWork(int tid) {
     if (!queue_->Get(out_str)) {
       break;
     }
+    out_str.append("\n");
     size_t write_count =
         fwrite_unlocked(out_str.data(), 1, out_str.length(), fp.get());
     if (write_count != out_str.length()) {
-      VLOG(3) << "dump text failed";
-      continue;
-    }
-    write_count = fwrite_unlocked("\n", 1, 1, fp.get());
-    if (write_count != 1) {
       VLOG(3) << "dump text failed";
       continue;
     }

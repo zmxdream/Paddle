@@ -104,6 +104,7 @@ void BoxPSTrainer::InitDumpEnv() {
     dump_thread_.push_back(
         std::thread(std::bind(&TrainerBase::DumpWork, this, i)));
   }
+  VLOG(0) << "init dump write file thread num=" << dump_thread_num_;
 }
 
 void BoxPSTrainer::CopyParameters(const Scope& root_scope, int device_id) {

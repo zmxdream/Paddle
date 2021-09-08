@@ -154,14 +154,14 @@ void DeviceWorker::DumpField(const Scope& scope, int dump_mode,
     }
     hit[i] = true;
     if (FLAGS_lineid_have_extend_info) {
-        size_t pos = lineid.find(" ");
-        if (pos != std::string::npos) {
-          ars[i] += lineid.substr(0, pos);
-        } else {
-          ars[i] += lineid;
-        }
-    } else {
+      size_t pos = lineid.find(" ");
+      if (pos != std::string::npos) {
+        ars[i] += lineid.substr(0, pos);
+      } else {
         ars[i] += lineid;
+      }
+    } else {
+      ars[i] += lineid;
     }
   }
   for (auto& field : *dump_fields_) {
@@ -218,10 +218,9 @@ void DeviceWorker::DumpField(const Scope& scope, int dump_mode,
       const std::string& lineid = device_reader_->GetLineId(i);
       size_t pos = lineid.find(" ");
       if (pos != std::string::npos) {
-          ars[i] = ars[i] + "\t" + lineid.substr(pos + 1);
+        ars[i] = ars[i] + "\t" + lineid.substr(pos + 1);
       }
     }
-
     writer_ << ars[i];
   }
 }
