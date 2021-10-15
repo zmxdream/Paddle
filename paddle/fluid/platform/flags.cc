@@ -602,3 +602,5 @@ DEFINE_bool(enable_slotpool_wait_release, false,
             "enable slotrecord obejct wait release, default false");
 DEFINE_bool(enable_pullpush_dedup_keys, false,
             "enable pull push dedup keys, default false");
+DEFINE_bool(enable_shuffle_by_searchid, false,
+            "enable dualbox shuffle by searchid, default false");

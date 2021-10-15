@@ -430,7 +430,9 @@ void BoxPSWorker::TrainFiles() {
   int step = 0;
   platform::SetDeviceId(device_id_);
   while ((batch_size = PackBatchTask()) > 0) {
-    VLOG(3) << "begin running ops, batch size:" << batch_size;
+    VLOG(2) << "[" << device_id_
+            << "]begin running ops, batch size:" << batch_size
+            << ", batch id=" << step;
     if (dense_table_) {
       dense_table_->PullDense(place_, *thread_scope_);
     }
@@ -560,7 +562,9 @@ void BoxPSWorker::TrainFilesWithProfiler() {
     if (batch_size <= 0) {
       break;
     }
-    VLOG(3) << "begin running ops, read batch size: " << batch_size;
+    VLOG(2) << "[" << device_id_
+            << "]begin running ops, batch size:" << batch_size
+            << ", batch id=" << step_cnt;
 
     cal_timer.Resume();
     int op_id = 0;

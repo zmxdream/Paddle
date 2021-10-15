@@ -29,7 +29,14 @@ struct DivideFunctor {
  private:
   T n_inv;
 };
-
+template <typename T>
+__global__ void MeanAvgKernel(const T* in_data, const size_t num, T* out_data) {
+  double val = 0.0;
+  for (size_t i = 0; i < num; ++i) {
+    val += static_cast<double>(in_data[i]);
+  }
+  out_data[0] = val / static_cast<double>(num);
+}
 template <typename T>
 __global__ void MeanRunKernel(const T* in_data, T* out_data, int N) {
   int idx = blockDim.x * blockIdx.x + threadIdx.x;
@@ -52,21 +59,25 @@ class MeanCUDAKernel : public framework::OpKernel<T> {
     T* out_data = output->mutable_data<T>(context.GetPlace());
     auto stream = context.cuda_device_context().stream();
 
-    DivideFunctor<T> transformer(size_prob);
-    cub::TransformInputIterator<T, DivideFunctor<T>, const T*> trans_x(
-        in_data, transformer);
-    size_t temp_storage_bytes = 0;
+    MeanAvgKernel<T><<<1, 1, 0, stream>>>(in_data, size_prob, out_data);
 
-    auto err = cub::DeviceReduce::Sum(nullptr, temp_storage_bytes, trans_x,
-                                      out_data, size_prob, stream);
-    PADDLE_ENFORCE_CUDA_SUCCESS(err);
-    framework::Tensor tmp;
-    auto* temp_storage = tmp.mutable_data<uint8_t>(
-        framework::make_ddim({static_cast<int64_t>(temp_storage_bytes)}),
-        context.GetPlace());
-    err = cub::DeviceReduce::Sum(temp_storage, temp_storage_bytes, trans_x,
-                                 out_data, size_prob, stream);
-    PADDLE_ENFORCE_CUDA_SUCCESS(err);
+    //    DivideFunctor<T> transformer(size_prob);
+    //    cub::TransformInputIterator<T, DivideFunctor<T>, const T*> trans_x(
+    //        in_data, transformer);
+    //    size_t temp_storage_bytes = 0;
+    //
+    //    auto err = cub::DeviceReduce::Sum(nullptr, temp_storage_bytes,
+    //    trans_x,
+    //                                      out_data, size_prob, stream);
+    //    PADDLE_ENFORCE_CUDA_SUCCESS(err);
+    //    framework::Tensor tmp;
+    //    auto* temp_storage = tmp.mutable_data<uint8_t>(
+    //        framework::make_ddim({static_cast<int64_t>(temp_storage_bytes)}),
+    //        context.GetPlace());
+    //    err = cub::DeviceReduce::Sum(temp_storage, temp_storage_bytes,
+    //    trans_x,
+    //                                 out_data, size_prob, stream);
+    //    PADDLE_ENFORCE_CUDA_SUCCESS(err);
   }
 };
 

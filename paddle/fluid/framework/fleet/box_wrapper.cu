@@ -307,9 +307,16 @@ __global__ void PullCopyBaseVariable(float** dest,
           src_val.embedding_size == static_cast<uint32_t>(hidden - cvm_offset));
     }
     assert(dest_ptr != 0);
-    const float* src_ptr = reinterpret_cast<const float*>(&src_val.show);
-    for (int k = 0; k < cvm_offset; ++k) {
-      dest_ptr[k] = src_ptr[k];
+    if (total_dims[i] == 0 && src_val.embedding_size > 0) {
+      total_dims[i] = 0x04;
+      for (int k = 0; k < cvm_offset; ++k) {
+        dest_ptr[k] = 0;
+      }
+    } else {
+      const float* src_ptr = reinterpret_cast<const float*>(&src_val.show);
+      for (int k = 0; k < cvm_offset; ++k) {
+        dest_ptr[k] = src_ptr[k];
+      }
     }
   }  // end kernel loop
 }
@@ -368,9 +375,16 @@ __global__ void PullDedupCopyBaseVariable(
           src_val.embedding_size == static_cast<uint32_t>(hidden - cvm_offset));
     }
     assert(dest_ptr != 0);
-    const float* src_ptr = reinterpret_cast<const float*>(&src_val.show);
-    for (int k = 0; k < cvm_offset; ++k) {
-      dest_ptr[k] = src_ptr[k];
+    if (total_dims[i] == 0 && src_val.embedding_size > 0) {
+      total_dims[i] = 0x04;
+      for (int k = 0; k < cvm_offset; ++k) {
+        dest_ptr[k] = 0;
+      }
+    } else {
+      const float* src_ptr = reinterpret_cast<const float*>(&src_val.show);
+      for (int k = 0; k < cvm_offset; ++k) {
+        dest_ptr[k] = src_ptr[k];
+      }
     }
     //    assert(src_val.embed_w >= -10.0 && src_val.embed_w <= 10.0);
   }  // end kernel loop
@@ -566,17 +580,7 @@ __global__ void PushMergeCopyBase(
     float* optr = reinterpret_cast<float*>(&dest_val.show);
     float* src_val = reinterpret_cast<float*>(src[x] + y * hidden);
     for (int k = 0; k < cvm_offset; ++k) {
-      optr[k] = src_val[k];
-    }
-    // merge same key in diffent slot id
-    for (uint32_t j = 1; j < count; ++j) {
-      const uint32_t& pos = d_sort_idx[start + j];
-      x = key2slot[pos];
-      y = pos - slot_lens[x];
-      src_val = reinterpret_cast<float*>(src[x] + y * hidden);
-      for (int k = 0; k < cvm_offset; ++k) {
-        optr[k] += src_val[k];
-      }
+      optr[k] = src_val[k] * count;
     }
     dest_val.embed_g *= -1. * bs;
   }
@@ -603,19 +607,9 @@ __global__ void PushMergeCopyExpand(
     // embedx
     if ((total_dims[pos] & 0x01)) {
       dest_val.embedx_g[col] =
-          *(src[x] + y * (embedx_dim + cvm_offset) + cvm_offset + col);
+          *(src[x] + y * (embedx_dim + cvm_offset) + cvm_offset + col) * count;
     } else {
       dest_val.embedx_g[col] = 0;
-    }
-    // merge same key in diffent slot id
-    for (uint32_t j = 1; j < count; ++j) {
-      const uint32_t& pos = d_sort_idx[start + j];
-      x = key2slot[pos];
-      y = pos - slot_lens[x];
-      if ((total_dims[pos] & 0x01)) {
-        dest_val.embedx_g[col] +=
-            *(src[x] + y * (embedx_dim + cvm_offset) + cvm_offset + col);
-      }
     }
     dest_val.embedx_g[col] *= -1. * bs;
   }
@@ -642,17 +636,7 @@ __global__ void PushMergeCopyBaseShareEmbedding(
     float* optr = reinterpret_cast<float*>(&dest_val.show);
     float* src_val = reinterpret_cast<float*>(src[x] + y * hidden);
     for (int k = 0; k < cvm_offset; ++k) {
-      optr[k] = src_val[k];
-    }
-    // merge same key in diffent slot id
-    for (uint32_t j = 1; j < count; ++j) {
-      const uint32_t& pos = d_sort_idx[start + j];
-      x = key2slot[pos];
-      y = pos - slot_lens[x];
-      src_val = reinterpret_cast<float*>(src[x] + y * hidden);
-      for (int k = 0; k < cvm_offset; ++k) {
-        optr[k] += src_val[k];
-      }
+      optr[k] = src_val[k] * count;
     }
     // for embed_g[SHARE_EMBEDDING_NUM]
     for (int e_index = 0; e_index < (cvm_offset - 2); ++e_index) {
@@ -746,27 +730,13 @@ __global__ void PushMergeCopyBaseNNCross(
     if (src[x] != 0) {
       float* src_val = reinterpret_cast<float*>(src[x] + y * hidden);
       for (int k = 0; k < cvm_offset; ++k) {
-        optr[k] = src_val[k];
+        optr[k] = src_val[k] * count;
       }
     } else {
       for (int k = 1; k < cvm_offset; ++k) {
         optr[k] = 0;
       }
       dest_val.show = 1;
-    }
-    // merge same key in diffent slot id
-    for (uint32_t j = 1; j < count; ++j) {
-      const uint32_t& pos = d_sort_idx[start + j];
-      x = key2slot[pos];
-      y = pos - slot_lens[x];
-
-      if (src[x] == 0) {
-        continue;
-      }
-      float* src_val = reinterpret_cast<float*>(src[x] + y * hidden);
-      for (int k = 0; k < cvm_offset; ++k) {
-        optr[k] += src_val[k];
-      }
     }
     dest_val.embed_g *= -1. * bs;
   }
@@ -794,38 +764,19 @@ __global__ void PushMergeCopyExpandNNCross(
     if (col < embedx_dim) {  // embedx
       if ((total_dims[pos] & 0x01) && src[x] != 0) {
         dest_val.embedx_g[col] =
-            *(src[x] + y * (embedx_dim + cvm_offset) + cvm_offset + col);
+            *(src[x] + y * (embedx_dim + cvm_offset) + cvm_offset + col) *
+            count;
       } else {
         dest_val.embedx_g[col] = 0;
-      }
-      // merge same key in diffent slot id
-      for (uint32_t j = 1; j < count; ++j) {
-        const uint32_t& pos = d_sort_idx[start + j];
-        x = key2slot[pos];
-        y = pos - slot_lens[x];
-        if ((total_dims[pos] & 0x01) && src[x] != 0) {
-          dest_val.embedx_g[col] +=
-              *(src[x] + y * (embedx_dim + cvm_offset) + cvm_offset + col);
-        }
       }
       dest_val.embedx_g[col] *= -1. * bs;
     } else {                   // expand
       col = col - embedx_dim;  // embedx + expand dim length
       if ((total_dims[pos] & 0x02) && src[x + slot_num] != 0) {
         dest_val.embed_expand_g[col] =
-            *(src[x + slot_num] + y * expand_dim + col);
+            *(src[x + slot_num] + y * expand_dim + col) * count;
       } else {
         dest_val.embed_expand_g[col] = 0;
-      }
-      // merge same key in diffent slot id
-      for (uint32_t j = 1; j < count; ++j) {
-        const uint32_t& pos = d_sort_idx[start + j];
-        x = key2slot[pos];
-        y = pos - slot_lens[x];
-        if ((total_dims[pos] & 0x02) && src[x + slot_num] != 0) {
-          dest_val.embed_expand_g[col] +=
-              *(src[x + slot_num] + y * expand_dim + col);
-        }
       }
       dest_val.embed_expand_g[col] *= -1 * bs;
     }
@@ -852,10 +803,16 @@ __global__ void PushCopyBaseVariable(
       src_val = reinterpret_cast<float*>(src[x] + y * hidden);
     }
     assert(src_val != 0);
-    for (int k = 0; k < cvm_offset; ++k) {
-      optr[k] = src_val[k];  // support variable length
+    if (total_dims[i] & 0x04) {
+      for (int k = 0; k < cvm_offset; ++k) {
+        optr[k] = 0;  // support variable length
+      }
+    } else {
+      for (int k = 0; k < cvm_offset; ++k) {
+        optr[k] = src_val[k];  // support variable length
+      }
+      dest_val.embed_g *= -1. * bs;
     }
-    dest_val.embed_g *= -1. * bs;
   }
 }
 template <typename FeaturePushValueGpuType>
@@ -899,46 +856,47 @@ __global__ void PushMergeCopyBaseVariable(
     const uint32_t& count = d_sort_cnt[i];
     const uint32_t& pos = d_sort_idx[start];
 
-    int x = key2slot[pos];
+    const int& x = key2slot[pos];
     int y = pos - slot_lens[x];
 
     auto& dest_val = dest[i];
     dest_val.slot = slot_vector[x];
 
+    float* src_val = NULL;
     float* optr = reinterpret_cast<float*>(&dest_val.show);
-    if (src[x + slot_num] != 0) {
-      float* src_val =
-          reinterpret_cast<float*>(src[x + slot_num] + y * expand_hidden);
-      assert(src_val != 0);
+    if (total_dims[pos] & 0x04) {
       for (int k = 0; k < cvm_offset; ++k) {
-        optr[k] = src_val[k];  // support variable length
+        optr[k] = 0;
       }
     } else {
-      float* src_val = reinterpret_cast<float*>(src[x] + y * hidden);
+      if (src[x + slot_num] != 0) {
+        src_val =
+            reinterpret_cast<float*>(src[x + slot_num] + y * expand_hidden);
+      } else {
+        src_val = reinterpret_cast<float*>(src[x] + y * hidden);
+      }
       assert(src_val != 0);
       for (int k = 0; k < cvm_offset; ++k) {
-        optr[k] = src_val[k];  // support variable length
+        optr[k] = src_val[k];
       }
     }
     // merge same key in diffent slot id
     for (uint32_t j = 1; j < count; ++j) {
       const uint32_t& pos = d_sort_idx[start + j];
-      x = key2slot[pos];
+      const int& x = key2slot[pos];
       y = pos - slot_lens[x];
-
+      if (total_dims[pos] & 0x04) {
+        continue;
+      }
       if (src[x + slot_num] != 0) {
-        float* src_val =
+        src_val =
             reinterpret_cast<float*>(src[x + slot_num] + y * expand_hidden);
-        assert(src_val != 0);
-        for (int k = 0; k < cvm_offset; ++k) {
-          optr[k] += src_val[k];
-        }
       } else {
-        float* src_val = reinterpret_cast<float*>(src[x] + y * hidden);
-        assert(src_val != 0);
-        for (int k = 0; k < cvm_offset; ++k) {
-          optr[k] += src_val[k];  // support variable length
-        }
+        src_val = reinterpret_cast<float*>(src[x] + y * hidden);
+      }
+      assert(src_val != 0);
+      for (int k = 0; k < cvm_offset; ++k) {
+        optr[k] += src_val[k];
       }
     }
     dest_val.embed_g *= -1. * bs;
@@ -958,37 +916,26 @@ __global__ void PushMergeCopyExpandVariable(
 
     const uint32_t& start = d_sort_offset[id];
     const uint32_t& count = d_sort_cnt[id];
-    const uint32_t& pos = d_sort_idx[start];
-
-    int x = key2slot[pos];
-    int y = pos - slot_lens[x];
 
     auto& dest_val = dest[id];
-    if ((total_dims[pos] & 0x02) && src[x + slot_num] != 0) {  // expand
-      int offset = y * (expand_dim + cvm_offset) + cvm_offset + col;
-      dest_val.embedx_g[col] = *(src[x + slot_num] + offset);
-    } else if ((total_dims[pos] & 0x01) && src[x] != 0 &&
-               col < embedx_dim) {  // embedx
-      int offset = y * (embedx_dim + cvm_offset) + cvm_offset + col;
-      dest_val.embedx_g[col] = *(src[x] + offset);
-    } else {
-      dest_val.embedx_g[col] = 0;
-    }
+    double val = 0.0;
+    int y = 0;
+    int offset = 0;
     // merge same key in diffent slot id
-    for (uint32_t j = 1; j < count; ++j) {
+    for (uint32_t j = 0; j < count; ++j) {
       const uint32_t& pos = d_sort_idx[start + j];
-      x = key2slot[pos];
+      const int& x = key2slot[pos];
       y = pos - slot_lens[x];
       if ((total_dims[pos] & 0x02) && src[x + slot_num] != 0) {  // expand
-        int offset = y * (expand_dim + cvm_offset) + cvm_offset + col;
-        dest_val.embedx_g[col] += *(src[x + slot_num] + offset);
+        offset = y * (expand_dim + cvm_offset) + cvm_offset + col;
+        val += *(src[x + slot_num] + offset);
       } else if ((total_dims[pos] & 0x01) && src[x] != 0 &&
                  col < embedx_dim) {  // embedx
-        int offset = y * (embedx_dim + cvm_offset) + cvm_offset + col;
-        dest_val.embedx_g[col] += *(src[x] + offset);
+        offset = y * (embedx_dim + cvm_offset) + cvm_offset + col;
+        val += *(src[x] + offset);
       }
     }
-    dest_val.embedx_g[col] *= -1. * bs;
+    dest_val.embedx_g[col] = -1. * bs * val;
   }
 }
 

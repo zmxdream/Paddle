@@ -29,6 +29,7 @@
 DECLARE_int32(padbox_dataset_shuffle_thread_num);
 DECLARE_int32(padbox_dataset_merge_thread_num);
 DECLARE_int32(padbox_max_shuffle_wait_count);
+DECLARE_bool(enable_shuffle_by_searchid);
 namespace boxps {
 class PSAgentBase;
 }

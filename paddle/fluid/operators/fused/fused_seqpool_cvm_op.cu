@@ -45,7 +45,7 @@ __global__ void FusedSeqpoolKernelNormal(const size_t N, T **input_values,
     auto &start = *(lods_values[x] + y);
     auto &end = *(lods_values[x] + y + 1);
 
-    T val = static_cast<T>(pad_value);
+    double val = pad_value;
     for (auto k = start; k < end; ++k) {
       val += *(input_values[x] + k * embedding_size + offset);
     }
@@ -66,7 +66,7 @@ __global__ void FusedSeqpoolKernelQuant(
     auto &start = *(lods_values[x] + y);
     auto &end = *(lods_values[x] + y + 1);
 
-    T val = static_cast<T>(pad_value);
+    double val = pad_value;
     // quant
     for (auto k = start; k < end; ++k) {
       if (offset < cvm_offset) {  // show click
@@ -97,7 +97,7 @@ __global__ void FusedSeqpoolKernelQuantFilter(
     auto &start = *(lods_values[x] + y);
     auto &end = *(lods_values[x] + y + 1);
 
-    T val = static_cast<T>(pad_value);
+    double val = pad_value;
     for (auto k = start; k < end; ++k) {
       T &show = *(input_values[x] + k * embedding_size);
       T &click = *(input_values[x] + k * embedding_size + 1);
