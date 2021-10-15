@@ -2041,7 +2041,7 @@ static void compute_batch_num(const int64_t ins_num, const int batch_size,
   int cur_pos = 0;
   int offset_num = static_cast<int>(ins_num / thread_batch_num) * thread_num;
   int left_ins_num = static_cast<int>(ins_num % thread_batch_num);
-  if (left_ins_num > 0 && left_ins_num < thread_num) {
+  if (left_ins_num > 0 && left_ins_num < (thread_num * 2) && offset_num > 1) {
     offset_num = offset_num - thread_num;
     left_ins_num = left_ins_num + thread_batch_num;
     for (int i = 0; i < offset_num; ++i) {

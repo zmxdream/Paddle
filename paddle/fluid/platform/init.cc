@@ -94,8 +94,6 @@ bool InitGflags(std::vector<std::string> args) {
   return successed;
 }
 
-
-
 void InitCupti() {
 #ifdef PADDLE_WITH_CUPTI
   if (FLAGS_multiple_of_cupti_buffer_size == 1) return;
@@ -255,6 +253,13 @@ const char *ParseSignalErrorString(const std::string &str) {
 
 // Handle SIGSEGV, SIGILL, SIGFPE, SIGABRT, SIGBUS, and SIGTERM.
 void SignalHandle(const char *data, int size) {
+  if (size <= 0) {
+    if (data != nullptr) {
+      std::cout << data << std::endl;
+    }
+    return;
+  }
+  size = (size > 81920) ? 81920 : size;
   try {
     // NOTE1: The glog FailureSignalHandler dumped messages
     //   are deal with line by line

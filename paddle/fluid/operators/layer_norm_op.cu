@@ -159,9 +159,8 @@ __global__ void LayerNormForward(const T *x, const U *scale, const U *bias,
     mean_share = static_cast<U>(pair.first_);
     mean[blockIdx.x] = mean_share;
     var_share = static_cast<U>(pair.second_ - mean_share * mean_share);
-    var_share = (isinf(var_share))
-                    ? 0.0
-                    : rsqrt<U>(var_share + static_cast<U>(epsilon));
+    assert(!isinf(var_share) && !isnan(var_share));
+    var_share = rsqrt<U>(var_share + static_cast<U>(epsilon));
     var[blockIdx.x] = var_share;
   }
   __syncthreads();
