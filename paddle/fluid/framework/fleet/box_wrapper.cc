@@ -573,7 +573,7 @@ void BoxWrapper::BeginFeedPass(int date, boxps::PSAgentBase** agent) {
     VLOG(3) << "gpu cache dim:" << dim;
     gpu_replica_cache.emplace_back(dim);
   }
-  if (dataset_name_ == "InputTableDataset") {
+  if (input_table_dim_ > 0) {
     VLOG(3) << "lookup input dim: " << input_table_dim_;
     input_table_deque_.emplace_back(input_table_dim_);
   }
@@ -587,7 +587,7 @@ void BoxWrapper::EndFeedPass(boxps::PSAgentBase* agent) {
     t.ToHBM();
     VLOG(0) << "gpu cache memory: " << t.GpuMemUsed() << "MB";
   }
-  if (dataset_name_ == "InputTableDataset") {
+  if (input_table_dim_ > 0) {
     auto& t = input_table_deque_.back();
     VLOG(0) << "input table size: " << t.size() << " miss: " << t.miss()
             << ", cpu memory: " << t.CpuMemUsed() << "MB";
@@ -614,7 +614,7 @@ void BoxWrapper::EndPass(bool need_save_delta) {
   if (FLAGS_use_gpu_replica_cache) {
     gpu_replica_cache.pop_front();
   }
-  if (dataset_name_ == "InputTableDataset") {
+  if (input_table_dim_ > 0) {
     input_table_deque_.pop_front();
   }
   int ret = boxps_ptr_->EndPass(need_save_delta);

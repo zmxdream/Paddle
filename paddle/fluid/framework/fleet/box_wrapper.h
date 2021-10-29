@@ -333,7 +333,7 @@ class BoxWrapper {
     fprintf(stdout, "init box wrapper\n");
     boxps::MPICluster::Ins();
   }
-  void SetDatasetName(const std::string& name) { dataset_name_ = name; }
+  void SetDatasetName(const std::string& name) {}
   void SetInputTableDim(size_t dim) { input_table_dim_ = dim; }
   void FeedPass(int date, const std::vector<uint64_t>& feasgin_to_box);
   void BeginFeedPass(int date, boxps::PSAgentBase** agent);
@@ -1175,7 +1175,6 @@ class BoxWrapper {
   // box device cache
   DeviceBoxData* device_caches_ = nullptr;
   std::map<std::string, float> lr_map_;
-  std::string dataset_name_;
   size_t input_table_dim_ = 0;
 
  public:
