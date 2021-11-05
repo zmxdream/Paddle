@@ -22,6 +22,8 @@
 #include "paddle/fluid/framework/tensor.h"
 #include "paddle/fluid/operators/math/math_function.h"
 
+DECLARE_bool(enable_pull_box_padding_zero);
+
 namespace paddle {
 namespace operators {
 
@@ -123,8 +125,10 @@ static void PullBoxSparseFunctor(const framework::ExecutionContext &ctx) {
     const auto *slot = inputs[i];
     auto *output = outputs[i];
     if (slot->numel() == 0) {
-      // only support GPU
-      PaddingZeros<T>(ctx, output, batch_size, hidden_size);
+      if (FLAGS_enable_pull_box_padding_zero) {
+        // only support GPU
+        PaddingZeros<T>(ctx, output, batch_size, hidden_size);
+      }
       continue;
     }
     output->mutable_data<T>(ctx.GetPlace());
