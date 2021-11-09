@@ -1515,6 +1515,14 @@ void PadBoxSlotDataset::CheckThreadPool(void) {
 void PadBoxSlotDataset::PreLoadIntoMemory() {
   CheckThreadPool();
   LoadIndexIntoMemory();
+  // dualbox global data shuffle
+  if (!FLAGS_padbox_dataset_disable_shuffle && mpi_size_ > 1) {
+    finished_counter_ = mpi_size_;
+    mpi_flags_.assign(mpi_size_, 1);
+    VLOG(3) << "RegisterClientToClientMsgHandler";
+    data_consumer_ = reinterpret_cast<void*>(new PadBoxSlotDataConsumer(this));
+    VLOG(3) << "RegisterClientToClientMsgHandler done";
+  }
 
   read_ins_ref_ = thread_num_;
   for (int64_t i = 0; i < thread_num_; ++i) {
@@ -1539,14 +1547,9 @@ void PadBoxSlotDataset::PreLoadIntoMemory() {
       }
     }));
   }
+
   // dualbox global data shuffle
   if (!FLAGS_padbox_dataset_disable_shuffle && mpi_size_ > 1) {
-    finished_counter_ = mpi_size_;
-    mpi_flags_.assign(mpi_size_, 1);
-    VLOG(3) << "RegisterClientToClientMsgHandler";
-    data_consumer_ = reinterpret_cast<void*>(new PadBoxSlotDataConsumer(this));
-    VLOG(3) << "RegisterClientToClientMsgHandler done";
-
     ShuffleData(shuffle_thread_num_);
     MergeInsKeys(shuffle_channel_);
   } else {
@@ -1577,6 +1580,14 @@ void PadBoxSlotDataset::LoadIntoMemory() {
 
   platform::Timer timeline;
   timeline.Start();
+  // dualbox global data shuffle
+  if (!FLAGS_padbox_dataset_disable_shuffle && mpi_size_ > 1) {
+    finished_counter_ = mpi_size_;
+    mpi_flags_.assign(mpi_size_, 1);
+    VLOG(3) << "RegisterClientToClientMsgHandler";
+    data_consumer_ = reinterpret_cast<void*>(new PadBoxSlotDataConsumer(this));
+    VLOG(3) << "RegisterClientToClientMsgHandler done";
+  }
 
   read_ins_ref_ = thread_num_;
   for (int64_t i = 0; i < thread_num_; ++i) {
@@ -1590,12 +1601,6 @@ void PadBoxSlotDataset::LoadIntoMemory() {
 
   // dualbox global data shuffle
   if (!FLAGS_padbox_dataset_disable_shuffle && mpi_size_ > 1) {
-    finished_counter_ = mpi_size_;
-    mpi_flags_.assign(mpi_size_, 1);
-    VLOG(3) << "RegisterClientToClientMsgHandler";
-    data_consumer_ = reinterpret_cast<void*>(new PadBoxSlotDataConsumer(this));
-    VLOG(3) << "RegisterClientToClientMsgHandler done";
-
     ShuffleData(shuffle_thread_num_);
     MergeInsKeys(shuffle_channel_);
   } else {

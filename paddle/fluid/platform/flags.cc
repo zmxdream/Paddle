@@ -604,3 +604,5 @@ DEFINE_bool(enable_pullpush_dedup_keys, false,
             "enable pull push dedup keys, default false");
 DEFINE_bool(enable_shuffle_by_searchid, false,
             "enable dualbox shuffle by searchid, default false");
+DEFINE_bool(enable_pull_box_padding_zero, true,
+            "enable pull box padding zero, default true");
