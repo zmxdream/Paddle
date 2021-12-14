@@ -115,6 +115,23 @@ class AllocatorFacadePrivate {
         break;
       }
 
+      case AllocatorStrategy::kSamplePool: {
+        InitNaiveBestFitCPUAllocator();
+#ifdef PADDLE_WITH_XPU
+        for (int dev_id = 0; dev_id < platform::GetXPUDeviceCount(); ++dev_id) {
+          InitNaiveBestFitXPUAllocator(platform::XPUPlace(dev_id));
+        }
+#endif
+#ifdef PADDLE_WITH_CUDA
+        for (int dev_id = 0; dev_id < platform::GetCUDADeviceCount();
+             ++dev_id) {
+          InitSampleCUDAAllocator(platform::CUDAPlace(dev_id));
+        }
+        InitNaiveBestFitCUDAPinnedAllocator();
+#endif
+        break;
+      }
+
       default: {
         PADDLE_THROW(platform::errors::InvalidArgument(
             "Unsupported allocator strategy: %d", static_cast<int>(strategy)));
@@ -123,7 +140,8 @@ class AllocatorFacadePrivate {
     InitZeroSizeAllocators();
     InitSystemAllocators();
 
-    if (FLAGS_gpu_allocator_retry_time > 0) {
+    if (strategy != AllocatorStrategy::kSamplePool &&
+        FLAGS_gpu_allocator_retry_time > 0) {
       WrapCUDARetryAllocator(FLAGS_gpu_allocator_retry_time);
     }
 
@@ -187,6 +205,10 @@ class AllocatorFacadePrivate {
     auto cuda_allocator = std::make_shared<CUDAAllocator>(p);
     allocators_[p] = std::make_shared<AutoGrowthBestFitAllocator>(
         cuda_allocator, platform::GpuMinChunkSize());
+  }
+  void InitSampleCUDAAllocator(platform::CUDAPlace p) {
+    auto cuda_allocator = std::make_shared<CUDAAllocator>(p);
+    allocators_[p] = std::make_shared<SampleAllocator>(cuda_allocator);
   }
 #endif
 
