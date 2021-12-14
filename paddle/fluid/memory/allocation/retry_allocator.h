@@ -19,8 +19,8 @@
 #include <condition_variable>  // NOLINT
 #include <memory>
 #include <mutex>  // NOLINT
+#include <set>
 #include <utility>
-
 #include "paddle/fluid/memory/allocation/allocator.h"
 #include "paddle/fluid/platform/enforce.h"
 
@@ -45,9 +45,9 @@ class RetryAllocator : public Allocator {
   bool IsAllocThreadSafe() const override { return true; }
 
  protected:
-  void FreeImpl(Allocation* allocation) override;
-  Allocation* AllocateImpl(size_t size) override;
-  uint64_t ReleaseImpl(const platform::Place& place) override {
+  void FreeImpl(Allocation *allocation) override;
+  Allocation *AllocateImpl(size_t size) override;
+  uint64_t ReleaseImpl(const platform::Place &place) override {
     return underlying_allocator_->Release(place);
   }
 
@@ -58,6 +58,64 @@ class RetryAllocator : public Allocator {
   std::condition_variable cv_;
 
   std::atomic<size_t> waited_allocate_size_{0};
+};
+
+class SampleAllocator : public Allocator {
+  /**
+   * Descriptor for device memory allocations
+   */
+  struct BlockDescriptor {
+    Allocation *d_ptr;  // Device pointer
+    size_t bytes;       // Size of allocation in bytes
+    size_t used;        // Real used
+    unsigned int bin;   // Bin enumeration
+
+    explicit BlockDescriptor(Allocation *ptr);
+    BlockDescriptor();
+    static bool ptrcompare(const BlockDescriptor &a, const BlockDescriptor &b);
+    static bool sizecompare(const BlockDescriptor &a, const BlockDescriptor &b);
+  };
+  // BlockDescriptor comparator function interface
+  typedef bool (*Compare)(const BlockDescriptor &, const BlockDescriptor &);
+  /// Set type for cached blocks (ordered by size)
+  typedef std::multiset<BlockDescriptor, Compare> CachedBlocks;
+  /// Set type for live blocks (ordered by ptr)
+  typedef std::multiset<BlockDescriptor, Compare> BusyBlocks;
+
+ public:
+  // Total Bytes
+  struct TotalBytes {
+    size_t free = 0;
+    size_t live = 0;
+    size_t used = 0;
+  };
+  explicit SampleAllocator(std::shared_ptr<Allocator> allocator);
+  bool IsAllocThreadSafe() const override { return true; }
+  void GetMemInfo(TotalBytes *info);
+
+ protected:
+  void FreeImpl(Allocation *allocation) override;
+  Allocation *AllocateImpl(size_t size) override;
+  uint64_t ReleaseImpl(const platform::Place &place) override {
+    FreeAllCache();
+    return allocator_->Release(place);
+  }
+  void FreeAllCache(void);
+
+ private:
+  std::shared_ptr<Allocator> allocator_;
+  std::mutex mutex_;
+
+  unsigned int bin_growth_;  /// Geometric growth factor for bin-sizes
+  unsigned int min_bin_;     /// Minimum bin enumeration
+  size_t min_bin_bytes_;
+  size_t max_bin_bytes_;
+
+  TotalBytes cached_bytes_;  /// Map of device ordinal to aggregate cached bytes
+                             /// on that device
+  CachedBlocks
+      cached_blocks_;  /// Set of cached device allocations available for reuse
+  BusyBlocks live_blocks_;
 };
 
 }  // namespace allocation
