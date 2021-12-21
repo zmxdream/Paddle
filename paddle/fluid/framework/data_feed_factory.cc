@@ -66,8 +66,8 @@ std::shared_ptr<DataFeed> DataFeedFactory::CreateDataFeed(
 REGISTER_DATAFEED_CLASS(MultiSlotDataFeed);
 REGISTER_DATAFEED_CLASS(MultiSlotInMemoryDataFeed);
 REGISTER_DATAFEED_CLASS(PaddleBoxDataFeed);
-REGISTER_DATAFEED_CLASS(SlotPaddleBoxDataFeedWithGpuReplicaCache);
 #ifdef PADDLE_WITH_BOX_PS
+REGISTER_DATAFEED_CLASS(SlotPaddleBoxDataFeedWithGpuReplicaCache);
 REGISTER_DATAFEED_CLASS(SlotPaddleBoxDataFeed);
 REGISTER_DATAFEED_CLASS(InputTableDataFeed);
 REGISTER_DATAFEED_CLASS(InputIndexDataFeed);

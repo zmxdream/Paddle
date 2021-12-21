@@ -12,22 +12,21 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License. */
 
+#include <memory>
 #include <sstream>
 #include <vector>
-#include <memory>
 
-#include "paddle/fluid/framework/eigen.h"
-#include "paddle/fluid/framework/operator.h"
-#include "paddle/fluid/framework/op_registry.h"
 #include "paddle/fluid/framework/data_feed.h"
+#include "paddle/fluid/framework/eigen.h"
+#include "paddle/fluid/framework/op_registry.h"
+#include "paddle/fluid/framework/operator.h"
 #include "paddle/fluid/framework/tensor.h"
-//#include "paddle/fluid/platform/cuda_primitives.h"
 #include "paddle/fluid/platform/gpu_info.h"
 
 namespace paddle {
 namespace operators {
 
-//using platform::PADDLE_CUDA_NUM_THREADS;
+// using platform::PADDLE_CUDA_NUM_THREADS;
 using Tensor = framework::Tensor;
 using LoDTensor = framework::LoDTensor;
 using LoDTensorArray = framework::LoDTensorArray;
@@ -36,10 +35,12 @@ template <typename T>
 class StoreQValueOpKernel : public framework::OpKernel<T> {
  public:
   void Compute(const framework::ExecutionContext& ctx) const override {
-    auto inputs = ctx.MultiInput<LoDTensor>("Ids"); //std::vector<const Tensor*>
+#ifdef PADDLE_WITH_BOX_PS
+    auto inputs =
+        ctx.MultiInput<LoDTensor>("Ids");  // std::vector<const Tensor*>
     auto ctx_place = ctx.GetPlace();
-    int device_id = boost::get<platform::CUDAPlace>(ctx_place).GetDeviceId();
 
+    int device_id = boost::get<platform::CUDAPlace>(ctx_place).GetDeviceId();
     const auto qvalues_size = inputs.size();
     std::vector<framework::Tensor> cpu_qvalues(qvalues_size);
 
@@ -47,6 +48,10 @@ class StoreQValueOpKernel : public framework::OpKernel<T> {
       framework::TensorCopy(*inputs[i], platform::CPUPlace(), &cpu_qvalues[i]);
     }
     framework::BatchGpuPackMgr().store_qvalue(device_id, cpu_qvalues);
+#else
+    PADDLE_THROW(
+        platform::errors::PreconditionNotMet("Please compiled with BOX_PS!"));
+#endif
   }
 };
 
@@ -54,7 +59,7 @@ class StoreQValueOp : public framework::OperatorWithKernel {
  public:
   using framework::OperatorWithKernel::OperatorWithKernel;
 
-  void InferShape(framework::InferShapeContext *ctx) const override {
+  void InferShape(framework::InferShapeContext* ctx) const override {
     PADDLE_ENFORCE_GE(ctx->Inputs("Ids").size(), 1UL,
                       "Inputs(Ids) of StoreQValueOp should not be empty.");
   }
