@@ -84,20 +84,13 @@ void BindBoxWrapper(py::module* m) {
            py::call_guard<py::gil_scoped_release>())
       .def("initialize_auc_runner", &framework::BoxWrapper::InitializeAucRunner,
            py::call_guard<py::gil_scoped_release>())
-      .def("init_metric", &framework::BoxWrapper::InitMetric,
-           py::arg("method"),
-           py::arg("name"),
-           py::arg("label_varname"),
-           py::arg("pred_varname"),
-           py::arg("cmatch_rank_varname"),
-           py::arg("mask_varname"),
-           py::arg("metric_phase"),
-           py::arg("cmatch_rank_group"),
-           py::arg("ignore_rank"),
-           py::arg("bucket_size") = 1000000,
+      .def("init_metric", &framework::BoxWrapper::InitMetric, py::arg("method"),
+           py::arg("name"), py::arg("label_varname"), py::arg("pred_varname"),
+           py::arg("cmatch_rank_varname"), py::arg("mask_varname"),
+           py::arg("metric_phase"), py::arg("cmatch_rank_group"),
+           py::arg("ignore_rank"), py::arg("bucket_size") = 1000000,
            py::arg("mode_collect_in_gpu") = false,
-           py::arg("max_batch_size") = 0,
-           py::arg("sample_scale_varnam") = "",
+           py::arg("max_batch_size") = 0, py::arg("sample_scale_varnam") = "",
            py::call_guard<py::gil_scoped_release>())
       .def("get_metric_msg", &framework::BoxWrapper::GetMetricMsg,
            py::call_guard<py::gil_scoped_release>())
@@ -118,6 +111,8 @@ void BindBoxWrapper(py::module* m) {
       .def("shrink_table", &framework::BoxWrapper::ShrinkTable,
            py::call_guard<py::gil_scoped_release>())
       .def("load_ssd2mem", &framework::BoxWrapper::LoadSSD2Mem,
+           py::call_guard<py::gil_scoped_release>())
+      .def("shrink_resource", &framework::BoxWrapper::ShrinkResource,
            py::call_guard<py::gil_scoped_release>());
 }  // end BoxWrapper
 void BindBoxFileMgr(py::module* m) {
