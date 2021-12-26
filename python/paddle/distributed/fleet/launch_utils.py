@@ -27,7 +27,6 @@ import socket
 import warnings
 import six
 import struct
-import json
 
 import paddle
 import paddle.fluid as fluid
@@ -465,18 +464,6 @@ class TrainerProc(object):
         self.cmd = None
 
 
-_run_with_coverage = False
-
-
-def run_with_coverage(*args):
-    global _run_with_coverage
-    assert len(args) <= 1, "len(args) {} should <= 1".format(len(args))
-    if len(args) == 1:
-        assert isinstance(args[0], bool)
-        _run_with_coverage = args[0]
-    return _run_with_coverage
-
-
 def start_local_trainers(cluster,
                          pod,
                          training_script,
@@ -530,11 +517,7 @@ def start_local_trainers(cluster,
 
         current_env.update(proc_env)
 
-        coverage_args = []
-        if run_with_coverage():
-            coverage_args = ["-m", "coverage", "run", "--branch", "-p"]
-        cmd = [sys.executable, "-u"] + coverage_args + [training_script
-                                                        ] + training_script_args
+        cmd = [sys.executable, "-u", training_script] + training_script_args
 
         logger.debug("start trainer proc{}  env:{}".format(cmd, current_env))
 
@@ -545,9 +528,8 @@ def start_local_trainers(cluster,
                             pretty_print_envs(proc_env, ("Distributed Envs",
                                                          "Value"))))
             logger.info(
-                "details about PADDLE_TRAINER_ENDPOINTS can be found in "
-                "{}/endpoints.log, and detail running logs maybe found in "
-                "{}/workerlog.0".format(log_dir, log_dir))
+                "details abouts PADDLE_TRAINER_ENDPOINTS can be found in {}/endpoints.log, and detail running logs maybe found in {}/workerlog.0".
+                format(log_dir, log_dir))
         fn = None
         pre_fn = None if os.name == 'nt' else os.setsid
         if log_dir is not None:
@@ -824,97 +806,6 @@ def get_custom_endpoints(origin_endpoints, offset=0):
 #        pretty_print_envs(environs)))
 
 
-def get_mapped_cluster(node_ips, node_ip, trainer_endpoints, device_mode,
-                       node_mapping_ranks):
-    assert type(trainer_endpoints) is list, "trainer_endpoints must be list"
-    assert device_mode == DeviceMode.GPU, \
-        "Only support get mapped cluster for gpu now."
-    cluster = Cluster(hdfs=None)
-    for node_rank, ip in enumerate(node_ips):
-        pod = Pod()
-        pod.rank = node_rank
-        pod.addr = ip
-        pod.device_mode = device_mode
-        cur_node_endpoints = trainer_endpoints[node_rank]
-
-        # choose rank from global mapped ranks and set it to the trainer.
-        ranks_per_node = node_mapping_ranks[node_rank]
-        for i in range(len(ranks_per_node)):
-            trainer = Trainer()
-            # change global rank(mapped) to local rank within each node.
-            # e.g. mapped ranks of node: 3,4,7 -> 0,1,2
-            local_rank = ranks_per_node.index(ranks_per_node[i])
-            trainer.accelerators.append(local_rank)
-            trainer.endpoint = "%s" % (cur_node_endpoints[i])
-            # global mapped ranks
-            trainer.rank = ranks_per_node[i]
-
-            pod.trainers.append(trainer)
-        cluster.pods.append(pod)
-
-    pod_rank = node_ips.index(node_ip)
-    return cluster, cluster.pods[pod_rank]
-
-
-def get_mapped_cluster_from_args(args, device_mode):
-    assert device_mode == DeviceMode.GPU, \
-        "Only support get mapped cluster for gpu now."
-    gpus_num = fluid.core.get_cuda_device_count()
-
-    # parse ip-ranks json file
-    json_data = None
-    with args.rank_mapping_file as json_file:
-        json_data = json.load(json_file)
-
-    node_ips = []
-    node_ranks_mapping = []
-    ip_ranks_list = json_data['ip_ranks']
-    for ip_ranks in ip_ranks_list:
-        node_ips.append(ip_ranks['ip'])
-        node_ranks_mapping.append(ip_ranks['ranks'])
-
-    if len(node_ips) == 1:
-        node_ip = node_ips[0]
-    else:
-        if args.host:
-            node_ip = args.host
-        else:
-            _, node_ip = get_host_name_ip()
-
-    assert node_ip in node_ips, \
-        "Can't find your local ip {%s} in node_ips: {%s}" % (node_ip, node_ips)
-    node_rank = node_ips.index(node_ip)
-
-    assert len(node_ranks_mapping[node_rank]) <= gpus_num, \
-        "number of ranks mapped to one node should not exceed the avaiable ones."
-    assert len(node_ranks_mapping) == len(node_ips), \
-        "ranks length should be equal to ips length."
-
-    logger.debug("parsed from args: node_ips:{} node_ip:{} "
-                 "node_rank:{} node_ranks_mapping:{}".format(
-                     node_ips, node_ip, node_rank, node_ranks_mapping[
-                         node_rank]))
-
-    # NOTE: there are different number of global mapped ranks on each node.
-    free_ports = []
-    trainer_endpoints = []
-    for ip in node_ips:
-        node_rank = node_ips.index(ip)
-        if os.environ.get('FLAGS_START_PORT') is not None:
-            start_port = int(os.environ.get('FLAGS_START_PORT'))
-            free_ports = [
-                x
-                for x in range(start_port,
-                               start_port + len(node_ranks_mapping[node_rank]))
-            ]
-        else:
-            free_ports = find_free_ports(len(node_ranks_mapping[node_rank]))
-        trainer_endpoints.append(["%s:%d" % (ip, port) for port in free_ports])
-
-    return get_mapped_cluster(node_ips, node_ip, trainer_endpoints, device_mode,
-                              node_ranks_mapping)
-
-
 class ParameterServerLauncher(object):
     def __init__(self, args, distribute_mode):
         self.args = args
@@ -941,7 +832,7 @@ class ParameterServerLauncher(object):
         self.stage_trainer_num = []
         self.stage_heter_map = {}
         self.stage_list = []
-        self.stage_device_map = {}
+        #self.stage_device_map = {}
         self.stage_num = 0
 
         self.get_role_endpoints(args)
@@ -1005,11 +896,12 @@ class ParameterServerLauncher(object):
 
         # get heter worker envs
         if self.distribute_mode == DistributeMode.PS_HETER:
-            assert args.heter_devices != "", "The setting of Parameter-Server heter mode must has heter_devices."
-            self.stage_device_map[1] = "cpu"  #  for cpu trainer
-            heter_devices_list = args.heter_devices.split(";")
-            for i in range(len(heter_devices_list)):
-                self.stage_device_map[i + 2] = heter_devices_list[i]
+
+            #assert args.heter_devices != "", "The setting of Parameter-Server heter mode must has heter_devices."
+            #self.stage_device_map[1] = "cpu"  #  for cpu trainer
+            #heter_devices_list = args.heter_devices.split(";")
+            #for i in range(len(heter_devices_list)):
+            #    self.stage_device_map[i + 2] = heter_devices_list[i]
 
             self.stage_heter_map[1] = self.worker_endpoints
             if args.heter_worker_num:
@@ -1180,14 +1072,18 @@ class ParameterServerLauncher(object):
                 _, self.current_node_ip = get_host_name_ip()
             else:
                 self.current_node_ip = pod_ip
-            assert self.current_node_ip in self.node_ips, "Can't find your local ip {%s} in args.servers and args.workers ips: {%s}" \
-                  % (self.current_node_ip, self.node_ips)
-        self.node_rank = self.node_ips.index(self.current_node_ip)
-        logger.debug(
-            "parsed from args: node_ips:{} current_node_ip:{} node_rank:{}".
-            format(self.node_ips, self.current_node_ip, self.node_rank))
+            if not self.distribute_mode == DistributeMode.PS_HETER:
+                assert self.current_node_ip in self.node_ips, "Can't find your local ip {%s} in args.servers and args.workers ips: {%s}" \
+                      % (self.current_node_ip, self.node_ips)
+        if self.current_node_ip in self.node_ips:
+            self.node_rank = self.node_ips.index(self.current_node_ip)
+            logger.debug(
+                "parsed from args: node_ips:{} current_node_ip:{} node_rank:{}".
+                format(self.node_ips, self.current_node_ip, self.node_rank))
 
     def start_ps(self):
+        if not self.current_node_ip in self.node_ips:
+            return
         cluster = Cluster(hdfs=None)
         server_rank = 0
         worker_rank = 0
@@ -1379,7 +1275,7 @@ class ParameterServerLauncher(object):
                     self.stage_heter_map[2],
                     "PADDLE_ALL_HETER_TRAINER_IP_PORT_LIST":
                     self.heter_worker_endpoints,
-                    "HETER_DEVICE_TYPE": self.stage_device_map[1],
+                    #"HETER_DEVICE_TYPE": self.stage_device_map[1],
                     "TRAINING_ROLE": "TRAINER",
                     "POD_IP": cur_worker.endpoint.split(":")[0],
                     "PADDLE_PORT": cur_worker.endpoint.split(":")[1],
@@ -1475,7 +1371,7 @@ class ParameterServerLauncher(object):
                 self.stage_heter_map[stage_id - 1],
                 "PADDLE_ALL_HETER_TRAINER_IP_PORT_LIST":
                 self.heter_worker_endpoints,
-                "HETER_DEVICE_TYPE": self.stage_device_map[stage_id],
+                #"HETER_DEVICE_TYPE": self.stage_device_map[stage_id],
                 "STAGE_ID": str(stage_id),
                 "STAGE_NUM": str(self.stage_num),
                 "PADDLE_PORT": cur_heter_worker.endpoint.split(":")[1],
