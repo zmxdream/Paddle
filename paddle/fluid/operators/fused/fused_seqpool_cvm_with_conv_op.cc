@@ -128,6 +128,7 @@ class FusedSeqpoolCVMGradOpWithConv : public framework::OperatorWithKernel {
     auto cvm_dims = ctx->GetInputDim("CVM");
     const int cvm_offset = ctx->Attrs().Get<int>("cvm_offset");
     bool use_cvm = ctx->Attrs().Get<bool>("use_cvm");
+    bool show_filter = ctx->Attrs().Get<bool>("show_filter");
 
     PADDLE_ENFORCE_EQ(
         cvm_dims.size(), 2,
@@ -142,6 +143,9 @@ class FusedSeqpoolCVMGradOpWithConv : public framework::OperatorWithKernel {
               og_dims[i].size(), og_dims[i]));
       if (use_cvm) {
         auto o_dim = og_dims[i][og_dims[i].size() - 1];
+        if (show_filter) {
+            o_dim += 1;
+        }
         PADDLE_ENFORCE_EQ(
             o_dim, x_dims[i][og_dims[i].size() - 1],
             platform::errors::InvalidArgument(
