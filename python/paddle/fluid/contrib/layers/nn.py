@@ -75,6 +75,7 @@ __all__ = [
     'correlation',
     'fused_bn_add_act',
     'fused_seqpool_cvm',
+
     'fused_seqpool_cvm_with_conv',
     'fused_seqpool_cvm_with_diff_thres',
     'cross_norm_layer_hadamard',
