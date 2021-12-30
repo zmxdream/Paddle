@@ -579,6 +579,8 @@ class BoxWrapper {
       } else if (s_instance_->feature_type_ ==
                  static_cast<int>(boxps::FEATURE_PCOC)) {
         s_instance_->cvm_offset_ = 8;
+      } else if (s_instance_->feature_type_ == static_cast<int>(boxps::FEATURE_CONV)) {
+        s_instance_->cvm_offset_ = 4;
       } else {
         s_instance_->cvm_offset_ = 3;
       }

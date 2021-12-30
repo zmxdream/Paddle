@@ -1189,6 +1189,11 @@ void BoxWrapper::CopyForPull(const paddle::platform::Place& place,
           stream, gpu_keys, gpu_values, total_values_gpu, hidden_size,        \
           EmbedxDim, total_length, total_dims, slot_lens, slot_num, key2slot, \
           pull_embedx_scale_, cvm_offset_, gpu_restore_idx);                  \
+    } else if (feature_type_ == static_cast<int>(boxps::FEATURE_CONV)) {   \
+      FeaturePullCopy<boxps::FeaturePullValueGpuConv<EmbedxDim, ExpandDim>>( \
+          stream, gpu_keys, gpu_values, total_values_gpu, hidden_size,        \
+          EmbedxDim, total_length, total_dims, slot_lens, slot_num, key2slot, \
+          pull_embedx_scale_, cvm_offset_, gpu_restore_idx);                  \
     } else {                                                                  \
       FeaturePullCopy<boxps::FeaturePullValueGpu<EmbedxDim, ExpandDim>>(      \
           stream, gpu_keys, gpu_values, total_values_gpu, hidden_size,        \
@@ -1216,6 +1221,12 @@ void BoxWrapper::CopyForPull(const paddle::platform::Place& place,
     } else if (feature_type_ == static_cast<int>(boxps::FEATURE_VARIABLE)) {   \
       FeaturePullCopyVariable<                                                 \
           boxps::FeatureVarPullValueGpu<EmbedxDim, ExpandDim>>(                \
+          stream, gpu_keys, gpu_values, total_values_gpu, hidden_size,         \
+          EmbedxDim, ExpandDim, total_length, total_dims, slot_lens, slot_num, \
+          key2slot, 1.0, cvm_offset_, gpu_restore_idx);                        \
+    } else if (feature_type_ == static_cast<int>(boxps::FEATURE_CONV)) {      \
+      FeaturePullCopyNNCross<                                                 \
+          boxps::FeaturePullValueGpuConv<EmbedxDim, ExpandDim>>(                \
           stream, gpu_keys, gpu_values, total_values_gpu, hidden_size,         \
           EmbedxDim, ExpandDim, total_length, total_dims, slot_lens, slot_num, \
           key2slot, 1.0, cvm_offset_, gpu_restore_idx);                        \
@@ -1479,6 +1490,12 @@ void BoxWrapper::CopyForPush(const paddle::platform::Place& place,
           total_length, batch_size, d_slot_vector, total_dims, slot_lens,     \
           slot_num, key2slot, cvm_offset_, gpu_sort_idx, gpu_sort_offset,     \
           gpu_sort_lens);                                                     \
+    } else if (feature_type_ == static_cast<int>(boxps::FEATURE_CONV)) {      \
+      FeaturePushCopy<boxps::FeaturePushValueGpuConv<EmbedxDim, ExpandDim>>(  \
+          stream, total_grad_values_gpu, grad_values, hidden_size, EmbedxDim, \
+          total_length, batch_size, d_slot_vector, total_dims, slot_lens,     \
+          slot_num, key2slot, cvm_offset_, gpu_sort_idx, gpu_sort_offset,     \
+          gpu_sort_lens);                                                     \
     } else {                                                                  \
       FeaturePushCopy<boxps::FeaturePushValueGpu<EmbedxDim, ExpandDim>>(      \
           stream, total_grad_values_gpu, grad_values, hidden_size, EmbedxDim, \
@@ -1501,6 +1518,13 @@ void BoxWrapper::CopyForPush(const paddle::platform::Place& place,
     } else if (feature_type_ == static_cast<int>(boxps::FEATURE_VARIABLE)) {  \
       FeaturePushCopyVariable<                                                \
           boxps::FeatureVarPushValueGpu<EmbedxDim, ExpandDim>>(               \
+          stream, total_grad_values_gpu, grad_values, hidden_size, EmbedxDim, \
+          ExpandDim, total_length, batch_size, d_slot_vector, total_dims,     \
+          slot_lens, slot_num, key2slot, cvm_offset_, gpu_sort_idx,           \
+          gpu_sort_offset, gpu_sort_lens);                                    \
+    } else if (feature_type_ == static_cast<int>(boxps::FEATURE_CONV)) {  \
+      FeaturePushCopyVariable<                                                \
+          boxps::FeaturePushValueGpuConv<EmbedxDim, ExpandDim>>(               \
           stream, total_grad_values_gpu, grad_values, hidden_size, EmbedxDim, \
           ExpandDim, total_length, batch_size, d_slot_vector, total_dims,     \
           slot_lens, slot_num, key2slot, cvm_offset_, gpu_sort_idx,           \
