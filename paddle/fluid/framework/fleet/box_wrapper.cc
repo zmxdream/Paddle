@@ -20,11 +20,14 @@
 #include <numeric>
 
 #include "paddle/fluid/framework/lod_tensor.h"
+#include "paddle/fluid/memory/allocation/allocator_facade.h"
 #include "paddle/fluid/platform/collective_helper.h"
 #include "paddle/fluid/platform/gpu_info.h"
 
 DECLARE_bool(use_gpu_replica_cache);
 DECLARE_int32(gpu_replica_cache_dim);
+DECLARE_bool(enable_force_hbm_recyle);
+DECLARE_bool(enable_force_mem_recyle);
 namespace paddle {
 namespace framework {
 
@@ -567,6 +570,9 @@ void BoxWrapper::FeedPass(int date,
 }
 
 void BoxWrapper::BeginFeedPass(int date, boxps::PSAgentBase** agent) {
+  if (FLAGS_enable_force_mem_recyle) {
+    SlotRecordPool().disable_pool(true);
+  }
   int ret = boxps_ptr_->BeginFeedPass(date, *agent);
   if (FLAGS_use_gpu_replica_cache) {
     int dim = FLAGS_gpu_replica_cache_dim;
@@ -620,6 +626,19 @@ void BoxWrapper::EndPass(bool need_save_delta) {
   int ret = boxps_ptr_->EndPass(need_save_delta);
   PADDLE_ENFORCE_EQ(
       ret, 0, platform::errors::PreconditionNotMet("EndPass failed in BoxPS."));
+  // clear all gpu memory
+  if (FLAGS_enable_force_hbm_recyle) {
+    int gpu_num = platform::GetCUDADeviceCount();
+    for (int i = 0; i < gpu_num; ++i) {
+      memory::allocation::AllocatorFacade::Instance().Release(
+          platform::CUDAPlace(i));
+    }
+    size_t available = 0;
+    size_t total = 0;
+    platform::GpuMemoryUsage(&available, &total);
+    VLOG(0) << "release gpu memory total: " << (total >> 20)
+            << "MB, available: " << (available >> 20) << "MB";
+  }
 }
 
 void BoxWrapper::RecordReplace(std::vector<SlotRecord>* records,
