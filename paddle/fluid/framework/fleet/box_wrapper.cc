@@ -427,6 +427,9 @@ void BoxWrapper::PullSparse(const paddle::platform::Place& place,
                feature_type_ == static_cast<int>(boxps::FEATURE_SHOWCLK)) {  \
       PullSparseCase<boxps::FeaturePullValueGpuQuant<EmbedxDim, ExpandDim>>( \
           place, keys, values, slot_lengths, hidden_size, expand_embed_dim); \
+    } else if (feature_type_ == static_cast<int>(boxps::FEATURE_CONV)) {  \
+      PullSparseCase<boxps::FeaturePullValueGpuConv<EmbedxDim, ExpandDim>>( \
+          place, keys, values, slot_lengths, hidden_size, expand_embed_dim); \
     } else if (feature_type_ == static_cast<int>(boxps::FEATURE_VARIABLE)) { \
       PullSparseCase<boxps::FeatureVarPullValueGpu<EmbedxDim, ExpandDim>>(   \
           place, keys, values, slot_lengths, hidden_size, expand_embed_dim); \
@@ -478,28 +481,33 @@ void BoxWrapper::PushSparseGrad(const paddle::platform::Place& place,
     }                                                                        \
   } break
 
-#define PUSHSPARSE_CASE(i, ...)                                                \
-  case i: {                                                                    \
-    constexpr size_t ExpandDim = i;                                            \
-    if (feature_type_ == static_cast<int>(boxps::FEATURE_SHARE_EMBEDDING)) {   \
-      PushSparseGradCase<                                                      \
-          boxps::FeaturePushValueGpuShareEmbedding<EmbedxDim, ExpandDim>>(     \
-          place, keys, grad_values, slot_lengths, hidden_size,                 \
-          expand_embed_dim, batch_size);                                       \
-    } else if (feature_type_ == static_cast<int>(boxps::FEATURE_PCOC)) {       \
-      PushSparseGradCase<                                                      \
-          boxps::FeaturePushValueGpuPCOC<EmbedxDim, ExpandDim>>(               \
-          place, keys, grad_values, slot_lengths, hidden_size,                 \
-          expand_embed_dim, batch_size);                                       \
+#define PUSHSPARSE_CASE(i, ...)                                              \
+  case i: {                                                                  \
+    constexpr size_t ExpandDim = i;                                          \
+    if (feature_type_ == static_cast<int>(boxps::FEATURE_SHARE_EMBEDDING)) { \
+      PushSparseGradCase<                                                    \
+          boxps::FeaturePushValueGpuShareEmbedding<EmbedxDim, ExpandDim>>(   \
+          place, keys, grad_values, slot_lengths, hidden_size,               \
+          expand_embed_dim, batch_size);                                     \
+    } else if (feature_type_ == static_cast<int>(boxps::FEATURE_PCOC)) {     \
+      PushSparseGradCase<                                                    \
+          boxps::FeaturePushValueGpuPCOC<EmbedxDim, ExpandDim>>(             \
+          place, keys, grad_values, slot_lengths, hidden_size,               \
+          expand_embed_dim, batch_size);                                     \
     } else if (feature_type_ == static_cast<int>(boxps::FEATURE_VARIABLE)) {   \
       PushSparseGradCase<boxps::FeatureVarPushValueGpu<EmbedxDim, ExpandDim>>( \
           place, keys, grad_values, slot_lengths, hidden_size,                 \
           expand_embed_dim, batch_size);                                       \
-    } else {                                                                   \
-      PushSparseGradCase<boxps::FeaturePushValueGpu<EmbedxDim, ExpandDim>>(    \
-          place, keys, grad_values, slot_lengths, hidden_size,                 \
-          expand_embed_dim, batch_size);                                       \
-    }                                                                          \
+    } else if (feature_type_ == static_cast<int>(boxps::FEATURE_CONV)) {     \
+      PushSparseGradCase<                                                    \
+          boxps::FeaturePushValueGpuConv<EmbedxDim, ExpandDim>>(             \
+          place, keys, grad_values, slot_lengths, hidden_size,               \
+          expand_embed_dim, batch_size);                                     \
+    } else {                                                                 \
+      PushSparseGradCase<boxps::FeaturePushValueGpu<EmbedxDim, ExpandDim>>(  \
+          place, keys, grad_values, slot_lengths, hidden_size,               \
+          expand_embed_dim, batch_size);                                     \
+    }                                                                        \
   } break
 
   CheckEmbedSizeIsValid(hidden_size - cvm_offset_, expand_embed_dim);

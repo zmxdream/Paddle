@@ -75,6 +75,8 @@ __all__ = [
     'correlation',
     'fused_bn_add_act',
     'fused_seqpool_cvm',
+    'fused_seqpool_cvm_with_conv',
+    'fused_seqpool_cvm_with_diff_thres',
     'cross_norm_layer_hadamard',
     'fused_seqpool_cvm_with_pcoc',
     'scaled_fc',
@@ -1610,6 +1612,139 @@ def fused_seqpool_cvm(input,
 
     return outs
 
+def fused_seqpool_cvm_with_diff_thres(input,
+                      pool_type,
+                      cvm,
+                      pad_value=0.0,
+                      use_cvm=True,
+                      need_filter=False,
+                      show_coeff=0.2,
+                      clk_coeff=1.0,
+                      threshold=0.96,
+                      cvm_offset=2,
+                      quant_ratio=0,
+                      clk_filter=False,
+                      xbox_diff_thres_filter=False,
+                      threshold_vec=[]):
+    """
+     **Notes: The Op only receives List of LoDTensor as input, only support SUM pooling now.
+    :attr:`input`.
+    Args:
+        input(Variable|list of Variable): Input is List of LoDTensor.
+        pool_type(str): pooling type, only support SUM pooling now.
+        cvm(Variable): cvm Variable.
+        pad_value(float): padding value of sequence pool.
+        use_cvm(bool): use cvm or not.
+
+        xbox_diff_thres_filter(bool): filter feasign use different threshold during pull ssdtable
+    Returns:
+        Variable|list of Variable: The tensor variable storing sequence pool and cvm
+        of input.
+    """
+    helper = LayerHelper('fused_seqpool_cvm_with_diff_thres', **locals())
+
+    if pool_type.upper() != 'SUM':
+        raise ValueError(
+            "fused_seqpool_cvm_with_diff_thres only support SUM pooling now, and your type is: "
+            + pool_type)
+
+    check_type(input, 'input', list, 'fused_seqpool_cvm_with_diff_thres')
+    if isinstance(input, list):
+        for _input in input:
+            check_variable_and_dtype(_input, 'input', ['float32'],
+                                     'fused_seqpool_cvm_with_diff_thres')
+
+    dtype = helper.input_dtype()
+    inputs = helper.multiple_input()
+    outs = [
+        helper.create_variable_for_type_inference(dtype)
+        for i in range(len(inputs))
+    ]
+
+    if quant_ratio == 0 and need_filter:
+        ## quant not allow quant ratio zero set default 128
+        quant_ratio = 128
+
+    if len(threshold_vec) == 0:
+        xbox_diff_thres_filter = False
+
+
+    helper.append_op(
+        type="fused_seqpool_cvm_with_diff_thres",
+        inputs={"X": inputs,
+                "CVM": cvm},
+        outputs={"Out": outs},
+        attrs={
+            "pooltype": pool_type.upper(),
+            "pad_value": pad_value,
+            "use_cvm": use_cvm,
+            "cvm_offset": cvm_offset,
+            "need_filter": need_filter,
+            "show_coeff": show_coeff,
+            "clk_coeff": clk_coeff,
+            "threshold": threshold,
+            "quant_ratio": quant_ratio,
+            "clk_filter": clk_filter,
+            "xbox_diff_thres_filter": xbox_diff_thres_filter,
+            "threshold_vec": threshold_vec
+        })
+
+    return outs
+
+def fused_seqpool_cvm_with_conv(input,
+                      pool_type,
+                      cvm,
+                      pad_value=0.0,
+                      use_cvm=True,
+                      show_filter=False,
+                      cvm_offset=3):
+    """
+     **Notes: The Op only receives List of LoDTensor as input, only support SUM pooling now.
+    :attr:`input`.
+    Args:
+        input(Variable|list of Variable): Input is List of LoDTensor.
+        pool_type(str): pooling type, only support SUM pooling now.
+        cvm(Variable): cvm Variable.
+        pad_value(float): padding value of sequence pool.
+        use_cvm(bool): use cvm or not.
+    Returns:
+        Variable|list of Variable: The tensor variable storing sequence pool and cvm
+        of input.
+    """
+    helper = LayerHelper('fused_seqpool_cvm_with_conv', **locals())
+
+    if pool_type.upper() != 'SUM':
+        raise ValueError(
+            "fused_seqpool_cvm_with_conv only support SUM pooling now, and your type is: "
+            + pool_type)
+
+    check_type(input, 'input', list, 'fused_seqpool_cvm_with_conv')
+    if isinstance(input, list):
+        for _input in input:
+            check_variable_and_dtype(_input, 'input', ['float32'],
+                                     'fused_seqpool_cvm_with_conv')
+
+    dtype = helper.input_dtype()
+    inputs = helper.multiple_input()
+    outs = [
+        helper.create_variable_for_type_inference(dtype)
+        for i in range(len(inputs))
+    ]
+
+    helper.append_op(
+        type="fused_seqpool_cvm_with_conv",
+        inputs={"X": inputs,
+                "CVM": cvm},
+        outputs={"Out": outs},
+        attrs={
+            "pooltype": pool_type.upper(),
+            "pad_value": pad_value,
+            "use_cvm": use_cvm,
+            "cvm_offset": cvm_offset,
+            "show_filter" : show_filter
+        })
+
+    return outs
 
 def fused_seqpool_cvm_with_pcoc(input,
                                 pool_type,
