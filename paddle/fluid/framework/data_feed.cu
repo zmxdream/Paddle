@@ -21,6 +21,13 @@ limitations under the License. */
 namespace paddle {
 namespace framework {
 
+// CUDA: use 512 threads per block
+const int CUDA_NUM_THREADS = 512;
+// CUDA: number of blocks for threads.
+inline int GET_BLOCKS(const int N) {
+  return (N + CUDA_NUM_THREADS - 1) / CUDA_NUM_THREADS;
+}
+
 #define CUDA_KERNEL_LOOP(i, n)                                 \
   for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < (n); \
        i += blockDim.x * gridDim.x)
@@ -85,12 +92,7 @@ void MultiSlotInMemoryDataFeed::CopyForTensor(
   cudaStreamSynchronize(stream);
 }
 
-// CUDA: use 512 threads per block
-const int CUDA_NUM_THREADS = 512;
-// CUDA: number of blocks for threads.
-inline int GET_BLOCKS(const int N) {
-  return (N + CUDA_NUM_THREADS - 1) / CUDA_NUM_THREADS;
-}
+#ifdef PADDLE_WITH_BOX_PS
 // fill slot values
 __global__ void FillSlotValueOffsetKernel(
     const int ins_num, const int used_slot_num, size_t *slot_value_offsets,
@@ -269,6 +271,7 @@ void SlotPaddleBoxDataFeed::CopyRankOffset(int *dest, const int ins_num,
       dest, ins_num, pv_num, max_rank, ranks, cmatchs, ad_offsets, cols);
   cudaStreamSynchronize(stream);
 }
+#endif
 
 }  // namespace framework
 }  // namespace paddle

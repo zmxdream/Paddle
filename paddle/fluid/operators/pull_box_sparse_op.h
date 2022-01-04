@@ -53,6 +53,7 @@ static void PaddingZeros(const framework::ExecutionContext &ctx,
 
 template <typename T>
 static void PullCacheValuesFunctor(const framework::ExecutionContext &ctx) {
+#ifdef PADDLE_WITH_BOX_PS
   const auto *input = ctx.Input<framework::LoDTensor>("Id");
   auto *output = ctx.Output<framework::LoDTensor>("Out");
 
@@ -63,7 +64,6 @@ static void PullCacheValuesFunctor(const framework::ExecutionContext &ctx) {
   float *output_data =
       const_cast<float *>(output->mutable_data<float>(ctx.GetPlace()));
 
-#ifdef PADDLE_WITH_BOX_PS
   auto box_ptr = paddle::framework::BoxWrapper::GetInstance();
   int i = BOOST_GET_CONST(platform::CUDAPlace, ctx.GetPlace()).GetDeviceId();
 
@@ -74,6 +74,7 @@ static void PullCacheValuesFunctor(const framework::ExecutionContext &ctx) {
 
 template <typename T>
 static void LookupInputFunctor(const framework::ExecutionContext &ctx) {
+#ifdef PADDLE_WITH_BOX_PS
   const auto *input = ctx.Input<framework::LoDTensor>("Id");
   auto *output = ctx.Output<framework::LoDTensor>("Out");
   auto batch_size = input->dims()[0];
@@ -82,7 +83,6 @@ static void LookupInputFunctor(const framework::ExecutionContext &ctx) {
   float *output_data =
       const_cast<float *>(output->mutable_data<float>(ctx.GetPlace()));
 
-#ifdef PADDLE_WITH_BOX_PS
   auto box_ptr = paddle::framework::BoxWrapper::GetInstance();
   size_t device_id =
       BOOST_GET_CONST(platform::CUDAPlace, ctx.GetPlace()).GetDeviceId();

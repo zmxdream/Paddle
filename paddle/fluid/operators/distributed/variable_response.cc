@@ -222,6 +222,7 @@ bool VariableResponse::ProcSerializedField(
 
   if (meta_.type() == sendrecv::NCCL_ID) {
 #ifdef PADDLE_WITH_CUDA
+#ifdef PADDLE_WITH_NCCL
     auto* var = scope_->FindVar(meta_.varname());
     if (var != nullptr) {
       ncclUniqueId* id = var->GetMutable<ncclUniqueId>();
@@ -231,6 +232,11 @@ bool VariableResponse::ProcSerializedField(
       }
     }
     return true;
+#else
+    PADDLE_THROW(
+        platform::errors::PreconditionNotMet("Please compiled with NCCL!"));
+    return false;
+#endif
 #else
     PADDLE_THROW(
         platform::errors::PreconditionNotMet("Please compiled with CUDA!"));
