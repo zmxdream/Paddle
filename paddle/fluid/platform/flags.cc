@@ -311,7 +311,7 @@ DEFINE_double(memory_fraction_of_eager_deletion, 1.0,
 #ifdef PADDLE_ON_INFERENCE
 static constexpr char kDefaultAllocatorStrategy[] = "naive_best_fit";
 #else
-static constexpr char kDefaultAllocatorStrategy[] = "auto_growth";
+static constexpr char kDefaultAllocatorStrategy[] = "sample_pool";
 #endif
 DEFINE_string(
     allocator_strategy, kDefaultAllocatorStrategy,
@@ -600,7 +600,7 @@ DEFINE_bool(enable_slotrecord_reset_shrink, false,
             "enable slotrecord obejct reset shrink memory, default false");
 DEFINE_bool(enable_slotpool_wait_release, false,
             "enable slotrecord obejct wait release, default false");
-DEFINE_bool(enable_pullpush_dedup_keys, false,
+DEFINE_bool(enable_pullpush_dedup_keys, true,
             "enable pull push dedup keys, default false");
 DEFINE_bool(enable_shuffle_by_searchid, false,
             "enable dualbox shuffle by searchid, default false");
