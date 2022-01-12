@@ -35,8 +35,6 @@
 #define _LINUX
 #endif
 
-DECLARE_bool(padbox_dataset_disable_shuffle);
-DECLARE_bool(padbox_dataset_disable_polling);
 DECLARE_bool(padbox_dataset_enable_unrollinstance);
 
 namespace paddle {
@@ -1426,7 +1424,8 @@ class PadBoxSlotDataConsumer : public boxps::DataConsumer {
 PadBoxSlotDataset::PadBoxSlotDataset() {
   mpi_size_ = boxps::MPICluster::Ins().size();
   mpi_rank_ = boxps::MPICluster::Ins().rank();
-  SlotRecordPool();
+
+  slot_pool_ = &SlotRecordPool();
 
   auto boxps_ptr = BoxWrapper::GetInstance();
   int thread_num = boxps_ptr->GetFeedpassThreadNum();
@@ -1434,7 +1433,6 @@ PadBoxSlotDataset::PadBoxSlotDataset() {
     thread_num = FLAGS_padbox_dataset_merge_thread_num;
   }
   merge_thread_num_ = thread_num;
-  pass_id_ = boxps_ptr->GetDataSetId();
 }
 PadBoxSlotDataset::~PadBoxSlotDataset() {}
 // create input channel and output channel
@@ -1451,7 +1449,7 @@ void PadBoxSlotDataset::CreateChannel() {
 // set filelist, file_idx_ will reset to zero.
 void PadBoxSlotDataset::SetFileList(const std::vector<std::string>& filelist) {
   VLOG(3) << "filelist size: " << filelist.size();
-  if (mpi_size_ > 1 && !FLAGS_padbox_dataset_disable_polling) {
+  if (mpi_size_ > 1 && !disable_polling_) {
     // dualbox
     int num = static_cast<int>(filelist.size());
     for (int i = mpi_rank_; i < num; i = i + mpi_size_) {
@@ -1488,6 +1486,15 @@ void PadBoxSlotDataset::CheckThreadPool(void) {
   if (thread_pool_ != nullptr && merge_pool_ != nullptr) {
     return;
   }
+  if (enable_pv_merge_ || FLAGS_enable_shuffle_by_searchid) {  // shuffle by pv
+    VLOG(0) << "pass id=" << pass_id_ << ", use shuffle by search id";
+  } else if (merge_by_insid_) {  // shuffle by lineid
+    VLOG(0) << "pass id=" << pass_id_ << ", use shuffle by line id";
+  } else {  // shuffle
+    VLOG(0) << "pass id=" << pass_id_ << ", use shuffle by random id";
+  }
+  VLOG(0) << "pass id=" << pass_id_ << ", shuffle disable: " << disable_shuffle_
+          << ", polling disable: " << disable_polling_;
   used_fea_index_.clear();
   auto feed_obj = reinterpret_cast<SlotPaddleBoxDataFeed*>(readers_[0].get());
   feed_obj->GetUsedSlotIndex(&used_fea_index_);
@@ -1497,12 +1504,12 @@ void PadBoxSlotDataset::CheckThreadPool(void) {
   // merge thread
   merge_pool_ = GetMergePool(merge_thread_num_ * 2);
   // shuffle thread
-  if (!FLAGS_padbox_dataset_disable_shuffle && mpi_size_ > 1) {
+  if (!disable_shuffle_ && mpi_size_ > 1) {
     shuffle_pool_ = GetShufflePool(shuffle_thread_num_ * 2);
   }
 
   std::vector<int>& cores = boxps::get_readins_cores();
-  if (cores.empty()) {
+  if (cores.empty() || is_archive_file_) {
     return;
   }
   thread_pool_->SetCPUAffinity(cores, false);
@@ -1511,12 +1518,199 @@ void PadBoxSlotDataset::CheckThreadPool(void) {
     shuffle_pool_->SetCPUAffinity(cores, false);
   }
 }
+inline paddle::framework::ThreadPool* GetDownPool(int thread_num) {
+  static std::shared_ptr<paddle::framework::ThreadPool> thread_pool = nullptr;
+  if (thread_pool == nullptr) {
+    thread_pool.reset(new paddle::framework::ThreadPool(thread_num));
+  }
+  return thread_pool.get();
+}
+inline paddle::framework::ThreadPool* GetDumpPool(int thread_num) {
+  static std::shared_ptr<paddle::framework::ThreadPool> thread_pool = nullptr;
+  if (thread_pool == nullptr) {
+    thread_pool.reset(new paddle::framework::ThreadPool(thread_num));
+  }
+  return thread_pool.get();
+}
+void PadBoxSlotDataset::CheckDownThreadPool(void) {
+  slot_pool_ = &SlotRecordDownPool();
+  wait_futures_.clear();
+  if (down_pool_ != nullptr && dump_pool_ != nullptr) {
+    return;
+  }
+  if (enable_pv_merge_ || FLAGS_enable_shuffle_by_searchid) {  // shuffle by pv
+    VLOG(0) << "round id=" << pass_id_ << ", use shuffle by search id";
+  } else if (merge_by_insid_) {  // shuffle by lineid
+    VLOG(0) << "round id=" << pass_id_ << ", use shuffle by line id";
+  } else {  // shuffle
+    VLOG(0) << "round id=" << pass_id_ << ", use shuffle by random id";
+  }
+  VLOG(0) << "round id=" << pass_id_
+          << ", shuffle disable: " << disable_shuffle_
+          << ", polling disable: " << disable_polling_;
+  // read ins thread
+  down_pool_ = GetDownPool(thread_num_);
+  CHECK(down_pool_ != nullptr);
+  // dump thread
+  dump_pool_ = GetDumpPool(merge_thread_num_ * 2);
+  CHECK(dump_pool_ != nullptr);
+  // shuffle thread
+  if (mpi_size_ > 1) {
+    shuffle_pool_ = GetShufflePool(shuffle_thread_num_ * 2);
+    CHECK(shuffle_pool_ != nullptr);
+  }
+
+  std::vector<int>& cores = boxps::get_readins_cores();
+  if (cores.empty()) {
+    return;
+  }
+  down_pool_->SetCPUAffinity(cores, false);
+  dump_pool_->SetCPUAffinity(cores, false);
+  if (shuffle_pool_ != nullptr) {
+    shuffle_pool_->SetCPUAffinity(cores, false);
+  }
+}
+void PadBoxSlotDataset::PreLoadIntoDisk(const std::string& path,
+                                        const int file_num) {
+  pass_id_ = BoxWrapper::GetInstance()->GetRoundId();
+
+  CheckDownThreadPool();
+  binary_files_.resize(file_num);
+
+  total_ins_num_ = 0;
+
+  char szpath[1024] = {0};
+  for (int k = 0; k < file_num; ++k) {
+    binary_files_[k] = std::make_shared<BinaryArchiveWriter>();
+    snprintf(szpath, sizeof(szpath), "%s/%d", path.c_str(), k);
+    CHECK(binary_files_[k]->open(szpath)) << "open failed, path: " << szpath;
+  }
+  // dualbox global data shuffle
+  if (!disable_shuffle_ && mpi_size_ > 1) {
+    finished_counter_ = mpi_size_;
+    mpi_flags_.assign(mpi_size_, 1);
+    VLOG(3) << "RegisterClientToClientMsgHandler";
+    data_consumer_ = reinterpret_cast<void*>(new PadBoxSlotDataConsumer(this));
+    VLOG(3) << "RegisterClientToClientMsgHandler done";
+  }
+  CHECK(slot_pool_ != nullptr) << "slotrecord pool nullptr";
+  read_ins_ref_ = thread_num_;
+  CHECK(down_pool_ != nullptr) << "down_pool nullptr";
+  for (int64_t i = 0; i < thread_num_; ++i) {
+    wait_futures_.emplace_back(down_pool_->Run([this, i]() {
+      platform::Timer timer;
+      timer.Start();
+      CHECK(readers_[i] != nullptr) << "reader index=" << i << " nullptr";
+      reinterpret_cast<SlotPaddleBoxDataFeed*>(readers_[i].get())
+          ->SetSlotRecordPool(slot_pool_);
+      readers_[i]->LoadIntoMemory();
+      timer.Pause();
+      double span = timer.ElapsedSec();
+      if (max_read_ins_span_ < span) {
+        max_read_ins_span_ = span;
+      }
+      if (min_read_ins_span_ == 0 || min_read_ins_span_ > span) {
+        min_read_ins_span_ = span;
+      }
+      if (--read_ins_ref_ == 0) {
+        input_channel_->Close();
+        other_timer_.Start();
+        VLOG(0) << "round = " << pass_id_
+                << ", read ins thread end, max:" << max_read_ins_span_
+                << ", min:" << min_read_ins_span_;
+      }
+    }));
+  }
+
+  // dualbox global data shuffle
+  if (!disable_shuffle_ && mpi_size_ > 1) {
+    ShuffleData(shuffle_thread_num_);
+    DumpIntoDisk(shuffle_channel_, path, file_num);
+  } else {
+    DumpIntoDisk(input_channel_, path, file_num);
+  }
+}
+void PadBoxSlotDataset::WaitLoadDiskDone(void) {
+  for (auto& f : wait_futures_) {
+    f.get();
+  }
+  // close open file fd
+  for (size_t i = 0; i < binary_files_.size(); ++i) {
+    binary_files_[i]->close();
+  }
+  binary_files_.clear();
+
+  if (data_consumer_ != nullptr) {
+    delete reinterpret_cast<PadBoxSlotDataConsumer*>(data_consumer_);
+    data_consumer_ = nullptr;
+  }
+  VLOG(0) << "round = " << pass_id_
+          << ", PadBoxSlotDataset::WaitLoadDiskDone() end"
+          << ", load data size=" << total_ins_num_
+          << ", cost time=" << max_read_ins_span_ << " seconds";
+}
+void PadBoxSlotDataset::DumpIntoDisk(const Channel<SlotRecord>& in,
+                                     const std::string& path,
+                                     const int file_num) {
+  CHECK(in != nullptr) << "dump input channel nullptr";
+  merge_ins_ref_ = merge_thread_num_;
+  min_merge_ins_span_ = 1000;
+  CHECK(dump_pool_ != nullptr) << "dump_pool nullptr";
+  for (int tid = 0; tid < merge_thread_num_; ++tid) {
+    wait_futures_.emplace_back(dump_pool_->Run([this, &in, tid, file_num]() {
+      //      VLOG(0) << "merge thread id: " << tid << "start";
+      platform::Timer timer;
+      size_t num = 0;
+      int fileid = 0;
+      std::vector<SlotRecord> datas;
+      while ((num = in->ReadOnce(datas, OBJPOOL_BLOCK_SIZE)) > 0) {
+        timer.Resume();
+        for (auto& rec : datas) {
+          if (enable_pv_merge_ ||
+              FLAGS_enable_shuffle_by_searchid) {  // shuffle by pv
+            fileid = (rec->search_id / mpi_size_) % file_num;
+          } else if (merge_by_insid_) {  // shuffle by lineid
+            fileid = (XXH64(rec->ins_id_.data(), rec->ins_id_.length(), 0) /
+                      mpi_size_) %
+                     file_num;
+          } else {  // shuffle
+            fileid = (BoxWrapper::LocalRandomEngine()() / mpi_size_) % file_num;
+          }
+          // save to file
+          CHECK(binary_files_[fileid]->write(rec));
+        }
+        total_ins_num_ += num;
+        // free allobject
+        slot_pool_->put(&datas);
+        datas.clear();
+        timer.Pause();
+      }
+      datas.shrink_to_fit();
+
+      double span = timer.ElapsedSec();
+      if (max_merge_ins_span_ < span) {
+        max_merge_ins_span_ = span;
+      }
+      if (min_merge_ins_span_ > span) {
+        min_merge_ins_span_ = span;
+      }
+      // end merge thread
+      if (--merge_ins_ref_ == 0) {
+        other_timer_.Pause();
+        VLOG(0) << "round = " << pass_id_ << ", dump thread id: " << tid
+                << ", span time: " << span << ", max:" << max_merge_ins_span_
+                << ", min:" << min_merge_ins_span_;
+      }
+    }));
+  }
+}
 // pre load
 void PadBoxSlotDataset::PreLoadIntoMemory() {
+  pass_id_ = BoxWrapper::GetInstance()->GetDataSetId();
   CheckThreadPool();
   LoadIndexIntoMemory();
   // dualbox global data shuffle
-  if (!FLAGS_padbox_dataset_disable_shuffle && mpi_size_ > 1) {
+  if (!disable_shuffle_ && mpi_size_ > 1) {
     finished_counter_ = mpi_size_;
     mpi_flags_.assign(mpi_size_, 1);
     VLOG(3) << "RegisterClientToClientMsgHandler";
@@ -1549,7 +1743,7 @@ void PadBoxSlotDataset::PreLoadIntoMemory() {
   }
 
   // dualbox global data shuffle
-  if (!FLAGS_padbox_dataset_disable_shuffle && mpi_size_ > 1) {
+  if (!disable_shuffle_ && mpi_size_ > 1) {
     ShuffleData(shuffle_thread_num_);
     MergeInsKeys(shuffle_channel_);
   } else {
@@ -1575,13 +1769,14 @@ void PadBoxSlotDataset::WaitPreLoadDone() {
 // load all data into memory
 void PadBoxSlotDataset::LoadIntoMemory() {
   VLOG(3) << "DatasetImpl<T>::LoadIntoMemory() begin";
+  pass_id_ = BoxWrapper::GetInstance()->GetDataSetId();
   CheckThreadPool();
   LoadIndexIntoMemory();
 
   platform::Timer timeline;
   timeline.Start();
   // dualbox global data shuffle
-  if (!FLAGS_padbox_dataset_disable_shuffle && mpi_size_ > 1) {
+  if (!disable_shuffle_ && mpi_size_ > 1) {
     finished_counter_ = mpi_size_;
     mpi_flags_.assign(mpi_size_, 1);
     VLOG(3) << "RegisterClientToClientMsgHandler";
@@ -1600,7 +1795,7 @@ void PadBoxSlotDataset::LoadIntoMemory() {
   }
 
   // dualbox global data shuffle
-  if (!FLAGS_padbox_dataset_disable_shuffle && mpi_size_ > 1) {
+  if (!disable_shuffle_ && mpi_size_ > 1) {
     ShuffleData(shuffle_thread_num_);
     MergeInsKeys(shuffle_channel_);
   } else {
@@ -1636,6 +1831,7 @@ void PadBoxSlotDataset::MergeInsKeys(const Channel<SlotRecord>& in) {
       platform::Timer timer;
       auto feed_obj =
           reinterpret_cast<SlotPaddleBoxDataFeed*>(readers_[0].get());
+      CHECK(feed_obj != nullptr && in != nullptr);
       size_t num = 0;
       std::vector<SlotRecord> datas;
       while (in->ReadOnce(datas, OBJPOOL_BLOCK_SIZE)) {
@@ -1700,7 +1896,7 @@ void PadBoxSlotDataset::ReleaseMemory() {
   readers_.clear();
   readers_.shrink_to_fit();
 
-  SlotRecordPool().put(&input_records_);
+  slot_pool_->put(&input_records_);
   input_records_.clear();
   input_records_.shrink_to_fit();
 
@@ -1714,7 +1910,7 @@ void PadBoxSlotDataset::ReleaseMemory() {
   timeline.Pause();
   VLOG(1) << "DatasetImpl<T>::ReleaseMemory() end, cost time="
           << timeline.ElapsedSec()
-          << " seconds, object pool size=" << SlotRecordPool().capacity();
+          << " seconds, object pool size=" << slot_pool_->capacity();
 }
 class ShuffleResultWaitGroup : public boxps::ResultCallback {
  public:
@@ -1789,7 +1985,7 @@ void PadBoxSlotDataset::ShuffleData(int thread_num) {
           ars[client_id] << t;
           releases.push_back(t);
         }
-        SlotRecordPool().put(&releases);
+        slot_pool_->put(&releases);
         releases.clear();
         size_t loc_len = loc_datas.size();
         CHECK(shuffle_channel_->Write(std::move(loc_datas)) == loc_len);
@@ -1898,7 +2094,7 @@ void PadBoxSlotDataset::ReceiveSuffleData(int client_id, const char* buf,
   static const int max_fetch_num = OBJPOOL_BLOCK_SIZE / mpi_size_;
   int offset = 0;
   std::vector<SlotRecord> data;
-  SlotRecordPool().get(&data, max_fetch_num);
+  slot_pool_->get(&data, max_fetch_num);
   while (ar.Cursor() < ar.Finish()) {
     ar >> data[offset++];
     if (offset >= max_fetch_num) {
@@ -1906,7 +2102,7 @@ void PadBoxSlotDataset::ReceiveSuffleData(int client_id, const char* buf,
             static_cast<size_t>(offset));
       data.clear();
       offset = 0;
-      SlotRecordPool().get(&data, max_fetch_num);
+      slot_pool_->get(&data, max_fetch_num);
     }
   }
   CHECK(ar.Cursor() == ar.Finish());
@@ -1914,10 +2110,10 @@ void PadBoxSlotDataset::ReceiveSuffleData(int client_id, const char* buf,
     CHECK(shuffle_channel_->WriteMove(offset, &data[0]) ==
           static_cast<size_t>(offset));
     if (offset < max_fetch_num) {
-      SlotRecordPool().put(&data[offset], (max_fetch_num - offset));
+      slot_pool_->put(&data[offset], (max_fetch_num - offset));
     }
   } else {
-    SlotRecordPool().put(&data);
+    slot_pool_->put(&data);
   }
 
   data.clear();
@@ -1955,6 +2151,8 @@ void PadBoxSlotDataset::CreateReaders() {
     if (input_channel_ != nullptr) {
       readers_[i]->SetInputChannel(input_channel_.get());
     }
+    // disk archive file
+    readers_[i]->SetLoadArchiveFile(is_archive_file_);
   }
   VLOG(3) << "readers size: " << readers_.size();
 }
