@@ -1002,10 +1002,9 @@ class MultiMaskMetricMsg : public MetricMsg {
     mask_varname_list_ = string::split_string(mask_varname_list, " ");
     const std::vector<std::string> tmp_val_lst = string::split_string(mask_varvalue_list, " ");
     for (const auto& it : tmp_val_lst) {
-        mask_varvalue_list_.emplace_back(atoi(it.c_str()));
+      mask_varvalue_list_.emplace_back(atoi(it.c_str()));
     }
-    PADDLE_ENFORCE_EQ(
-        mask_varname_list_.size(), mask_varvalue_list_.size(),
+    PADDLE_ENFORCE_EQ(mask_varname_list_.size(), mask_varvalue_list_.size(),
         platform::errors::PreconditionNotMet("mast var num[%zu] should be equal to mask val num[%zu]",
         mask_varname_list_.size(), mask_varvalue_list_.size()));
 
@@ -1024,22 +1023,23 @@ class MultiMaskMetricMsg : public MetricMsg {
     
     PADDLE_ENFORCE_EQ(label_data.size(), pred_data.size(),
                       platform::errors::PreconditionNotMet(
-                          "the predict data length should be consistent with "
-                          "the label data length"));
+                      "the predict data length should be consistent with "
+                      "the label data length"));
   
     std::vector<std::vector<int64_t>> mask_value_data_list(mask_varname_list_.size());
     for (size_t name_idx = 0; name_idx < mask_varname_list_.size(); ++name_idx) {
-        get_data<int64_t>(exe_scope, mask_varname_list_[name_idx], &mask_value_data_list[name_idx]);
-        PADDLE_ENFORCE_EQ(label_data.size(), mask_value_data_list[name_idx].size(),
-                          platform::errors::PreconditionNotMet(
-                              "the label data length[%d] should be consistent with "
-                              "the %s[%zu] length", label_data.size(), mask_value_data_list[name_idx].size()));
+      get_data<int64_t>(exe_scope, mask_varname_list_[name_idx], &mask_value_data_list[name_idx]);
+      PADDLE_ENFORCE_EQ(label_data.size(), mask_value_data_list[name_idx].size(),
+                        platform::errors::PreconditionNotMet(
+                        "the label data length[%d] should be consistent with "
+                        "the %s[%zu] length", label_data.size(), mask_value_data_list[name_idx].size()));
     }
     auto cal = GetCalculator();
     std::lock_guard<std::mutex> lock(cal->table_mutex());
     size_t batch_size = label_data.size();
+    bool flag = true;
     for (size_t ins_idx = 0; ins_idx < batch_size; ++ins_idx) {
-      bool flag = true;
+      flag = true;
       for (size_t val_idx = 0; val_idx < mask_varvalue_list_.size(); ++val_idx) {
         if (mask_value_data_list[val_idx][ins_idx] != mask_varvalue_list_[val_idx]) {
           flag = false;
