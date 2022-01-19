@@ -117,6 +117,104 @@ __global__ void FusedSeqpoolKernelQuantFilter(
     *(seqpool_output_values[x] + y * embedding_size + offset) = val;
   }
 }
+// embed quant filter
+template <typename T>
+__global__ void FusedSeqpoolKernelEmbedQuantFilter(
+    const size_t N, T **input_values, T **seqpool_output_values,
+    size_t **lods_values, const int batch_size, const int embedding_size,
+    const float pad_value, const int cvm_offset, const float show_coeff,
+    const float clk_coeff, const float threshold, const int quant_ratio,
+    const float embed_threshold) {
+  CUDA_KERNEL_LOOP(i, N) {
+    int key = i / embedding_size;
+    int offset = i % embedding_size;  // embedx id
+    int x = key / batch_size;         // slot id
+    int y = key % batch_size;         // ins id
+    auto &start = *(lods_values[x] + y);
+    auto &end = *(lods_values[x] + y + 1);
+
+    double val = pad_value;
+    for (auto k = start; k < end; ++k) {
+      T &show = *(input_values[x] + k * embedding_size);
+      T &click = *(input_values[x] + k * embedding_size + 1);
+      if ((show - click) * show_coeff + click * clk_coeff < threshold) {
+        continue;
+      }
+      T &embedw = *(input_values[x] + k * embedding_size + cvm_offset);
+      T embedx_weight_score = 0.0;
+      for (int i = cvm_offset+1; i < embedding_size; i++) {
+        embedx_weight_score += pow(*(input_values[x] + k * embedding_size + i), 2);
+      }
+      embedx_weight_score = std::sqrt(embedx_weight_score) + std::abs(embedw);
+      if (embedx_weight_score < embed_threshold) {
+        continue;
+      }
+      if (offset < cvm_offset) {  // show & click
+        val += *(input_values[x] + k * embedding_size + offset);
+      } else {
+        val += ((static_cast<int>(
+                    *(input_values[x] + k * embedding_size + offset) *
+                        quant_ratio +
+                    0.5)) /
+                static_cast<float>(quant_ratio));
+      }
+    }
+    *(seqpool_output_values[x] + y * embedding_size + offset) = val;
+  }
+}
+// embed quant filter opt
+template <typename T>
+__global__ void FusedSeqpoolKernelEmbedQuantOptFilter(
+    const size_t N, T **input_values, T **seqpool_output_values,
+    size_t **lods_values, const int batch_size, const int embedding_size,
+    const float pad_value, const int cvm_offset, const float show_coeff,
+    const float clk_coeff, const float threshold, const int quant_ratio,
+    const float embed_threshold) {
+  CUDA_KERNEL_LOOP(i, N) {
+    int key = i / embedding_size;
+    int offset = i % embedding_size;  // embedx id
+    int x = key / batch_size;         // slot id
+    int y = key % batch_size;         // ins id
+    auto &start = *(lods_values[x] + y);
+    auto &end = *(lods_values[x] + y + 1);
+
+    bool is_filter[end - start];
+    if (offset == 0) {
+      is_filter[end - start] = {false};
+      for (auto k = start; k < end; ++k) {
+        T &show = *(input_values[x] + k * embedding_size);
+        T &click = *(input_values[x] + k * embedding_size + 1);
+        T &embedw = *(input_values[x] + k * embedding_size + cvm_offset);
+        T embedx_weight_score = 0.0;
+        for (int i = cvm_offset+1; i < embedding_size; i++) {
+          embedx_weight_score += pow(*(input_values[x] + k * embedding_size + i), 2);
+        }
+        T show_click_score = (show - click) * show_coeff + click * clk_coeff;
+        embedx_weight_score = std::sqrt(embedx_weight_score) + std::abs(embedw);
+        if (show_click_score < threshold || embedx_weight_score < embed_threshold) {
+          is_filter[k-start] = true;
+        }
+      }
+    }
+
+    double val = pad_value;
+    for (auto k = start; k < end; ++k) {
+      if (is_filter[k-start]) {
+          continue;
+      }
+      if (offset < cvm_offset) {  // show & click
+        val += *(input_values[x] + k * embedding_size + offset);
+      } else {
+        val += ((static_cast<int>(
+                    *(input_values[x] + k * embedding_size + offset) *
+                        quant_ratio +
+                    0.5)) /
+                static_cast<float>(quant_ratio));
+      }
+    }
+    *(seqpool_output_values[x] + y * embedding_size + offset) = val;
+  }
+}
 // join need show click input
 template <typename T>
 __global__ void FusedCVMKernelWithCVM(const size_t N, T **output_values,
@@ -190,8 +288,8 @@ void FusedSeqpoolCVM(const paddle::platform::Place &place,
                      std::vector<const size_t *> lods, const int batch_size,
                      const int slot_num, const int embedding_size,
                      const float padding_value, const bool use_cvm,
-                     const int cvm_offset, float need_filter, float show_coeff,
-                     float clk_coeff, float threshold, const int quant_ratio,
+                     const int cvm_offset, float need_filter, const bool embed_threshold_filter, float show_coeff,
+                     float clk_coeff, float threshold, float embed_threshold, const int quant_ratio,
                      const bool clk_filter) {
   auto stream = dynamic_cast<platform::CUDADeviceContext *>(
                     platform::DeviceContextPool::Instance().Get(
@@ -224,7 +322,13 @@ void FusedSeqpoolCVM(const paddle::platform::Place &place,
 
   size_t N = static_cast<size_t>(batch_size * slot_num * embedding_size);
   // first sum pool
-  if (need_filter) {  // quant need filter
+  if (need_filter && embed_threshold_filter) { // embed quant filter
+    FusedSeqpoolKernelEmbedQuantFilter<<<GET_BLOCK(N), PADDLE_CUDA_NUM_THREADS, 0,
+                                    stream>>>(
+        N, gpu_input_values, gpu_seqpool_output_values, lods_values, batch_size,
+        embedding_size, padding_value, cvm_offset, show_coeff, clk_coeff,
+        threshold, quant_ratio, embed_threshold);
+  } else if (need_filter) {  // quant need filter
     FusedSeqpoolKernelQuantFilter<<<GET_BLOCK(N), PADDLE_CUDA_NUM_THREADS, 0,
                                     stream>>>(
         N, gpu_input_values, gpu_seqpool_output_values, lods_values, batch_size,
@@ -414,9 +518,11 @@ class FusedSeqpoolCVMCUDAKernel : public framework::OpKernel<T> {
     auto padding_value = ctx.Attr<float>("pad_value");
     auto use_cvm = ctx.Attr<bool>("use_cvm");
     bool need_filter = ctx.Attr<bool>("need_filter");
+    bool embed_threshold_filter = ctx.Attr<bool>("embed_threshold_filter");
     float show_coeff = ctx.Attr<float>("show_coeff");
     float clk_coeff = ctx.Attr<float>("clk_coeff");
     float threshold = ctx.Attr<float>("threshold");
+    float embed_threshold = ctx.Attr<float>("embed_threshold");
     const int cvm_offset = ctx.Attr<int>("cvm_offset");
     const int quant_ratio = ctx.Attr<int>("quant_ratio");
     bool clk_filter = ctx.Attr<bool>("clk_filter");
@@ -458,8 +564,8 @@ class FusedSeqpoolCVMCUDAKernel : public framework::OpKernel<T> {
     FusedSeqpoolCVM(ctx.GetPlace(), input_data, output_data,
                     seqpool_output_data, lods_data, batch_size, slot_size,
                     embedding_size, padding_value, use_cvm, cvm_offset,
-                    need_filter, show_coeff, clk_coeff, threshold, quant_ratio,
-                    clk_filter);
+                    need_filter, embed_threshold_filter, show_coeff, clk_coeff, 
+                    threshold, embed_threshold, quant_ratio, clk_filter);
   }
 };
 
