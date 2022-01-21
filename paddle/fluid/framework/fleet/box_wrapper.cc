@@ -1280,9 +1280,8 @@ void BoxWrapper::ReleasePool(void) {
   timer.Start();
   size_t capacity = SlotRecordPool().capacity();
   SlotRecordPool().clear();
+  SlotRecordPool().disable_pool(false);
   timer.Pause();
-  STAT_RESET(STAT_total_feasign_num_in_mem, 0);
-  STAT_RESET(STAT_slot_pool_size, 0);
   LOG(WARNING) << "ReleasePool Size=" << capacity
                << ", Time=" << timer.ElapsedSec() << "sec";
 }
