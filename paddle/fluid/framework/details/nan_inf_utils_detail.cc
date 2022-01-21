@@ -453,6 +453,38 @@ bool CheckOpHasNanOrInfRet(const framework::OperatorBase& op,
   return false;
 }
 
+void DumpTensorToFile(const std::string& path, const std::string& prefix,
+                      const std::string& iname, const Scope& exec_scope) {
+  auto* var = exec_scope.FindVar(iname);
+  if (var == nullptr) {
+    return;
+  }
+  if (!var->IsInitialized()) {
+    return;
+  }
+  auto& tensor = var->Get<framework::LoDTensor>();
+  if (!tensor.IsInitialized()) {
+    return;
+  }
+
+  std::ostringstream os;
+  if (var->IsType<framework::LoDTensor>()) {
+    os << var->Get<framework::LoDTensor>();
+  } else if (var->IsType<framework::SelectedRows>()) {
+    os << var->Get<framework::SelectedRows>().value();
+  }
+  os << "\n";
+  std::string s = os.str();
+
+  char file_name[2048] = {0};
+  snprintf(file_name, sizeof(file_name), "%s/%s_%s", path.c_str(),
+           prefix.c_str(), iname.c_str());
+
+  std::ofstream out(file_name, std::ios::binary);
+  out.write(s.c_str(), s.length());
+  out.close();
+}
+
 }  // namespace details
 }  // namespace framework
 }  // namespace paddle

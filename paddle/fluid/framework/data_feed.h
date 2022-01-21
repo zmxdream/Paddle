@@ -1448,13 +1448,13 @@ class MiniBatchGpuPack {
   // tensor gpu memory reused
   void resize_tensor(void) {
     if (used_float_num_ > 0) {
-      int float_total_len = buf_.h_float_lens.back();
+      int float_total_len = buf_.h_float_lens.back() + used_float_num_;
       if (float_total_len > 0) {
         float_tensor_.mutable_data<float>({float_total_len, 1}, this->place_);
       }
     }
     if (used_uint64_num_ > 0) {
-      int uint64_total_len = buf_.h_uint64_lens.back();
+      int uint64_total_len = buf_.h_uint64_lens.back() + used_uint64_num_;
       if (uint64_total_len > 0) {
         uint64_tensor_.mutable_data<int64_t>({uint64_total_len, 1},
                                              this->place_);
@@ -1469,18 +1469,14 @@ class MiniBatchGpuPack {
   HostBuffer<size_t>& offsets(void) { return offsets_; }
   HostBuffer<void*>& h_tensor_ptrs(void) { return h_tensor_ptrs_; }
 
-  void* gpu_slot_offsets(void) { return gpu_slot_offsets_->ptr(); }
+  size_t* gpu_slot_offsets(void) {
+    return reinterpret_cast<size_t*>(gpu_slot_offsets_.data<int64_t>());
+  }
 
   void* slot_buf_ptr(void) { return slot_buf_ptr_->ptr(); }
 
-  void resize_gpu_slot_offsets(const size_t slot_total_bytes) {
-    if (gpu_slot_offsets_ == nullptr) {
-      gpu_slot_offsets_ = memory::AllocShared(place_, slot_total_bytes);
-    } else if (gpu_slot_offsets_->size() < slot_total_bytes) {
-      auto buf = memory::AllocShared(place_, slot_total_bytes);
-      gpu_slot_offsets_.swap(buf);
-      buf = nullptr;
-    }
+  void resize_gpu_slot_offsets(const int64_t slot_total_num) {
+    gpu_slot_offsets_.mutable_data<int64_t>({slot_total_num, 1}, this->place_);
   }
   const std::string& get_lineid(int idx) {
     if (enable_pv_) {
@@ -1542,9 +1538,8 @@ class MiniBatchGpuPack {
   // batch
   HostBuffer<size_t> offsets_;
   HostBuffer<void*> h_tensor_ptrs_;
-
-  std::shared_ptr<paddle::memory::allocation::Allocation> gpu_slot_offsets_ =
-      nullptr;
+  // slot offset
+  LoDTensor gpu_slot_offsets_;
   std::shared_ptr<paddle::memory::allocation::Allocation> slot_buf_ptr_ =
       nullptr;
   // pcoc
@@ -1816,7 +1811,7 @@ class InputIndexDataFeed : public DataFeed {
 template <class AR, class T>
 paddle::framework::Archive<AR>& operator<<(paddle::framework::Archive<AR>& ar,
                                            const SlotValues<T>& r) {
-  uint16_t value_len = static_cast<uint16_t>(r.slot_values.size());
+  uint32_t value_len = static_cast<uint32_t>(r.slot_values.size());
   ar << value_len;
   if (value_len > 0) {
     ar.Write(&r.slot_values[0], value_len * sizeof(T));
@@ -1833,7 +1828,7 @@ paddle::framework::Archive<AR>& operator<<(paddle::framework::Archive<AR>& ar,
 template <class AR, class T>
 paddle::framework::Archive<AR>& operator>>(paddle::framework::Archive<AR>& ar,
                                            SlotValues<T>& r) {
-  uint16_t value_len = 0;
+  uint32_t value_len = 0;
   ar >> value_len;
   if (value_len > 0) {
     r.slot_values.resize(value_len);

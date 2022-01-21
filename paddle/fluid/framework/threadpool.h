@@ -77,15 +77,13 @@ class ThreadPool {
       try {
         fn();
       } catch (platform::EnforceNotMet& ex) {
-        //        CHECK(false) << "Unexpected exception is catched in thread
-        //        pool: "
-        //                     << ex.what();
+        CHECK(false) << "Unexpected exception is catched in threal pool: "
+                     << ex.what();
         return std::unique_ptr<platform::EnforceNotMet>(
             new platform::EnforceNotMet(ex));
       } catch (const std::exception& e) {
-        //        CHECK(false) << "Unexpected exception is catched in thread
-        //        pool: "
-        //                     << e.what();
+        CHECK(false) << "Unexpected exception is catched in thread pool: "
+                     << e.what();
         PADDLE_THROW(platform::errors::Fatal(
             "Unexpected exception is catched in thread pool. All "
             "throwable exception in Paddle should be an EnforceNotMet."

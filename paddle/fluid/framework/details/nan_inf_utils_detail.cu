@@ -205,10 +205,10 @@ __global__ void CountNanInfNumKernel(const size_t len, const T* val,
       count = atomicAdd(&block_inf, 1);
     }
     // for cuda, print in every block
-    if (count > 0) {
-      printf("numel:%lu idx:%lu value:%f\n", static_cast<uint64_t>(len),
-             static_cast<uint64_t>(i), static_cast<float>(val[i]));
-    }
+    //    if (count > 0) {
+    //      printf("numel:%lu idx:%lu value:%f\n", static_cast<uint64_t>(len),
+    //             static_cast<uint64_t>(i), static_cast<float>(val[i]));
+    //    }
   }
   __syncthreads();
 

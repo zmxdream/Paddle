@@ -36,6 +36,8 @@ void CheckOpHasNanOrInf(const framework::OperatorBase& op,
 bool CheckOpHasNanOrInfRet(const framework::OperatorBase& op,
                            const framework::Scope& scope,
                            const platform::Place& place);
+void DumpTensorToFile(const std::string& path, const std::string& prefix,
+                      const std::string& iname, const Scope& exec_scope);
 }  // namespace details
 }  // namespace framework
 }  // namespace paddle

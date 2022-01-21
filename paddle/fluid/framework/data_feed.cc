@@ -2569,18 +2569,17 @@ void SlotPaddleBoxDataFeed::BuildSlotBatchGPU(const int ins_num) {
   int offset_cols_size = (ins_num + 1);
   size_t slot_total_num = (use_slot_size_ * offset_cols_size);
 
-  pack_->resize_gpu_slot_offsets(slot_total_num * sizeof(size_t));
+  pack_->resize_gpu_slot_offsets(slot_total_num);
 
   auto& value = pack_->value();
   const UsedSlotGpuType* used_slot_gpu_types =
       static_cast<const UsedSlotGpuType*>(pack_->get_gpu_slots());
-  FillSlotValueOffset(ins_num, use_slot_size_,
-                      reinterpret_cast<size_t*>(pack_->gpu_slot_offsets()),
+  FillSlotValueOffset(ins_num, use_slot_size_, pack_->gpu_slot_offsets(),
                       value.d_uint64_offset.data(), uint64_use_slot_size_,
                       value.d_float_offset.data(), float_use_slot_size_,
                       used_slot_gpu_types);
   fill_timer_.Pause();
-  size_t* d_slot_offsets = reinterpret_cast<size_t*>(pack_->gpu_slot_offsets());
+  size_t* d_slot_offsets = pack_->gpu_slot_offsets();
 
   offset_timer_.Resume();
   HostBuffer<size_t>& offsets = pack_->offsets();
@@ -2626,25 +2625,30 @@ void SlotPaddleBoxDataFeed::BuildSlotBatchGPU(const int ins_num) {
         feed->ShareDataWith(float_tensor.Slice(
             static_cast<int64_t>(float_offset),
             static_cast<int64_t>(float_offset + total_instance)));
-        feed->Resize({total_instance, 1});
         float_offset += total_instance;
-        h_tensor_ptrs[j] = feed->mutable_data<float>(this->place_);
       } else {
-        h_tensor_ptrs[j] =
-            feed->mutable_data<float>({total_instance, 1}, this->place_);
+        feed->ShareDataWith(
+            float_tensor.Slice(static_cast<int64_t>(float_offset),
+                               static_cast<int64_t>(float_offset + 1)));
+        float_offset += 1;
       }
+      feed->Resize({total_instance, 1});
+      h_tensor_ptrs[j] = feed->data<float>();
     } else if (info.type[0] == 'u') {  // uint64
       if (total_instance > 0) {
         feed->ShareDataWith(uint64_tensor.Slice(
             static_cast<int64_t>(uint64_offset),
             static_cast<int64_t>(uint64_offset + total_instance)));
-        feed->Resize({total_instance, 1});
         uint64_offset += total_instance;
-        h_tensor_ptrs[j] = feed->mutable_data<int64_t>(this->place_);
       } else {
-        h_tensor_ptrs[j] =
-            feed->mutable_data<int64_t>({total_instance, 1}, this->place_);
+        feed->ShareDataWith(
+            uint64_tensor.Slice(static_cast<int64_t>(uint64_offset),
+                                static_cast<int64_t>(uint64_offset + 1)));
+        uint64_offset += 1;
       }
+      feed->Resize({total_instance, 1});
+      //        h_tensor_ptrs[j] = feed->mutable_data<int64_t>(this->place_);
+      h_tensor_ptrs[j] = feed->data<int64_t>();
     }
 
     if (info.dense) {
