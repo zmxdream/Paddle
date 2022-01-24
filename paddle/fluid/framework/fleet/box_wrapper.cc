@@ -28,6 +28,7 @@ DECLARE_bool(use_gpu_replica_cache);
 DECLARE_int32(gpu_replica_cache_dim);
 DECLARE_bool(enable_force_hbm_recyle);
 DECLARE_bool(enable_force_mem_recyle);
+DECLARE_bool(enbale_slotpool_auto_clear);
 namespace paddle {
 namespace framework {
 
@@ -579,9 +580,10 @@ void BoxWrapper::FeedPass(int date,
 
 void BoxWrapper::BeginFeedPass(int date, boxps::PSAgentBase** agent) {
   if (FLAGS_enable_force_mem_recyle) {
-    SlotRecordPool().disable_pool(true);
+    SlotRecordPool().disable_pool(FLAGS_enbale_slotpool_auto_clear);
   } else {
-    SlotRecordPool().disable_pool(boxps_ptr_->CheckNeedLimitMem());
+    SlotRecordPool().disable_pool(FLAGS_enbale_slotpool_auto_clear &&
+                                  boxps_ptr_->CheckNeedLimitMem());
   }
   int ret = boxps_ptr_->BeginFeedPass(date, *agent);
   if (FLAGS_use_gpu_replica_cache) {
@@ -619,7 +621,8 @@ void BoxWrapper::BeginPass() {
   PADDLE_ENFORCE_EQ(ret, 0, platform::errors::PreconditionNotMet(
                                 "BeginPass failed in BoxPS."));
   // auto disable or enable slotrecord pool recyle memory
-  SlotRecordPool().disable_pool(boxps_ptr_->CheckNeedLimitMem());
+  SlotRecordPool().disable_pool(FLAGS_enbale_slotpool_auto_clear &&
+                                boxps_ptr_->CheckNeedLimitMem());
 }
 
 void BoxWrapper::SetTestMode(bool is_test) const {

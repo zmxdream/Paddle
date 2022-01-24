@@ -1758,13 +1758,19 @@ void PadBoxSlotDataset::WaitPreLoadDone() {
     delete reinterpret_cast<PadBoxSlotDataConsumer*>(data_consumer_);
     data_consumer_ = nullptr;
   }
+
+  platform::Timer timeline;
+  timeline.Start();
   if (FLAGS_padbox_dataset_enable_unrollinstance) {
     UnrollInstance();
   }
+  timeline.Pause();
+
   VLOG(0) << "passid = " << pass_id_
           << ", PadBoxSlotDataset::WaitPreLoadDone() end"
           << ", memory data size=" << input_records_.size()
-          << ", cost time=" << max_read_ins_span_ << " seconds";
+          << ", cost time=" << max_read_ins_span_ << " seconds"
+          << ", unroll time=" << timeline.ElapsedSec() << " seconds";
 }
 // load all data into memory
 void PadBoxSlotDataset::LoadIntoMemory() {
@@ -1810,6 +1816,10 @@ void PadBoxSlotDataset::LoadIntoMemory() {
     delete reinterpret_cast<PadBoxSlotDataConsumer*>(data_consumer_);
     data_consumer_ = nullptr;
   }
+  timeline.Pause();
+  double span_time = timeline.ElapsedSec();
+
+  timeline.Start();
   if (FLAGS_padbox_dataset_enable_unrollinstance) {
     UnrollInstance();
   }
@@ -1817,7 +1827,8 @@ void PadBoxSlotDataset::LoadIntoMemory() {
 
   VLOG(1) << "PadBoxSlotDataset::LoadIntoMemory() end"
           << ", memory data size=" << input_records_.size()
-          << ", cost time=" << timeline.ElapsedSec() << " seconds";
+          << ", cost time=" << span_time << " seconds"
+          << ", unroll time=" << timeline.ElapsedSec() << " seconds";
 }
 // add fea keys
 void PadBoxSlotDataset::MergeInsKeys(const Channel<SlotRecord>& in) {

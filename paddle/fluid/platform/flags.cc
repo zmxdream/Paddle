@@ -606,3 +606,5 @@ DEFINE_bool(enable_shuffle_by_searchid, false,
             "enable dualbox shuffle by searchid, default false");
 DEFINE_bool(enable_pull_box_padding_zero, true,
             "enable pull box padding zero, default true");
+DEFINE_bool(enbale_slotpool_auto_clear, false,
+            "slot pool enable auto clear, default false");
