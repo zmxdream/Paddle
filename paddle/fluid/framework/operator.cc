@@ -1170,14 +1170,30 @@ void OperatorWithKernel::RunImpl(const Scope& scope,
 
       // dump current op data
       for (auto& iname : InputVars()) {
-        snprintf(prefix, sizeof(prefix), "gpu%d_input", device_id);
-        framework::details::DumpTensorToFile(log_path, prefix, iname,
-                                             exec_scope);
+        auto* var = exec_scope.FindVar(iname);
+        if (var == nullptr) continue;
+        std::ostringstream os;
+        os << "input name:" << iname << ", ";
+        if (var->IsType<framework::LoDTensor>()) {
+          os << var->Get<framework::LoDTensor>();
+        } else if (var->IsType<framework::SelectedRows>()) {
+          os << var->Get<framework::SelectedRows>().value();
+        }
+        os << "\n";
+        printf("%s", os.str().c_str());
       }
       for (auto& iname : OutputVars(true)) {
-        snprintf(prefix, sizeof(prefix), "gpu%d_output", device_id);
-        framework::details::DumpTensorToFile(log_path, prefix, iname,
-                                             exec_scope);
+        auto* var = exec_scope.FindVar(iname);
+        if (var == nullptr) continue;
+        std::ostringstream os;
+        os << "output name:" << iname << ", ";
+        if (var->IsType<framework::LoDTensor>()) {
+          os << var->Get<framework::LoDTensor>();
+        } else if (var->IsType<framework::SelectedRows>()) {
+          os << var->Get<framework::SelectedRows>().value();
+        }
+        os << "\n";
+        printf("%s", os.str().c_str());
       }
       PADDLE_ENFORCE(false, "ERROR: check INF and NAN: %s",
                      DebugStringEx(&exec_scope).c_str());
