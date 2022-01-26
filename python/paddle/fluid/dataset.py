@@ -1261,6 +1261,44 @@ class PadBoxSlotDataset(BoxPSDataset):
         self._prepare_to_run()
         self.boxps.read_ins_into_memory()
 
+    def disable_polling(self, disable=False):
+        """
+            disable file polling
+        """
+        self.dataset.disable_polling(disable)
+
+    def disable_shuffle(self, disable=False):
+        """
+            disable data shuffle
+        """
+        self.dataset.disable_shuffle(disable)
+
+    def preload_into_disk(self, path, file_num):
+        """
+            prepare load data to disk
+        """
+        self._prepare_to_run()
+        self.dataset.preload_into_disk(path, file_num)
+
+    def wait_load_disk_done(self):
+        """
+            wait disk file load done
+        """
+        self.dataset.wait_load_disk_done()
+
+    def load_into_disk(self, path, file_num):
+        """
+            sync load ins to disk
+        """
+        self.preload_into_disk(path, file_num)
+        self.wait_load_disk_done()
+
+    def set_archivefile(self, archive=False):
+        """
+            is load archive file
+        """
+        self.dataset.set_archivefile(archive)
+
 
 class InputTableDataset(PadBoxSlotDataset):
     def __init__(self):

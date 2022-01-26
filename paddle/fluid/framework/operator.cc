@@ -1149,10 +1149,30 @@ void OperatorWithKernel::RunImpl(const Scope& scope,
   if (FLAGS_check_nan_inf) {
     //    framework::details::CheckOpHasNanOrInf(*this, exec_scope, place);
     if (framework::details::CheckOpHasNanOrInfRet(*this, exec_scope, place)) {
-      std::ostringstream os;
+      int device_id = 0;
+#if defined(PADDLE_WITH_CUDA) && !defined(_WIN32)
+      device_id = boost::get<platform::CUDAPlace>(place).GetDeviceId();
+#endif
+      VLOG(0) << "begin dump scope all tensor data";
+      std::string log_path = "./nan_inf";
+      if (!PathExists(log_path)) {
+        MkDirRecursively(log_path.c_str());
+      }
+
+      // dump scope all data
+      char prefix[128] = {0};
+      snprintf(prefix, sizeof(prefix), "gpu%d", device_id);
+      for (auto& iname : exec_scope.LocalVarNames()) {
+        framework::details::DumpTensorToFile(log_path, prefix, iname,
+                                             exec_scope);
+      }
+      VLOG(0) << "end dump scope all tensor data";
+
+      // dump current op data
       for (auto& iname : InputVars()) {
         auto* var = exec_scope.FindVar(iname);
         if (var == nullptr) continue;
+        std::ostringstream os;
         os << "input name:" << iname << ", ";
         if (var->IsType<framework::LoDTensor>()) {
           os << var->Get<framework::LoDTensor>();
@@ -1160,10 +1180,12 @@ void OperatorWithKernel::RunImpl(const Scope& scope,
           os << var->Get<framework::SelectedRows>().value();
         }
         os << "\n";
+        printf("%s", os.str().c_str());
       }
       for (auto& iname : OutputVars(true)) {
         auto* var = exec_scope.FindVar(iname);
         if (var == nullptr) continue;
+        std::ostringstream os;
         os << "output name:" << iname << ", ";
         if (var->IsType<framework::LoDTensor>()) {
           os << var->Get<framework::LoDTensor>();
@@ -1171,8 +1193,8 @@ void OperatorWithKernel::RunImpl(const Scope& scope,
           os << var->Get<framework::SelectedRows>().value();
         }
         os << "\n";
+        printf("%s", os.str().c_str());
       }
-      printf("%s", os.str().c_str());
       PADDLE_ENFORCE(false, "ERROR: check INF and NAN: %s",
                      DebugStringEx(&exec_scope).c_str());
     }

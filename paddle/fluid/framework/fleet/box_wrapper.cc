@@ -28,6 +28,7 @@ DECLARE_bool(use_gpu_replica_cache);
 DECLARE_int32(gpu_replica_cache_dim);
 DECLARE_bool(enable_force_hbm_recyle);
 DECLARE_bool(enable_force_mem_recyle);
+DECLARE_bool(enbale_slotpool_auto_clear);
 namespace paddle {
 namespace framework {
 
@@ -427,8 +428,8 @@ void BoxWrapper::PullSparse(const paddle::platform::Place& place,
                feature_type_ == static_cast<int>(boxps::FEATURE_SHOWCLK)) {  \
       PullSparseCase<boxps::FeaturePullValueGpuQuant<EmbedxDim, ExpandDim>>( \
           place, keys, values, slot_lengths, hidden_size, expand_embed_dim); \
-    } else if (feature_type_ == static_cast<int>(boxps::FEATURE_CONV)) {  \
-      PullSparseCase<boxps::FeaturePullValueGpuConv<EmbedxDim, ExpandDim>>( \
+    } else if (feature_type_ == static_cast<int>(boxps::FEATURE_CONV)) {     \
+      PullSparseCase<boxps::FeaturePullValueGpuConv<EmbedxDim, ExpandDim>>(  \
           place, keys, values, slot_lengths, hidden_size, expand_embed_dim); \
     } else if (feature_type_ == static_cast<int>(boxps::FEATURE_VARIABLE)) { \
       PullSparseCase<boxps::FeatureVarPullValueGpu<EmbedxDim, ExpandDim>>(   \
@@ -481,33 +482,33 @@ void BoxWrapper::PushSparseGrad(const paddle::platform::Place& place,
     }                                                                        \
   } break
 
-#define PUSHSPARSE_CASE(i, ...)                                              \
-  case i: {                                                                  \
-    constexpr size_t ExpandDim = i;                                          \
-    if (feature_type_ == static_cast<int>(boxps::FEATURE_SHARE_EMBEDDING)) { \
-      PushSparseGradCase<                                                    \
-          boxps::FeaturePushValueGpuShareEmbedding<EmbedxDim, ExpandDim>>(   \
-          place, keys, grad_values, slot_lengths, hidden_size,               \
-          expand_embed_dim, batch_size);                                     \
-    } else if (feature_type_ == static_cast<int>(boxps::FEATURE_PCOC)) {     \
-      PushSparseGradCase<                                                    \
-          boxps::FeaturePushValueGpuPCOC<EmbedxDim, ExpandDim>>(             \
-          place, keys, grad_values, slot_lengths, hidden_size,               \
-          expand_embed_dim, batch_size);                                     \
+#define PUSHSPARSE_CASE(i, ...)                                                \
+  case i: {                                                                    \
+    constexpr size_t ExpandDim = i;                                            \
+    if (feature_type_ == static_cast<int>(boxps::FEATURE_SHARE_EMBEDDING)) {   \
+      PushSparseGradCase<                                                      \
+          boxps::FeaturePushValueGpuShareEmbedding<EmbedxDim, ExpandDim>>(     \
+          place, keys, grad_values, slot_lengths, hidden_size,                 \
+          expand_embed_dim, batch_size);                                       \
+    } else if (feature_type_ == static_cast<int>(boxps::FEATURE_PCOC)) {       \
+      PushSparseGradCase<                                                      \
+          boxps::FeaturePushValueGpuPCOC<EmbedxDim, ExpandDim>>(               \
+          place, keys, grad_values, slot_lengths, hidden_size,                 \
+          expand_embed_dim, batch_size);                                       \
     } else if (feature_type_ == static_cast<int>(boxps::FEATURE_VARIABLE)) {   \
       PushSparseGradCase<boxps::FeatureVarPushValueGpu<EmbedxDim, ExpandDim>>( \
           place, keys, grad_values, slot_lengths, hidden_size,                 \
           expand_embed_dim, batch_size);                                       \
-    } else if (feature_type_ == static_cast<int>(boxps::FEATURE_CONV)) {     \
-      PushSparseGradCase<                                                    \
-          boxps::FeaturePushValueGpuConv<EmbedxDim, ExpandDim>>(             \
-          place, keys, grad_values, slot_lengths, hidden_size,               \
-          expand_embed_dim, batch_size);                                     \
-    } else {                                                                 \
-      PushSparseGradCase<boxps::FeaturePushValueGpu<EmbedxDim, ExpandDim>>(  \
-          place, keys, grad_values, slot_lengths, hidden_size,               \
-          expand_embed_dim, batch_size);                                     \
-    }                                                                        \
+    } else if (feature_type_ == static_cast<int>(boxps::FEATURE_CONV)) {       \
+      PushSparseGradCase<                                                      \
+          boxps::FeaturePushValueGpuConv<EmbedxDim, ExpandDim>>(               \
+          place, keys, grad_values, slot_lengths, hidden_size,                 \
+          expand_embed_dim, batch_size);                                       \
+    } else {                                                                   \
+      PushSparseGradCase<boxps::FeaturePushValueGpu<EmbedxDim, ExpandDim>>(    \
+          place, keys, grad_values, slot_lengths, hidden_size,                 \
+          expand_embed_dim, batch_size);                                       \
+    }                                                                          \
   } break
 
   CheckEmbedSizeIsValid(hidden_size - cvm_offset_, expand_embed_dim);
@@ -579,7 +580,10 @@ void BoxWrapper::FeedPass(int date,
 
 void BoxWrapper::BeginFeedPass(int date, boxps::PSAgentBase** agent) {
   if (FLAGS_enable_force_mem_recyle) {
-    SlotRecordPool().disable_pool(true);
+    SlotRecordPool().disable_pool(FLAGS_enbale_slotpool_auto_clear);
+  } else {
+    SlotRecordPool().disable_pool(FLAGS_enbale_slotpool_auto_clear &&
+                                  boxps_ptr_->CheckNeedLimitMem());
   }
   int ret = boxps_ptr_->BeginFeedPass(date, *agent);
   if (FLAGS_use_gpu_replica_cache) {
@@ -617,7 +621,8 @@ void BoxWrapper::BeginPass() {
   PADDLE_ENFORCE_EQ(ret, 0, platform::errors::PreconditionNotMet(
                                 "BeginPass failed in BoxPS."));
   // auto disable or enable slotrecord pool recyle memory
-  SlotRecordPool().disable_pool(boxps_ptr_->CheckNeedLimitMem());
+  SlotRecordPool().disable_pool(FLAGS_enbale_slotpool_auto_clear &&
+                                boxps_ptr_->CheckNeedLimitMem());
 }
 
 void BoxWrapper::SetTestMode(bool is_test) const {
@@ -1352,9 +1357,8 @@ void BoxWrapper::ReleasePool(void) {
   timer.Start();
   size_t capacity = SlotRecordPool().capacity();
   SlotRecordPool().clear();
+  SlotRecordPool().disable_pool(false);
   timer.Pause();
-  STAT_RESET(STAT_total_feasign_num_in_mem, 0);
-  STAT_RESET(STAT_slot_pool_size, 0);
   LOG(WARNING) << "ReleasePool Size=" << capacity
                << ", Time=" << timer.ElapsedSec() << "sec";
 }

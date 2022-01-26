@@ -77,7 +77,7 @@ class ThreadPool {
       try {
         fn();
       } catch (platform::EnforceNotMet& ex) {
-        CHECK(false) << "Unexpected exception is catched in thread pool: "
+        CHECK(false) << "Unexpected exception is catched in threal pool: "
                      << ex.what();
         return std::unique_ptr<platform::EnforceNotMet>(
             new platform::EnforceNotMet(ex));

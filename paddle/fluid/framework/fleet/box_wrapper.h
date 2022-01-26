@@ -522,7 +522,8 @@ class BoxWrapper {
       } else if (s_instance_->feature_type_ ==
                  static_cast<int>(boxps::FEATURE_PCOC)) {
         s_instance_->cvm_offset_ = 8;
-      } else if (s_instance_->feature_type_ == static_cast<int>(boxps::FEATURE_CONV)) {
+      } else if (s_instance_->feature_type_ ==
+                 static_cast<int>(boxps::FEATURE_CONV)) {
         s_instance_->cvm_offset_ = 4;
       } else {
         s_instance_->cvm_offset_ = 3;
@@ -594,6 +595,7 @@ class BoxWrapper {
   boxps::PaddleFileMgr* GetFileMgr(void) { return file_manager_.get(); }
   // get dataset id
   uint16_t GetDataSetId(void) { return dataset_id_.fetch_add(1); }
+  uint16_t GetRoundId(void) { return round_id_.fetch_add(1); }
 
   // this performs better than rand_r, especially large data
   static std::default_random_engine& LocalRandomEngine() {
@@ -771,6 +773,7 @@ class BoxWrapper {
   std::mutex mutex4random_pool_;
   std::set<std::string> slot_eval_set_;
   std::atomic<uint16_t> dataset_id_{0};
+  std::atomic<uint16_t> round_id_{0};
 };
 /**
  * @brief file mgr

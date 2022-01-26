@@ -30,6 +30,8 @@ DECLARE_int32(padbox_dataset_shuffle_thread_num);
 DECLARE_int32(padbox_dataset_merge_thread_num);
 DECLARE_int32(padbox_max_shuffle_wait_count);
 DECLARE_bool(enable_shuffle_by_searchid);
+DECLARE_bool(padbox_dataset_disable_shuffle);
+DECLARE_bool(padbox_dataset_disable_polling);
 namespace boxps {
 class PSAgentBase;
 }
@@ -155,6 +157,13 @@ class Dataset {
   // set fleet send sleep seconds
   virtual void SetFleetSendSleepSeconds(int seconds) = 0;
 
+  // down load to disk mode
+  virtual void SetDiablePolling(bool disable) = 0;
+  virtual void SetDisableShuffle(bool disable) = 0;
+  virtual void PreLoadIntoDisk(const std::string& path, const int file_num) = 0;
+  virtual void WaitLoadDiskDone(void) = 0;
+  virtual void SetLoadArchiveFile(bool archive) = 0;
+
  protected:
   virtual int ReceiveFromClient(int msg_type, int client_id,
                                 const std::string& msg) = 0;
@@ -243,6 +252,13 @@ class DatasetImpl : public Dataset {
   virtual void DynamicAdjustReadersNum(int thread_num);
   virtual void SetFleetSendSleepSeconds(int seconds);
   virtual std::vector<T>& GetInputRecord() { return input_records_; }
+
+  // disable shuffle
+  virtual void SetDiablePolling(bool disable) {}
+  virtual void SetDisableShuffle(bool disable) {}
+  virtual void PreLoadIntoDisk(const std::string& path, const int file_num) {}
+  virtual void WaitLoadDiskDone(void) {}
+  virtual void SetLoadArchiveFile(bool archive) {}
 
  protected:
   virtual int ReceiveFromClient(int msg_type, int client_id,
@@ -358,7 +374,12 @@ class PadBoxSlotDataset : public DatasetImpl<SlotRecord> {
   virtual void PostprocessInstance();
   // prepare train do something
   virtual void PrepareTrain(void);
-  virtual int64_t GetMemoryDataSize() { return input_records_.size(); }
+  virtual int64_t GetMemoryDataSize() {
+    if (input_records_.empty()) {
+      return total_ins_num_;
+    }
+    return input_records_.size();
+  }
   virtual int64_t GetPvDataSize() { return input_pv_ins_.size(); }
   virtual int64_t GetShuffleDataSize() { return input_records_.size(); }
   // merge ins from multiple sources and unroll
@@ -369,6 +390,12 @@ class PadBoxSlotDataset : public DatasetImpl<SlotRecord> {
   virtual void LoadIndexIntoMemory() {}
   virtual void PreLoadIntoMemory();
   virtual void WaitPreLoadDone();
+
+  virtual void SetDiablePolling(bool disable) { disable_polling_ = disable; }
+  virtual void SetDisableShuffle(bool disable) { disable_shuffle_ = disable; }
+  virtual void PreLoadIntoDisk(const std::string& path, const int file_num);
+  virtual void WaitLoadDiskDone(void);
+  virtual void SetLoadArchiveFile(bool archive) { is_archive_file_ = archive; }
 
  protected:
   // shuffle data
@@ -403,6 +430,9 @@ class PadBoxSlotDataset : public DatasetImpl<SlotRecord> {
  protected:
   void MergeInsKeys(const Channel<SlotRecord>& in);
   void CheckThreadPool(void);
+  void CheckDownThreadPool(void);
+  void DumpIntoDisk(const Channel<SlotRecord>& in, const std::string& path,
+                    const int pass_num);
 
  protected:
   Channel<SlotRecord> shuffle_channel_ = nullptr;
@@ -433,6 +463,14 @@ class PadBoxSlotDataset : public DatasetImpl<SlotRecord> {
   uint16_t pass_id_ = 0;
   double max_shuffle_span_ = 0;
   double min_shuffle_span_ = 0;
+  bool disable_shuffle_ = FLAGS_padbox_dataset_disable_shuffle;
+  bool disable_polling_ = FLAGS_padbox_dataset_disable_polling;
+  std::vector<std::shared_ptr<BinaryArchiveWriter>> binary_files_;
+  bool is_archive_file_ = false;
+  std::atomic<int64_t> total_ins_num_{0};
+  paddle::framework::ThreadPool* down_pool_ = nullptr;
+  paddle::framework::ThreadPool* dump_pool_ = nullptr;
+  SlotObjPool* slot_pool_ = nullptr;
 };
 
 class InputTableDataset : public PadBoxSlotDataset {

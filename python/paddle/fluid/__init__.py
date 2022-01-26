@@ -271,6 +271,7 @@ def __bootstrap__():
             'enable_pullpush_dedup_keys',
             'enable_shuffle_by_searchid',
             'enable_pull_box_padding_zero',
+            'enbale_slotpool_auto_clear',
         ]
     core.init_gflags(["--tryfromenv=" + ",".join(read_env_flags)])
     core.init_glog(sys.argv[0])
