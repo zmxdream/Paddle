@@ -363,7 +363,7 @@ InMemoryDataFeed<T>::InMemoryDataFeed() {
   this->parse_content_ = false;
   this->parse_logkey_ = false;
   this->enable_pv_merge_ = false;
-  this->current_phase_ = 1;  // 1:join ;0:update
+  this->current_phase_ = 1;  // 1:join ;0:update; 3:join_test; 2:update_test
   this->input_channel_ = nullptr;
   this->output_channel_ = nullptr;
   this->consume_channel_ = nullptr;
@@ -1660,9 +1660,10 @@ bool MultiSlotFileInstantDataFeed::ParseOneMiniBatch() {
 
 bool PaddleBoxDataFeed::Start() {
 #ifdef _LINUX
-  int phase = GetCurrentPhase();  // join: 1, update: 0
+  // join: 1, update: 0, join_test: 3, update_test: 2
+  int phase = GetCurrentPhase();
   this->CheckSetFileList();
-  if (enable_pv_merge_ && phase == 1) {
+  if (enable_pv_merge_ && (phase == 1 || phase == 3)) {
     // join phase : input_pv_channel to output_pv_channel
     if (output_pv_channel_->Size() == 0 && input_pv_channel_->Size() != 0) {
       std::vector<PvInstance> data;
@@ -1691,9 +1692,10 @@ bool PaddleBoxDataFeed::Start() {
 
 int PaddleBoxDataFeed::Next() {
 #ifdef _LINUX
-  int phase = GetCurrentPhase();  // join: 1, update: 0
+  // join: 1, update: 0, join_test: 3, update_test: 2
+  int phase = GetCurrentPhase();
   this->CheckStart();
-  if (enable_pv_merge_ && phase == 1) {
+  if (enable_pv_merge_ && (phase == 1 || phase == 3)) {
     // join phase : output_pv_channel to consume_pv_channel
     CHECK(output_pv_channel_ != nullptr);
     CHECK(consume_pv_channel_ != nullptr);
@@ -1824,8 +1826,9 @@ void PaddleBoxDataFeed::GetRankOffset(const std::vector<PvInstance>& pv_vec,
 void PaddleBoxDataFeed::AssignFeedVar(const Scope& scope) {
   MultiSlotInMemoryDataFeed::AssignFeedVar(scope);
   // set rank offset memory
-  int phase = GetCurrentPhase();  // join: 1, update: 0
-  if (enable_pv_merge_ && phase == 1) {
+  // join: 1, update: 0, join_test: 3, update_test: 2
+  int phase = GetCurrentPhase();
+  if (enable_pv_merge_ && (phase == 1 || phase == 3)) {
     rank_offset_ = scope.FindVar(rank_offset_name_)->GetMutable<LoDTensor>();
   }
 }
@@ -2324,13 +2327,14 @@ bool SlotPaddleBoxDataFeed::Start() {
   return true;
 }
 int SlotPaddleBoxDataFeed::Next() {
-  int phase = GetCurrentPhase();  // join: 1, update: 0
+  // join: 1, update: 0, join_test: 3, update_test: 2
+  int phase = GetCurrentPhase();
   this->CheckStart();
   if (offset_index_ >= static_cast<int>(batch_offsets_.size())) {
     return 0;
   }
   auto& batch = batch_offsets_[offset_index_++];
-  if (enable_pv_merge_ && phase == 1) {
+  if (enable_pv_merge_ && (phase == 1 || phase == 3)) {
     // join phase : output_pv_channel to consume_pv_channel
     this->batch_size_ = batch.second;
     if (this->batch_size_ != 0) {
@@ -2346,7 +2350,7 @@ int SlotPaddleBoxDataFeed::Next() {
     batch_timer_.Resume();
     PutToFeedSlotVec(&records_[batch.first], this->batch_size_);
     // update set join q value
-    if (phase == 0 && FLAGS_padbox_slotrecord_extend_dim > 0) {
+    if ((phase == 0 || phase == 2) && FLAGS_padbox_slotrecord_extend_dim > 0) {
       // pcoc
       pack_->pack_qvalue();
     }
@@ -2355,7 +2359,8 @@ int SlotPaddleBoxDataFeed::Next() {
   }
 }
 bool SlotPaddleBoxDataFeed::EnablePvMerge(void) {
-  return (enable_pv_merge_ && GetCurrentPhase() == 1);
+  return (enable_pv_merge_ &&
+          (GetCurrentPhase() == 1 || GetCurrentPhase() == 3));
 }
 int SlotPaddleBoxDataFeed::GetPackInstance(SlotRecord** ins) {
   if (offset_index_ >= static_cast<int>(batch_offsets_.size())) {
@@ -2380,8 +2385,9 @@ void SlotPaddleBoxDataFeed::AssignFeedVar(const Scope& scope) {
         scope.FindVar(used_slots_info_[i].slot)->GetMutable<LoDTensor>();
   }
   // set rank offset memory
-  int phase = GetCurrentPhase();  // join: 1, update: 0
-  if (enable_pv_merge_ && phase == 1) {
+  // join: 1, update: 0, join_test: 3, update_test: 2
+  int phase = GetCurrentPhase();
+  if (enable_pv_merge_ && (phase == 1 || phase == 3)) {
     rank_offset_ = scope.FindVar(rank_offset_name_)->GetMutable<LoDTensor>();
   }
 }

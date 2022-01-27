@@ -522,8 +522,8 @@ class BoxWrapper {
       } else if (s_instance_->feature_type_ ==
                  static_cast<int>(boxps::FEATURE_PCOC)) {
         s_instance_->cvm_offset_ = 8;
-      } else if (s_instance_->feature_type_ ==
-                 static_cast<int>(boxps::FEATURE_CONV)) {
+      } else if (s_instance_->feature_type_
+              == static_cast<int>(boxps::FEATURE_CONV)) {
         s_instance_->cvm_offset_ = 4;
       } else {
         s_instance_->cvm_offset_ = 3;
@@ -622,6 +622,7 @@ class BoxWrapper {
   int Phase() const { return phase_; }
   int PhaseNum() const { return phase_num_; }
   void FlipPhase() { phase_ = (phase_ + 1) % phase_num_; }
+  void SetPhase(int phase) {phase_ = phase; }
   const std::map<std::string, float> GetLRMap() const { return lr_map_; }
   std::map<std::string, MetricMsg*>& GetMetricList() { return metric_lists_; }
 
