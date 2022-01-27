@@ -304,7 +304,7 @@ class DatasetImpl : public Dataset {
   bool parse_logkey_;
   bool merge_by_sid_;
   bool enable_pv_merge_;  // True means to merge pv
-  int current_phase_;     // 1 join, 0 update
+  int current_phase_;     // 1 join, 0 update, 3 join_test, 2 update_test
   size_t merge_size_;
   bool slots_shuffle_fea_eval_ = false;
   bool gen_uni_feasigns_ = false;
