@@ -123,9 +123,12 @@ class FusedSeqpoolCVMOpMaker : public framework::OpProtoAndCheckerMaker {
         .SetDefault(0.0);
     AddAttr<bool>("use_cvm", "bool, use cvm or not").SetDefault(true);
     AddAttr<bool>("need_filter", "(bool, default false)").SetDefault(false);
+    AddAttr<bool>("embed_threshold_filter", "(bool, default false)")
+        .SetDefault(false);
     AddAttr<float>("show_coeff", "(float, default 0.2)").SetDefault(0.2);
     AddAttr<float>("clk_coeff", "(float, default 1)").SetDefault(1);
     AddAttr<float>("threshold", "(float, default 0.96)").SetDefault(0.96);
+    AddAttr<float>("embed_threshold", "(float, default 0)").SetDefault(0);
     AddAttr<int>("cvm_offset", "(int, default 2)").SetDefault(2);
     AddAttr<int>("quant_ratio", "(int, default 128)").SetDefault(0);
     AddAttr<bool>("clk_filter", "(bool, default false)").SetDefault(false);
