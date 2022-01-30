@@ -40,8 +40,8 @@ void BoxPSTrainer::Initialize(const TrainerDesc& trainer_desc,
     VLOG(3) << "async mode ";
   }
   dump_thread_num_ = param_config_.dump_thread_num();
-  if (need_dump_field_ && dump_thread_num_ <= 0) {
-    dump_thread_num_ = 1;
+  if (need_dump_field_ && dump_thread_num_ <= 1) {
+    dump_thread_num_ = 20;
   }
 
   workers_.resize(thread_num_);

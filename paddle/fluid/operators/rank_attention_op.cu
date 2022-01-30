@@ -209,6 +209,164 @@ class RankAttentionGradOpCUDAKernel : public framework::OpKernel<T> {
   }
 };
 
+template <typename T>
+__global__ void kernel_rank_feed_forward(const int ins_num, const int ins_col,
+                                         const T *input, const int max_rank,
+                                         const int *rank_offset,
+                                         const int para_row, const int para_col,
+                                         const T *para, T *out_val) {
+  int rank_cols = max_rank * 2 + 1;
+  // rank offset 2:1:46:2:44:3:45
+  CUDA_KERNEL_LOOP(idx, ins_num * para_col) {
+    int row_id = idx / para_col;
+    int col_id = idx % para_col;
+
+    int lower = rank_offset[row_id * rank_cols] - 1;
+    if (lower < 0) {
+      out_val[idx] = 0.0;
+      continue;
+    }
+
+    float sum = 0.0;
+    assert(lower < max_rank);
+    for (int k = 0; k < max_rank; ++k) {
+      int faster = rank_offset[row_id * rank_cols + 2 * k + 1] - 1;
+      assert(faster < max_rank);
+      // note look rank_offset to know why
+      if (faster < 0) {
+        continue;
+      }
+      int index = rank_offset[row_id * rank_cols + 2 * k + 2];
+      int start = (lower * max_rank + faster) * ins_col;
+      assert(start + ins_col <= para_row);
+      assert(index < ins_num);
+
+      for (int j = 0; j < ins_col; ++j) {
+        sum +=
+            input[index * ins_col + j] * para[(start + j) * para_col + col_id];
+      }
+    }
+    out_val[idx] = sum;
+  }
+}
+
+template <typename T>
+__global__ void kernel_rank_back_propagate(const int para_row,
+                                           const int para_col, T *out_para_grad,
+                                           const int ins_num, const int ins_col,
+                                           const T *input, const int max_rank,
+                                           const int *rank_offset,
+                                           const T *out_grad) {
+  int rank_cols = max_rank * 2 + 1;
+  // rank offset 2:1:46:2:44:3:45
+  CUDA_KERNEL_LOOP(idx, ins_num * ins_col * para_col * max_rank) {
+    int ins_id = idx / para_col / ins_col / max_rank;
+    int para_col_id = (idx / ins_col / max_rank) % para_col;
+    int ins_col_id = (idx / para_col / max_rank) % ins_col;
+    int k = (idx / para_col / ins_col) % max_rank;
+
+    int lower = rank_offset[ins_id * rank_cols] - 1;
+    if (lower < 0) {
+      continue;
+    }
+    assert(lower < max_rank);
+
+    int faster = rank_offset[ins_id * rank_cols + 2 * k + 1] - 1;
+    assert(faster < max_rank);
+    // note look rank_offset to know why
+    if (faster < 0) {
+      continue;
+    }
+    int index = rank_offset[ins_id * rank_cols + 2 * k + 2];
+    int start = (lower * max_rank + faster) * ins_col;
+    assert(start + ins_col <= para_row);
+    assert(index < ins_num);
+
+    paddle::platform::CudaAtomicAdd(
+        reinterpret_cast<float *>(
+            &out_para_grad[(start + ins_col_id) * para_col + para_col_id]),
+        input[index * ins_col + ins_col_id] *
+            out_grad[ins_id * para_col + para_col_id]);
+  }
+}
+
+template <typename DeviceContext, typename T>
+class RankAttention2CUDAKernel : public framework::OpKernel<T> {
+ public:
+  void Compute(const framework::ExecutionContext &ctx) const override {
+    auto *X = ctx.Input<Tensor>("X");
+    auto *rank_offset = ctx.Input<Tensor>("RankOffset");
+    auto *param = ctx.Input<Tensor>("RankParam");
+    int max_rank = ctx.Attr<int>("MaxRank");
+    auto *Out = ctx.Output<Tensor>("Out");
+
+    // check dims
+    auto x_dims = X->dims();
+    auto ins_num = x_dims[0];
+    auto x_fea_dim = x_dims[1];
+    auto para_dims = param->dims();
+    auto para_row = para_dims[0];
+    auto para_col = para_dims[1];
+    auto rank_offset_dims = rank_offset->dims();
+
+    PADDLE_ENFORCE_EQ(
+        rank_offset_dims[0], ins_num,
+        platform::errors::InvalidArgument("Input(RankOffset) has wrong rows."));
+    PADDLE_ENFORCE_EQ((rank_offset_dims[1] - 1) / 2, max_rank,
+                      platform::errors::InvalidArgument(
+                          "Input(RankOffset) has wrong columns."));
+    PADDLE_ENFORCE_EQ(
+        max_rank * max_rank * x_fea_dim, para_row,
+        platform::errors::InvalidArgument("Input(RankParam) has wrong rows."));
+
+    auto &dev_ctx = ctx.template device_context<platform::CUDADeviceContext>();
+    auto stream = ctx.cuda_device_context().stream();
+
+    // get data ptr
+    T *out_data = Out->mutable_data<T>(ctx.GetPlace());
+
+    kernel_rank_feed_forward<<<GET_BLOCKS(ins_num * para_col), CUDA_NUM_THREADS,
+                               0, stream>>>(
+        ins_num, x_fea_dim, X->data<T>(), max_rank, rank_offset->data<int>(),
+        para_row, para_col, param->data<T>(), out_data);
+  }
+};
+
+template <typename DeviceContext, typename T>
+class RankAttention2GradOpCUDAKernel : public framework::OpKernel<T> {
+ public:
+  void Compute(const framework::ExecutionContext &ctx) const override {
+    auto *X = ctx.Input<Tensor>("X");                     // not use data
+    auto *rank_offset = ctx.Input<Tensor>("RankOffset");  // not use data
+    auto *param = ctx.Input<Tensor>("RankParam");         // not use data
+    auto *dout = ctx.Input<Tensor>(framework::GradVarName("Out"));
+    auto *drank_para = ctx.Output<Tensor>(framework::GradVarName("RankParam"));
+
+    // get dim
+    auto x_dims = X->dims();
+    auto ins_num = x_dims[0];
+    auto x_fea_dim = x_dims[1];
+    auto para_dims = param->dims();
+    auto para_row = para_dims[0];
+    auto para_col = para_dims[1];
+    auto rank_offset_dims = rank_offset->dims();
+    auto max_rank = (rank_offset_dims[1] - 1) / 2;
+
+    auto &dev_ctx = ctx.template device_context<platform::CUDADeviceContext>();
+    auto stream = ctx.cuda_device_context().stream();
+
+    // initialize out grad
+    T *drank_para_ptr = drank_para->mutable_data<T>(ctx.GetPlace());
+    math::set_constant(dev_ctx, drank_para, 0.0);
+
+    kernel_rank_back_propagate<<<GET_BLOCKS(ins_num * x_fea_dim * para_col *
+                                            max_rank),
+                                 CUDA_NUM_THREADS, 0, stream>>>(
+        para_row, para_col, drank_para_ptr, ins_num, x_fea_dim, X->data<T>(),
+        max_rank, rank_offset->data<int>(), dout->data<T>());
+  }
+};
+
 }  // namespace operators
 }  // namespace paddle
 
@@ -221,3 +379,11 @@ REGISTER_OP_CUDA_KERNEL(rank_attention,
 REGISTER_OP_CUDA_KERNEL(rank_attention_grad,
                         ops::RankAttentionGradOpCUDAKernel<GPUCtx, float>,
                         ops::RankAttentionGradOpCUDAKernel<GPUCtx, double>);
+
+REGISTER_OP_CUDA_KERNEL(rank_attention2,
+                        ops::RankAttention2CUDAKernel<GPUCtx, float>,
+                        ops::RankAttention2CUDAKernel<GPUCtx, double>);
+
+REGISTER_OP_CUDA_KERNEL(rank_attention2_grad,
+                        ops::RankAttention2GradOpCUDAKernel<GPUCtx, float>,
+                        ops::RankAttention2GradOpCUDAKernel<GPUCtx, double>);

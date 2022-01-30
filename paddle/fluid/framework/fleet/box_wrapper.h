@@ -622,6 +622,7 @@ class BoxWrapper {
   int Phase() const { return phase_; }
   int PhaseNum() const { return phase_num_; }
   void FlipPhase() { phase_ = (phase_ + 1) % phase_num_; }
+  void SetPhase(int phase) { phase_ = phase; }
   const std::map<std::string, float> GetLRMap() const { return lr_map_; }
   std::map<std::string, MetricMsg*>& GetMetricList() { return metric_lists_; }
 
@@ -634,7 +635,7 @@ class BoxWrapper {
                   int bucket_size = 1000000, bool mode_collect_in_gpu = false,
                   int max_batch_size = 0,
                   const std::string& sample_scale_varname = "");
-  const std::vector<float> GetMetricMsg(const std::string& name);
+  const std::vector<double> GetMetricMsg(const std::string& name);
   // pcoc qvalue tensor
   LoDTensor& GetQTensor(int device) { return device_caches_[device].qvalue; }
   void PrintSyncTimer(int device, double train_span);

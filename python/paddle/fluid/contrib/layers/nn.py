@@ -83,6 +83,7 @@ __all__ = [
     'scaled_int8fc',
     'fused_seqpool_concat',
     'fused_concat',
+    'rank_attention2',
 ]
 
 
@@ -1407,6 +1408,37 @@ def rank_attention(input,
     return output
 
 
+def rank_attention2(input,
+                    rank_offset,
+                    rank_param_shape,
+                    rank_param_attr,
+                    max_rank=3,
+                    max_size=0):
+    """
+        **Rank Attention layer**
+    """
+    helper = LayerHelper('rank_attention2', **locals())
+    dtype = helper.input_dtype(input_param_name='input')
+    input_shape = input.shape
+    assert input_shape[1] * max_rank * max_rank == rank_param_shape[0]
+
+    rank_param = helper.create_parameter(
+        attr=rank_param_attr, shape=rank_param_shape, dtype=dtype)
+    rank_param.stop_gradient = False
+
+    output = helper.create_variable_for_type_inference(dtype)
+    helper.append_op(
+        type="rank_attention2",
+        inputs={
+            "X": input,
+            "RankOffset": rank_offset,
+            "RankParam": rank_param,
+        },
+        outputs={"Out": output, },
+        attrs={"MaxRank": max_rank})
+    return output
+
+
 def batch_fc(input,
              param_size,
              param_attr,
@@ -1549,9 +1581,11 @@ def fused_seqpool_cvm(input,
                       pad_value=0.0,
                       use_cvm=True,
                       need_filter=False,
+                      embed_threshold_filter=False,
                       show_coeff=0.2,
                       clk_coeff=1.0,
                       threshold=0.96,
+                      embed_threshold=0,
                       cvm_offset=2,
                       quant_ratio=0,
                       clk_filter=False):
@@ -1603,29 +1637,32 @@ def fused_seqpool_cvm(input,
             "use_cvm": use_cvm,
             "cvm_offset": cvm_offset,
             "need_filter": need_filter,
+            "embed_threshold_filter": embed_threshold_filter,
             "show_coeff": show_coeff,
             "clk_coeff": clk_coeff,
             "threshold": threshold,
+            "embed_threshold": embed_threshold,
             "quant_ratio": quant_ratio,
             "clk_filter": clk_filter
         })
 
     return outs
 
+
 def fused_seqpool_cvm_with_diff_thres(input,
-                      pool_type,
-                      cvm,
-                      pad_value=0.0,
-                      use_cvm=True,
-                      need_filter=False,
-                      show_coeff=0.2,
-                      clk_coeff=1.0,
-                      threshold=0.96,
-                      cvm_offset=2,
-                      quant_ratio=0,
-                      clk_filter=False,
-                      xbox_diff_thres_filter=False,
-                      threshold_vec=[]):
+                                      pool_type,
+                                      cvm,
+                                      pad_value=0.0,
+                                      use_cvm=True,
+                                      need_filter=False,
+                                      show_coeff=0.2,
+                                      clk_coeff=1.0,
+                                      threshold=0.96,
+                                      cvm_offset=2,
+                                      quant_ratio=0,
+                                      clk_filter=False,
+                                      xbox_diff_thres_filter=False,
+                                      threshold_vec=[]):
     """
      **Notes: The Op only receives List of LoDTensor as input, only support SUM pooling now.
     :attr:`input`.
@@ -1668,7 +1705,6 @@ def fused_seqpool_cvm_with_diff_thres(input,
     if len(threshold_vec) == 0:
         xbox_diff_thres_filter = False
 
-
     helper.append_op(
         type="fused_seqpool_cvm_with_diff_thres",
         inputs={"X": inputs,
@@ -1691,13 +1727,14 @@ def fused_seqpool_cvm_with_diff_thres(input,
 
     return outs
 
+
 def fused_seqpool_cvm_with_conv(input,
-                      pool_type,
-                      cvm,
-                      pad_value=0.0,
-                      use_cvm=True,
-                      show_filter=False,
-                      cvm_offset=3):
+                                pool_type,
+                                cvm,
+                                pad_value=0.0,
+                                use_cvm=True,
+                                show_filter=False,
+                                cvm_offset=3):
     """
      **Notes: The Op only receives List of LoDTensor as input, only support SUM pooling now.
     :attr:`input`.
@@ -1741,10 +1778,11 @@ def fused_seqpool_cvm_with_conv(input,
             "pad_value": pad_value,
             "use_cvm": use_cvm,
             "cvm_offset": cvm_offset,
-            "show_filter" : show_filter
+            "show_filter": show_filter
         })
 
     return outs
+
 
 def fused_seqpool_cvm_with_pcoc(input,
                                 pool_type,
