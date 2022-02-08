@@ -184,6 +184,10 @@ class Allocator {
 
   // True if the `Allocate` is thread safe.
   virtual bool IsAllocThreadSafe() const;
+  // return real used, total is in alloc
+  virtual size_t GetTotalMemInfo(size_t* /**total*/, size_t* /**available*/) {
+    return 0;
+  }
 
  protected:
   virtual Allocation* AllocateImpl(size_t size) = 0;

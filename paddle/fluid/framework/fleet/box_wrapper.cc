@@ -641,13 +641,12 @@ void BoxWrapper::EndPass(bool need_save_delta) {
       ret, 0, platform::errors::PreconditionNotMet("EndPass failed in BoxPS."));
   // clear all gpu memory
   if (FLAGS_enable_force_hbm_recyle) {
-    int gpu_num = platform::GetCUDADeviceCount();
-    for (int i = 0; i < gpu_num; ++i) {
+    for (int i = 0; i < gpu_num_; ++i) {
       memory::allocation::AllocatorFacade::Instance().Release(
           platform::CUDAPlace(i));
     }
-    size_t available = 0;
     size_t total = 0;
+    size_t available = 0;
     platform::GpuMemoryUsage(&available, &total);
     VLOG(0) << "release gpu memory total: " << (total >> 20)
             << "MB, available: " << (available >> 20) << "MB";
@@ -1262,6 +1261,10 @@ const std::vector<double> BoxWrapper::GetMetricMsg(const std::string& name) {
 }
 void BoxWrapper::PrintSyncTimer(int device, double train_span) {
   auto& dev = device_caches_[device];
+  size_t total = 0;
+  size_t available = 0;
+  size_t used = memory::allocation::AllocatorFacade::Instance().GetTotalMemInfo(
+      platform::CUDAPlace(device), &total, &available);
   LOG(WARNING) << "gpu: " << device << ", phase: " << phase_
                << ", train dnn: " << train_span
                << ", sparse pull span: " << dev.all_pull_timer.ElapsedSec()
@@ -1270,7 +1273,10 @@ void BoxWrapper::PrintSyncTimer(int device, double train_span) {
                << ", boxps span:" << dev.boxps_push_timer.ElapsedSec()
                << ", dense nccl:" << dev.dense_nccl_timer.ElapsedSec()
                << ", sync stream:" << dev.dense_sync_timer.ElapsedSec()
-               << ", wrapper gpu memory:" << dev.GpuMemUsed() << "MB";
+               << ", wrapper gpu memory:" << dev.GpuMemUsed() << "MB"
+               << ", total cache:" << (total >> 20) << "MB"
+               << ", used:" << (used >> 20) << "MB"
+               << ", free:" << (available >> 20) << "MB";
   dev.ResetTimer();
 }
 
@@ -1299,10 +1305,10 @@ void BoxWrapper::InitializeGPUAndLoadModel(
   if (nullptr != s_instance_) {
     VLOG(3) << "Begin InitializeGPU";
     std::vector<cudaStream_t*> stream_list;
-    int gpu_num = platform::GetCUDADeviceCount();
-    CHECK(gpu_num <= MAX_GPU_NUM) << "gpu card num: " << gpu_num
-                                  << ", more than max num: " << MAX_GPU_NUM;
-    for (int i = 0; i < gpu_num; ++i) {
+    gpu_num_ = platform::GetCUDADeviceCount();
+    CHECK(gpu_num_ <= MAX_GPU_NUM) << "gpu card num: " << gpu_num_
+                                   << ", more than max num: " << MAX_GPU_NUM;
+    for (int i = 0; i < gpu_num_; ++i) {
       VLOG(3) << "before get context i[" << i << "]";
       platform::CUDADeviceContext* context =
           dynamic_cast<platform::CUDADeviceContext*>(
@@ -1319,7 +1325,7 @@ void BoxWrapper::InitializeGPUAndLoadModel(
       slot_name_omited_in_feedpass_.insert(slot_name);
     }
     slot_vector_ = slot_vector;
-    device_caches_ = new DeviceBoxData[gpu_num];
+    device_caches_ = new DeviceBoxData[gpu_num_];
 
     VLOG(0) << "lr_map.size(): " << lr_map.size();
     for (const auto e : lr_map) {

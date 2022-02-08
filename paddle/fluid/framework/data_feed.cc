@@ -2581,16 +2581,16 @@ void SlotPaddleBoxDataFeed::BuildSlotBatchGPU(const int ins_num) {
   const UsedSlotGpuType* used_slot_gpu_types =
       static_cast<const UsedSlotGpuType*>(pack_->get_gpu_slots());
   FillSlotValueOffset(ins_num, use_slot_size_, pack_->gpu_slot_offsets(),
-                      value.d_uint64_offset.data(), uint64_use_slot_size_,
-                      value.d_float_offset.data(), float_use_slot_size_,
+                      value.d_uint64_offset.data<int>(), uint64_use_slot_size_,
+                      value.d_float_offset.data<int>(), float_use_slot_size_,
                       used_slot_gpu_types);
   fill_timer_.Pause();
   size_t* d_slot_offsets = pack_->gpu_slot_offsets();
 
   offset_timer_.Resume();
-  HostBuffer<size_t>& offsets = pack_->offsets();
+  std::vector<size_t>& offsets = pack_->offsets();
   offsets.resize(slot_total_num);
-  HostBuffer<void*>& h_tensor_ptrs = pack_->h_tensor_ptrs();
+  std::vector<void*>& h_tensor_ptrs = pack_->h_tensor_ptrs();
   h_tensor_ptrs.resize(use_slot_size_);
   // alloc gpu memory
   pack_->resize_tensor();
@@ -2679,15 +2679,13 @@ void SlotPaddleBoxDataFeed::BuildSlotBatchGPU(const int ins_num) {
                         use_slot_size_ * sizeof(void*),
                         cudaMemcpyHostToDevice));
 
-  CopyForTensor(ins_num, use_slot_size_, dest_gpu_p,
-                (const size_t*)pack_->gpu_slot_offsets(),
-                (const uint64_t*)value.d_uint64_keys.data(),
-                (const int*)value.d_uint64_offset.data(),
-                (const int*)value.d_uint64_lens.data(), uint64_use_slot_size_,
-                (const float*)value.d_float_keys.data(),
-                (const int*)value.d_float_offset.data(),
-                (const int*)value.d_float_lens.data(), float_use_slot_size_,
-                used_slot_gpu_types);
+  CopyForTensor(
+      ins_num, use_slot_size_, dest_gpu_p, pack_->gpu_slot_offsets(),
+      reinterpret_cast<const uint64_t*>(value.d_uint64_keys.data<int64_t>()),
+      value.d_uint64_offset.data<int>(), value.d_uint64_lens.data<int>(),
+      uint64_use_slot_size_, value.d_float_keys.data<float>(),
+      value.d_float_offset.data<int>(), value.d_float_lens.data<int>(),
+      float_use_slot_size_, used_slot_gpu_types);
   trans_timer_.Pause();
 #endif
 }
@@ -2708,9 +2706,8 @@ void SlotPaddleBoxDataFeed::GetRankOffsetGPU(const int pv_num,
   int* tensor_ptr =
       rank_offset_->mutable_data<int>({ins_num, col}, this->place_);
   CopyRankOffset(tensor_ptr, ins_num, pv_num, max_rank,
-                 (const int*)value.d_rank.data(),
-                 (const int*)value.d_cmatch.data(),
-                 (const int*)value.d_ad_offset.data(), col);
+                 value.d_rank.data<int>(), value.d_cmatch.data<int>(),
+                 value.d_ad_offset.data<int>(), col);
 #endif
 }
 void SlotPaddleBoxDataFeed::GetRankOffset(const SlotPvInstance* pv_vec,
@@ -3827,7 +3824,11 @@ MiniBatchGpuPack::MiniBatchGpuPack(const paddle::platform::Place& place,
       ++used_float_num_;
     }
   }
-  copy_host2device(&gpu_slots_, gpu_used_slots_.data(), gpu_used_slots_.size());
+  gpu_slots_ = memory::AllocShared(
+      place_, gpu_used_slots_.size() * sizeof(UsedSlotGpuType));
+  CUDA_CHECK(cudaMemcpyAsync(gpu_slots_->ptr(), gpu_used_slots_.data(),
+                             gpu_used_slots_.size() * sizeof(UsedSlotGpuType),
+                             cudaMemcpyHostToDevice, stream_));
 
   slot_buf_ptr_ = memory::AllocShared(place_, used_slot_size_ * sizeof(void*));
 
@@ -4067,17 +4068,27 @@ void MiniBatchGpuPack::pack_instance(const SlotRecord* ins_vec, int num) {
 void MiniBatchGpuPack::transfer_to_gpu(void) {
   trans_timer_.Resume();
   if (enable_pv_) {
-    copy_host2device(&value_.d_ad_offset, buf_.h_ad_offset);
-    copy_host2device(&value_.d_rank, buf_.h_rank);
-    copy_host2device(&value_.d_cmatch, buf_.h_cmatch);
+    copy_host2device(&value_.d_ad_offset, buf_.h_ad_offset.data(),
+                     buf_.h_ad_offset.size());
+    copy_host2device(&value_.d_rank, buf_.h_rank.data(), buf_.h_rank.size());
+    copy_host2device(&value_.d_cmatch, buf_.h_cmatch.data(),
+                     buf_.h_cmatch.size());
   }
-  copy_host2device(&value_.d_uint64_lens, buf_.h_uint64_lens);
-  copy_host2device(&value_.d_uint64_keys, buf_.h_uint64_keys);
-  copy_host2device(&value_.d_uint64_offset, buf_.h_uint64_offset);
+  copy_host2device(&value_.d_uint64_lens, buf_.h_uint64_lens.data(),
+                   buf_.h_uint64_lens.size());
+  copy_host2device<int64_t>(
+      &value_.d_uint64_keys,
+      reinterpret_cast<int64_t*>(buf_.h_uint64_keys.data()),
+      buf_.h_uint64_keys.size());
+  copy_host2device(&value_.d_uint64_offset, buf_.h_uint64_offset.data(),
+                   buf_.h_uint64_offset.size());
 
-  copy_host2device(&value_.d_float_lens, buf_.h_float_lens);
-  copy_host2device(&value_.d_float_keys, buf_.h_float_keys);
-  copy_host2device(&value_.d_float_offset, buf_.h_float_offset);
+  copy_host2device(&value_.d_float_lens, buf_.h_float_lens.data(),
+                   buf_.h_float_lens.size());
+  copy_host2device(&value_.d_float_keys, buf_.h_float_keys.data(),
+                   buf_.h_float_keys.size());
+  copy_host2device(&value_.d_float_offset, buf_.h_float_offset.data(),
+                   buf_.h_float_offset.size());
   CUDA_CHECK(cudaStreamSynchronize(stream_));
   trans_timer_.Pause();
 }

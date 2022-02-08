@@ -528,6 +528,7 @@ class BoxWrapper {
       } else {
         s_instance_->cvm_offset_ = 3;
       }
+      s_instance_->gpu_num_ = platform::GetCUDADeviceCount();
 
       if (boxps::MPICluster::Ins().size() > 1) {
         data_shuffle_.reset(boxps::PaddleShuffler::New());
@@ -674,6 +675,7 @@ class BoxWrapper {
   DeviceBoxData* device_caches_ = nullptr;
   std::map<std::string, float> lr_map_;
   size_t input_table_dim_ = 0;
+  int gpu_num_ = platform::GetCUDADeviceCount();
 
  public:
   static std::shared_ptr<boxps::PaddleShuffler> data_shuffle_;

@@ -315,6 +315,13 @@ uint64_t AllocatorFacade::Release(const platform::Place& place) {
       ->Release(place);
 }
 
+// return real used, total is in alloc, available is in free
+size_t AllocatorFacade::GetTotalMemInfo(const platform::Place& place,
+                                        size_t* total, size_t* available) {
+  return m_->GetAllocator(place, /* A non-zero num to choose allocator_ */ 1)
+      ->GetTotalMemInfo(total, available);
+}
+
 }  // namespace allocation
 }  // namespace memory
 }  // namespace paddle
