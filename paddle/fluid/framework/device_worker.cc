@@ -29,44 +29,46 @@ void DeviceWorker::SetDataFeed(DataFeed* data_feed) {
 }
 
 template <typename T>
-std::string PrintLodTensorType(Tensor* tensor, int64_t start, int64_t end) {
+void PrintLodTensorType(Tensor* tensor, int64_t start, int64_t end,
+                        std::ostringstream* os) {
   auto count = tensor->numel();
   if (start < 0 || end > count) {
     VLOG(3) << "access violation";
-    return "access violation";
+    (*os) << "access violation";
+    return;
   }
-  std::ostringstream os;
   for (int64_t i = start; i < end; i++) {
-    os << ":" << tensor->data<T>()[i];
+    (*os) << ":" << tensor->data<T>()[i];
   }
-  return os.str();
 }
 
-std::string PrintLodTensorIntType(Tensor* tensor, int64_t start, int64_t end) {
+void PrintLodTensorIntType(Tensor* tensor, int64_t start, int64_t end,
+                           std::ostringstream* os) {
   auto count = tensor->numel();
   if (start < 0 || end > count) {
     VLOG(3) << "access violation";
-    return "access violation";
+    (*os) << "access violation";
+    return;
   }
-  std::ostringstream os;
   for (int64_t i = start; i < end; i++) {
-    os << ":" << static_cast<uint64_t>(tensor->data<int64_t>()[i]);
+    (*os) << ":" << static_cast<uint64_t>(tensor->data<int64_t>()[i]);
   }
-  return os.str();
 }
-
-std::string PrintLodTensor(Tensor* tensor, int64_t start, int64_t end) {
-  std::string out_val;
+void PrintLodTensor(Tensor* tensor, int64_t start, int64_t end,
+                    std::ostringstream* os) {
   if (tensor->type() == proto::VarType::FP32) {
-    out_val = PrintLodTensorType<float>(tensor, start, end);
+    PrintLodTensorType<float>(tensor, start, end, os);
   } else if (tensor->type() == proto::VarType::INT64) {
-    out_val = PrintLodTensorIntType(tensor, start, end);
+    PrintLodTensorIntType(tensor, start, end, os);
   } else if (tensor->type() == proto::VarType::FP64) {
-    out_val = PrintLodTensorType<double>(tensor, start, end);
+    PrintLodTensorType<double>(tensor, start, end, os);
+  } else if (tensor->type() == proto::VarType::INT32) {
+    PrintLodTensorType<int>(tensor, start, end, os);
+  } else if (tensor->type() == proto::VarType::INT16) {
+    PrintLodTensorType<int16_t>(tensor, start, end, os);
   } else {
-    out_val = "unsupported type";
+    (*os) << "unsupported type";
   }
-  return out_val;
 }
 
 std::pair<int64_t, int64_t> GetTensorBound(LoDTensor* tensor, int index) {
@@ -110,8 +112,8 @@ void DeviceWorker::DumpParam(const Scope& scope, const int batch_id) {
       tensor = &cpu_tensor;
     }
     int64_t len = tensor->numel();
-    os << "(" << batch_id << "," << param << ")"
-       << PrintLodTensor(tensor, 0, len);
+    os << "(" << batch_id << "," << param << ")";
+    PrintLodTensor(tensor, 0, len, &os);
     writer_ << os.str();
   }
 }
@@ -136,7 +138,7 @@ void DeviceWorker::DumpField(const Scope& scope, int dump_mode,
                                                    // 2: random with random
                                                    // number
   size_t batch_size = device_reader_->GetCurBatchSize();
-  std::vector<std::string> ars(batch_size);
+  std::vector<std::ostringstream> ars(batch_size);
   std::vector<bool> hit(batch_size, false);
 
   std::default_random_engine engine(0);
@@ -156,12 +158,12 @@ void DeviceWorker::DumpField(const Scope& scope, int dump_mode,
     if (FLAGS_lineid_have_extend_info) {
       size_t pos = lineid.find(" ");
       if (pos != std::string::npos) {
-        ars[i] += lineid.substr(0, pos);
+        ars[i] << lineid.substr(0, pos);
       } else {
-        ars[i] += lineid;
+        ars[i] << lineid;
       }
     } else {
-      ars[i] += lineid;
+      ars[i] << lineid;
     }
   }
   for (auto& field : *dump_fields_) {
@@ -200,17 +202,17 @@ void DeviceWorker::DumpField(const Scope& scope, int dump_mode,
         if (pos != std::string::npos) {
           new_field = field.substr(0, pos);
         }
-        ars[i] = ars[i] + "\t" + new_field;
+        ars[i] << "\t" << new_field;
       } else {
-        ars[i] = ars[i] + "\t" + field + ":" +
-                 std::to_string(bound.second - bound.first);
+        ars[i] << "\t" << field << ":"
+               << std::to_string(bound.second - bound.first);
       }
-      ars[i] += PrintLodTensor(tensor, bound.first, bound.second);
+      PrintLodTensor(tensor, bound.first, bound.second, &ars[i]);
     }
   }
   // #pragma omp parallel for
   for (size_t i = 0; i < ars.size(); i++) {
-    if (ars[i].length() == 0) {
+    if (ars[i].tellp() <= 0) {
       continue;
     }
 
@@ -218,10 +220,10 @@ void DeviceWorker::DumpField(const Scope& scope, int dump_mode,
       const std::string& lineid = device_reader_->GetLineId(i);
       size_t pos = lineid.find(" ");
       if (pos != std::string::npos) {
-        ars[i] = ars[i] + "\t" + lineid.substr(pos + 1);
+        ars[i] << "\t" << lineid.substr(pos + 1);
       }
     }
-    writer_ << ars[i];
+    writer_ << ars[i].str();
   }
 }
 

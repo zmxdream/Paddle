@@ -59,7 +59,6 @@ class DeviceContext;
 namespace paddle {
 namespace framework {
 
-std::string PrintLodTensor(Tensor* tensor, int64_t start, int64_t end);
 std::pair<int64_t, int64_t> GetTensorBound(LoDTensor* tensor, int index);
 bool CheckValidOutput(LoDTensor* tensor, size_t batch_size);
 

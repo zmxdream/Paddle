@@ -92,6 +92,12 @@ class SampleAllocator : public Allocator {
   explicit SampleAllocator(std::shared_ptr<Allocator> allocator);
   bool IsAllocThreadSafe() const override { return true; }
   void GetMemInfo(TotalBytes *info);
+  // return real used, total is in alloc
+  size_t GetTotalMemInfo(size_t *total, size_t *available) {
+    *total = cached_bytes_.live + cached_bytes_.free;
+    *available = cached_bytes_.free;
+    return cached_bytes_.used;
+  }
 
  protected:
   void FreeImpl(Allocation *allocation) override;

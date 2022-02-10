@@ -47,6 +47,10 @@ class AllocatorFacade {
   // Release unused memory pool.
   uint64_t Release(const platform::Place& place);
 
+  // return real used, total is in alloc
+  size_t GetTotalMemInfo(const platform::Place& place, size_t* total,
+                         size_t* available);
+
   // TODO(yy): Allocate a Copy-On-Write allocation?
  private:
   AllocatorFacade();

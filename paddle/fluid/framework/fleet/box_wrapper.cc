@@ -641,13 +641,12 @@ void BoxWrapper::EndPass(bool need_save_delta) {
       ret, 0, platform::errors::PreconditionNotMet("EndPass failed in BoxPS."));
   // clear all gpu memory
   if (FLAGS_enable_force_hbm_recyle) {
-    int gpu_num = platform::GetCUDADeviceCount();
-    for (int i = 0; i < gpu_num; ++i) {
+    for (int i = 0; i < gpu_num_; ++i) {
       memory::allocation::AllocatorFacade::Instance().Release(
           platform::CUDAPlace(i));
     }
-    size_t available = 0;
     size_t total = 0;
+    size_t available = 0;
     platform::GpuMemoryUsage(&available, &total);
     VLOG(0) << "release gpu memory total: " << (total >> 20)
             << "MB, available: " << (available >> 20) << "MB";
@@ -998,20 +997,24 @@ class MaskMetricMsg : public MetricMsg {
 class MultiMaskMetricMsg : public MetricMsg {
  public:
   MultiMaskMetricMsg(const std::string& label_varname,
-                const std::string& pred_varname, int metric_phase,
-                const std::string& mask_varname_list, const std::string& mask_varvalue_list,
-                int bucket_size = 1000000,
-                bool mode_collect_in_gpu = false, int max_batch_size = 0) {
+                     const std::string& pred_varname, int metric_phase,
+                     const std::string& mask_varname_list,
+                     const std::string& mask_varvalue_list,
+                     int bucket_size = 1000000,
+                     bool mode_collect_in_gpu = false, int max_batch_size = 0) {
     label_varname_ = label_varname;
     pred_varname_ = pred_varname;
     mask_varname_list_ = string::split_string(mask_varname_list, " ");
-    const std::vector<std::string> tmp_val_lst = string::split_string(mask_varvalue_list, " ");
+    const std::vector<std::string> tmp_val_lst =
+        string::split_string(mask_varvalue_list, " ");
     for (const auto& it : tmp_val_lst) {
       mask_varvalue_list_.emplace_back(atoi(it.c_str()));
     }
-    PADDLE_ENFORCE_EQ(mask_varname_list_.size(), mask_varvalue_list_.size(),
-        platform::errors::PreconditionNotMet("mast var num[%zu] should be equal to mask val num[%zu]",
-        mask_varname_list_.size(), mask_varvalue_list_.size()));
+    PADDLE_ENFORCE_EQ(
+        mask_varname_list_.size(), mask_varvalue_list_.size(),
+        platform::errors::PreconditionNotMet(
+            "mast var num[%zu] should be equal to mask val num[%zu]",
+            mask_varname_list_.size(), mask_varvalue_list_.size()));
 
     metric_phase_ = metric_phase;
     calculator = new BasicAucCalculator(mode_collect_in_gpu);
@@ -1022,22 +1025,27 @@ class MultiMaskMetricMsg : public MetricMsg {
                 const paddle::platform::Place& place) override {
     std::vector<int64_t> label_data;
     get_data<int64_t>(exe_scope, label_varname_, &label_data);
-    
+
     std::vector<float> pred_data;
     get_data<float>(exe_scope, pred_varname_, &pred_data);
-    
+
     PADDLE_ENFORCE_EQ(label_data.size(), pred_data.size(),
                       platform::errors::PreconditionNotMet(
-                      "the predict data length should be consistent with "
-                      "the label data length"));
-  
-    std::vector<std::vector<int64_t>> mask_value_data_list(mask_varname_list_.size());
-    for (size_t name_idx = 0; name_idx < mask_varname_list_.size(); ++name_idx) {
-      get_data<int64_t>(exe_scope, mask_varname_list_[name_idx], &mask_value_data_list[name_idx]);
-      PADDLE_ENFORCE_EQ(label_data.size(), mask_value_data_list[name_idx].size(),
-                        platform::errors::PreconditionNotMet(
-                        "the label data length[%d] should be consistent with "
-                        "the %s[%zu] length", label_data.size(), mask_value_data_list[name_idx].size()));
+                          "the predict data length should be consistent with "
+                          "the label data length"));
+
+    std::vector<std::vector<int64_t>> mask_value_data_list(
+        mask_varname_list_.size());
+    for (size_t name_idx = 0; name_idx < mask_varname_list_.size();
+         ++name_idx) {
+      get_data<int64_t>(exe_scope, mask_varname_list_[name_idx],
+                        &mask_value_data_list[name_idx]);
+      PADDLE_ENFORCE_EQ(
+          label_data.size(), mask_value_data_list[name_idx].size(),
+          platform::errors::PreconditionNotMet(
+              "the label data length[%d] should be consistent with "
+              "the %s[%zu] length",
+              label_data.size(), mask_value_data_list[name_idx].size()));
     }
     auto cal = GetCalculator();
     std::lock_guard<std::mutex> lock(cal->table_mutex());
@@ -1045,8 +1053,10 @@ class MultiMaskMetricMsg : public MetricMsg {
     bool flag = true;
     for (size_t ins_idx = 0; ins_idx < batch_size; ++ins_idx) {
       flag = true;
-      for (size_t val_idx = 0; val_idx < mask_varvalue_list_.size(); ++val_idx) {
-        if (mask_value_data_list[val_idx][ins_idx] != mask_varvalue_list_[val_idx]) {
+      for (size_t val_idx = 0; val_idx < mask_varvalue_list_.size();
+           ++val_idx) {
+        if (mask_value_data_list[val_idx][ins_idx] !=
+            mask_varvalue_list_[val_idx]) {
           flag = false;
           break;
         }
@@ -1055,7 +1065,6 @@ class MultiMaskMetricMsg : public MetricMsg {
         cal->add_unlock_data(pred_data[ins_idx], label_data[ins_idx]);
       }
     }
-
   }
 
  protected:
@@ -1213,9 +1222,10 @@ void BoxWrapper::InitMetric(const std::string& method, const std::string& name,
                                 max_batch_size));
   } else if (method == "MultiMaskAucCalculator") {
     metric_lists_.emplace(
-        name, new MultiMaskMetricMsg(label_varname, pred_varname, metric_phase,
-                                mask_varname, cmatch_rank_group, bucket_size, mode_collect_in_gpu,
-                                max_batch_size));
+        name,
+        new MultiMaskMetricMsg(label_varname, pred_varname, metric_phase,
+                               mask_varname, cmatch_rank_group, bucket_size,
+                               mode_collect_in_gpu, max_batch_size));
   } else if (method == "CmatchRankMaskAucCalculator") {
     metric_lists_.emplace(
         name, new CmatchRankMaskMetricMsg(
@@ -1230,12 +1240,12 @@ void BoxWrapper::InitMetric(const std::string& method, const std::string& name,
   metric_name_list_.emplace_back(name);
 }
 
-const std::vector<float> BoxWrapper::GetMetricMsg(const std::string& name) {
+const std::vector<double> BoxWrapper::GetMetricMsg(const std::string& name) {
   const auto iter = metric_lists_.find(name);
   PADDLE_ENFORCE_NE(iter, metric_lists_.end(),
                     platform::errors::InvalidArgument(
                         "The metric name you provided is not registered."));
-  std::vector<float> metric_return_values_(8, 0.0);
+  std::vector<double> metric_return_values_(8, 0.0);
   auto* auc_cal_ = iter->second->GetCalculator();
   auc_cal_->compute();
   metric_return_values_[0] = auc_cal_->auc();
@@ -1251,6 +1261,10 @@ const std::vector<float> BoxWrapper::GetMetricMsg(const std::string& name) {
 }
 void BoxWrapper::PrintSyncTimer(int device, double train_span) {
   auto& dev = device_caches_[device];
+  size_t total = 0;
+  size_t available = 0;
+  size_t used = memory::allocation::AllocatorFacade::Instance().GetTotalMemInfo(
+      platform::CUDAPlace(device), &total, &available);
   LOG(WARNING) << "gpu: " << device << ", phase: " << phase_
                << ", train dnn: " << train_span
                << ", sparse pull span: " << dev.all_pull_timer.ElapsedSec()
@@ -1259,7 +1273,10 @@ void BoxWrapper::PrintSyncTimer(int device, double train_span) {
                << ", boxps span:" << dev.boxps_push_timer.ElapsedSec()
                << ", dense nccl:" << dev.dense_nccl_timer.ElapsedSec()
                << ", sync stream:" << dev.dense_sync_timer.ElapsedSec()
-               << ", wrapper gpu memory:" << dev.GpuMemUsed() << "MB";
+               << ", wrapper gpu memory:" << dev.GpuMemUsed() << "MB"
+               << ", total cache:" << (total >> 20) << "MB"
+               << ", used:" << (used >> 20) << "MB"
+               << ", free:" << (available >> 20) << "MB";
   dev.ResetTimer();
 }
 
@@ -1288,10 +1305,10 @@ void BoxWrapper::InitializeGPUAndLoadModel(
   if (nullptr != s_instance_) {
     VLOG(3) << "Begin InitializeGPU";
     std::vector<cudaStream_t*> stream_list;
-    int gpu_num = platform::GetCUDADeviceCount();
-    CHECK(gpu_num <= MAX_GPU_NUM) << "gpu card num: " << gpu_num
-                                  << ", more than max num: " << MAX_GPU_NUM;
-    for (int i = 0; i < gpu_num; ++i) {
+    gpu_num_ = platform::GetCUDADeviceCount();
+    CHECK(gpu_num_ <= MAX_GPU_NUM) << "gpu card num: " << gpu_num_
+                                   << ", more than max num: " << MAX_GPU_NUM;
+    for (int i = 0; i < gpu_num_; ++i) {
       VLOG(3) << "before get context i[" << i << "]";
       platform::CUDADeviceContext* context =
           dynamic_cast<platform::CUDADeviceContext*>(
@@ -1308,7 +1325,7 @@ void BoxWrapper::InitializeGPUAndLoadModel(
       slot_name_omited_in_feedpass_.insert(slot_name);
     }
     slot_vector_ = slot_vector;
-    device_caches_ = new DeviceBoxData[gpu_num];
+    device_caches_ = new DeviceBoxData[gpu_num_];
 
     VLOG(0) << "lr_map.size(): " << lr_map.size();
     for (const auto e : lr_map) {

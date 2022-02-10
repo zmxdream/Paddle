@@ -36,7 +36,7 @@ DECLARE_uint64(gpu_memory_limit_mb);
 
 constexpr static float fraction_reserve_gpu_memory = 0.05f;
 
-USE_GPU_MEM_STAT;
+// USE_GPU_MEM_STAT;
 namespace paddle {
 namespace platform {
 
@@ -387,7 +387,8 @@ class RecordedCudaMallocHelper {
       if (NeedRecord()) {
         cur_size_ += size;
       }
-      STAT_INT_ADD("STAT_gpu" + std::to_string(dev_id_) + "_mem_size", size);
+      //      STAT_INT_ADD("STAT_gpu" + std::to_string(dev_id_) + "_mem_size",
+      //      size);
       return cudaSuccess;
     } else {
       RaiseNonOutOfMemoryError(&result);
@@ -416,7 +417,8 @@ class RecordedCudaMallocHelper {
         std::lock_guard<std::mutex> guard(*mtx_);
         cur_size_ -= size;
       }
-      STAT_INT_SUB("STAT_gpu" + std::to_string(dev_id_) + "_mem_size", size);
+      //      STAT_INT_SUB("STAT_gpu" + std::to_string(dev_id_) + "_mem_size",
+      //      size);
     } else {
       cudaGetLastError();  // clear the error flag when cudaErrorCudartUnloading
     }

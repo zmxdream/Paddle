@@ -167,6 +167,123 @@ DECLARE_NO_NEED_BUFFER_VARS_INFERER(
     RankAttentionGradOpNoNeedBufferVarsInference, "X", "RankOffset",
     "RankParam");
 
+class RankAttention2Op : public framework::OperatorWithKernel {
+ public:
+  using framework::OperatorWithKernel::OperatorWithKernel;
+
+  void InferShape(framework::InferShapeContext* ctx) const override {
+    PADDLE_ENFORCE_EQ(ctx->HasInput("X"), true,
+                      platform::errors::InvalidArgument(
+                          "Input(X) of RankAttentionOp should not be null."));
+    PADDLE_ENFORCE_EQ(
+        ctx->HasInput("RankOffset"), true,
+        platform::errors::InvalidArgument(
+            "Input(RankOffset) of RankAttentionOp should not be null."));
+    PADDLE_ENFORCE_EQ(
+        ctx->HasInput("RankParam"), true,
+        platform::errors::InvalidArgument(
+            "Input(RankParam) of RankAttentionOp should not be null."));
+    PADDLE_ENFORCE_EQ(
+        ctx->HasOutput("Out"), true,
+        platform::errors::InvalidArgument(
+            "Output(Out) of RankAttentionOp should not be null."));
+    auto max_rank = ctx->Attrs().Get<int>("MaxRank");
+
+    auto x_dims = ctx->GetInputDim("X");
+    auto ins_num = x_dims[0];
+    auto param_dims = ctx->GetInputDim("RankParam");
+    auto para_col = param_dims[1];
+    auto rank_offset_dims = ctx->GetInputDim("RankOffset");
+
+    PADDLE_ENFORCE_EQ((rank_offset_dims[1] - 1) / 2, max_rank,
+                      platform::errors::InvalidArgument(
+                          "Input(RankOffset) has wrong columns."));
+
+    ctx->SetOutputDim("Out", {ins_num, para_col});
+    ctx->ShareLoD("X", /*->*/ "Out");
+  }
+
+ protected:
+  framework::OpKernelType GetExpectedKernelType(
+      const framework::ExecutionContext& ctx) const override {
+    return framework::OpKernelType(
+        OperatorWithKernel::IndicateVarDataType(ctx, "X"),
+        ctx.device_context());
+  }
+};
+
+class RankAttention2GradOp : public framework::OperatorWithKernel {
+ public:
+  using framework::OperatorWithKernel::OperatorWithKernel;
+
+  void InferShape(framework::InferShapeContext* ctx) const override {
+    PADDLE_ENFORCE_EQ(
+        ctx->HasInput("X"), true,
+        platform::errors::InvalidArgument("Input(X) should not be null"));
+    PADDLE_ENFORCE_EQ(ctx->HasInput("RankParam"), true,
+                      platform::errors::InvalidArgument(
+                          "Input(RankParam) should not be null"));
+    PADDLE_ENFORCE_EQ(ctx->HasInput("RankOffset"), true,
+                      platform::errors::InvalidArgument(
+                          "Input(RankOffset) should not be null"));
+
+    ctx->SetOutputDim(framework::GradVarName("RankParam"),
+                      ctx->GetInputDim("RankParam"));
+  }
+
+ protected:
+  framework::OpKernelType GetExpectedKernelType(
+      const framework::ExecutionContext& ctx) const override {
+    return framework::OpKernelType(OperatorWithKernel::IndicateVarDataType(
+                                       ctx, framework::GradVarName("Out")),
+                                   ctx.device_context());
+  }
+};
+
+class RankAttention2OpMaker : public framework::OpProtoAndCheckerMaker {
+ public:
+  void Make() override {
+    AddInput("X", "(Tensor) Input tensor of rank_attention_Op operator.");
+    AddInput("RankOffset",
+             "(Tensor) Input tensor of rank_attention_Op operator.");
+    AddInput("RankParam",
+             "(Tensor) Input tensor of rank_attention_Op operator.");
+    AddOutput("Out", "Output tensor of rank_attention_Op operator.");
+    AddAttr<int>("MaxRank", "(int, default 3) max rank of rank_attention_Op")
+        .SetDefault(3);
+    AddComment(R"DOC(
+RankAttention Operator.
+This Op can calculate rank attention between input and rank_param, 
+and rank_param gives the organization of data. Notice: It currently supports GPU device.
+This Op exists in contrib, which means that it is not shown to the public.
+)DOC");
+  }
+};
+
+template <typename T>
+class RankAttention2GradOpMaker : public framework::SingleGradOpMaker<T> {
+ public:
+  using framework::SingleGradOpMaker<T>::SingleGradOpMaker;
+
+ protected:
+  void Apply(GradOpPtr<T> op) const override {
+    op->SetType("rank_attention2_grad");
+
+    op->SetInput("X", this->Input("X"));
+    op->SetInput("RankOffset", this->Input("RankOffset"));
+    op->SetInput("RankParam", this->Input("RankParam"));
+    op->SetInput(framework::GradVarName("Out"), this->OutputGrad("Out"));
+
+    op->SetOutput(framework::GradVarName("RankParam"),
+                  this->InputGrad("RankParam"));
+    op->SetAttrMap(this->Attrs());
+  }
+};
+
+DECLARE_NO_NEED_BUFFER_VARS_INFERER(
+    RankAttention2GradOpNoNeedBufferVarsInference, "X", "RankOffset",
+    "RankParam");
+
 }  // namespace operators
 }  // namespace paddle
 
@@ -179,7 +296,20 @@ REGISTER_OPERATOR(rank_attention, ops::RankAttentionOp,
 REGISTER_OPERATOR(rank_attention_grad, ops::RankAttentionGradOp,
                   ops::RankAttentionGradOpNoNeedBufferVarsInference);
 
+REGISTER_OPERATOR(rank_attention2, ops::RankAttention2Op,
+                  ops::RankAttention2OpMaker,
+                  ops::RankAttention2GradOpMaker<paddle::framework::OpDesc>,
+                  ops::RankAttention2GradOpMaker<paddle::imperative::OpBase>);
+
+REGISTER_OPERATOR(rank_attention2_grad, ops::RankAttention2GradOp,
+                  ops::RankAttention2GradOpNoNeedBufferVarsInference);
+
 REGISTER_OP_CPU_KERNEL(
     rank_attention,
+    ops::RankAttentionKernel<paddle::platform::CPUDeviceContext, float>,
+    ops::RankAttentionKernel<paddle::platform::CPUDeviceContext, double>);
+
+REGISTER_OP_CPU_KERNEL(
+    rank_attention2,
     ops::RankAttentionKernel<paddle::platform::CPUDeviceContext, float>,
     ops::RankAttentionKernel<paddle::platform::CPUDeviceContext, double>);
