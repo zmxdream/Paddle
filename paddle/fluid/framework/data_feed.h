@@ -1422,6 +1422,7 @@ class MiniBatchGpuPack {
   template <typename T>
   void copy_host2device(Tensor* buf, const T* val, size_t size) {
     if (size == 0) {
+      buf->mutable_data<T>({static_cast<int64_t>(size), 1}, place_);
       return;
     }
     T* data = buf->mutable_data<T>({static_cast<int64_t>(size), 1}, place_);
