@@ -2029,7 +2029,8 @@ static const int PAGE_BLOCK_SIZE = 4096;
 static const int INT_BYTES = sizeof(int);
 BinaryArchiveWriter::BinaryArchiveWriter() : fd_(-1) {
   capacity_ = MAX_FILE_BUFF + 64 * 1024;
-  buff_ = reinterpret_cast<char*>(malloc(capacity_));
+  CHECK_EQ(0, posix_memalign(reinterpret_cast<void**>(&buff_), PAGE_BLOCK_SIZE,
+                             capacity_));
 }
 BinaryArchiveWriter::~BinaryArchiveWriter() {
   close();
@@ -2052,7 +2053,7 @@ bool BinaryArchiveWriter::open(const std::string& path) {
 bool BinaryArchiveWriter::write(const SlotRecord& rec) {
   thread_local BinaryArchive ar;
   mutex_.lock();
-  ar.SetWriteBuffer(buff_ + woffset_, capacity_ - woffset_, nullptr);
+  ar.SetWriteBuffer(&buff_[woffset_], capacity_ - woffset_, nullptr);
   ar << rec;
   woffset_ += ar.Length();
   if (woffset_ < MAX_FILE_BUFF) {
@@ -2069,9 +2070,9 @@ bool BinaryArchiveWriter::write(const SlotRecord& rec) {
   int left = (woffset_ % PAGE_BLOCK_SIZE);
   int write_len = (woffset_ - left);
   int ret = ::write(fd_, buff_, write_len);
-  memmove(buff_, buff_ + write_len, left);
+  memmove(buff_, &buff_[write_len], left);
   woffset_ = left + INT_BYTES;
-  head_ = buff_ + left;
+  head_ = &buff_[left];
   mutex_.unlock();
 
   return (ret == write_len);
@@ -2108,7 +2109,8 @@ class BinaryArchiveReader {
  public:
   BinaryArchiveReader() {
     capacity_ = MAX_FILE_BUFF + 64 * 1024;
-    buff_ = reinterpret_cast<char*>(malloc(capacity_));
+    CHECK_EQ(0, posix_memalign(reinterpret_cast<void**>(&buff_),
+                               PAGE_BLOCK_SIZE, capacity_));
   }
   ~BinaryArchiveReader() {
     if (buff_ != nullptr) {
@@ -2117,7 +2119,8 @@ class BinaryArchiveReader {
     }
   }
   bool open(const std::string& path) {
-    fd_ = ::open(path.c_str(), O_RDONLY);
+    // dio read
+    fd_ = ::open(path.c_str(), O_RDONLY | O_DIRECT);
     if (fd_ < 0) {
       VLOG(0) << "open [" << path << "] failed";
       return false;
@@ -2131,12 +2134,13 @@ class BinaryArchiveReader {
     int body_len = 0;
     int left_len = 0;
     int need_len = 0;
+    int buff_off = 0;
     char* ptr = buff_;
 
     BinaryArchive ar;
-    while ((ret = ::read(fd_, ptr, capacity_ - left_len)) > 0) {
+    while ((ret = ::read(fd_, ptr, (capacity_ - left_len - buff_off))) > 0) {
       left_len += ret;
-      ptr = &buff_[0];
+      ptr = &buff_[buff_off];
       body_len = *(reinterpret_cast<int*>(ptr));
       if (body_len <= 0) {
         break;
@@ -2162,10 +2166,19 @@ class BinaryArchiveReader {
         need_len = body_len + INT_BYTES;
       }
       if (left_len > 0) {
-        memmove(&buff_[0], ptr, left_len);
-        ptr = &buff_[0] + left_len;
+        int align_bytes = left_len % PAGE_BLOCK_SIZE;
+        if (align_bytes == 0) {
+          memmove(&buff_[0], ptr, left_len);
+          ptr = &buff_[left_len];
+          buff_off = 0;
+        } else {
+          buff_off = PAGE_BLOCK_SIZE - align_bytes;
+          memmove(&buff_[buff_off], ptr, left_len);
+          ptr = &buff_[buff_off + left_len];
+        }
       } else {
         ptr = &buff_[0];
+        buff_off = 0;
       }
     }
 
@@ -2656,7 +2669,6 @@ void SlotPaddleBoxDataFeed::BuildSlotBatchGPU(const int ins_num) {
       //        h_tensor_ptrs[j] = feed->mutable_data<int64_t>(this->place_);
       h_tensor_ptrs[j] = feed->data<int64_t>();
     }
-
     if (info.dense) {
       if (info.inductive_shape_index != -1) {
         info.local_shape[info.inductive_shape_index] =
@@ -2666,9 +2678,10 @@ void SlotPaddleBoxDataFeed::BuildSlotBatchGPU(const int ins_num) {
     } else {
       LoD& lod = (*feed->mutable_lod());
       lod.resize(1);
-      lod[0].resize(offset_cols_size);
-      memcpy(lod[0].MutableData(platform::CPUPlace()), off_start_ptr,
-             offset_cols_size * sizeof(size_t));
+      //      lod[0].resize(offset_cols_size);
+      //      memcpy(lod[0].MutableData(platform::CPUPlace()), off_start_ptr,
+      //             offset_cols_size * sizeof(size_t));
+      lod[0].assign(off_start_ptr, off_start_ptr + offset_cols_size);
     }
   }
   data_timer_.Pause();

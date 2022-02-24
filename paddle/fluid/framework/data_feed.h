@@ -903,7 +903,7 @@ class SlotObjAllocator {
   void clear() {
     T* tmp = NULL;
     while (free_nodes_ != NULL) {
-      tmp = reinterpret_cast<T*>(reinterpret_cast<void*>(free_nodes_));
+      tmp = reinterpret_cast<T*>(free_nodes_);
       free_nodes_ = free_nodes_->next;
       deleter_(tmp);
       --capacity_;
@@ -912,18 +912,38 @@ class SlotObjAllocator {
   }
   T* acquire(void) {
     T* x = NULL;
-    x = reinterpret_cast<T*>(reinterpret_cast<void*>(free_nodes_));
+    x = reinterpret_cast<T*>(free_nodes_);
     free_nodes_ = free_nodes_->next;
     --capacity_;
     return x;
   }
   void release(T* x) {
-    Node* node = reinterpret_cast<Node*>(reinterpret_cast<void*>(x));
+    Node* node = reinterpret_cast<Node*>(x);
     node->next = free_nodes_;
     free_nodes_ = node;
     ++capacity_;
   }
   size_t capacity(void) { return capacity_; }
+  // get more
+  size_t get(size_t n, T** data) {
+    size_t i = 0;
+    while (capacity_ > 0 && i < n) {
+      data[i] = reinterpret_cast<T*>(free_nodes_);
+      free_nodes_ = free_nodes_->next;
+      --capacity_;
+      ++i;
+    }
+    return i;
+  }
+  size_t put(size_t n, T** data) {
+    for (size_t i = 0; i < n; ++i) {
+      Node* node = reinterpret_cast<Node*>(data[i]);
+      node->next = free_nodes_;
+      free_nodes_ = node;
+      ++capacity_;
+    }
+    return capacity_;
+  }
 
  private:
   struct alignas(T) Node {
@@ -940,10 +960,9 @@ static const int OBJPOOL_BLOCK_SIZE = 10000;
 class SlotObjPool {
  public:
   SlotObjPool()
-      : max_capacity_(FLAGS_padbox_record_pool_max_size),
+      : inited_(true),
+        max_capacity_(FLAGS_padbox_record_pool_max_size),
         alloc_(free_slotrecord) {
-    ins_chan_ = MakeChannel<SlotRecord>();
-    ins_chan_->SetBlockSize(OBJPOOL_BLOCK_SIZE);
     for (int i = 0; i < FLAGS_padbox_slotpool_thread_num; ++i) {
       threads_.push_back(std::thread([this]() { run(); }));
     }
@@ -951,33 +970,29 @@ class SlotObjPool {
     count_ = 0;
   }
   ~SlotObjPool() {
-    ins_chan_->Close();
+    inited_ = false;
+    cond_.notify_all();
     for (auto& t : threads_) {
       t.join();
     }
   }
   void disable_pool(bool disable) { disable_pool_ = disable; }
   void set_max_capacity(size_t max_capacity) { max_capacity_ = max_capacity; }
-  void get(std::vector<SlotRecord>* output, int n) {
+  void get(std::vector<SlotRecord>* output, size_t n) {
     output->resize(n);
     return get(&(*output)[0], n);
   }
-  void get(SlotRecord* output, int n) {
-    int size = 0;
+  void get(SlotRecord* output, size_t n) {
+    size_t size = 0;
     mutex_.lock();
-    int left = static_cast<int>(alloc_.capacity());
-    if (left > 0) {
-      size = (left >= n) ? n : left;
-      for (int i = 0; i < size; ++i) {
-        output[i] = alloc_.acquire();
-      }
-    }
-    mutex_.unlock();
+    size = alloc_.get(n, output);
     count_ += n;
+    mutex_.unlock();
+
     if (size == n) {
       return;
     }
-    for (int i = size; i < n; ++i) {
+    for (size_t i = size; i < n; ++i) {
       output[i] = make_slotrecord();
     }
   }
@@ -989,49 +1004,48 @@ class SlotObjPool {
     put(&(*input)[0], size);
     input->clear();
   }
-  void put(SlotRecord* input, size_t size) {
-    CHECK(ins_chan_->WriteMove(size, input) == size);
+  void put(SlotRecord* input, size_t num) {
+    for (size_t i = 0; i < num; ++i) {
+      input[i]->reset();
+    }
+    // pool empty add to pool
+    mutex_.lock();
+    size_t capacity = alloc_.put(num, input);
+    count_ -= num;
+    mutex_.unlock();
+    // disable pool
+    if (disable_pool_ || capacity > max_capacity_) {
+      cond_.notify_one();
+    }
   }
   void run(void) {
+    size_t n = 0;
+    size_t max_size = OBJPOOL_BLOCK_SIZE * 50;
     std::vector<SlotRecord> input;
-    while (ins_chan_->ReadOnce(input, OBJPOOL_BLOCK_SIZE)) {
-      if (input.empty()) {
-        continue;
+    input.resize(max_size);
+    while (inited_) {
+      size_t check_capacity = (disable_pool_) ? 0 : max_capacity_;
+      {
+        std::unique_lock<std::mutex> lock(mutex_);
+        if (alloc_.capacity() <= check_capacity) {
+          cond_.wait(lock);
+        }
+        n = alloc_.get(max_size, &input[0]);
       }
-      // over max capacity
-      size_t n = input.size();
-      count_ -= n;
-      if (disable_pool_ || n + capacity() > max_capacity_) {
-        for (auto& t : input) {
-          free_slotrecord(t);
-        }
-      } else {
-        for (auto& t : input) {
-          t->reset();
-        }
-        mutex_.lock();
-        for (auto& t : input) {
-          alloc_.release(t);
-        }
-        mutex_.unlock();
+      for (size_t i = 0; i < n; ++i) {
+        free_slotrecord(input[i]);
       }
-      input.clear();
     }
   }
   void clear(void) {
     platform::Timer timeline;
     timeline.Start();
     mutex_.lock();
+    size_t total = alloc_.capacity();
     alloc_.clear();
     mutex_.unlock();
-    // wait release channel data
-    if (FLAGS_enable_slotpool_wait_release) {
-      while (!ins_chan_->Empty()) {
-        sleep(1);
-      }
-    }
     timeline.Pause();
-    LOG(WARNING) << "clear slot pool data size=" << count_.load()
+    LOG(WARNING) << "clear slot pool data size=" << total
                  << ", span=" << timeline.ElapsedSec();
   }
   size_t capacity(void) {
@@ -1040,26 +1054,32 @@ class SlotObjPool {
     mutex_.unlock();
     return total;
   }
+  // print pool info
+  void print_info(const char* name = "pool") {
+    LOG(INFO) << "[" << name << "]slot alloc object count=" << count_
+              << ", pool size=" << alloc_.capacity();
+  }
 
  private:
+  bool inited_;
   size_t max_capacity_;
-  Channel<SlotRecord> ins_chan_;
   std::vector<std::thread> threads_;
   std::mutex mutex_;
   SlotObjAllocator<SlotRecordObject> alloc_;
   bool disable_pool_;
-  std::atomic<long> count_;  // NOLINT
+  size_t count_;  // NOLINT
+  std::condition_variable cond_;
 };
 
 inline SlotObjPool& SlotRecordPool() {
   static SlotObjPool pool;
   return pool;
 }
-// down disk pool
-inline SlotObjPool& SlotRecordDownPool() {
-  static SlotObjPool pool;
-  return pool;
-}
+//// down disk pool
+// inline SlotObjPool& SlotRecordDownPool() {
+//  static SlotObjPool pool;
+//  return pool;
+//}
 
 using FeasignValues = SlotValues<uint64_t>;
 

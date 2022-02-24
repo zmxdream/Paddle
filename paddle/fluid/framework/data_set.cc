@@ -1482,6 +1482,8 @@ inline paddle::framework::ThreadPool* GetShufflePool(int thread_num) {
   return thread_pool.get();
 }
 void PadBoxSlotDataset::CheckThreadPool(void) {
+  // print pool info
+  slot_pool_->print_info("ins pool");
   wait_futures_.clear();
   if (thread_pool_ != nullptr && merge_pool_ != nullptr) {
     return;
@@ -1533,7 +1535,9 @@ inline paddle::framework::ThreadPool* GetDumpPool(int thread_num) {
   return thread_pool.get();
 }
 void PadBoxSlotDataset::CheckDownThreadPool(void) {
-  slot_pool_ = &SlotRecordDownPool();
+  //  slot_pool_ = &SlotRecordDownPool();
+  // print pool info
+  slot_pool_->print_info("disk pool");
   wait_futures_.clear();
   if (down_pool_ != nullptr && dump_pool_ != nullptr) {
     return;
@@ -1774,61 +1778,9 @@ void PadBoxSlotDataset::WaitPreLoadDone() {
 }
 // load all data into memory
 void PadBoxSlotDataset::LoadIntoMemory() {
-  VLOG(3) << "DatasetImpl<T>::LoadIntoMemory() begin";
-  pass_id_ = BoxWrapper::GetInstance()->GetDataSetId();
-  CheckThreadPool();
-  LoadIndexIntoMemory();
-
-  platform::Timer timeline;
-  timeline.Start();
-  // dualbox global data shuffle
-  if (!disable_shuffle_ && mpi_size_ > 1) {
-    finished_counter_ = mpi_size_;
-    mpi_flags_.assign(mpi_size_, 1);
-    VLOG(3) << "RegisterClientToClientMsgHandler";
-    data_consumer_ = reinterpret_cast<void*>(new PadBoxSlotDataConsumer(this));
-    VLOG(3) << "RegisterClientToClientMsgHandler done";
-  }
-
-  read_ins_ref_ = thread_num_;
-  for (int64_t i = 0; i < thread_num_; ++i) {
-    wait_futures_.emplace_back(thread_pool_->Run([this, i]() {
-      readers_[i]->LoadIntoMemory();
-      if (--read_ins_ref_ == 0) {
-        input_channel_->Close();
-      }
-    }));
-  }
-
-  // dualbox global data shuffle
-  if (!disable_shuffle_ && mpi_size_ > 1) {
-    ShuffleData(shuffle_thread_num_);
-    MergeInsKeys(shuffle_channel_);
-  } else {
-    MergeInsKeys(input_channel_);
-  }
-  // wait all thread finish
-  for (auto& f : wait_futures_) {
-    f.get();
-  }
-
-  if (data_consumer_ != nullptr) {
-    delete reinterpret_cast<PadBoxSlotDataConsumer*>(data_consumer_);
-    data_consumer_ = nullptr;
-  }
-  timeline.Pause();
-  double span_time = timeline.ElapsedSec();
-
-  timeline.Start();
-  if (FLAGS_padbox_dataset_enable_unrollinstance) {
-    UnrollInstance();
-  }
-  timeline.Pause();
-
-  VLOG(1) << "PadBoxSlotDataset::LoadIntoMemory() end"
-          << ", memory data size=" << input_records_.size()
-          << ", cost time=" << span_time << " seconds"
-          << ", unroll time=" << timeline.ElapsedSec() << " seconds";
+  // sync load data
+  PreLoadIntoMemory();
+  WaitPreLoadDone();
 }
 // add fea keys
 void PadBoxSlotDataset::MergeInsKeys(const Channel<SlotRecord>& in) {
@@ -2366,8 +2318,8 @@ void PadBoxSlotDataset::PrepareTrain(void) {
 
   std::vector<std::pair<int, int>> offset;
   // join or aucrunner mode enable pv
-  if (enable_pv_merge_ && (box_ptr->Phase() == 1 ||
-          box_ptr->Phase() == 3 || box_ptr->Mode() == 1)) {
+  if (enable_pv_merge_ && (box_ptr->Phase() == 1 || box_ptr->Phase() == 3 ||
+                           box_ptr->Mode() == 1)) {
     std::shuffle(input_pv_ins_.begin(), input_pv_ins_.end(),
                  BoxWrapper::LocalRandomEngine());
     // 分数据到各线程里面
