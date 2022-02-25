@@ -41,6 +41,8 @@ void FlattenInferMeta(const MetaTensor& x,
 
 void CastInferMeta(const MetaTensor& x, DataType out_dtype, MetaTensor* out);
 
+void CholeskyInferMeta(const MetaTensor& x, bool upper, MetaTensor* out);
+
 void CopyToInferMeta(const MetaTensor& x,
                      Backend backend,
                      bool blocking,
@@ -48,9 +50,16 @@ void CopyToInferMeta(const MetaTensor& x,
 
 void CreateLikeInferMeta(const MetaTensor& x, DataType dtype, MetaTensor* out);
 
+void IncrementInferMeta(const MetaTensor& x, float value, MetaTensor* out);
+
 void InferMetaFromVecValue(const MetaTensor& x,
                            const std::vector<int64_t>& shape,
                            MetaTensor* out);
+
+void MultinomialInferMeta(const MetaTensor& x,
+                          int num_samples,
+                          bool replacement,
+                          MetaTensor* out);
 
 void ReshapeInferMeta(const MetaTensor& x,
                       const ScalarArray& shape,
@@ -90,7 +99,23 @@ void SplitInferMeta(const MetaTensor& x_meta,
                     std::vector<MetaTensor>* out,
                     MetaConfig config = MetaConfig());
 
+void UnbindInferMeta(const MetaTensor& x,
+                     int axis,
+                     std::vector<MetaTensor>* outs);
 void TraceInferMeta(
     const MetaTensor& x, int offset, int axis1, int axis2, MetaTensor* out);
+
+void UnfoldInferMeta(const MetaTensor& x,
+                     const std::vector<int>& kernel_sizes,
+                     const std::vector<int>& strides,
+                     const std::vector<int>& paddings,
+                     const std::vector<int>& dilations,
+                     MetaTensor* out,
+                     MetaConfig config = MetaConfig());
+
+void DiagInferMeta(const MetaTensor& x,
+                   int offset,
+                   float padding_value,
+                   MetaTensor* out);
 
 }  // namespace phi
