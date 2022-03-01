@@ -44,6 +44,59 @@ DEFINE_int32(multiple_of_cupti_buffer_size, 1,
              "Multiple of the CUPTI device buffer size. If the timestamps have "
              "been dropped when you are profiling, try increasing this value.");
 
+#ifdef WITH_GPERFTOOLS
+
+#include <gperftools/profiler.h>
+
+static const int g_profiler_signal = 12;
+static const char *g_profiler_dump_file = "PaddleBox.prof";
+
+static void prepare() {
+  sigset_t set;
+  sigemptyset(&set);
+  sigaddset(&set, SIGPROF);
+  pthread_sigmask(SIG_BLOCK, &set, NULL);
+}
+
+static void parent() {
+  sigset_t set;
+  sigemptyset(&set);
+  sigaddset(&set, SIGPROF);
+  pthread_sigmask(SIG_UNBLOCK, &set, NULL);
+}
+
+static void child() {
+  sigset_t set;
+  sigemptyset(&set);
+  sigaddset(&set, SIGPROF);
+  pthread_sigmask(SIG_UNBLOCK, &set, NULL);
+}
+
+static void profiler_switch(int) {
+  static bool started = false;
+  if (!started) {
+    if (ProfilerStart(g_profiler_dump_file) != 0) {
+      fprintf(stderr, "Profiler Started\n");
+    } else {
+      fprintf(stderr, "Can not turn on cpu profiling for %s\n",
+              g_profiler_dump_file);
+    }
+  } else {
+    ProfilerStop();
+    fprintf(stderr, "Profiler Stopped\n");
+  }
+  started = !started;
+}
+static void google_profiler_init() {
+  pthread_atfork(&prepare, &parent, &child);
+  auto old_handler = signal(g_profiler_signal, profiler_switch);
+  if (old_handler == SIG_ERR) {
+    fprintf(stderr, "Use %d as the switch signal for profiling failed\n",
+            g_profiler_signal);
+  }
+}
+#endif
+
 namespace paddle {
 namespace platform {
 
@@ -305,6 +358,9 @@ void InitGLOG(const std::string &prog_name) {
 #ifndef _WIN32
     google::InstallFailureSignalHandler();
     google::InstallFailureWriter(&SignalHandle);
+#endif
+#ifdef WITH_GPERFTOOLS
+    google_profiler_init();
 #endif
   });
 }
