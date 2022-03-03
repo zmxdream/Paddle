@@ -2674,7 +2674,8 @@ void SlotPaddleBoxDataFeed::BuildSlotBatchGPU(const int ins_num) {
         info.local_shape[info.inductive_shape_index] =
             total_instance / info.total_dims_without_inductive;
       }
-      feed->Resize(framework::make_ddim(info.local_shape));
+      // feed->Resize(framework::make_ddim(info.local_shape));
+      feed->Resize(info.local_shape);
     } else {
       LoD& lod = (*feed->mutable_lod());
       lod.resize(1);

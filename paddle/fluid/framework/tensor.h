@@ -161,13 +161,17 @@ class Tensor {
 
   /*! Return the dimensions of the memory block. */
   const DDim& dims() const;
-
   /*! Return the numel of the memory block. */
   int64_t numel() const;
 
   /*! Resize the dimensions of the memory block. */
   Tensor& Resize(const DDim& dims);
-
+  /** mutable dims **/
+  template <typename T>
+  Tensor& Resize(const std::vector<T>& shape) {
+    dims_.assign(shape.data(), shape.size());
+    return *this;
+  }
   /*! The internal of two tensors share the same memory block. */
   Tensor& ShareDataWith(const Tensor& src);
 
