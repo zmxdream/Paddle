@@ -83,6 +83,13 @@ class DDim {
   /*implicit*/ DDim(std::initializer_list<int64_t> init_list)
       : DDim(init_list.begin(), init_list.size()) {}
 
+  // assign
+  template <typename TInt>
+  void assign(const TInt* d, int n) {
+    rank_ = n;
+    dynamic_dim_assign(d, dim_.GetMutable(), n);
+  }
+
   inline DDim& operator=(const DDim& ddim) { return CopyFrom(ddim); }
 
   template <int D>
