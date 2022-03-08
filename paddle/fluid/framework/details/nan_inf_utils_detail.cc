@@ -63,7 +63,8 @@ static std::unordered_set<std::string>& op_type_nan_inf_white_list() {
       "coalesce_tensor",  // This Op will alloc tensor, and may not init space
       "rank_attention",   // This Op input param too large init spent time too
                           // long not zero
-      "c_mixallgather"    // This Op alloc more space not need init
+      "c_mixallgather",   // This Op alloc more space not need init
+      "scaled_fc",        // This Op padding same not init data
   };
   return _op_type_nan_inf_white_list;
 }

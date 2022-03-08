@@ -198,6 +198,39 @@ void CommonForwardBroadcastCPU(const framework::Tensor *x,
 
 #ifdef __NVCC__
 template <typename Functor, typename T, typename OutType>
+__global__ void ElementwiseKernelNormal(int total, const T *x, const T *y,
+                                        OutType *out, Functor func) {
+  int tid = threadIdx.x + blockDim.x * blockIdx.x;
+  if (tid < total) {
+    out[tid] = func(x[tid], y[tid]);
+  }
+}
+
+template <typename Functor, typename T, typename OutType>
+void ComputeElementwiseCUDANormal(const framework::Tensor *x,
+                                  const framework::Tensor *y,
+                                  framework::Tensor *z,
+                                  const platform::CUDADeviceContext &ctx,
+                                  Functor func,
+                                  const bool is_xsize_larger = true) {
+  const T *x_data = x->data<T>();
+  const T *y_data = y->data<T>();
+  OutType *out_data = z->mutable_data<OutType>(ctx.GetPlace());
+
+  int numel = x->numel();
+  int threads = 512;
+  int blocks = (numel + threads - 1) / threads;
+  if (is_xsize_larger) {
+    ElementwiseKernelNormal<Functor, T,
+                            OutType><<<blocks, threads, 0, ctx.stream()>>>(
+        numel, x_data, y_data, out_data, func);
+  } else {
+    ElementwiseKernelNormal<Functor, T,
+                            OutType><<<blocks, threads, 0, ctx.stream()>>>(
+        numel, y_data, x_data, out_data, func);
+  }
+}
+template <typename Functor, typename T, typename OutType>
 __global__ void ElementwiseKernel(const T *x, const T *y, OutType *out, int pre,
                                   int n, int post, int total, Functor func) {
   int tid = threadIdx.x + blockDim.x * blockIdx.x;
@@ -1903,6 +1936,15 @@ void ElementwiseComputeEx(const framework::ExecutionContext &ctx,
     is_xsize_larger = false;
     max_dim = y_dims.size();
   }
+  if (x_dims == y_dims && platform::is_gpu_place(ctx.GetPlace())) {
+#ifdef __NVCC__
+    ComputeElementwiseCUDANormal<Functor, T, OutType>(
+        x, y, z, ctx.template device_context<platform::CUDADeviceContext>(),
+        func, is_xsize_larger);
+#endif
+    return;
+  }
+
   TransformFunctor<Functor, T, DeviceContext, OutType> functor(
       x, y, z, ctx.template device_context<DeviceContext>(), func,
       is_xsize_larger);
