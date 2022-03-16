@@ -191,6 +191,7 @@ __all__ = [
     'gather_tree',
     'uniform_random',
     'unbind',
+    'mask_mean',
 ]
 
 
@@ -738,6 +739,7 @@ def lookup_input(input, size):
         attrs={'size': size})
     return out
 
+
 def _store_q_value(input, dtype='float32'):
     """
     **Store Q Value Layer**
@@ -768,12 +770,11 @@ def _store_q_value(input, dtype='float32'):
     #     helper.create_variable_for_type_inference(dtype)
     #     for i in range(len(inputs))
     # ]
-    
-    helper.append_op(
-        type='store_q_value',
-        inputs={'Ids': inputs})
+
+    helper.append_op(type='store_q_value', inputs={'Ids': inputs})
 
     return None
+
 
 @templatedoc()
 def linear_chain_crf(input, label, param_attr=None, length=None):
@@ -12465,6 +12466,50 @@ def mean(x, name=None):
 
     helper.append_op(
         type="mean", inputs={"X": x}, attrs={}, outputs={"Out": out})
+
+    return out
+
+
+def mask_mean(x, mask):
+    """
+    ${comment}
+
+    Args:
+        x(${x_type}): ${x_comment}
+        name(basestring|None): Name of the output.
+
+    Returns:
+        out(${out_type}): ${out_comment}
+
+    Examples:
+        .. code-block:: python
+
+            import paddle.fluid as fluid
+            input = fluid.layers.data(
+                name='data', shape=[2, 3], dtype='float32')
+            num = fluid.layers.data(
+                name='num', shape=[1, 1], dtype='int64')
+            mean = fluid.layers.scale_mean(input, num)
+    """
+
+    if in_dygraph_mode():
+        raise Exception("not support dygraph")
+
+    helper = LayerHelper("mask_mean", **locals())
+    check_variable_and_dtype(x, 'x', ['float16', 'float32', 'float64'],
+                             'scale_mean')
+    check_variable_and_dtype(mask, 'mask', ['float16', 'float32', 'float64'],
+                             'scale_mean')
+    out = helper.create_variable_for_type_inference(dtype=x.dtype)
+    num = helper.create_variable_for_type_inference(dtype=mask.dtype)
+
+    helper.append_op(
+        type="mask_mean",
+        inputs={"X": x,
+                "Mask": mask},
+        attrs={},
+        outputs={"Out": out,
+                 "Num": num})
 
     return out
 

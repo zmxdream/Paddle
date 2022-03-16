@@ -38,6 +38,10 @@ bool CheckOpHasNanOrInfRet(const framework::OperatorBase& op,
                            const platform::Place& place);
 void DumpTensorToFile(const std::string& path, const std::string& prefix,
                       const std::string& iname, const Scope& exec_scope);
+// check batch
+bool CheckBatchNanOrInfRet(const platform::Place& place);
+// dump scope
+void DumpAllScope(const Scope& exec_scope, const platform::Place& place);
 }  // namespace details
 }  // namespace framework
 }  // namespace paddle

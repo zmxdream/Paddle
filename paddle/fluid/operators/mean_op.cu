@@ -104,6 +104,92 @@ class MeanCUDAGradKernel : public framework::OpKernel<T> {
                                                    size_prob);
   }
 };
+
+template <typename T>
+__global__ void MaskMeanAvgKernel(const size_t N, const T* in_data,
+                                  const T* mask_data, T* out_num, T* out_data) {
+  double val = 0.0;
+  double num = 0.0;
+  for (size_t i = 0; i < N; ++i) {
+    val += static_cast<double>(in_data[i] * mask_data[i]);
+    num += static_cast<double>(mask_data[i]);
+  }
+  if (num > 0.0) {
+    out_data[0] = static_cast<T>(val / num);
+    out_num[0] = static_cast<T>(num);
+  } else {
+    out_data[0] = 0.0;
+    out_num[0] = 0.0;
+  }
+}
+
+template <typename DeviceContext, typename T>
+class MaskMeanCUDAKernel : public framework::OpKernel<T> {
+ public:
+  void Compute(const framework::ExecutionContext& context) const override {
+    auto* input = context.Input<Tensor>("X");
+    auto* mask = context.Input<Tensor>("Mask");
+    auto* output = context.Output<Tensor>("Out");
+    auto* num = context.Output<Tensor>("Num");
+
+    T* out_data = output->mutable_data<T>(context.GetPlace());
+    T* out_num = num->mutable_data<T>(context.GetPlace());
+
+    auto size_prob = input->numel();
+    const T* in_data = input->data<T>();
+    const T* mask_data = mask->data<T>();
+    auto stream = context.cuda_device_context().stream();
+
+    MaskMeanAvgKernel<T><<<1, 1, 0, stream>>>(size_prob, in_data, mask_data,
+                                              out_num, out_data);
+  }
+};
+
+template <typename T>
+__global__ void MaskRunKernel(const size_t N, const T* in_data,
+                              const T* mask_data, const T* mask_num,
+                              T* out_data) {
+  size_t idx = blockDim.x * blockIdx.x + threadIdx.x;
+
+  const T& num = mask_num[0];
+  if (num > static_cast<T>(0.0)) {
+    const T& val = in_data[0] / num;
+    for (; idx < N; idx += blockDim.x * gridDim.x) {
+      out_data[idx] = val * mask_data[idx];
+    }
+  } else {
+    for (; idx < N; idx += blockDim.x * gridDim.x) {
+      out_data[idx] = static_cast<T>(0.0);
+    }
+  }
+}
+
+template <typename DeviceContext, typename T>
+class MaskMeanCUDAGradKernel : public framework::OpKernel<T> {
+ public:
+  void Compute(const framework::ExecutionContext& context) const override {
+    auto mask = context.Input<Tensor>("Mask");
+    auto num = context.Input<Tensor>("Num");
+    auto OG = context.Input<Tensor>(framework::GradVarName("Out"));
+    PADDLE_ENFORCE_EQ(OG->numel(), 1,
+                      platform::errors::InvalidArgument(
+                          "Mean Gradient Input Tensor len should be 1. But "
+                          "received Out@Grad's elements num is %d.",
+                          OG->numel()));
+    auto IG = context.Output<Tensor>(framework::GradVarName("X"));
+
+    auto in_data = OG->data<T>();
+    auto size_prob = IG->numel();
+    auto out_data = IG->mutable_data<T>(context.GetPlace());
+    auto num_data = num->data<T>();
+    int threads = 512;
+    int grid = (size_prob + threads - 1) / threads;
+    auto stream = context.cuda_device_context().stream();
+    MaskRunKernel<T><<<grid, threads, 0, stream>>>(
+        size_prob, in_data, mask->data<T>(), num_data, out_data);
+  }
+};
+
 }  // namespace operators
 }  // namespace paddle
 
@@ -119,3 +205,16 @@ REGISTER_OP_CUDA_KERNEL(
     ops::MeanCUDAGradKernel<paddle::platform::CUDADeviceContext, double>,
     ops::MeanCUDAGradKernel<paddle::platform::CUDADeviceContext,
                             plat::float16>);
+// mask mean
+REGISTER_OP_CUDA_KERNEL(
+    mask_mean,
+    ops::MaskMeanCUDAKernel<paddle::platform::CUDADeviceContext, float>,
+    ops::MaskMeanCUDAKernel<paddle::platform::CUDADeviceContext, double>,
+    ops::MaskMeanCUDAKernel<paddle::platform::CUDADeviceContext,
+                            plat::float16>);
+REGISTER_OP_CUDA_KERNEL(
+    mask_mean_grad,
+    ops::MaskMeanCUDAGradKernel<paddle::platform::CUDADeviceContext, float>,
+    ops::MaskMeanCUDAGradKernel<paddle::platform::CUDADeviceContext, double>,
+    ops::MaskMeanCUDAGradKernel<paddle::platform::CUDADeviceContext,
+                                plat::float16>);

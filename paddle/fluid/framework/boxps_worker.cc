@@ -25,10 +25,12 @@ limitations under the License. */
 #include "paddle/fluid/platform/gpu_info.h"
 #include "paddle/fluid/platform/lodtensor_printer.h"
 
+#include "paddle/fluid/framework/details/nan_inf_utils.h"
 #include "paddle/fluid/platform/collective_helper.h"
 #include "paddle/fluid/platform/nccl_helper.h"
 
 DECLARE_bool(enable_sync_dense_moment);
+DECLARE_bool(check_nan_inf);
 namespace paddle {
 namespace framework {
 
@@ -447,6 +449,13 @@ void BoxPSWorker::TrainFiles() {
         SyncParam();
       }
     }
+    if (FLAGS_check_nan_inf) {
+      // check nan result
+      if (framework::details::CheckBatchNanOrInfRet(place_)) {
+        framework::details::DumpAllScope(*thread_scope_, place_);
+        PADDLE_ENFORCE(false, "ERROR: check INF and NAN");
+      }
+    }
     AddAucMonitor(thread_scope_, place_);
 
     accum_num += batch_size;
@@ -581,6 +590,14 @@ void BoxPSWorker::TrainFilesWithProfiler() {
     }
     dev_ctx_->Wait();
     cal_timer.Pause();
+
+    if (FLAGS_check_nan_inf) {
+      // check nan result
+      if (framework::details::CheckBatchNanOrInfRet(place_)) {
+        framework::details::DumpAllScope(*thread_scope_, place_);
+        PADDLE_ENFORCE(false, "ERROR: check INF and NAN");
+      }
+    }
 
     AddAucMonitor(thread_scope_, place_);
 
