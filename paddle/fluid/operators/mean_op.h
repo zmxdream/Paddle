@@ -66,5 +66,69 @@ class MeanGradKernel : public framework::OpKernel<T> {
   }
 };
 
+//============================= mask mean
+//=======================================
+template <typename DeviceContext, typename T>
+class MaskMeanKernel : public framework::OpKernel<T> {
+ public:
+  void Compute(const framework::ExecutionContext& context) const override {
+    auto* input = context.Input<Tensor>("X");
+    auto* mask = context.Input<Tensor>("Mask");
+    auto* num = context.Output<Tensor>("Num");
+    auto* output = context.Output<Tensor>("Out");
+
+    T* out_data = output->mutable_data<T>(context.GetPlace());
+    T* num_data = num->mutable_data<T>(context.GetPlace());
+
+    const T* input_data = input->data<T>();
+    const T* mask_data = mask->data<T>();
+
+    int numel = input->numel();
+    T mask_num = 0.0;
+    T sum_val = 0.0;
+    for (int i = 0; i < numel; ++i) {
+      sum_val += (input_data[i] * mask_data[i]);
+      mask_num += mask_data[i];
+    }
+    if (mask_num > 0.0) {
+      out_data[0] = static_cast<T>(sum_val / mask_num);
+      num_data[0] = static_cast<T>(mask_num);
+    } else {
+      out_data[0] = static_cast<T>(0.0);
+      num_data[0] = static_cast<T>(0.0);
+    }
+  }
+};
+
+template <typename DeviceContext, typename T>
+class MaskMeanGradKernel : public framework::OpKernel<T> {
+ public:
+  void Compute(const framework::ExecutionContext& context) const override {
+    auto* mask = context.Input<Tensor>("Mask");
+    auto* num = context.Input<Tensor>("Num");
+    auto OG = context.Input<Tensor>(framework::GradVarName("Out"));
+    PADDLE_ENFORCE_EQ(OG->numel(), 1UL,
+                      platform::errors::InvalidArgument(
+                          "Mean Gradient should be scalar. But received "
+                          "Out@Grad's elements num is %d.",
+                          OG->numel()));
+    auto IG = context.Output<Tensor>(framework::GradVarName("X"));
+    const T* mask_data = mask->data<T>();
+    T ig_size = num->data<T>()[0];
+    T* grad_out = IG->mutable_data<T>(context.GetPlace());
+    int numel = IG->numel();
+    if (ig_size > 0) {
+      const T val = (OG->data<T>()[0] / ig_size);
+      for (int i = 0; i < numel; ++i) {
+        grad_out[i] = static_cast<T>(val * mask_data[i]);
+      }
+    } else {
+      for (int i = 0; i < numel; ++i) {
+        grad_out[i] = static_cast<T>(0.0);
+      }
+    }
+  }
+};
+
 }  // namespace operators
 }  // namespace paddle

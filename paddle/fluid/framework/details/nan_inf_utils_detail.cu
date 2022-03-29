@@ -212,18 +212,10 @@ __global__ void CountNanInfNumKernel(const size_t len, const T* val,
   }
 }
 
-bool CudaTensorCheckNanInf(const std::string& op_type,
-                           const std::string& var_name,
-                           const framework::Tensor& tensor) {
+void CudaTensorCheckNanInf(const framework::Tensor& tensor,
+                           unsigned int* dnum_ptr) {
   auto* dev_ctx = reinterpret_cast<platform::CUDADeviceContext*>(
       platform::DeviceContextPool::Instance().Get(tensor.place()));
-  int dev_id = BOOST_GET_CONST(platform::CUDAPlace, tensor.place()).device;
-  auto stream = dev_ctx->stream();
-  thread_local paddle::memory::AllocationPtr gpu_tensor =
-      paddle::memory::Alloc(*dev_ctx, sizeof(unsigned int));
-  unsigned int* num_ptr = reinterpret_cast<unsigned int*>(gpu_tensor->ptr());
-  PADDLE_ENFORCE_CUDA_SUCCESS(
-      cudaMemsetAsync(num_ptr, 0, sizeof(unsigned int), stream));
 
   size_t len = static_cast<size_t>(tensor.numel());
   const size_t threads = 1024;
@@ -231,28 +223,11 @@ bool CudaTensorCheckNanInf(const std::string& op_type,
                            static_cast<size_t>((len + threads - 1) / threads));
   if (tensor.type() == proto::VarType::FP32) {
     CountNanInfNumKernel<<<blocks, threads, 0, dev_ctx->stream()>>>(
-        len, tensor.data<float>(), num_ptr);
-  } else if (tensor.type() == proto::VarType::INT64) {
-    CountNanInfNumKernel<<<blocks, threads, 0, dev_ctx->stream()>>>(
-        len, tensor.data<int64_t>(), num_ptr);
+        len, tensor.data<float>(), dnum_ptr);
   } else if (tensor.type() == proto::VarType::FP64) {
     CountNanInfNumKernel<<<blocks, threads, 0, dev_ctx->stream()>>>(
-        len, tensor.data<double>(), num_ptr);
-  } else {
-    return false;
+        len, tensor.data<double>(), dnum_ptr);
   }
-
-  thread_local unsigned int nan_inf_num = 0;
-  PADDLE_ENFORCE_CUDA_SUCCESS(cudaMemcpyAsync(&nan_inf_num, num_ptr,
-                                              sizeof(unsigned int),
-                                              cudaMemcpyDeviceToHost, stream));
-  PADDLE_ENFORCE_CUDA_SUCCESS(cudaStreamSynchronize(stream));
-  if (nan_inf_num > 0) {
-    printf("device [%d], op %s, name: %s, there has %u,%u nan_inf,num\n",
-           dev_id, op_type.c_str(), var_name.c_str(), nan_inf_num, len);
-    return true;
-  }
-  return false;
 }
 
 }  // namespace details

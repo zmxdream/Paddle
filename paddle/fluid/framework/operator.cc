@@ -1149,25 +1149,7 @@ void OperatorWithKernel::RunImpl(const Scope& scope,
   if (FLAGS_check_nan_inf) {
     //    framework::details::CheckOpHasNanOrInf(*this, exec_scope, place);
     if (framework::details::CheckOpHasNanOrInfRet(*this, exec_scope, place)) {
-      int device_id = 0;
-#if defined(PADDLE_WITH_CUDA) && !defined(_WIN32)
-      device_id = boost::get<platform::CUDAPlace>(place).GetDeviceId();
-#endif
-      VLOG(0) << "begin dump scope all tensor data";
-      std::string log_path = "./nan_inf";
-      if (!PathExists(log_path)) {
-        MkDirRecursively(log_path.c_str());
-      }
-
-      // dump scope all data
-      char prefix[128] = {0};
-      snprintf(prefix, sizeof(prefix), "gpu%d", device_id);
-      for (auto& iname : exec_scope.LocalVarNames()) {
-        framework::details::DumpTensorToFile(log_path, prefix, iname,
-                                             exec_scope);
-      }
-      VLOG(0) << "end dump scope all tensor data";
-
+      framework::details::DumpAllScope(exec_scope, place);
       // dump current op data
       for (auto& iname : InputVars()) {
         auto* var = exec_scope.FindVar(iname);
