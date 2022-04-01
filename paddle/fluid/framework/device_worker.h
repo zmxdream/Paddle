@@ -35,6 +35,7 @@ limitations under the License. */
 #include "paddle/fluid/framework/reader.h"
 #include "paddle/fluid/framework/trainer_desc.pb.h"
 #include "paddle/fluid/framework/variable_helper.h"
+#include "paddle/fluid/framework/threadpool.h"
 #include "paddle/fluid/operators/reader/blocking_queue.h"
 #include "paddle/fluid/platform/place.h"
 #include "paddle/fluid/platform/port.h"
@@ -583,33 +584,42 @@ class SectionWorker : public DeviceWorker {
 
 #ifdef PADDLE_WITH_BOX_PS
 class BoxPSAsynDenseTable {
-  typedef operators::reader::BlockingQueue<std::vector<LoDTensor>*>
+  typedef operators::reader::BlockingQueue<LoDTensor *>
       PSBufferQueue;
 
  public:
   explicit BoxPSAsynDenseTable(const int device_num);
   ~BoxPSAsynDenseTable();
 
-  void Init(const Scope& root_scope,
+  std::set<std::string> Init(const Scope& root_scope,
             const std::vector<std::string>& param_need_sync,
             const std::vector<std::string>& persistable_vars);
   void Finalize(void);
-
-  // async
-  void ReShape(const platform::Place& place);
-  void PullDense(const platform::Place& place, const Scope& scope);
-  void PushDense(const platform::Place& place, const Scope& scope);
+  void PullDense(const platform::Place& place, Tensor * tensor);
+  void PushDense(const platform::Place& place, Tensor * tensor);
+  void InitThreadGroup();
+  void ThreadUpdate(int thread_id,
+          std::vector<LoDTensor *> & grad, size_t merge_num);
   void AsyncUpdate();
 
  private:
   int device_num_ = 0;
-  std::vector<std::vector<LoDTensor>> device_grads_;
+  std::vector<LoDTensor> device_grads_;
   std::vector<std::string> async_param_list_;
-  std::vector<LoDTensor> ps_;
-  std::vector<size_t> async_param_size_;
+  std::vector<LoDTensor> original_ps_;
+  LoDTensor ps_;
+  LoDTensor mom1_;
+  LoDTensor mom2_;
+
+  std::vector<float> all_lr_;
+  std::shared_ptr<PSBufferQueue> buffer_poll_ = nullptr;
   std::shared_ptr<PSBufferQueue> ps_buffer_ = nullptr;
   Scope* root_scope_ = nullptr;
-
+  int64_t total_param_len_ = 0;
+  std::vector<size_t>  thread_start_index_;
+  std::vector<size_t>  thread_end_index_;
+  std::shared_ptr<paddle::framework::ThreadPool> thread_pool = nullptr;
+  int thread_num_ = 0;
   RWLock ps_lock_;
   std::thread* update_thread_ = nullptr;
   float base_lr_ = -1;
@@ -639,11 +649,13 @@ class BoxPSWorker : public DeviceWorker {
   void SetParamSyncStep(int step) { param_sync_step_ = step; }
   void SetDenseSyncMode(int mode) { sync_mode_ = mode; }
   void SetOneRing(bool one_ring) { one_ring_ = one_ring; }
+  void SetAsyncParamName(const std::set<std::string> & async_param_name) {async_param_name_ = async_param_name;}
 
  protected:
   int PackBatchTask(void);
   int CheckNeedParam(VarDesc* var);
   int64_t AllocParamTensor(int64_t* pad_len);
+  int64_t AllocParamTensorAsync();
   void SyncParam(void);
 
  protected:
@@ -656,7 +668,10 @@ class BoxPSWorker : public DeviceWorker {
 
   // dense async table
   BoxPSAsynDenseTable* dense_table_ = nullptr;
+  Tensor param_async_;
+  Tensor grad_async_;
   Tensor param_sync_;
+  std::set<std::string> async_param_name_;
   int param_sync_step_ = 0;
   int sync_mode_ = 0;
   bool one_ring_ = false;
