@@ -391,11 +391,14 @@ void BoxWrapper::CheckEmbedSizeIsValid(int embedx_dim, int expand_embed_dim) {
                           "expand_embed_dim = %d, but got %d.",
                           expand_embed_dim_, expand_embed_dim));
   }
-  PADDLE_ENFORCE_EQ(
-      embedx_dim_, embedx_dim,
-      platform::errors::InvalidArgument("SetInstance(): invalid embedx_dim. "
-                                        "When embedx_dim = %d, but got %d.",
-                                        embedx_dim_, embedx_dim));
+  // skip embedx dim zero
+  if (embedx_dim_ > 0) {
+    PADDLE_ENFORCE_EQ(
+        embedx_dim_, embedx_dim,
+        platform::errors::InvalidArgument("SetInstance(): invalid embedx_dim. "
+                                          "When embedx_dim = %d, but got %d.",
+                                          embedx_dim_, embedx_dim));
+  }
 }
 
 void BoxWrapper::PullSparse(const paddle::platform::Place& place,
