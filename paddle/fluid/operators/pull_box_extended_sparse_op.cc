@@ -133,6 +133,8 @@ class PullBoxExtendedSparseOpMaker : public framework::OpProtoAndCheckerMaker {
                  "(int, the extended_embedding hidden size")
         .SetDefault(128);
     AddAttr<std::vector<int>>("mask", "The embedx expand mask.").SetDefault({});
+    AddAttr<int>("offset", "(int, the skip pull value cvm offset")
+        .SetDefault(0);
     AddComment(R"DOC(
 Pull Box Extended Sparse Operator.
 

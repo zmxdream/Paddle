@@ -27,7 +27,8 @@ void BoxWrapper::PullSparseCase(const paddle::platform::Place& place,
                                 const std::vector<float*>& values,
                                 const std::vector<int64_t>& slot_lengths,
                                 const int hidden_size,
-                                const int expand_embed_dim) {
+                                const int expand_embed_dim,
+                                const int skip_offset) {
   if (!platform::is_gpu_place(place)) {
     PADDLE_THROW(platform::errors::Unimplemented(
         "Warning:: CPUPlace is not supported in PaddleBox now."));
@@ -133,7 +134,7 @@ void BoxWrapper::PullSparseCase(const paddle::platform::Place& place,
 
     this->CopyForPull(place, gpu_keys, gpu_values, total_values_gpu, slot_lens,
                       slot_num, key2slot, hidden_size, expand_embed_dim,
-                      total_length, total_dims, d_restore_idx);
+                      total_length, total_dims, skip_offset, d_restore_idx);
   } else {
     int64_t total_bytes = total_length * sizeof(FEATURE_VALUE_GPU_TYPE);
     FEATURE_VALUE_GPU_TYPE* total_values_gpu =
@@ -156,7 +157,7 @@ void BoxWrapper::PullSparseCase(const paddle::platform::Place& place,
 
     this->CopyForPull(place, gpu_keys, gpu_values, total_values_gpu, slot_lens,
                       slot_num, key2slot, hidden_size, expand_embed_dim,
-                      total_length, total_dims);
+                      total_length, total_dims, skip_offset);
   }
   all_timer.Pause();
 }
@@ -167,7 +168,7 @@ void BoxWrapper::PushSparseGradCase(
     const std::vector<const uint64_t*>& keys,
     const std::vector<const float*>& grad_values,
     const std::vector<int64_t>& slot_lengths, const int hidden_size,
-    const int expand_embed_dim, const int batch_size) {
+    const int expand_embed_dim, const int batch_size, const int skip_offset) {
   if (!platform::is_gpu_place(place)) {
     PADDLE_THROW(platform::errors::Unimplemented(
         "Warning:: CPUPlace is not supported in PaddleBox now."));
@@ -222,7 +223,7 @@ void BoxWrapper::PushSparseGradCase(
                                                                    place);
     this->CopyForPush(place, gpu_values, total_grad_values_gpu, d_slot_vector,
                       slot_lens, slot_num, hidden_size, expand_embed_dim,
-                      dedup_size, batch_size, total_dims, key2slot,
+                      dedup_size, batch_size, total_dims, key2slot, skip_offset,
                       d_sorted_idx, d_offset, d_merged_cnts);
 
     push_boxps_timer.Resume();
@@ -239,7 +240,8 @@ void BoxWrapper::PushSparseGradCase(
                                                                    place);
     this->CopyForPush(place, gpu_values, total_grad_values_gpu, d_slot_vector,
                       slot_lens, slot_num, hidden_size, expand_embed_dim,
-                      total_length, batch_size, total_dims, key2slot);
+                      total_length, batch_size, total_dims, key2slot,
+                      skip_offset);
 
     push_boxps_timer.Resume();
     int ret = boxps_ptr_->PushSparseGPU(
