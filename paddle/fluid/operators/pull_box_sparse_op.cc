@@ -89,6 +89,8 @@ class PullBoxSparseOpMaker : public framework::OpProtoAndCheckerMaker {
         .AsDuplicable();
     AddOutput("Out", "The lookup results tensors.").AsDuplicable();
     AddAttr<int>("size", "(int, the embedding hidden size").SetDefault(1);
+    AddAttr<int>("offset", "(int, the skip pull value cvm offset")
+        .SetDefault(0);
     AddComment(R"DOC(
 Pull Box Sparse Operator.
 

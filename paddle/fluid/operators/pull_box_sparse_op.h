@@ -101,7 +101,6 @@ static void PullBoxSparseFunctor(const framework::ExecutionContext &ctx) {
   std::vector<float *> all_values(slot_size);
   std::vector<int64_t> slot_lengths(slot_size);
   auto hidden_size = ctx.Attr<int>("size");
-
   // get batch size
   int batch_size = -1;
   for (size_t i = 0; i < slot_size; ++i) {
@@ -140,10 +139,11 @@ static void PullBoxSparseFunctor(const framework::ExecutionContext &ctx) {
   }
 
 #ifdef PADDLE_WITH_BOX_PS
+  int skip_offset = ctx.Attr<int>("offset");
   auto box_ptr = paddle::framework::BoxWrapper::GetInstance();
   auto expand_dim = box_ptr->GetExpandEmbedDim();
   box_ptr->PullSparse(ctx.GetPlace(), all_keys, all_values, slot_lengths,
-                      hidden_size, expand_dim);
+                      hidden_size, expand_dim, skip_offset);
 #endif
 }
 
@@ -180,10 +180,12 @@ static void PushBoxSparseFunctor(const framework::ExecutionContext &ctx) {
   }
 #ifdef PADDLE_WITH_BOX_PS
   auto hidden_size = ctx.Attr<int>("size");
+  int skip_offset = ctx.Attr<int>("offset");
   auto box_ptr = paddle::framework::BoxWrapper::GetInstance();
   auto expand_dim = box_ptr->GetExpandEmbedDim();
   box_ptr->PushSparseGrad(ctx.GetPlace(), all_keys, all_grad_values,
-                          slot_lengths, hidden_size, expand_dim, batch_size);
+                          slot_lengths, hidden_size, expand_dim, batch_size,
+                          skip_offset);
 #endif
 }
 
