@@ -1190,7 +1190,7 @@ void BoxWrapper::CopyForPull(const paddle::platform::Place& place,
                              uint64_t** gpu_keys, float** gpu_values,
                              void* total_values_gpu, const int64_t* slot_lens,
                              const int slot_num, const int* key2slot,
-                             const int dim_size, const int expand_embed_dim,
+                             const int hidden_size, const int expand_embed_dim,
                              const int64_t total_length, int* total_dims,
                              const int skip_offset,
                              const uint32_t* gpu_restore_idx) {
@@ -1198,7 +1198,6 @@ void BoxWrapper::CopyForPull(const paddle::platform::Place& place,
                     platform::DeviceContextPool::Instance().Get(
                         BOOST_GET_CONST(platform::CUDAPlace, place)))
                     ->stream();
-  const int hidden_size = dim_size - skip_offset;
   const int cvm_offset = cvm_offset_ - skip_offset;
 #define EMBEDX_CASE(i, ...)                                                  \
   case i: {                                                                  \
@@ -1516,7 +1515,7 @@ void FeaturePushCopyVariable(
 void BoxWrapper::CopyForPush(
     const paddle::platform::Place& place, float** grad_values,
     void* total_grad_values_gpu, const int* d_slot_vector,
-    const int64_t* slot_lens, const int slot_num, const int dim_size,
+    const int64_t* slot_lens, const int slot_num, const int hidden_size,
     const int expand_embed_dim, const int64_t total_length,
     const int batch_size, const int* total_dims, const int* key2slot,
     const int skip_offset, const uint32_t* gpu_sort_idx,
@@ -1525,7 +1524,6 @@ void BoxWrapper::CopyForPush(
                     platform::DeviceContextPool::Instance().Get(
                         BOOST_GET_CONST(platform::CUDAPlace, place)))
                     ->stream();
-  const int hidden_size = dim_size - skip_offset;
   const int cvm_offset = cvm_offset_ - skip_offset;
 #define EMBEDX_CASE(i, ...)                                                  \
   case i: {                                                                  \
