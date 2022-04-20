@@ -1291,15 +1291,16 @@ void BoxWrapper::CopyForPull(const paddle::platform::Place& place,
   } break
 
 // adam 767 embedx=0, expand=767 for PGL ERNIE
-#define EXPAND_EMBED_PULL_ADAMEX(i, ...)                                      \
-  case i: {                                                                   \
-    constexpr size_t ExpandDim = i;                                           \
-    if (feature_type_ == static_cast<int>(boxps::FEATURE_ADAM)) {             \
-      FeaturePullCopy<boxps::FeatureVarPullValueGpu<EmbedxDim, ExpandDim>>(   \
-          stream, gpu_keys, gpu_values, total_values_gpu, hidden_size,        \
-          ExpandDim, total_length, total_dims, slot_lens, slot_num, key2slot, \
-          1.0, cvm_offset, gpu_restore_idx, skip_offset);                     \
-    }                                                                         \
+#define EXPAND_EMBED_PULL_ADAMEX(i, ...)                                    \
+  case i: {                                                                 \
+    constexpr size_t ExpandDim = i;                                         \
+    if (feature_type_ == static_cast<int>(boxps::FEATURE_ADAM)) {           \
+      FeaturePullCopy<boxps::FeatureVarPullValueGpu<EmbedxDim, ExpandDim>>( \
+          stream, gpu_keys, gpu_values, total_values_gpu,                   \
+          hidden_size + ExpandDim, ExpandDim, total_length, total_dims,     \
+          slot_lens, slot_num, key2slot, 1.0, cvm_offset, gpu_restore_idx,  \
+          skip_offset);                                                     \
+    }                                                                       \
   } break
 
   switch (embedx_dim_) {
@@ -1609,16 +1610,16 @@ void BoxWrapper::CopyForPush(
     }                                                                          \
   } break
 
-#define EXPAND_EMBED_PUSH_ADAMEX(i, ...)                                      \
-  case i: {                                                                   \
-    constexpr size_t ExpandDim = i;                                           \
-    if (feature_type_ == static_cast<int>(boxps::FEATURE_ADAM)) {             \
-      FeaturePushCopy<boxps::FeatureVarPushValueGpu<EmbedxDim, ExpandDim>>(   \
-          stream, total_grad_values_gpu, grad_values, hidden_size, ExpandDim, \
-          total_length, batch_size, d_slot_vector, total_dims, slot_lens,     \
-          slot_num, key2slot, cvm_offset, gpu_sort_idx, gpu_sort_offset,      \
-          gpu_sort_lens, skip_offset);                                        \
-    }                                                                         \
+#define EXPAND_EMBED_PUSH_ADAMEX(i, ...)                                       \
+  case i: {                                                                    \
+    constexpr size_t ExpandDim = i;                                            \
+    if (feature_type_ == static_cast<int>(boxps::FEATURE_ADAM)) {              \
+      FeaturePushCopy<boxps::FeatureVarPushValueGpu<EmbedxDim, ExpandDim>>(    \
+          stream, total_grad_values_gpu, grad_values, hidden_size + ExpandDim, \
+          ExpandDim, total_length, batch_size, d_slot_vector, total_dims,      \
+          slot_lens, slot_num, key2slot, cvm_offset, gpu_sort_idx,             \
+          gpu_sort_offset, gpu_sort_lens, skip_offset);                        \
+    }                                                                          \
   } break
 
   switch (embedx_dim_) {
