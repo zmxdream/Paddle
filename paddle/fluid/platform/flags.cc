@@ -608,3 +608,5 @@ DEFINE_bool(enable_pull_box_padding_zero, true,
             "enable pull box padding zero, default true");
 DEFINE_bool(enbale_slotpool_auto_clear, false,
             "slot pool enable auto clear, default false");
+DEFINE_bool(enable_ins_parser_add_file_path, false,
+            "enable parser ins add path param, default false");
