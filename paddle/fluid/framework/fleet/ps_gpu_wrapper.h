@@ -119,6 +119,9 @@ class PSGPUWrapper {
   void CopyKeys(const paddle::platform::Place& place, uint64_t** origin_keys,
                 uint64_t* total_keys, const int64_t* gpu_len, int slot_num,
                 int total_len);
+  void CopyKeys(const paddle::platform::Place& place, uint64_t** origin_keys,
+                uint64_t* total_keys, const int64_t* gpu_len, int slot_num,
+                int total_len, int* gpu_dim);
   void CopyForPull(const paddle::platform::Place& place, uint64_t** gpu_keys,
                    const std::vector<float*>& values,
                    const FeatureValue* total_values_gpu, const int64_t* gpu_len,

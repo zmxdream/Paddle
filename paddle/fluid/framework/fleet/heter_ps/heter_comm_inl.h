@@ -534,7 +534,7 @@ HeterComm<KeyType, ValType, GradType>::~HeterComm() {
       mg_time_7[0] += mg_time_7[i];
       mg_time_8[0] += mg_time_8[i];
     }
-    VLOG(0) << "yxf::mg_1::merge: " << mg_time_1[0];
+    VLOG(0) << "yxfffff::mg_1::merge: " << mg_time_1[0];
     VLOG(0) << "yxf::mg_2:pull: " << mg_time_2[0];
     VLOG(0) << "yxf::mg_3:push: " << mg_time_3[0];
     VLOG(0) << "yxf::mg_4:sort: " << mg_time_4[0];

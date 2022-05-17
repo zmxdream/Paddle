@@ -83,7 +83,7 @@ __global__ void PullCopy(float** dest, const FeatureValue* src,
     
     int mf_dim = feature_value_ptr->mf_dim;
     mf_dim = gpu_dim[x] - 3;
-    if (*(keys[x] + y) == 0) {
+    if (*(keys[x] + y) <= 1) {
       *(dest[x] + y * (cur_dim + 3)) = 0;
       *(dest[x] + y * (cur_dim + 3) + 1) = 0;
       *(dest[x] + y * (cur_dim + 3) + 2) = 0;
@@ -92,8 +92,8 @@ __global__ void PullCopy(float** dest, const FeatureValue* src,
       *(dest[x] + y * (mf_dim + 3) + 1) = feature_value_ptr->clk;
       *(dest[x] + y * (mf_dim + 3) + 2) = feature_value_ptr->lr;
     }
-    if ((feature_value_ptr)->mf_size == 0 || *(keys[x] + y) == 0) {
-      if (*(keys[x] + y) == 0) {
+    if ((feature_value_ptr)->mf_size == 0 || *(keys[x] + y) <= 1) {
+      if (*(keys[x] + y) <= 1) {
         for (int j = 0; j < cur_dim; j++) {
           *(dest[x] + y * (cur_dim + 3) + 3 + j) = 0;
         }
@@ -127,6 +127,28 @@ __global__ void CopyKeysKernel(uint64_t** src_keys, uint64_t* dest_total_keys,
     int x = low;
     int y = i - (x ? len[x - 1] : 0);
     dest_total_keys[i] = src_keys[x][y];
+  }
+}
+
+__global__ void CopyKeysKernel(uint64_t** src_keys, uint64_t* dest_total_keys,
+                               const int64_t* len, int slot_num,
+                               int total_len, int* gpu_dim) {
+  CUDA_KERNEL_LOOP(i, total_len) {
+    int low = 0;
+    int high = slot_num - 1;
+    while (low < high) {
+      int mid = (low + high) / 2;
+      if (i < len[mid])
+        high = mid;
+      else
+        low = mid + 1;
+    }
+    int x = low;
+    int y = i - (x ? len[x - 1] : 0);
+    dest_total_keys[i] = src_keys[x][y];
+    if (src_keys[x][y] == 0 && gpu_dim[x] > 30) {
+      dest_total_keys[i] = 1;
+    };
   }
 }
 
@@ -250,6 +272,18 @@ void PSGPUWrapper::CopyKeys(const paddle::platform::Place& place,
                     ->stream();
   CopyKeysKernel<<<(total_len + 1024 - 1) / 1024, 1024, 0, stream>>>(
       origin_keys, total_keys, gpu_len, slot_num, total_len);
+  cudaStreamSynchronize(stream);
+}
+
+void PSGPUWrapper::CopyKeys(const paddle::platform::Place& place,
+                            uint64_t** origin_keys, uint64_t* total_keys,
+                            const int64_t* gpu_len, int slot_num,
+                            int total_len, int* gpu_dim) {
+  auto stream = dynamic_cast<platform::CUDADeviceContext*>(
+                    platform::DeviceContextPool::Instance().Get(place))
+                    ->stream();
+  CopyKeysKernel<<<(total_len + 1024 - 1) / 1024, 1024, 0, stream>>>(
+      origin_keys, total_keys, gpu_len, slot_num, total_len, gpu_dim);
   cudaStreamSynchronize(stream);
 }
 
