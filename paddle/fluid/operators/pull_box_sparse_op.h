@@ -101,41 +101,46 @@ static void PullBoxSparseFunctor(const framework::ExecutionContext &ctx) {
   std::vector<float *> all_values(slot_size);
   std::vector<int64_t> slot_lengths(slot_size);
   auto hidden_size = ctx.Attr<int>("size");
+  const int slot_idx = ctx.Attr<int>("slot_idx");
   // get batch size
   int batch_size = -1;
-  for (size_t i = 0; i < slot_size; ++i) {
-    const auto *slot = inputs[i];
-    if (slot->numel() == 0) {
-      continue;
-    }
-    int cur_batch_size =
-        slot->lod().size() ? slot->lod()[0].size() - 1 : slot->dims()[0];
-    if (batch_size == -1) {
-      batch_size = cur_batch_size;
-    } else {
-      PADDLE_ENFORCE_EQ(batch_size, cur_batch_size,
-                        platform::errors::PreconditionNotMet(
-                            "The batch size of all input slots should be same, "
-                            "please cheack"));
+  if (slot_idx != -1) {
+    batch_size = inputs[slot_idx]->dims()[0];
+  } else {
+    for (size_t i = 0; i < slot_size; ++i) {
+      const auto *slot = inputs[i];
+      if (slot->numel() == 0) {
+        continue;
+      }
+      int cur_batch_size =
+          slot->lod().size() ? slot->lod()[0].size() - 1 : slot->dims()[0];
+      if (batch_size == -1) {
+        batch_size = cur_batch_size;
+      } else {
+        PADDLE_ENFORCE_EQ(
+            batch_size, cur_batch_size,
+            platform::errors::PreconditionNotMet(
+                "The batch size of all input slots should be same, "
+                "please cheack"));
+      }
     }
   }
-
   for (size_t i = 0; i < slot_size; ++i) {
     const auto *slot = inputs[i];
     auto *output = outputs[i];
-    if (slot->numel() == 0) {
+    int64_t numel = slot->numel();
+    if (numel == 0) {
       if (FLAGS_enable_pull_box_padding_zero) {
         // only support GPU
         PaddingZeros<T>(ctx, output, batch_size, hidden_size);
       }
       continue;
     }
-    output->mutable_data<T>(ctx.GetPlace());
     const uint64_t *single_slot_keys =
         reinterpret_cast<const uint64_t *>(slot->data<int64_t>());
     all_keys[i] = single_slot_keys;
-    slot_lengths[i] = slot->numel();
-    all_values[i] = output->data<T>();
+    slot_lengths[i] = numel;
+    all_values[i] = output->mutable_data<T>(ctx.GetPlace());
   }
 
 #ifdef PADDLE_WITH_BOX_PS
@@ -156,28 +161,37 @@ static void PushBoxSparseFunctor(const framework::ExecutionContext &ctx) {
   std::vector<const uint64_t *> all_keys(slot_size);
   std::vector<const float *> all_grad_values(slot_size);
   std::vector<int64_t> slot_lengths(slot_size);
+  const int slot_idx = ctx.Attr<int>("slot_idx");
 
   int batch_size = -1;
+  if (slot_idx != -1) {
+    batch_size = inputs[slot_idx]->dims()[0];
+  }
   for (size_t i = 0; i < slot_size; i++) {
     const auto *slot = inputs[i];
-    if (slot->numel() == 0) continue;
+    int64_t numel = slot->numel();
+    if (numel == 0) continue;
     const uint64_t *single_slot_keys =
         reinterpret_cast<const uint64_t *>(slot->data<int64_t>());
     all_keys[i] = single_slot_keys;
-    slot_lengths[i] = slot->numel();
-    int cur_batch_size =
-        slot->lod().size() ? slot->lod()[0].size() - 1 : slot->dims()[0];
-    if (batch_size == -1) {
-      batch_size = cur_batch_size;
-    } else {
-      PADDLE_ENFORCE_EQ(batch_size, cur_batch_size,
-                        platform::errors::PreconditionNotMet(
-                            "The batch size of all input slots should be same, "
-                            "please cheack"));
+    slot_lengths[i] = numel;
+    if (slot_idx == -1) {
+      int cur_batch_size =
+          slot->lod().size() ? slot->lod()[0].size() - 1 : slot->dims()[0];
+      if (batch_size == -1) {
+        batch_size = cur_batch_size;
+      } else {
+        PADDLE_ENFORCE_EQ(
+            batch_size, cur_batch_size,
+            platform::errors::PreconditionNotMet(
+                "The batch size of all input slots should be same, "
+                "please cheack"));
+      }
     }
     const float *grad_value = d_output[i]->data<float>();
     all_grad_values[i] = grad_value;
   }
+
 #ifdef PADDLE_WITH_BOX_PS
   auto hidden_size = ctx.Attr<int>("size");
   int skip_offset = ctx.Attr<int>("offset");

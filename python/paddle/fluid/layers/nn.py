@@ -678,7 +678,7 @@ def _pull_cache_value(input, size, dtype='float32'):
     return out
 
 
-def _pull_box_sparse(input, size, dtype='float32', offset=0):
+def _pull_box_sparse(input, size, dtype='float32', offset=0, slot_idx=-1):
     r"""
     **Pull Box Sparse Layer**
 
@@ -721,7 +721,8 @@ def _pull_box_sparse(input, size, dtype='float32', offset=0):
         inputs={'Ids': inputs},
         outputs={'Out': outs},
         attrs={'size': size,
-               'offset': offset})
+               'offset': offset,
+               'slot_idx': slot_idx})
     if len(outs) == 1:
         return outs[0]
     return outs
