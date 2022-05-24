@@ -105,7 +105,11 @@ static void PullBoxSparseFunctor(const framework::ExecutionContext &ctx) {
   // get batch size
   int batch_size = -1;
   if (slot_idx != -1) {
-    batch_size = inputs[slot_idx]->dims()[0];
+    if (slot_idx > static_cast<int>(slot_size)) {
+      batch_size = 1;
+    } else {
+      batch_size = inputs[slot_idx]->dims()[0];
+    }
   } else {
     for (size_t i = 0; i < slot_size; ++i) {
       const auto *slot = inputs[i];
@@ -165,7 +169,11 @@ static void PushBoxSparseFunctor(const framework::ExecutionContext &ctx) {
 
   int batch_size = -1;
   if (slot_idx != -1) {
-    batch_size = inputs[slot_idx]->dims()[0];
+    if (slot_idx > static_cast<int>(slot_size)) {
+      batch_size = 1;
+    } else {
+      batch_size = inputs[slot_idx]->dims()[0];
+    }
   }
   for (size_t i = 0; i < slot_size; i++) {
     const auto *slot = inputs[i];

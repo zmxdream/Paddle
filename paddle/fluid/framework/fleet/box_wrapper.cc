@@ -1410,25 +1410,27 @@ const std::string BoxWrapper::SaveBase(const char* batch_model_path,
                                        const char* xbox_model_path,
                                        const std::string& date) {
   VLOG(3) << "Begin SaveBase";
-  PADDLE_ENFORCE_EQ(
-      date.length(), 8,
-      platform::errors::PreconditionNotMet(
-          "date[%s] is invalid, correct example is 20190817", date.c_str()));
-  int year = std::stoi(date.substr(0, 4));
-  int month = std::stoi(date.substr(4, 2));
-  int day = std::stoi(date.substr(6, 2));
+  int day_id = -1;
+  if (!date.empty()) {
+    PADDLE_ENFORCE_EQ(
+        date.length(), 8,
+        platform::errors::PreconditionNotMet(
+            "date[%s] is invalid, correct example is 20190817", date.c_str()));
+    int year = std::stoi(date.substr(0, 4));
+    int month = std::stoi(date.substr(4, 2));
+    int day = std::stoi(date.substr(6, 2));
 
-  struct std::tm b;
-  b.tm_year = year - 1900;
-  b.tm_mon = month - 1;
-  b.tm_mday = day;
-  b.tm_hour = FLAGS_fix_dayid ? 8 : 0;
-  b.tm_min = b.tm_sec = 0;
-  std::time_t seconds_from_1970 = std::mktime(&b);
-
+    struct std::tm b;
+    b.tm_year = year - 1900;
+    b.tm_mon = month - 1;
+    b.tm_mday = day;
+    b.tm_hour = FLAGS_fix_dayid ? 8 : 0;
+    b.tm_min = b.tm_sec = 0;
+    day_id = std::mktime(&b) / 86400;
+  }
   std::string ret_str;
-  int ret = boxps_ptr_->SaveBase(batch_model_path, xbox_model_path, ret_str,
-                                 seconds_from_1970 / 86400);
+  int ret =
+      boxps_ptr_->SaveBase(batch_model_path, xbox_model_path, ret_str, day_id);
   PADDLE_ENFORCE_EQ(ret, 0, platform::errors::PreconditionNotMet(
                                 "SaveBase failed in BoxPS."));
   return ret_str;
