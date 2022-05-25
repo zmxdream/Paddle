@@ -83,7 +83,7 @@ __global__ void PullCopy(float** dest, const FeatureValue* src,
     
     int mf_dim = feature_value_ptr->mf_dim;
     mf_dim = gpu_dim[x] - 3;
-    if (*(keys[x] + y) <= 1) {
+    if (*(keys[x] + y) == 0) {
       *(dest[x] + y * (cur_dim + 3)) = 0;
       *(dest[x] + y * (cur_dim + 3) + 1) = 0;
       *(dest[x] + y * (cur_dim + 3) + 2) = 0;
@@ -92,8 +92,8 @@ __global__ void PullCopy(float** dest, const FeatureValue* src,
       *(dest[x] + y * (mf_dim + 3) + 1) = feature_value_ptr->clk;
       *(dest[x] + y * (mf_dim + 3) + 2) = feature_value_ptr->lr;
     }
-    if ((feature_value_ptr)->mf_size == 0 || *(keys[x] + y) <= 1) {
-      if (*(keys[x] + y) <= 1) {
+    if ((feature_value_ptr)->mf_size == 0 || *(keys[x] + y) == 0 ){
+      if (*(keys[x] + y) == 0) {
         for (int j = 0; j < cur_dim; j++) {
           *(dest[x] + y * (cur_dim + 3) + 3 + j) = 0;
         }
@@ -146,9 +146,9 @@ __global__ void CopyKeysKernel(uint64_t** src_keys, uint64_t* dest_total_keys,
     int x = low;
     int y = i - (x ? len[x - 1] : 0);
     dest_total_keys[i] = src_keys[x][y];
-    if (src_keys[x][y] == 0 && gpu_dim[x] > 30) {
-      dest_total_keys[i] = 1;
-    };
+    //if (src_keys[x][y] == 0 && gpu_dim[x] > 30) {
+    //  dest_total_keys[i] = 1;
+    //};
   }
 }
 
