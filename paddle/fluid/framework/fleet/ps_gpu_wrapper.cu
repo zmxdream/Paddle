@@ -274,17 +274,17 @@ void PSGPUWrapper::CopyKeys(const paddle::platform::Place& place,
   cudaStreamSynchronize(stream);
 }
 
-void PSGPUWrapper::CopyKeys(const paddle::platform::Place& place,
-                            uint64_t** origin_keys, uint64_t* total_keys,
-                            const int64_t* gpu_len, int slot_num,
-                            int total_len, int* gpu_dim) {
-  auto stream = dynamic_cast<platform::CUDADeviceContext*>(
-                    platform::DeviceContextPool::Instance().Get(place))
-                    ->stream();
-  CopyKeysKernel<<<(total_len + 1024 - 1) / 1024, 1024, 0, stream>>>(
-      origin_keys, total_keys, gpu_len, slot_num, total_len, gpu_dim);
-  cudaStreamSynchronize(stream);
-}
+//void PSGPUWrapper::CopyKeys(const paddle::platform::Place& place,
+//                            uint64_t** origin_keys, uint64_t* total_keys,
+//                            const int64_t* gpu_len, int slot_num,
+//                            int total_len, int* gpu_dim) {
+//  auto stream = dynamic_cast<platform::CUDADeviceContext*>(
+//                    platform::DeviceContextPool::Instance().Get(place))
+//                    ->stream();
+//  CopyKeysKernel<<<(total_len + 1024 - 1) / 1024, 1024, 0, stream>>>(
+//      origin_keys, total_keys, gpu_len, slot_num, total_len, gpu_dim);
+//  cudaStreamSynchronize(stream);
+//}
 
 void PSGPUWrapper::CopyForPush(const paddle::platform::Place& place,
                                const std::vector<const float*>& grad_values,
