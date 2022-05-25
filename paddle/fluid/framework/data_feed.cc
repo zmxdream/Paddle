@@ -1060,10 +1060,6 @@ void MultiSlotInMemoryDataFeed::Init(
   uid_slot_ = multi_slot_desc.uid_slot();
   feed_vec_.resize(use_slots_.size());
   const int kEstimatedFeasignNumPerSlot = 5;  // Magic Number
-
-
-
-
   for (size_t i = 0; i < all_slot_num; i++) {
     batch_float_feasigns_.push_back(std::vector<float>());
     batch_uint64_feasigns_.push_back(std::vector<uint64_t>());
@@ -1075,7 +1071,6 @@ void MultiSlotInMemoryDataFeed::Init(
     offset_[i].reserve(default_batch_size_ +
                        1);  // Each lod info will prepend a zero
   }
-
   visit_.resize(all_slot_num, false);
   pipe_command_ = data_feed_desc.pipe_command();
   so_parser_name_ = data_feed_desc.so_parser_name();
@@ -2436,30 +2431,12 @@ void SlotRecordInMemoryDataFeed::PutToFeedVec(const SlotRecord* ins_vec,
   pack_->pack_instance(ins_vec, num);
   BuildSlotBatchGPU(pack_->ins_num());
 #else
-  
   for (int j = 0; j < use_slot_size_; ++j) {
     // std::vector<LoDTensor*> feed_vec_;
     auto& feed = feed_vec_[j];
     if (feed == nullptr) {
       continue;
     }
-
-    // std::vector<std::vector<size_t>> offset_;
-    // std::vector<std::vector<float>> batch_float_feasigns_;
-    // std::vector<std::vector<uint64_t>> batch_uint64_feasigns_;
-
-  // for (size_t i = 0; i < all_slot_num; i++) {
-  //  batch_float_feasigns_.push_back(std::vector<float>());
-  //  batch_uint64_feasigns_.push_back(std::vector<uint64_t>());
-  //  batch_float_feasigns_[i].reserve(default_batch_size_ *
-  //                                   kEstimatedFeasignNumPerSlot);
-  //  batch_uint64_feasigns_[i].reserve(default_batch_size_ *
-  //                                    kEstimatedFeasignNumPerSlot);
-  //  offset_.push_back(std::vector<size_t>());
-  //  offset_[i].reserve(default_batch_size_ +
-  //                     1);  // Each lod info will prepend a zero
-  // }
-
     auto& slot_offset = offset_[j];
     slot_offset.clear();
     slot_offset.reserve(num + 1);
@@ -2467,25 +2444,19 @@ void SlotRecordInMemoryDataFeed::PutToFeedVec(const SlotRecord* ins_vec,
 
     int total_instance = 0;
     auto& info = used_slots_info_[j];
-
     // fill slot value with default value 0
     if (info.type[0] == 'f') {  // float
       auto& batch_fea = batch_float_feasigns_[j];
       batch_fea.clear();
 
       for (int i = 0; i < num; ++i) {
-        auto r = ins_vec[i]; // SlotRecord
-        size_t fea_num = 0;  // 
-
+        auto r = ins_vec[i];
+        size_t fea_num = 0;
         float* slot_values =
             r->slot_float_feasigns_.get_values(info.slot_value_idx, &fea_num);
-
-
         batch_fea.resize(total_instance + fea_num);
-
         memcpy(&batch_fea[total_instance], slot_values,
                sizeof(float) * fea_num);
-
         total_instance += fea_num;
         slot_offset.push_back(total_instance);
 
@@ -2503,10 +2474,8 @@ void SlotRecordInMemoryDataFeed::PutToFeedVec(const SlotRecord* ins_vec,
       for (int i = 0; i < num; ++i) {
         auto r = ins_vec[i];
         size_t fea_num = 0;
-
         uint64_t* slot_values =
             r->slot_uint64_feasigns_.get_values(info.slot_value_idx, &fea_num);
-
         if (fea_num > 0) {
           batch_fea.resize(total_instance + fea_num);
           memcpy(&batch_fea[total_instance], slot_values,
