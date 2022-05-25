@@ -2432,7 +2432,6 @@ void SlotRecordInMemoryDataFeed::PutToFeedVec(const SlotRecord* ins_vec,
   BuildSlotBatchGPU(pack_->ins_num());
 #else
   for (int j = 0; j < use_slot_size_; ++j) {
-    // std::vector<LoDTensor*> feed_vec_;
     auto& feed = feed_vec_[j];
     if (feed == nullptr) {
       continue;
@@ -2459,7 +2458,6 @@ void SlotRecordInMemoryDataFeed::PutToFeedVec(const SlotRecord* ins_vec,
                sizeof(float) * fea_num);
         total_instance += fea_num;
         slot_offset.push_back(total_instance);
-
       }
 
       float* feasign = batch_fea.data();
