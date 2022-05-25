@@ -1038,7 +1038,7 @@ void HeterComm<KeyType, ValType, GradType>::pull_sparse(int num,
 
   for (int i = 0; i < total_gpu; ++i) {
     int shard_len = h_right[i] - h_left[i] + 1;
-    if (shard_len == 0) {
+    if (h_left[i] == -1 || h_right[i] == -1) {
       continue;
     }
     create_storage(num, i, shard_len * sizeof(KeyType),
@@ -1111,6 +1111,9 @@ void HeterComm<KeyType, ValType, GradType>::pull_sparse(int num,
   cudaStreamSynchronize(stream);
   // VLOG(0) << "yxf::finish walk to fill: " << num;
   for (int i = 0; i < total_gpu; ++i) {
+    if (h_left[i] == -1 || h_right[i] == -1) {
+      continue;
+    }
     destroy_storage(num, i);
     // VLOG(0) << "yxf::end get device: " << num << "from device: " << i;
   }
@@ -1267,6 +1270,9 @@ void HeterComm<KeyType, ValType, GradType>::push_sparse(int gpu_num,
     }
   }
   for (int i = 0; i < total_gpu; ++i) {
+    if (h_left[i] == -1 || h_right[i] == -1) {
+      continue;
+    }
     destroy_storage(gpu_num, i);
   }
 }
