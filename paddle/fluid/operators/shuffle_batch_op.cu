@@ -146,7 +146,6 @@ class ShuffleBatchGradCUDAKernel : public framework::OpKernel<T> {
 }  // namespace paddle
 
 namespace ops = paddle::operators;
-
 REGISTER_OP_CUDA_KERNEL(shuffle_batch, ops::ShuffleBatchCUDAKernel<float>,
                         ops::ShuffleBatchCUDAKernel<double>,
                         ops::ShuffleBatchCUDAKernel<int32_t>,
@@ -157,5 +156,4 @@ REGISTER_OP_CUDA_KERNEL(shuffle_batch_grad,
                         ops::ShuffleBatchGradCUDAKernel<double>,
                         ops::ShuffleBatchGradCUDAKernel<int32_t>,
                         ops::ShuffleBatchGradCUDAKernel<int64_t>);
-
 #endif

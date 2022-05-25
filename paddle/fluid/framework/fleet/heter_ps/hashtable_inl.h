@@ -82,21 +82,10 @@ __global__ void dy_mf_search_kernel(Table* table,
                                     char* vals, size_t len,
                                     size_t pull_feature_value_size) {
   const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
-  // return;
   if (i < len) {
     auto it = table->find(keys[i]);
-
     if (it != table->end()) {
-      // if (i > (INT_MAX / pull_feature_value_size)) {
-      //   printf("yxf:::i: %d, size: %d, res: %d, ures: &lld", i, pull_feature_value_size, i * pull_feature_value_size, uint64_t(i) * pull_feature_value_size);
-      // }
-      
       uint64_t offset = i * pull_feature_value_size;
-      // uint64_t tmp_size = TYPEALIGN(8, sizeof(FeatureValue) + sizeof(float) * (8 + 1));
-      // uint64_t offset = i * tmp_size;
-      
-      // *(FeatureValue*)(vals + offset) =
-      //     *(it->second);
       FeatureValue* cur = (FeatureValue*)(vals + offset);
       FeatureValue& input = *(FeatureValue*)(it->second);
       cur->slot    = input.slot;
@@ -111,26 +100,8 @@ __global__ void dy_mf_search_kernel(Table* table,
       for(int j = 0; j < cur->mf_dim + 1; ++j) {
          cur->mf[j] = input.mf[j];
       }
-      // for(int i = 0; i < 8 + 1; ++i) {
-      //    cur->mf[i] = input.mf[i];
-      // }
-      // cur->delta_score = 0;
-      // cur->show = 0;
-      // cur->clk = 0;
-      // cur->slot = -1;
-      // cur->lr = 0;
-      // cur->lr_g2sum = 0;
-      // cur->mf_size = 0;
-      // cur->mf_dim = 64;
-      // cur->cpu_ptr;
-      // for (int j = 0; j < cur->mf_dim + 1; j++) {
-      //   cur->mf[j] = 0;
-      // }
     } else {
-     
       if (keys[i] != 0) printf("yxf::pull miss key: %d",keys[i]);
-      //it = table->find(0);
-      //*(FeatureValue*)(vals + i * pull_feature_value_size) = *(it->second);
       FeatureValue* cur = (FeatureValue*)(vals + i * pull_feature_value_size);
       cur->delta_score = 0;
       cur->show = 0;

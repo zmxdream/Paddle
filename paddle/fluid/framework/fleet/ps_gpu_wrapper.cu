@@ -77,7 +77,6 @@ __global__ void PullCopy(float** dest, const FeatureValue* src,
     int x = low;
     int y = i - (x ? len[x - 1] : 0);
     int cur_dim = gpu_dim[x] - 3;
-    // printf("yxf::cur dim: %d",cur_dim);
     FeatureValue* feature_value_ptr =
         (FeatureValue*)((char*)src + uint64_t(i) * uint64_t(max_val_size));
     
@@ -130,27 +129,27 @@ __global__ void CopyKeysKernel(uint64_t** src_keys, uint64_t* dest_total_keys,
   }
 }
 
-__global__ void CopyKeysKernel(uint64_t** src_keys, uint64_t* dest_total_keys,
-                               const int64_t* len, int slot_num,
-                               int total_len, int* gpu_dim) {
-  CUDA_KERNEL_LOOP(i, total_len) {
-    int low = 0;
-    int high = slot_num - 1;
-    while (low < high) {
-      int mid = (low + high) / 2;
-      if (i < len[mid])
-        high = mid;
-      else
-        low = mid + 1;
-    }
-    int x = low;
-    int y = i - (x ? len[x - 1] : 0);
-    dest_total_keys[i] = src_keys[x][y];
-    //if (src_keys[x][y] == 0 && gpu_dim[x] > 30) {
-    //  dest_total_keys[i] = 1;
-    //};
-  }
-}
+//__global__ void CopyKeysKernel(uint64_t** src_keys, uint64_t* dest_total_keys,
+//                               const int64_t* len, int slot_num,
+//                               int total_len, int* gpu_dim) {
+//  CUDA_KERNEL_LOOP(i, total_len) {
+//    int low = 0;
+//    int high = slot_num - 1;
+//    while (low < high) {
+//      int mid = (low + high) / 2;
+//      if (i < len[mid])
+//        high = mid;
+//      else
+//        low = mid + 1;
+//    }
+//    int x = low;
+//    int y = i - (x ? len[x - 1] : 0);
+//    dest_total_keys[i] = src_keys[x][y];
+//    //if (src_keys[x][y] == 0 && gpu_dim[x] > 30) {
+//    //  dest_total_keys[i] = 1;
+//    //};
+//  }
+//}
 
 __global__ void PushCopy(FeaturePushValue* dest, float** src, int64_t* len,
                          int hidden, int slot_num, int total_len, int bs,

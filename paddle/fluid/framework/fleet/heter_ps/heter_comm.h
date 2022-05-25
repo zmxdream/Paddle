@@ -38,25 +38,6 @@ namespace framework {
   (((uint64_t)(LEN) + ((ALIGNVAL)-1)) & ~((uint64_t)((ALIGNVAL)-1)))
 
 struct CustomGradMerger {
-  // template <typename T>
-  // CUB_RUNTIME_FUNCTION __forceinline__ __device__ T
-  // operator()(const T& a, const T& b) const {
-  //   T out;
-  //   out.slot = a.slot;
-  //   out.mf_dim = a.mf_dim;
-  //   out.show = a.show + b.show;
-  //   out.clk = a.clk + b.clk;
-  //   out.lr_g = a.lr_g + b.lr_g;
-  //   for (int i = 0; i < out.mf_dim; ++i) {
-  //     //printf("mf_g: %f\n", a.mf_g[0]);
-  //     // a.mf_g[0] = b.mf_g[0];
-  //     //((float*)out.mf_g)[i] = ((float*)a.mf_g)[i] + ((float*)b.mf_g)[i]; //
-  //     // for local test
-  //     out.mf_g[i] = a.mf_g[i] + b.mf_g[i];
-  //   }
-
-  //   return out;
-  // }
   template <typename T>
   CUB_RUNTIME_FUNCTION __forceinline__ __device__ T
   operator()(const T& a, const T& b) const {
@@ -66,14 +47,6 @@ struct CustomGradMerger {
     out.show = a.show + b.show;
     out.clk = a.clk + b.clk;
     out.lr_g = a.lr_g + b.lr_g;
-    //for (int i = 0; i < out->mf_dim; ++i) {
-      //printf("mf_g: %f\n", a.mf_g[0]);
-      // a.mf_g[0] = b.mf_g[0];
-      //((float*)out.mf_g)[i] = ((float*)a.mf_g)[i] + ((float*)b.mf_g)[i]; //
-      // for local test
-      //out->mf_g[i] = a->mf_g[i] + b->mf_g[i];
-    //}
-
     return out;
   }
 
@@ -156,7 +129,7 @@ class HeterComm {
     
     multi_mf_dim_ = multi_mf_dim;
     max_mf_dim_ = max_mf_dim;
-    // VLOG(0) << "yxf:heter comm set multi multi_mf_dim_: " << multi_mf_dim_ << " max_mf_dim_: " << max_mf_dim_;
+    VLOG(0) << "heter comm set multi multi_mf_dim_: " << multi_mf_dim_ << " max_mf_dim_: " << max_mf_dim_;
   }
 
   bool need_transfer(int send_id, int receive_id) {

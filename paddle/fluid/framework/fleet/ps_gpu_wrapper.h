@@ -348,10 +348,7 @@ class PSGPUWrapper {
       std::cout << s << " | ";
     }
     std::cout << " end wrapper " <<std::endl;
-    
-
     VLOG(0) << "get slot desc";
-
     slot_offset_vector_.clear();
     for (auto& slot : slot_vector_) {
       for (size_t i = 0; i < slots_vec.size(); ++i) {
@@ -362,7 +359,6 @@ class PSGPUWrapper {
         }
       }
     }
-    std::cout << "yxf1111set: ";
     for (auto s : slot_offset_vector_) {
       std::cout << s << " | ";
     }
