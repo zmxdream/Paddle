@@ -129,7 +129,7 @@ class HeterComm {
     
     multi_mf_dim_ = multi_mf_dim;
     max_mf_dim_ = max_mf_dim;
-    VLOG(0) << "heter comm set multi multi_mf_dim_: " << multi_mf_dim_ << " max_mf_dim_: " << max_mf_dim_;
+    VLOG(3) << "heter comm set multi multi_mf_dim_: " << multi_mf_dim_ << " max_mf_dim_: " << max_mf_dim_;
   }
 
   bool need_transfer(int send_id, int receive_id) {
