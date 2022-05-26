@@ -1513,7 +1513,8 @@ def _pull_box_extended_sparse(input,
                               size,
                               extend_size=64,
                               dtype='float32',
-                              mask=[]):
+                              mask=[],
+                              offset=0):
     r"""
     **Pull Box Extended Sparse Layer**
     This layer is used to lookup embeddings of IDs, provided by :attr:`input`, in
@@ -1568,7 +1569,8 @@ def _pull_box_extended_sparse(input,
         attrs={
             'emb_size': size,
             'emb_extended_size': extend_size,
-            'mask': mask
+            'mask': mask,
+            'offset': offset
         })
     if len(outs) == 1:
         return outs[0], outs_extend[0]

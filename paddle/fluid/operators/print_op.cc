@@ -71,8 +71,15 @@ class PrintOp : public framework::OperatorBase {
                   const std::string &printed_var_name,
                   const framework::LoDTensor &in_tensor) const {
     std::string print_phase = Attr<std::string>("print_phase");
+    std::string file_path = Attr<std::string>("out_path");
+#ifdef PADDLE_WITH_CUDA
+    int device = Attr<int>("device");
+    if (device >= 0 &&
+        device != boost::get<platform::CUDAPlace>(place).GetDeviceId()) {
+      return;
+    }
+#endif
     bool is_forward = Attr<bool>("is_forward");
-
     if ((is_forward && print_phase == kBackward) ||
         (!is_forward && print_phase == kForward)) {
       return;
@@ -89,7 +96,7 @@ class PrintOp : public framework::OperatorBase {
     formatter.SetPrintTensorLod(Attr<bool>("print_tensor_lod"));
     formatter.SetPrintTensorLayout(Attr<bool>("print_tensor_layout"));
     formatter.SetSummarize(static_cast<int64_t>(Attr<int>("summarize")));
-    formatter.Print(in_tensor, name, Attr<std::string>("message"));
+    formatter.Print(file_path, in_tensor, name, Attr<std::string>("message"));
   }
 
  private:
@@ -123,6 +130,8 @@ class PrintOpProtoAndCheckMaker : public framework::OpProtoAndCheckerMaker {
         .InEnum({std::string(kForward), std::string(kBackward),
                  std::string(kBoth)});
     AddAttr<bool>("is_forward", "Whether is forward or not").SetDefault(true);
+    AddAttr<std::string>("out_path", "which out path file print");
+    AddAttr<int>("device", "which deivce id print");
     AddComment(R"DOC(
 Creates a print op that will print when a tensor is accessed.
 

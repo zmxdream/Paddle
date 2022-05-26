@@ -272,6 +272,7 @@ def __bootstrap__():
             'enable_shuffle_by_searchid',
             'enable_pull_box_padding_zero',
             'enbale_slotpool_auto_clear',
+            'enable_ins_parser_add_file_path',
         ]
     core.init_gflags(["--tryfromenv=" + ",".join(read_env_flags)])
     core.init_glog(sys.argv[0])

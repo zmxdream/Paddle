@@ -88,7 +88,11 @@ class PullBoxSparseOpMaker : public framework::OpProtoAndCheckerMaker {
              "The last dimension size must be 1.")
         .AsDuplicable();
     AddOutput("Out", "The lookup results tensors.").AsDuplicable();
-    AddAttr<int>("size", "(int, the embedding hidden size").SetDefault(1);
+    AddAttr<int>("size", "(int, the embedding hidden size)").SetDefault(1);
+    AddAttr<int>("offset", "(int, the skip pull value cvm offset)")
+        .SetDefault(0);
+    AddAttr<int>("slot_idx", "(int, which used slot index get batch size num)")
+        .SetDefault(-1);
     AddComment(R"DOC(
 Pull Box Sparse Operator.
 

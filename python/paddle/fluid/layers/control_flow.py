@@ -221,7 +221,9 @@ def Print(input,
           print_tensor_shape=True,
           print_tensor_layout=True,
           print_tensor_lod=True,
-          print_phase='both'):
+          print_phase='both',
+          out_path='',
+          device=-1):
     '''
     :api_attr: Static Graph
 
@@ -298,7 +300,9 @@ def Print(input,
             'print_tensor_shape': print_tensor_shape,
             'print_tensor_layout': print_tensor_layout,
             'print_tensor_lod': print_tensor_lod,
-            'print_phase': print_phase.upper()
+            'print_phase': print_phase.upper(),
+            'out_path': out_path,
+            'device': device
         })
     return output
 

@@ -49,6 +49,7 @@ typedef void (*MyPadBoxFreeObject)(paddle::framework::ISlotParser*);
 #endif
 
 DECLARE_bool(enable_ins_parser_file);
+DECLARE_bool(enable_ins_parser_add_file_path);
 
 namespace paddle {
 namespace framework {
@@ -2991,6 +2992,17 @@ void SlotPaddleBoxDataFeed::LoadIntoMemoryByFile(void) {
     }
   };
 
+  std::function<int(char* buf, int len)> read_func = nullptr;
+  if (reader != nullptr) {
+    read_func = [this, reader](char* buf, int len) {
+      return reader->read(buf, len);
+    };
+  } else {
+    read_func = [this](char* buf, int len) {
+      return fread(buf, sizeof(char), len, this->fp_.get());
+    };
+  }
+
   std::string filename;
   while (this->PickOneFile(&filename)) {
     VLOG(3) << "PickOneFile, filename=" << filename
@@ -3001,16 +3013,10 @@ void SlotPaddleBoxDataFeed::LoadIntoMemoryByFile(void) {
     int lines = 0;
     bool is_ok = true;
     do {
-      if (BoxWrapper::GetInstance()->UseAfsApi() && pipe_command_.empty()) {
+      if (reader != nullptr) {
         while (reader->open(filename) < 0) {
           sleep(1);
         }
-        is_ok = parser->ParseFileInstance(
-            [this, reader](char* buf, int len) {
-              return reader->read(buf, len);
-            },
-            pull_record_func, lines);
-        reader->close();
       } else {
         if (BoxWrapper::GetInstance()->UseAfsApi()) {
           this->fp_ = BoxWrapper::GetInstance()->OpenReadFile(
@@ -3021,11 +3027,15 @@ void SlotPaddleBoxDataFeed::LoadIntoMemoryByFile(void) {
         }
         CHECK(this->fp_ != nullptr);
         __fsetlocking(&*(this->fp_), FSETLOCKING_BYCALLER);
-        is_ok = parser->ParseFileInstance(
-            [this](char* buf, int len) {
-              return fread(buf, sizeof(char), len, this->fp_.get());
-            },
-            pull_record_func, lines);
+      }
+      if (FLAGS_enable_ins_parser_add_file_path) {
+        is_ok = parser->ParseFileInstance(filename.c_str(), read_func,
+                                          pull_record_func, lines);
+      } else {
+        is_ok = parser->ParseFileInstance(read_func, pull_record_func, lines);
+      }
+      if (reader != nullptr) {
+        reader->close();
       }
       if (!is_ok) {
         LOG(WARNING) << "parser error, filename=" << filename

@@ -38,7 +38,7 @@ __global__ void PullCopy(float** dest, const FEATURE_VALUE_GPU_TYPE* src,
                          const int total_len, uint64_t** keys, int* total_dims,
                          const int64_t* slot_lens, const int slot_num,
                          const int* key2slot, const float scale,
-                         const int cvm_offset) {
+                         const int cvm_offset, const int skip_offset) {
   assert(expand_dim == 0);
   // only process no expand data
   CUDA_KERNEL_LOOP(i, total_len) {
@@ -52,17 +52,18 @@ __global__ void PullCopy(float** dest, const FEATURE_VALUE_GPU_TYPE* src,
     float* dest_ptr = dest[x] + y * hidden;
     const float* src_ptr = reinterpret_cast<const float*>(&src_val.show);
     for (int k = 0; k < cvm_offset; ++k) {
-      dest_ptr[k] = src_ptr[k];
+      dest_ptr[k] = src_ptr[k + skip_offset];
     }
     // embedx
+    int embedx_size = hidden - cvm_offset - skip_offset;
     if (src_val.embedding_size > 0) {
       total_dims[i] = 0x01;
-      for (int j = 0; j < hidden - cvm_offset; ++j) {
+      for (int j = 0; j < embedx_size; ++j) {
         dest_ptr[cvm_offset + j] = src_val.embedx[j] * scale;
       }
     } else {
       total_dims[i] = 0x00;
-      for (int j = 0; j < hidden - cvm_offset; ++j) {
+      for (int j = 0; j < embedx_size; ++j) {
         dest_ptr[cvm_offset + j] = 0;
       }
     }
@@ -74,7 +75,8 @@ __global__ void PullCopyBase(float** dest, const FEATURE_VALUE_GPU_TYPE* src,
                              const int hidden, const int total_len,
                              uint64_t** keys, int* total_dims,
                              const int64_t* slot_lens, const int slot_num,
-                             const int* key2slot, const int cvm_offset) {
+                             const int* key2slot, const int cvm_offset,
+                             const int skip_offset) {
   CUDA_KERNEL_LOOP(i, total_len) {
     int x = key2slot[i];
     int y = i - slot_lens[x];
@@ -83,7 +85,7 @@ __global__ void PullCopyBase(float** dest, const FEATURE_VALUE_GPU_TYPE* src,
     float* dest_ptr = dest[x] + y * hidden;
     const float* src_ptr = reinterpret_cast<const float*>(&src_val.show);
     for (int k = 0; k < cvm_offset; ++k) {
-      dest_ptr[k] = src_ptr[k];
+      dest_ptr[k] = src_ptr[k + skip_offset];
     }
     total_dims[i] = static_cast<int>(src_val.embedding_size > 0);
   }  // end kernel loop
@@ -112,13 +114,11 @@ __global__ void PullCopyExpand(float** dest, const FEATURE_VALUE_GPU_TYPE* src,
 }
 
 template <typename FEATURE_VALUE_GPU_TYPE>
-__global__ void PullDedupCopyBase(float** dest,
-                                  const FEATURE_VALUE_GPU_TYPE* src,
-                                  const int hidden, const int total_len,
-                                  uint64_t** keys, int* total_dims,
-                                  const int64_t* slot_lens, const int slot_num,
-                                  const int* key2slot, const int cvm_offset,
-                                  const uint32_t* restore_idx) {
+__global__ void PullDedupCopyBase(
+    float** dest, const FEATURE_VALUE_GPU_TYPE* src, const int hidden,
+    const int total_len, uint64_t** keys, int* total_dims,
+    const int64_t* slot_lens, const int slot_num, const int* key2slot,
+    const int cvm_offset, const uint32_t* restore_idx, const int skip_offset) {
   CUDA_KERNEL_LOOP(i, total_len) {
     int x = key2slot[i];
     int y = i - slot_lens[x];
@@ -127,7 +127,7 @@ __global__ void PullDedupCopyBase(float** dest,
     float* dest_ptr = dest[x] + y * hidden;
     const float* src_ptr = reinterpret_cast<const float*>(&src_val.show);
     for (int k = 0; k < cvm_offset; ++k) {
-      dest_ptr[k] = src_ptr[k];
+      dest_ptr[k] = src_ptr[k + skip_offset];
     }
     total_dims[i] = static_cast<int>(src_val.embedding_size > 0);
   }  // end kernel loop
@@ -158,13 +158,11 @@ __global__ void PullDedupCopyExpand(
 //================================== support nncross
 //================================
 template <typename FEATURE_VALUE_GPU_TYPE>
-__global__ void PullCopyBaseNNCross(float** dest,
-                                    const FEATURE_VALUE_GPU_TYPE* src,
-                                    const int hidden, const int expand_dim,
-                                    const int total_len, uint64_t** keys,
-                                    int* total_dims, const int64_t* slot_lens,
-                                    const int slot_num, const int* key2slot,
-                                    const int cvm_offset) {
+__global__ void PullCopyBaseNNCross(
+    float** dest, const FEATURE_VALUE_GPU_TYPE* src, const int hidden,
+    const int expand_dim, const int total_len, uint64_t** keys, int* total_dims,
+    const int64_t* slot_lens, const int slot_num, const int* key2slot,
+    const int cvm_offset, const int skip_offset) {
   CUDA_KERNEL_LOOP(i, total_len) {
     int x = key2slot[i];
     int y = i - slot_lens[x];
@@ -174,7 +172,7 @@ __global__ void PullCopyBaseNNCross(float** dest,
       float* dest_ptr = dest[x] + y * hidden;
       const float* src_ptr = reinterpret_cast<const float*>(&src_val.show);
       for (int k = 0; k < cvm_offset; ++k) {
-        dest_ptr[k] = src_ptr[k];
+        dest_ptr[k] = src_ptr[k + skip_offset];
       }
     }
     // embedx flags + expand flags   && *(keys[x] + y) != 0  && *(keys[x] + y)
@@ -226,7 +224,7 @@ __global__ void PullDedupCopyBaseNNCross(
     float** dest, const FEATURE_VALUE_GPU_TYPE* src, const int hidden,
     const int expand_dim, const int total_len, uint64_t** keys, int* total_dims,
     const int64_t* slot_lens, const int slot_num, const int* key2slot,
-    const int cvm_offset, const uint32_t* restore_idx) {
+    const int cvm_offset, const uint32_t* restore_idx, const int skip_offset) {
   CUDA_KERNEL_LOOP(i, total_len) {
     int x = key2slot[i];
     int y = i - slot_lens[x];
@@ -236,7 +234,7 @@ __global__ void PullDedupCopyBaseNNCross(
       float* dest_ptr = dest[x] + y * hidden;
       const float* src_ptr = reinterpret_cast<const float*>(&src_val.show);
       for (int k = 0; k < cvm_offset; ++k) {
-        dest_ptr[k] = src_ptr[k];
+        dest_ptr[k] = src_ptr[k + skip_offset];
       }
     }
     // embedx flags + expand flags   && *(keys[x] + y) != 0  && *(keys[x] + y)
@@ -286,13 +284,11 @@ __global__ void PullDedupCopyExpandNNCross(
 }
 //========================== feature var pull ========================
 template <typename FEATURE_VALUE_GPU_TYPE>
-__global__ void PullCopyBaseVariable(float** dest,
-                                     const FEATURE_VALUE_GPU_TYPE* src,
-                                     const int hidden, const int expand_hidden,
-                                     const int total_len, uint64_t** keys,
-                                     int* total_dims, const int64_t* slot_lens,
-                                     const int slot_num, const int* key2slot,
-                                     const int cvm_offset) {
+__global__ void PullCopyBaseVariable(
+    float** dest, const FEATURE_VALUE_GPU_TYPE* src, const int hidden,
+    const int expand_hidden, const int total_len, uint64_t** keys,
+    int* total_dims, const int64_t* slot_lens, const int slot_num,
+    const int* key2slot, const int cvm_offset, const int skip_offset) {
   CUDA_KERNEL_LOOP(i, total_len) {
     int x = key2slot[i];
     int y = i - slot_lens[x];
@@ -319,7 +315,7 @@ __global__ void PullCopyBaseVariable(float** dest,
     } else {
       const float* src_ptr = reinterpret_cast<const float*>(&src_val.show);
       for (int k = 0; k < cvm_offset; ++k) {
-        dest_ptr[k] = src_ptr[k];
+        dest_ptr[k] = src_ptr[k + skip_offset];
       }
     }
   }  // end kernel loop
@@ -360,7 +356,8 @@ __global__ void PullDedupCopyBaseVariable(
     float** dest, const FEATURE_VALUE_GPU_TYPE* src, const int hidden,
     const int expand_hidden, const int total_len, uint64_t** keys,
     int* total_dims, const int64_t* slot_lens, const int slot_num,
-    const int* key2slot, const int cvm_offset, const uint32_t* restore_idx) {
+    const int* key2slot, const int cvm_offset, const uint32_t* restore_idx,
+    const int skip_offset) {
   CUDA_KERNEL_LOOP(i, total_len) {
     int x = key2slot[i];
     int y = i - slot_lens[x];
@@ -387,7 +384,7 @@ __global__ void PullDedupCopyBaseVariable(
     } else {
       const float* src_ptr = reinterpret_cast<const float*>(&src_val.show);
       for (int k = 0; k < cvm_offset; ++k) {
-        dest_ptr[k] = src_ptr[k];
+        dest_ptr[k] = src_ptr[k + skip_offset];
       }
     }
     //    assert(src_val.embed_w >= -10.0 && src_val.embed_w <= 10.0);
@@ -463,7 +460,7 @@ __global__ void PushCopy(FeaturePushValueGpuType* dest, float** src,
                          const int total_len, int bs, const int* slot_vector,
                          const int* total_dims, const int64_t* slot_lens,
                          const int slot_num, const int* key2slot,
-                         const int cvm_offset) {
+                         const int cvm_offset, const int skip_offset) {
   assert(expand_dim == 0);
   // only process no expand
   CUDA_KERNEL_LOOP(i, total_len) {
@@ -475,8 +472,11 @@ __global__ void PushCopy(FeaturePushValueGpuType* dest, float** src,
 
     float* optr = reinterpret_cast<float*>(&dest_val.show);
     float* src_val = reinterpret_cast<float*>(src[x] + y * hidden);
+    for (int k = 0; k < skip_offset; ++k) {
+      optr[k] = 1.0;
+    }
     for (int k = 0; k < cvm_offset; ++k) {
-      optr[k] = src_val[k];  // support variable length
+      optr[k + skip_offset] = src_val[k];  // support variable length
     }
     dest_val.embed_g *= -1. * bs;
 
@@ -498,7 +498,7 @@ __global__ void PushCopyBase(FeaturePushValueGpuType* dest, float** src,
                              const int bs, const int* slot_vector,
                              const int* total_dims, const int64_t* slot_lens,
                              const int slot_num, const int* key2slot,
-                             const int cvm_offset) {
+                             const int cvm_offset, const int skip_offset) {
   CUDA_KERNEL_LOOP(i, total_len) {
     int x = key2slot[i];
     int y = i - slot_lens[x];
@@ -507,8 +507,11 @@ __global__ void PushCopyBase(FeaturePushValueGpuType* dest, float** src,
     dest_val.slot = slot_vector[x];
     float* optr = reinterpret_cast<float*>(&dest_val.show);
     float* src_val = reinterpret_cast<float*>(src[x] + y * hidden);
+    for (int k = 0; k < skip_offset; ++k) {
+      optr[k] = 1.0;
+    }
     for (int k = 0; k < cvm_offset; ++k) {
-      optr[k] = src_val[k];  // support variable length
+      optr[k + skip_offset] = src_val[k];  // support variable length
     }
     dest_val.embed_g *= -1. * bs;
   }
@@ -544,7 +547,7 @@ __global__ void PushCopyBaseShareEmbedding(
     FeaturePushValueGpuType* dest, float** src, const int hidden,
     const int total_len, const int bs, const int* slot_vector,
     const int* total_dims, const int64_t* slot_lens, const int slot_num,
-    const int* key2slot, const int cvm_offset) {
+    const int* key2slot, const int cvm_offset, const int skip_offset) {
   CUDA_KERNEL_LOOP(i, total_len) {
     int x = key2slot[i];
     int y = i - slot_lens[x];
@@ -553,8 +556,11 @@ __global__ void PushCopyBaseShareEmbedding(
     dest_val.slot = slot_vector[x];
     float* optr = reinterpret_cast<float*>(&dest_val.show);
     float* src_val = reinterpret_cast<float*>(src[x] + y * hidden);
+    for (int k = 0; k < skip_offset; ++k) {
+      optr[k] = 1.0;
+    }
     for (int k = 0; k < cvm_offset; ++k) {
-      optr[k] = src_val[k];  // support variable length
+      optr[k + skip_offset] = src_val[k];  // support variable length
     }
 
     // for embed_g[SHARE_EMBEDDING_NUM]
@@ -570,7 +576,8 @@ __global__ void PushMergeCopyBase(
     const int total_len, const int bs, const int* slot_vector,
     const int* total_dims, const int64_t* slot_lens, const int slot_num,
     const int* key2slot, const int cvm_offset, const uint32_t* d_sort_idx,
-    const uint32_t* d_sort_offset, const uint32_t* d_sort_cnt) {
+    const uint32_t* d_sort_offset, const uint32_t* d_sort_cnt,
+    const int skip_offset) {
   CUDA_KERNEL_LOOP(i, total_len) {
     const uint32_t& start = d_sort_offset[i];
     const uint32_t& count = d_sort_cnt[i];
@@ -583,8 +590,11 @@ __global__ void PushMergeCopyBase(
     dest_val.slot = slot_vector[x];
     float* optr = reinterpret_cast<float*>(&dest_val.show);
     float* src_val = reinterpret_cast<float*>(src[x] + y * hidden);
+    for (int k = 0; k < skip_offset; ++k) {
+      optr[k] = count;
+    }
     for (int k = 0; k < cvm_offset; ++k) {
-      optr[k] = src_val[k];
+      optr[k + skip_offset] = src_val[k];
     }
     // merge same key in diffent slot id
     for (uint32_t j = 1; j < count; ++j) {
@@ -593,7 +603,7 @@ __global__ void PushMergeCopyBase(
       y = pos - slot_lens[x];
       src_val = reinterpret_cast<float*>(src[x] + y * hidden);
       for (int k = 0; k < cvm_offset; ++k) {
-        optr[k] += src_val[k];
+        optr[k + skip_offset] += src_val[k];
       }
     }
     dest_val.embed_g *= -1. * bs;
@@ -637,7 +647,8 @@ __global__ void PushMergeCopyBaseShareEmbedding(
     const int total_len, const int bs, const int* slot_vector,
     const int* total_dims, const int64_t* slot_lens, const int slot_num,
     const int* key2slot, const int cvm_offset, const uint32_t* d_sort_idx,
-    const uint32_t* d_sort_offset, const uint32_t* d_sort_cnt) {
+    const uint32_t* d_sort_offset, const uint32_t* d_sort_cnt,
+    const int skip_offset) {
   CUDA_KERNEL_LOOP(i, total_len) {
     const uint32_t& start = d_sort_offset[i];
     const uint32_t& count = d_sort_cnt[i];
@@ -651,8 +662,11 @@ __global__ void PushMergeCopyBaseShareEmbedding(
 
     float* optr = reinterpret_cast<float*>(&dest_val.show);
     float* src_val = reinterpret_cast<float*>(src[x] + y * hidden);
+    for (int k = 0; k < skip_offset; ++k) {
+      optr[k] = count;
+    }
     for (int k = 0; k < cvm_offset; ++k) {
-      optr[k] = src_val[k];
+      optr[k + skip_offset] = src_val[k];
     }
     // merge same key in diffent slot id
     for (uint32_t j = 1; j < count; ++j) {
@@ -661,7 +675,7 @@ __global__ void PushMergeCopyBaseShareEmbedding(
       y = pos - slot_lens[x];
       src_val = reinterpret_cast<float*>(src[x] + y * hidden);
       for (int k = 0; k < cvm_offset; ++k) {
-        optr[k] += src_val[k];
+        optr[k + skip_offset] += src_val[k];
       }
     }
     // for embed_g[SHARE_EMBEDDING_NUM]
@@ -672,13 +686,11 @@ __global__ void PushMergeCopyBaseShareEmbedding(
 }
 //============================== expand nncross ===============================
 template <typename FeaturePushValueGpuType>
-__global__ void PushCopyBaseNNCross(FeaturePushValueGpuType* dest, float** src,
-                                    const int hidden, const int total_len,
-                                    const int bs, const int* slot_vector,
-                                    const int* total_dims,
-                                    const int64_t* slot_lens,
-                                    const int slot_num, const int* key2slot,
-                                    const int cvm_offset) {
+__global__ void PushCopyBaseNNCross(
+    FeaturePushValueGpuType* dest, float** src, const int hidden,
+    const int total_len, const int bs, const int* slot_vector,
+    const int* total_dims, const int64_t* slot_lens, const int slot_num,
+    const int* key2slot, const int cvm_offset, const int skip_offset) {
   CUDA_KERNEL_LOOP(i, total_len) {
     int x = key2slot[i];
     int y = i - slot_lens[x];
@@ -686,15 +698,18 @@ __global__ void PushCopyBaseNNCross(FeaturePushValueGpuType* dest, float** src,
     auto& dest_val = dest[i];
     dest_val.slot = slot_vector[x];
     float* optr = reinterpret_cast<float*>(&dest_val.show);
+    for (int k = 0; k < skip_offset; ++k) {
+      optr[k] = 1.0;
+    }
     if (src[x] != 0) {
       float* src_val = reinterpret_cast<float*>(src[x] + y * hidden);
       for (int k = 0; k < cvm_offset; ++k) {
-        optr[k] = src_val[k];  // support variable length
+        optr[k + skip_offset] = src_val[k];  // support variable length
       }
       dest_val.embed_g *= -1. * bs;
     } else {
       for (int k = 1; k < cvm_offset; ++k) {
-        optr[k] = 0;  // support variable length
+        optr[k + skip_offset] = 0;  // support variable length
       }
       dest_val.show = 1;
     }
@@ -741,7 +756,8 @@ __global__ void PushMergeCopyBaseNNCross(
     const int total_len, const int bs, const int* slot_vector,
     const int* total_dims, const int64_t* slot_lens, const int slot_num,
     const int* key2slot, const int cvm_offset, const uint32_t* d_sort_idx,
-    const uint32_t* d_sort_offset, const uint32_t* d_sort_cnt) {
+    const uint32_t* d_sort_offset, const uint32_t* d_sort_cnt,
+    const int skip_offset) {
   CUDA_KERNEL_LOOP(i, total_len) {
     const uint32_t& start = d_sort_offset[i];
     const uint32_t& count = d_sort_cnt[i];
@@ -753,15 +769,18 @@ __global__ void PushMergeCopyBaseNNCross(
     auto& dest_val = dest[i];
     dest_val.slot = slot_vector[x];
     float* optr = reinterpret_cast<float*>(&dest_val.show);
+    for (int k = 0; k < skip_offset; ++k) {
+      optr[k] = count;
+    }
     float* src_val = NULL;
     if (src[x] != 0) {
       src_val = reinterpret_cast<float*>(src[x] + y * hidden);
       for (int k = 0; k < cvm_offset; ++k) {
-        optr[k] = src_val[k];
+        optr[k + skip_offset] = src_val[k];
       }
     } else {
       for (int k = 1; k < cvm_offset; ++k) {
-        optr[k] = 0;
+        optr[k + skip_offset] = 0;
       }
       dest_val.show = 1;
     }
@@ -775,7 +794,7 @@ __global__ void PushMergeCopyBaseNNCross(
       y = pos - slot_lens[x];
       src_val = reinterpret_cast<float*>(src[x] + y * hidden);
       for (int k = 0; k < cvm_offset; ++k) {
-        optr[k] += src_val[k];
+        optr[k + skip_offset] += src_val[k];
       }
     }
     dest_val.embed_g *= -1. * bs;
@@ -833,7 +852,8 @@ __global__ void PushCopyBaseVariable(
     FeaturePushValueGpuType* dest, float** src, const int hidden,
     const int expand_hidden, const int total_len, const int bs,
     const int* slot_vector, const int* total_dims, const int64_t* slot_lens,
-    const int slot_num, const int* key2slot, const int cvm_offset) {
+    const int slot_num, const int* key2slot, const int cvm_offset,
+    const int skip_offset) {
   CUDA_KERNEL_LOOP(i, total_len) {
     int x = key2slot[i];
     int y = i - slot_lens[x];
@@ -841,6 +861,9 @@ __global__ void PushCopyBaseVariable(
     auto& dest_val = dest[i];
     dest_val.slot = slot_vector[x];
     float* optr = reinterpret_cast<float*>(&dest_val.show);
+    for (int k = 0; k < skip_offset; ++k) {
+      optr[k] = 1.0;
+    }
     float* src_val = 0;
     if (src[x + slot_num] != 0) {
       src_val = reinterpret_cast<float*>(src[x + slot_num] + y * expand_hidden);
@@ -850,11 +873,11 @@ __global__ void PushCopyBaseVariable(
     assert(src_val != 0);
     if (total_dims[i] & 0x04) {
       for (int k = 0; k < cvm_offset; ++k) {
-        optr[k] = 0;  // support variable length
+        optr[k + skip_offset] = 0;  // support variable length
       }
     } else {
       for (int k = 0; k < cvm_offset; ++k) {
-        optr[k] = src_val[k];  // support variable length
+        optr[k + skip_offset] = src_val[k];  // support variable length
       }
       dest_val.embed_g *= -1. * bs;
     }
@@ -895,7 +918,7 @@ __global__ void PushMergeCopyBaseVariable(
     const int* slot_vector, const int* total_dims, const int64_t* slot_lens,
     const int slot_num, const int* key2slot, const int cvm_offset,
     const uint32_t* d_sort_idx, const uint32_t* d_sort_offset,
-    const uint32_t* d_sort_cnt) {
+    const uint32_t* d_sort_cnt, const int skip_offset) {
   CUDA_KERNEL_LOOP(i, total_len) {
     const uint32_t& start = d_sort_offset[i];
     const uint32_t& count = d_sort_cnt[i];
@@ -909,9 +932,12 @@ __global__ void PushMergeCopyBaseVariable(
 
     float* src_val = NULL;
     float* optr = reinterpret_cast<float*>(&dest_val.show);
+    for (int k = 0; k < skip_offset; ++k) {
+      optr[k] = count;
+    }
     if (total_dims[pos] & 0x04) {
       for (int k = 0; k < cvm_offset; ++k) {
-        optr[k] = 0;
+        optr[k + skip_offset] = 0;
       }
     } else {
       if (src[x + slot_num] != 0) {
@@ -922,7 +948,7 @@ __global__ void PushMergeCopyBaseVariable(
       }
       assert(src_val != 0);
       for (int k = 0; k < cvm_offset; ++k) {
-        optr[k] = src_val[k];
+        optr[k + skip_offset] = src_val[k];
       }
     }
     // merge same key in diffent slot id
@@ -941,7 +967,7 @@ __global__ void PushMergeCopyBaseVariable(
       }
       assert(src_val != 0);
       for (int k = 0; k < cvm_offset; ++k) {
-        optr[k] += src_val[k];
+        optr[k + skip_offset] += src_val[k];
       }
     }
     dest_val.embed_g *= -1. * bs;
@@ -1036,7 +1062,8 @@ void FeaturePullCopy(cudaStream_t stream, uint64_t** gpu_keys,
                      const size_t embedx_dim, const int total_length,
                      int* total_dims, const int64_t* slot_lens,
                      const int slot_num, const int* key2slot, const float scale,
-                     const int cvm_offset, const uint32_t* gpu_restore_idx) {
+                     const int cvm_offset, const uint32_t* gpu_restore_idx,
+                     const int skip_offset) {
   FeaturePullValueType* pull_values_gpu =
       reinterpret_cast<FeaturePullValueType*>(src);
   if (gpu_restore_idx != nullptr) {
@@ -1044,7 +1071,8 @@ void FeaturePullCopy(cudaStream_t stream, uint64_t** gpu_keys,
     PullDedupCopyBase<
         FeaturePullValueType><<<CUDA_BLOCK(total_length), stream>>>(
         gpu_values, pull_values_gpu, hidden_size, total_length, gpu_keys,
-        total_dims, slot_lens, slot_num, key2slot, cvm_offset, gpu_restore_idx);
+        total_dims, slot_lens, slot_num, key2slot, cvm_offset, gpu_restore_idx,
+        skip_offset);
     if (embedx_dim == 0) {
       return;
     }
@@ -1059,7 +1087,7 @@ void FeaturePullCopy(cudaStream_t stream, uint64_t** gpu_keys,
     // normal
     PullCopyBase<FeaturePullValueType><<<CUDA_BLOCK(total_length), stream>>>(
         gpu_values, pull_values_gpu, hidden_size, total_length, gpu_keys,
-        total_dims, slot_lens, slot_num, key2slot, cvm_offset);
+        total_dims, slot_lens, slot_num, key2slot, cvm_offset, skip_offset);
     if (embedx_dim == 0) {
       return;
     }
@@ -1080,7 +1108,8 @@ void FeaturePullCopyNNCross(cudaStream_t stream, uint64_t** gpu_keys,
                             int* total_dims, const int64_t* slot_lens,
                             const int slot_num, const int* key2slot,
                             const float scale, const int cvm_offset,
-                            const uint32_t* gpu_restore_idx) {
+                            const uint32_t* gpu_restore_idx,
+                            const int skip_offset) {
   FeaturePullValueType* pull_values_gpu =
       reinterpret_cast<FeaturePullValueType*>(src);
   if (gpu_restore_idx != nullptr) {
@@ -1089,7 +1118,7 @@ void FeaturePullCopyNNCross(cudaStream_t stream, uint64_t** gpu_keys,
         FeaturePullValueType><<<CUDA_BLOCK(total_length), stream>>>(
         gpu_values, pull_values_gpu, hidden_size, expand_dim, total_length,
         gpu_keys, total_dims, slot_lens, slot_num, key2slot, cvm_offset,
-        gpu_restore_idx);
+        gpu_restore_idx, skip_offset);
     // embedx + expand_embedx
     int embedx_total_length = total_length * (embedx_dim + expand_dim);
     PullDedupCopyExpandNNCross<
@@ -1102,7 +1131,8 @@ void FeaturePullCopyNNCross(cudaStream_t stream, uint64_t** gpu_keys,
     PullCopyBaseNNCross<
         FeaturePullValueType><<<CUDA_BLOCK(total_length), stream>>>(
         gpu_values, pull_values_gpu, hidden_size, expand_dim, total_length,
-        gpu_keys, total_dims, slot_lens, slot_num, key2slot, cvm_offset);
+        gpu_keys, total_dims, slot_lens, slot_num, key2slot, cvm_offset,
+        skip_offset);
     // embedx + expand_embedx
     int embedx_total_length = total_length * (embedx_dim + expand_dim);
     PullCopyExpandNNCross<
@@ -1121,7 +1151,8 @@ void FeaturePullCopyVariable(cudaStream_t stream, uint64_t** gpu_keys,
                              int* total_dims, const int64_t* slot_lens,
                              const int slot_num, const int* key2slot,
                              const float scale, const int cvm_offset,
-                             const uint32_t* gpu_restore_idx) {
+                             const uint32_t* gpu_restore_idx,
+                             const int skip_offset) {
   FeaturePullValueType* pull_values_gpu =
       reinterpret_cast<FeaturePullValueType*>(src);
   if (gpu_restore_idx != nullptr) {
@@ -1129,7 +1160,7 @@ void FeaturePullCopyVariable(cudaStream_t stream, uint64_t** gpu_keys,
         FeaturePullValueType><<<CUDA_BLOCK(total_length), stream>>>(
         gpu_values, pull_values_gpu, hidden_size, (expand_dim + cvm_offset),
         total_length, gpu_keys, total_dims, slot_lens, slot_num, key2slot,
-        cvm_offset, gpu_restore_idx);
+        cvm_offset, gpu_restore_idx, skip_offset);
     // embedx or expand_embedx
     int max_embedx_dim = (embedx_dim > expand_dim) ? embedx_dim : expand_dim;
     int embedx_total_length = total_length * max_embedx_dim;
@@ -1143,7 +1174,7 @@ void FeaturePullCopyVariable(cudaStream_t stream, uint64_t** gpu_keys,
         FeaturePullValueType><<<CUDA_BLOCK(total_length), stream>>>(
         gpu_values, pull_values_gpu, hidden_size, (expand_dim + cvm_offset),
         total_length, gpu_keys, total_dims, slot_lens, slot_num, key2slot,
-        cvm_offset);
+        cvm_offset, skip_offset);
     // embedx or expand_embedx
     int max_embedx_dim = (embedx_dim > expand_dim) ? embedx_dim : expand_dim;
     int embedx_total_length = total_length * max_embedx_dim;
@@ -1161,11 +1192,13 @@ void BoxWrapper::CopyForPull(const paddle::platform::Place& place,
                              const int slot_num, const int* key2slot,
                              const int hidden_size, const int expand_embed_dim,
                              const int64_t total_length, int* total_dims,
+                             const int skip_offset,
                              const uint32_t* gpu_restore_idx) {
   auto stream = dynamic_cast<platform::CUDADeviceContext*>(
                     platform::DeviceContextPool::Instance().Get(
                         BOOST_GET_CONST(platform::CUDAPlace, place)))
                     ->stream();
+  const int cvm_offset = cvm_offset_ - skip_offset;
 #define EMBEDX_CASE(i, ...)                                                  \
   case i: {                                                                  \
     constexpr size_t EmbedxDim = i;                                          \
@@ -1184,23 +1217,23 @@ void BoxWrapper::CopyForPull(const paddle::platform::Place& place,
       FeaturePullCopy<boxps::FeaturePullValueGpuPCOC<EmbedxDim, ExpandDim>>(  \
           stream, gpu_keys, gpu_values, total_values_gpu, hidden_size,        \
           EmbedxDim, total_length, total_dims, slot_lens, slot_num, key2slot, \
-          pull_embedx_scale_, cvm_offset_, gpu_restore_idx);                  \
+          pull_embedx_scale_, cvm_offset, gpu_restore_idx, skip_offset);      \
     } else if (feature_type_ == static_cast<int>(boxps::FEATURE_QUANT) ||     \
                feature_type_ == static_cast<int>(boxps::FEATURE_SHOWCLK)) {   \
       FeaturePullCopy<boxps::FeaturePullValueGpuQuant<EmbedxDim, ExpandDim>>( \
           stream, gpu_keys, gpu_values, total_values_gpu, hidden_size,        \
           EmbedxDim, total_length, total_dims, slot_lens, slot_num, key2slot, \
-          pull_embedx_scale_, cvm_offset_, gpu_restore_idx);                  \
+          pull_embedx_scale_, cvm_offset, gpu_restore_idx, skip_offset);      \
     } else if (feature_type_ == static_cast<int>(boxps::FEATURE_CONV)) {      \
       FeaturePullCopy<boxps::FeaturePullValueGpuConv<EmbedxDim, ExpandDim>>(  \
           stream, gpu_keys, gpu_values, total_values_gpu, hidden_size,        \
           EmbedxDim, total_length, total_dims, slot_lens, slot_num, key2slot, \
-          pull_embedx_scale_, cvm_offset_, gpu_restore_idx);                  \
+          pull_embedx_scale_, cvm_offset, gpu_restore_idx, skip_offset);      \
     } else {                                                                  \
       FeaturePullCopy<boxps::FeaturePullValueGpu<EmbedxDim, ExpandDim>>(      \
           stream, gpu_keys, gpu_values, total_values_gpu, hidden_size,        \
           EmbedxDim, total_length, total_dims, slot_lens, slot_num, key2slot, \
-          1.0, cvm_offset_, gpu_restore_idx);                                 \
+          1.0, cvm_offset, gpu_restore_idx, skip_offset);                     \
     }                                                                         \
   } break
 
@@ -1212,50 +1245,65 @@ void BoxWrapper::CopyForPull(const paddle::platform::Place& place,
           boxps::FeaturePullValueGpuPCOC<EmbedxDim, ExpandDim>>(               \
           stream, gpu_keys, gpu_values, total_values_gpu, hidden_size,         \
           EmbedxDim, ExpandDim, total_length, total_dims, slot_lens, slot_num, \
-          key2slot, pull_embedx_scale_, cvm_offset_, gpu_restore_idx);         \
+          key2slot, pull_embedx_scale_, cvm_offset, gpu_restore_idx,           \
+          skip_offset);                                                        \
     } else if (feature_type_ == static_cast<int>(boxps::FEATURE_QUANT) ||      \
                feature_type_ == static_cast<int>(boxps::FEATURE_SHOWCLK)) {    \
       FeaturePullCopyNNCross<                                                  \
           boxps::FeaturePullValueGpuQuant<EmbedxDim, ExpandDim>>(              \
           stream, gpu_keys, gpu_values, total_values_gpu, hidden_size,         \
           EmbedxDim, ExpandDim, total_length, total_dims, slot_lens, slot_num, \
-          key2slot, pull_embedx_scale_, cvm_offset_, gpu_restore_idx);         \
+          key2slot, pull_embedx_scale_, cvm_offset, gpu_restore_idx,           \
+          skip_offset);                                                        \
     } else if (feature_type_ == static_cast<int>(boxps::FEATURE_VARIABLE)) {   \
       FeaturePullCopyVariable<                                                 \
           boxps::FeatureVarPullValueGpu<EmbedxDim, ExpandDim>>(                \
           stream, gpu_keys, gpu_values, total_values_gpu, hidden_size,         \
           EmbedxDim, ExpandDim, total_length, total_dims, slot_lens, slot_num, \
-          key2slot, 1.0, cvm_offset_, gpu_restore_idx);                        \
+          key2slot, 1.0, cvm_offset, gpu_restore_idx, skip_offset);            \
     } else if (feature_type_ == static_cast<int>(boxps::FEATURE_CONV)) {       \
       FeaturePullCopyNNCross<                                                  \
           boxps::FeaturePullValueGpuConv<EmbedxDim, ExpandDim>>(               \
           stream, gpu_keys, gpu_values, total_values_gpu, hidden_size,         \
           EmbedxDim, ExpandDim, total_length, total_dims, slot_lens, slot_num, \
-          key2slot, 1.0, cvm_offset_, gpu_restore_idx);                        \
+          key2slot, 1.0, cvm_offset, gpu_restore_idx, skip_offset);            \
     } else {                                                                   \
       FeaturePullCopyNNCross<                                                  \
           boxps::FeaturePullValueGpu<EmbedxDim, ExpandDim>>(                   \
           stream, gpu_keys, gpu_values, total_values_gpu, hidden_size,         \
           EmbedxDim, ExpandDim, total_length, total_dims, slot_lens, slot_num, \
-          key2slot, 1.0, cvm_offset_, gpu_restore_idx);                        \
+          key2slot, 1.0, cvm_offset, gpu_restore_idx, skip_offset);            \
     }                                                                          \
   } break
 
-#define EXPAND_EMBED_PULL_SHARE(i, ...)                                      \
-  case i: {                                                                  \
-    constexpr size_t ExpandDim = i;                                          \
-    if (feature_type_ == static_cast<int>(boxps::FEATURE_SHARE_EMBEDDING)) { \
-      FeaturePullCopy<                                                       \
-          boxps::FeaturePullValueGpuShareEmbedding<EmbedxDim, ExpandDim>>(   \
-          stream, gpu_keys, gpu_values, total_values_gpu, hidden_size,       \
-          (hidden_size - cvm_offset_), total_length, total_dims, slot_lens,  \
-          slot_num, key2slot, pull_embedx_scale_, cvm_offset_,               \
-          gpu_restore_idx);                                                  \
-    }                                                                        \
+#define EXPAND_EMBED_PULL_SHARE(i, ...)                                        \
+  case i: {                                                                    \
+    constexpr size_t ExpandDim = i;                                            \
+    if (feature_type_ == static_cast<int>(boxps::FEATURE_SHARE_EMBEDDING)) {   \
+      FeaturePullCopy<                                                         \
+          boxps::FeaturePullValueGpuShareEmbedding<EmbedxDim, ExpandDim>>(     \
+          stream, gpu_keys, gpu_values, total_values_gpu, hidden_size,         \
+          (hidden_size - cvm_offset), total_length, total_dims, slot_lens,     \
+          slot_num, key2slot, pull_embedx_scale_, cvm_offset, gpu_restore_idx, \
+          skip_offset);                                                        \
+    }                                                                          \
+  } break
+
+// adam 767 embedx=0, expand=767 for PGL ERNIE
+#define EXPAND_EMBED_PULL_ADAMEX(i, ...)                                      \
+  case i: {                                                                   \
+    constexpr size_t ExpandDim = i;                                           \
+    if (feature_type_ == static_cast<int>(boxps::FEATURE_ADAM)) {             \
+      FeaturePullCopy<boxps::FeatureVarPullValueGpu<EmbedxDim, ExpandDim>>(   \
+          stream, gpu_keys, gpu_values, total_values_gpu, hidden_size,        \
+          ExpandDim, total_length, total_dims, slot_lens, slot_num, key2slot, \
+          1.0, cvm_offset, gpu_restore_idx, skip_offset);                     \
+    }                                                                         \
   } break
 
   switch (embedx_dim_) {
-    EMBEDX_CASE(0, EXPAND_EMBED_PULL_CASE(0););
+    EMBEDX_CASE(0, EXPAND_EMBED_PULL_CASE(0); EXPAND_EMBED_PULL_ADAMEX(255);
+                EXPAND_EMBED_PULL_ADAMEX(767););
     EMBEDX_CASE(2, EXPAND_EMBED_PULL_CASE(0););
     EMBEDX_CASE(4, EXPAND_EMBED_PULL_CASE(0););
     EMBEDX_CASE(8, EXPAND_EMBED_PULL_CASE(0); EXPAND_EMBED_PULL_SHARE(1);
@@ -1275,7 +1323,7 @@ void BoxWrapper::CopyForPull(const paddle::platform::Place& place,
     EMBEDX_CASE(280, EXPAND_EMBED_PULL_CASE(0););
     default:
       PADDLE_THROW(platform::errors::InvalidArgument(
-          "Unsupport this embedding size [%d]", hidden_size - cvm_offset_));
+          "Unsupport this embedding size [%d]", hidden_size - cvm_offset));
   }
   cudaStreamSynchronize(stream);
 #undef EXPAND_EMBED_PULL_CASE
@@ -1305,7 +1353,7 @@ void FeaturePushCopy(cudaStream_t stream, void* dest, float** grad_values,
                      const int64_t* slot_lens, const int slot_num,
                      const int* key2slot, const int cvm_offset,
                      const uint32_t* d_sort_idx, const uint32_t* d_sort_offset,
-                     const uint32_t* d_sort_lens) {
+                     const uint32_t* d_sort_lens, const int skip_offset) {
   FeaturePushValueGpuType* push_grad_values =
       reinterpret_cast<FeaturePushValueGpuType*>(dest);
   if (d_sort_idx != nullptr) {
@@ -1314,7 +1362,7 @@ void FeaturePushCopy(cudaStream_t stream, void* dest, float** grad_values,
         FeaturePushValueGpuType><<<CUDA_BLOCK(total_length), stream>>>(
         push_grad_values, grad_values, hidden_size, total_length, batch_size,
         slot_vector, total_dims, slot_lens, slot_num, key2slot, cvm_offset,
-        d_sort_idx, d_sort_offset, d_sort_lens);
+        d_sort_idx, d_sort_offset, d_sort_lens, skip_offset);
     if (embedx_dim == 0) {
       return;
     }
@@ -1329,7 +1377,8 @@ void FeaturePushCopy(cudaStream_t stream, void* dest, float** grad_values,
     // normal
     PushCopyBase<FeaturePushValueGpuType><<<CUDA_BLOCK(total_length), stream>>>(
         push_grad_values, grad_values, hidden_size, total_length, batch_size,
-        slot_vector, total_dims, slot_lens, slot_num, key2slot, cvm_offset);
+        slot_vector, total_dims, slot_lens, slot_num, key2slot, cvm_offset,
+        skip_offset);
     if (embedx_dim == 0) {
       return;
     }
@@ -1350,7 +1399,8 @@ void FeaturePushCopyNNCross(
     const int batch_size, const int* slot_vector, const int* total_dims,
     const int64_t* slot_lens, const int slot_num, const int* key2slot,
     const int cvm_offset, const uint32_t* d_sort_idx,
-    const uint32_t* d_sort_offset, const uint32_t* d_sort_lens) {
+    const uint32_t* d_sort_offset, const uint32_t* d_sort_lens,
+    const int skip_offset) {
   FeaturePushValueGpuType* push_grad_values =
       reinterpret_cast<FeaturePushValueGpuType*>(dest);
   if (d_sort_idx != nullptr) {
@@ -1359,7 +1409,7 @@ void FeaturePushCopyNNCross(
         FeaturePushValueGpuType><<<CUDA_BLOCK(total_length), stream>>>(
         push_grad_values, grad_values, hidden_size, total_length, batch_size,
         slot_vector, total_dims, slot_lens, slot_num, key2slot, cvm_offset,
-        d_sort_idx, d_sort_offset, d_sort_lens);
+        d_sort_idx, d_sort_offset, d_sort_lens, skip_offset);
     int embedx_total_length = total_length * (embedx_dim + expand_dim);
     PushMergeCopyExpandNNCross<
         FeaturePushValueGpuType><<<CUDA_BLOCK(embedx_total_length), stream>>>(
@@ -1372,7 +1422,8 @@ void FeaturePushCopyNNCross(
     PushCopyBaseNNCross<
         FeaturePushValueGpuType><<<CUDA_BLOCK(total_length), stream>>>(
         push_grad_values, grad_values, hidden_size, total_length, batch_size,
-        slot_vector, total_dims, slot_lens, slot_num, key2slot, cvm_offset);
+        slot_vector, total_dims, slot_lens, slot_num, key2slot, cvm_offset,
+        skip_offset);
     int embedx_total_length = total_length * (embedx_dim + expand_dim);
     PushCopyExpandNNCross<
         FeaturePushValueGpuType><<<CUDA_BLOCK(embedx_total_length), stream>>>(
@@ -1389,7 +1440,7 @@ void FeaturePushCopyShareEmbedding(
     const int* slot_vector, const int* total_dims, const int64_t* slot_lens,
     const int slot_num, const int* key2slot, const int cvm_offset,
     const uint32_t* d_sort_idx, const uint32_t* d_sort_offset,
-    const uint32_t* d_sort_lens) {
+    const uint32_t* d_sort_lens, const int skip_offset) {
   FeaturePushValueGpuType* push_grad_values =
       reinterpret_cast<FeaturePushValueGpuType*>(dest);
   if (d_sort_idx != nullptr) {
@@ -1398,7 +1449,7 @@ void FeaturePushCopyShareEmbedding(
         FeaturePushValueGpuType><<<CUDA_BLOCK(total_length), stream>>>(
         push_grad_values, grad_values, hidden_size, total_length, batch_size,
         slot_vector, total_dims, slot_lens, slot_num, key2slot, cvm_offset,
-        d_sort_idx, d_sort_offset, d_sort_lens);
+        d_sort_idx, d_sort_offset, d_sort_lens, skip_offset);
     int embedx_total_length = total_length * embedx_dim;
     PushMergeCopyExpand<
         FeaturePushValueGpuType><<<CUDA_BLOCK(embedx_total_length), stream>>>(
@@ -1410,7 +1461,8 @@ void FeaturePushCopyShareEmbedding(
     PushCopyBaseShareEmbedding<
         FeaturePushValueGpuType><<<CUDA_BLOCK(total_length), stream>>>(
         push_grad_values, grad_values, hidden_size, total_length, batch_size,
-        slot_vector, total_dims, slot_lens, slot_num, key2slot, cvm_offset);
+        slot_vector, total_dims, slot_lens, slot_num, key2slot, cvm_offset,
+        skip_offset);
     int embedx_total_length = total_length * embedx_dim;
     PushCopyExpand<
         FeaturePushValueGpuType><<<CUDA_BLOCK(embedx_total_length), stream>>>(
@@ -1426,7 +1478,8 @@ void FeaturePushCopyVariable(
     const int batch_size, const int* slot_vector, const int* total_dims,
     const int64_t* slot_lens, const int slot_num, const int* key2slot,
     const int cvm_offset, const uint32_t* d_sort_idx,
-    const uint32_t* d_sort_offset, const uint32_t* d_sort_lens) {
+    const uint32_t* d_sort_offset, const uint32_t* d_sort_lens,
+    const int skip_offset) {
   FeaturePushValueGpuType* push_grad_values =
       reinterpret_cast<FeaturePushValueGpuType*>(dest);
   if (d_sort_idx != nullptr) {
@@ -1434,7 +1487,8 @@ void FeaturePushCopyVariable(
         FeaturePushValueGpuType><<<CUDA_BLOCK(total_length), stream>>>(
         push_grad_values, grad_values, hidden_size, expand_dim + cvm_offset,
         total_length, batch_size, slot_vector, total_dims, slot_lens, slot_num,
-        key2slot, cvm_offset, d_sort_idx, d_sort_offset, d_sort_lens);
+        key2slot, cvm_offset, d_sort_idx, d_sort_offset, d_sort_lens,
+        skip_offset);
 
     int max_embedx_dim = (embedx_dim > expand_dim) ? embedx_dim : expand_dim;
     int embedx_total_length = total_length * max_embedx_dim;
@@ -1448,7 +1502,7 @@ void FeaturePushCopyVariable(
         FeaturePushValueGpuType><<<CUDA_BLOCK(total_length), stream>>>(
         push_grad_values, grad_values, hidden_size, expand_dim + cvm_offset,
         total_length, batch_size, slot_vector, total_dims, slot_lens, slot_num,
-        key2slot, cvm_offset);
+        key2slot, cvm_offset, skip_offset);
 
     int max_embedx_dim = (embedx_dim > expand_dim) ? embedx_dim : expand_dim;
     int embedx_total_length = total_length * max_embedx_dim;
@@ -1459,20 +1513,19 @@ void FeaturePushCopyVariable(
         slot_num, key2slot, cvm_offset);
   }
 }
-void BoxWrapper::CopyForPush(const paddle::platform::Place& place,
-                             float** grad_values, void* total_grad_values_gpu,
-                             const int* d_slot_vector, const int64_t* slot_lens,
-                             const int slot_num, const int hidden_size,
-                             const int expand_embed_dim,
-                             const int64_t total_length, const int batch_size,
-                             const int* total_dims, const int* key2slot,
-                             const uint32_t* gpu_sort_idx,
-                             const uint32_t* gpu_sort_offset,
-                             const uint32_t* gpu_sort_lens) {
+void BoxWrapper::CopyForPush(
+    const paddle::platform::Place& place, float** grad_values,
+    void* total_grad_values_gpu, const int* d_slot_vector,
+    const int64_t* slot_lens, const int slot_num, const int hidden_size,
+    const int expand_embed_dim, const int64_t total_length,
+    const int batch_size, const int* total_dims, const int* key2slot,
+    const int skip_offset, const uint32_t* gpu_sort_idx,
+    const uint32_t* gpu_sort_offset, const uint32_t* gpu_sort_lens) {
   auto stream = dynamic_cast<platform::CUDADeviceContext*>(
                     platform::DeviceContextPool::Instance().Get(
                         BOOST_GET_CONST(platform::CUDAPlace, place)))
                     ->stream();
+  const int cvm_offset = cvm_offset_ - skip_offset;
 #define EMBEDX_CASE(i, ...)                                                  \
   case i: {                                                                  \
     constexpr size_t EmbedxDim = i;                                          \
@@ -1491,20 +1544,20 @@ void BoxWrapper::CopyForPush(const paddle::platform::Place& place,
       FeaturePushCopy<boxps::FeaturePushValueGpuPCOC<EmbedxDim, ExpandDim>>(  \
           stream, total_grad_values_gpu, grad_values, hidden_size, EmbedxDim, \
           total_length, batch_size, d_slot_vector, total_dims, slot_lens,     \
-          slot_num, key2slot, cvm_offset_, gpu_sort_idx, gpu_sort_offset,     \
-          gpu_sort_lens);                                                     \
+          slot_num, key2slot, cvm_offset, gpu_sort_idx, gpu_sort_offset,      \
+          gpu_sort_lens, skip_offset);                                        \
     } else if (feature_type_ == static_cast<int>(boxps::FEATURE_CONV)) {      \
       FeaturePushCopy<boxps::FeaturePushValueGpuConv<EmbedxDim, ExpandDim>>(  \
           stream, total_grad_values_gpu, grad_values, hidden_size, EmbedxDim, \
           total_length, batch_size, d_slot_vector, total_dims, slot_lens,     \
-          slot_num, key2slot, cvm_offset_, gpu_sort_idx, gpu_sort_offset,     \
-          gpu_sort_lens);                                                     \
+          slot_num, key2slot, cvm_offset, gpu_sort_idx, gpu_sort_offset,      \
+          gpu_sort_lens, skip_offset);                                        \
     } else {                                                                  \
       FeaturePushCopy<boxps::FeaturePushValueGpu<EmbedxDim, ExpandDim>>(      \
           stream, total_grad_values_gpu, grad_values, hidden_size, EmbedxDim, \
           total_length, batch_size, d_slot_vector, total_dims, slot_lens,     \
-          slot_num, key2slot, cvm_offset_, gpu_sort_idx, gpu_sort_offset,     \
-          gpu_sort_lens);                                                     \
+          slot_num, key2slot, cvm_offset, gpu_sort_idx, gpu_sort_offset,      \
+          gpu_sort_lens, skip_offset);                                        \
     }                                                                         \
   } break
 
@@ -1516,46 +1569,60 @@ void BoxWrapper::CopyForPush(const paddle::platform::Place& place,
           boxps::FeaturePushValueGpuPCOC<EmbedxDim, ExpandDim>>(              \
           stream, total_grad_values_gpu, grad_values, hidden_size, EmbedxDim, \
           ExpandDim, total_length, batch_size, d_slot_vector, total_dims,     \
-          slot_lens, slot_num, key2slot, cvm_offset_, gpu_sort_idx,           \
-          gpu_sort_offset, gpu_sort_lens);                                    \
+          slot_lens, slot_num, key2slot, cvm_offset, gpu_sort_idx,            \
+          gpu_sort_offset, gpu_sort_lens, skip_offset);                       \
     } else if (feature_type_ == static_cast<int>(boxps::FEATURE_VARIABLE)) {  \
       FeaturePushCopyVariable<                                                \
           boxps::FeatureVarPushValueGpu<EmbedxDim, ExpandDim>>(               \
           stream, total_grad_values_gpu, grad_values, hidden_size, EmbedxDim, \
           ExpandDim, total_length, batch_size, d_slot_vector, total_dims,     \
-          slot_lens, slot_num, key2slot, cvm_offset_, gpu_sort_idx,           \
-          gpu_sort_offset, gpu_sort_lens);                                    \
+          slot_lens, slot_num, key2slot, cvm_offset, gpu_sort_idx,            \
+          gpu_sort_offset, gpu_sort_lens, skip_offset);                       \
     } else if (feature_type_ == static_cast<int>(boxps::FEATURE_CONV)) {      \
       FeaturePushCopyVariable<                                                \
           boxps::FeaturePushValueGpuConv<EmbedxDim, ExpandDim>>(              \
           stream, total_grad_values_gpu, grad_values, hidden_size, EmbedxDim, \
           ExpandDim, total_length, batch_size, d_slot_vector, total_dims,     \
-          slot_lens, slot_num, key2slot, cvm_offset_, gpu_sort_idx,           \
-          gpu_sort_offset, gpu_sort_lens);                                    \
+          slot_lens, slot_num, key2slot, cvm_offset, gpu_sort_idx,            \
+          gpu_sort_offset, gpu_sort_lens, skip_offset);                       \
     } else {                                                                  \
       FeaturePushCopyNNCross<                                                 \
           boxps::FeaturePushValueGpu<EmbedxDim, ExpandDim>>(                  \
           stream, total_grad_values_gpu, grad_values, hidden_size, EmbedxDim, \
           ExpandDim, total_length, batch_size, d_slot_vector, total_dims,     \
-          slot_lens, slot_num, key2slot, cvm_offset_, gpu_sort_idx,           \
-          gpu_sort_offset, gpu_sort_lens);                                    \
+          slot_lens, slot_num, key2slot, cvm_offset, gpu_sort_idx,            \
+          gpu_sort_offset, gpu_sort_lens, skip_offset);                       \
     }                                                                         \
   } break
 
-#define EXPAND_EMBED_PUSH_SHARE(i, ...)                                      \
-  case i: {                                                                  \
-    constexpr size_t ExpandDim = i;                                          \
-    if (feature_type_ == static_cast<int>(boxps::FEATURE_SHARE_EMBEDDING)) { \
-      FeaturePushCopyShareEmbedding<                                         \
-          boxps::FeaturePushValueGpuShareEmbedding<EmbedxDim, ExpandDim>>(   \
-          stream, total_grad_values_gpu, grad_values, hidden_size,           \
-          (hidden_size - cvm_offset_), total_length, batch_size,             \
-          d_slot_vector, total_dims, slot_lens, slot_num, key2slot,          \
-          cvm_offset_, gpu_sort_idx, gpu_sort_offset, gpu_sort_lens);        \
-    }                                                                        \
+#define EXPAND_EMBED_PUSH_SHARE(i, ...)                                        \
+  case i: {                                                                    \
+    constexpr size_t ExpandDim = i;                                            \
+    if (feature_type_ == static_cast<int>(boxps::FEATURE_SHARE_EMBEDDING)) {   \
+      FeaturePushCopyShareEmbedding<                                           \
+          boxps::FeaturePushValueGpuShareEmbedding<EmbedxDim, ExpandDim>>(     \
+          stream, total_grad_values_gpu, grad_values, hidden_size,             \
+          (hidden_size - cvm_offset), total_length, batch_size, d_slot_vector, \
+          total_dims, slot_lens, slot_num, key2slot, cvm_offset, gpu_sort_idx, \
+          gpu_sort_offset, gpu_sort_lens, skip_offset);                        \
+    }                                                                          \
   } break
+
+#define EXPAND_EMBED_PUSH_ADAMEX(i, ...)                                      \
+  case i: {                                                                   \
+    constexpr size_t ExpandDim = i;                                           \
+    if (feature_type_ == static_cast<int>(boxps::FEATURE_ADAM)) {             \
+      FeaturePushCopy<boxps::FeatureVarPushValueGpu<EmbedxDim, ExpandDim>>(   \
+          stream, total_grad_values_gpu, grad_values, hidden_size, ExpandDim, \
+          total_length, batch_size, d_slot_vector, total_dims, slot_lens,     \
+          slot_num, key2slot, cvm_offset, gpu_sort_idx, gpu_sort_offset,      \
+          gpu_sort_lens, skip_offset);                                        \
+    }                                                                         \
+  } break
+
   switch (embedx_dim_) {
-    EMBEDX_CASE(0, EXPAND_EMBED_PUSH_CASE(0););
+    EMBEDX_CASE(0, EXPAND_EMBED_PUSH_CASE(0); EXPAND_EMBED_PUSH_ADAMEX(255);
+                EXPAND_EMBED_PUSH_ADAMEX(767););
     EMBEDX_CASE(2, EXPAND_EMBED_PUSH_CASE(0););
     EMBEDX_CASE(4, EXPAND_EMBED_PUSH_CASE(0););
     EMBEDX_CASE(8, EXPAND_EMBED_PUSH_CASE(0); EXPAND_EMBED_PUSH_SHARE(1);
@@ -1575,7 +1642,7 @@ void BoxWrapper::CopyForPush(const paddle::platform::Place& place,
     EMBEDX_CASE(280, EXPAND_EMBED_PUSH_CASE(0););
     default:
       PADDLE_THROW(platform::errors::InvalidArgument(
-          "Unsupport this embedding size [%d]", hidden_size - cvm_offset_));
+          "Unsupport this embedding size [%d]", hidden_size - cvm_offset));
   }
 
   cudaStreamSynchronize(stream);

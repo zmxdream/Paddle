@@ -47,6 +47,21 @@ void TensorFormatter::Print(const framework::LoDTensor& print_tensor,
   std::cout << Format(print_tensor, tensor_name, message);
 }
 
+// save to file
+void TensorFormatter::Print(const std::string& path,
+                            const framework::LoDTensor& print_tensor,
+                            const std::string& tensor_name,
+                            const std::string& message) {
+  if (path.empty()) {
+    Print(print_tensor, tensor_name, message);
+    return;
+  }
+  static std::mutex mutex;
+  std::lock_guard<std::mutex> lock(mutex);
+  std::ofstream os(path, std::ios::app);
+  os << Format(print_tensor, tensor_name, message);
+}
+
 std::string TensorFormatter::Format(const framework::LoDTensor& print_tensor,
                                     const std::string& tensor_name,
                                     const std::string& message) {

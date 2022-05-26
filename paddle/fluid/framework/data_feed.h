@@ -1323,6 +1323,14 @@ class ISlotParser {
       int& lines) {         // NOLINT
     return false;
   }
+  // add parser file path
+  virtual bool ParseFileInstance(
+      const char* path, std::function<int(char* buf, int len)> ReadBuffFunc,
+      std::function<void(std::vector<SlotRecord>&, int, int)>
+          PullRecordsFunc,  // NOLINT
+      int& lines) {         // NOLINT
+    return false;
+  }
 };
 struct UsedSlotInfo {
   int idx;
