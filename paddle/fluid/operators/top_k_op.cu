@@ -66,7 +66,7 @@ __global__ void KernelSortTopK(const size_t num_rows, const T* input_val,
       }
     } else {
       for (int i = 0; i < K; ++i) {
-        int pos = (i + 1) % K;
+        int pos = (i + 1) % num_cols;
         val[i] = in[pos];
         ind[i] = pos;
       }
