@@ -458,7 +458,8 @@ void BoxWrapper::PullSparse(const paddle::platform::Place& place,
   CheckEmbedSizeIsValid(hidden_size + skip_offset - cvm_offset_,
                         expand_embed_dim);
   switch (embedx_dim_) {
-    EMBEDX_CASE(0, PULLSPARSE_CASE(0); PULLSPARSE_CASE(767););
+    EMBEDX_CASE(0, PULLSPARSE_CASE(0); PULLSPARSE_CASE(255);
+                PULLSPARSE_CASE(767););
     EMBEDX_CASE(2, PULLSPARSE_CASE(0););
     EMBEDX_CASE(4, PULLSPARSE_CASE(0););
     EMBEDX_CASE(8, PULLSPARSE_CASE(0); PULLSPARSE_CASE(1); PULLSPARSE_CASE(2);
@@ -537,7 +538,8 @@ void BoxWrapper::PushSparseGrad(const paddle::platform::Place& place,
   CheckEmbedSizeIsValid(hidden_size + skip_offset - cvm_offset_,
                         expand_embed_dim);
   switch (embedx_dim_) {
-    EMBEDX_CASE(0, PUSHSPARSE_CASE(0); PUSHSPARSE_CASE(767););
+    EMBEDX_CASE(0, PUSHSPARSE_CASE(0); PUSHSPARSE_CASE(255);
+                PUSHSPARSE_CASE(767););
     EMBEDX_CASE(2, PUSHSPARSE_CASE(0););
     EMBEDX_CASE(4, PUSHSPARSE_CASE(0););
     EMBEDX_CASE(8, PUSHSPARSE_CASE(0); PUSHSPARSE_CASE(1); PUSHSPARSE_CASE(2);

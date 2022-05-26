@@ -44,6 +44,10 @@ class TensorFormatter {
   void SetPrintTensorLod(bool print_tensor_lod);
   void SetPrintTensorLayout(bool print_tensor_layout);
   void SetSummarize(int64_t summarize);
+  // save to file
+  void Print(const std::string& path, const framework::LoDTensor& print_tensor,
+             const std::string& tensor_name = "",
+             const std::string& message = "");
 
  private:
   template <typename T>
