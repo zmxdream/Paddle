@@ -305,9 +305,6 @@ void PSGPUWrapper::PreBuildTask(std::shared_ptr<HeterContext> gpu_task) {
   } else {
     for (int i = 0; i < thread_keys_shard_num_; i++) {
       for (int j = 0; j < multi_mf_dim_; j++) {
-        // if (i == 0 && j == multi_mf_dim_ - 1) {
-        //   gpu_task->feature_dim_keys_[i][j].push_back(0);
-        // }
         VLOG(0) << "GpuPs shard: " << i << "mf dim: " << index_dim_vec_[j]
                 << " key len: " << gpu_task->feature_dim_keys_[i][j].size();
         gpu_task->value_dim_ptr_[i][j].resize(
@@ -845,7 +842,7 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
       val->cpu_ptr = (uint64_t)(device_dim_ptrs[k]);
 
       // TODO(xuefeng) set mf_dim while using DownpourCtrDymfAccessor
-      ptr_val[paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::mf_dim_index()] = float(mf_dim);
+      // ptr_val[paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::mf_dim_index()] = float(mf_dim);
       val->mf_dim = mf_dim;
       if (dim > 8) {  // CpuPS alreay expand as mf_dim
         // VLOG(0) << "yxf build gputask1111 dim: " << dim;
@@ -1119,7 +1116,7 @@ void PSGPUWrapper::EndPass() {
       //VLOG(0) << "yxfff::5: ";
       if (gpu_val->mf_size > 0 && downpour_value_size == 8) {
         //VLOG(0) << "yxfff::6: ";
-        downpour_value->resize(gpu_val->mf_dim + 1 + downpour_value_size);
+        downpour_value->resize(gpu_val->mf_size + downpour_value_size);
       }
       //VLOG(0) << "yxfff::7: ";
       // if (downpour_value_size >= 8) {
@@ -1142,6 +1139,7 @@ void PSGPUWrapper::EndPass() {
       cpu_val[paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::embed_g2sum_index()] = gpu_val->lr_g2sum;
       //VLOG(0) << "yxfff::13: ";
       cpu_val[paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::slot_index()] = gpu_val->slot;
+      cpu_val[paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::mf_dim_index()] = gpu_val->mf_size;
       //VLOG(0) << "yxfff::14: ";
       //cpu_val[7] = gpu_val->mf_dim;
       if (gpu_val->mf_size > 0) {
