@@ -185,6 +185,15 @@ void PSGPUWorker::PrepareCudaGraph() {
           }
         }
       }
+      // for debug
+      //if (thread_id_ == 0) { 
+      //  std::cout << op->Type() << " " << need_capture << " ";
+      //  if (op->HasAttr(enable_cuda_graph_capture_attr_name)) {
+      //       std::cout << op->Attr<int>(enable_cuda_graph_capture_attr_name)  << std::endl;
+      //  } else {
+     //        std::cout << "not have" << std::endl;
+     //   }
+     // }
 
       if (op_or_cudagraphs_.empty() || op_or_cudagraphs_.back().need_capture != need_capture) {
         op_or_cudagraphs_.emplace_back();
@@ -224,6 +233,7 @@ void PSGPUWorker::TrainFiles() {
     total_ins_num += cur_batch;
 
     if (op_or_cudagraphs_.empty()) {
+
       // first batch we run original ops to check whethere the tensors has lod
       for (auto& op : ops_) {
         bool need_skip = false;
@@ -237,8 +247,17 @@ void PSGPUWorker::TrainFiles() {
           op->Run(*thread_scope_, place_);
         }
       }
+
       graph_batch_size = cur_batch;
       PrepareCudaGraph();
+      //if (place_.GetDeviceId() == 0) {
+      //  // print cuda graph information
+      //  std::cout << "cudagraph size: " << op_or_cudagraphs_.size() << std::endl;
+      //  for (auto& cudagraph_: op_or_cudagraphs_) {
+      //   if (cudagraph_.name.empty())std::cout <<  "empty graph " << cudagraph_.need_capture << std::endl;
+      //   else std::cout << cudagraph_.name << " " << cudagraph_.need_capture << std::endl;
+      //  } 
+      //}
     } else if (graph_batch_size != cur_batch || batch_cnt <= thread_id_) {
       // when batch_size changed, run original ops
       for (auto& op : ops_) {

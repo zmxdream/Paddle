@@ -350,7 +350,7 @@ class PSGPUWrapper {
     std::cout << " end wrapper " <<std::endl;
     VLOG(0) << "get slot desc";
     slot_offset_vector_.clear();
-    for (auto& slot : slot_vector_) {
+    for (auto& slot : slot_vector_) { // 所有的slot id
       for (size_t i = 0; i < slots_vec.size(); ++i) {
         if (std::to_string(slot) == slots_vec[i]) {
           // VLOG(0) << "yxf slot: " << slot;
@@ -450,8 +450,8 @@ class PSGPUWrapper {
   std::vector<std::vector<robin_hood::unordered_set<uint64_t>>> thread_keys_;
   std::vector<std::vector<std::vector<robin_hood::unordered_set<uint64_t>>>>
       thread_dim_keys_;
-  int thread_keys_thread_num_ = 37;
-  int thread_keys_shard_num_ = 37;
+  int thread_keys_thread_num_ = 37 * 2;
+  int thread_keys_shard_num_ = 64; // 37;
   uint64_t max_fea_num_per_pass_ = 5000000000;
   int year_;
   int month_;

@@ -575,6 +575,8 @@ class PSGPUWorker : public HogwildWorker {
   // skipped ops
   std::vector<std::string> skip_ops_;
 
+
+
   struct OpOrCudaGraph {
     std::vector<OperatorBase*> ops;
     bool need_capture;
@@ -582,6 +584,9 @@ class PSGPUWorker : public HogwildWorker {
     std::string name;
   }; 
   std::vector<OpOrCudaGraph> op_or_cudagraphs_;
+
+
+
 
   std::vector<::std::future<int32_t>> push_sparse_status_;
   std::vector<::std::future<int32_t>> push_dense_status_;
