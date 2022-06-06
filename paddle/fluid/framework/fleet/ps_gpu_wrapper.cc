@@ -1019,7 +1019,7 @@ void PSGPUWrapper::EndPass() {
                feature_value_size * real_len, cudaMemcpyDeviceToHost);
     CHECK(len == hbm_pool->capacity());
     uint64_t unuse_key = std::numeric_limits<uint64_t>::max();
-    for (size_t i = left; i < right; ++i) {
+    for (int i = left; i < right; ++i) {
       if (device_keys[i] == unuse_key) {
         continue;
       }
