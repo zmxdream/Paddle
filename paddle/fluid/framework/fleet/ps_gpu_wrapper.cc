@@ -829,12 +829,10 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
     this->HeterPs_->build_ps(i, device_dim_keys.data(),
                              cur_pool->mem(), len, feature_value_size,
                              500000, 2);
-
     if (device_dim_keys.size() > 0) {
       VLOG(3) << "show table: " << i << " table kv size: " << device_dim_keys.size() << "dim: " << mf_dim << " len: " << len;
       HeterPs_->show_one_table(i);
     }
-
     delete mem_pool;
   };
 
@@ -931,6 +929,7 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
     for (std::thread& t : threads) {
       t.join();
     }
+    threads.clear();
   } else {
 
     threads.resize(device_num * multi_mf_dim_);
@@ -969,11 +968,6 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
     threads.clear();
 
   }
-
-
-  // for (std::thread& t : threads) {
-  //  t.join();
-  //}
 
   timeline.Pause();
   VLOG(0) << "GpuPs build table total costs: " << timeline.ElapsedSec()
