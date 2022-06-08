@@ -501,11 +501,7 @@ void PSGPUWrapper::BuildPull(std::shared_ptr<HeterContext> gpu_task) {
       t.join();
     }
   }
-<<<<<<< HEAD
-  
-=======
   fleet_ptr->pslib_ptr_->_worker_ptr->release_table_mutex(this->table_id_);
->>>>>>> pre-stable
   timeline.Pause();
   VLOG(0) << "pull sparse from CpuPS into GpuPS cost " << timeline.ElapsedSec()
           << " seconds.";
