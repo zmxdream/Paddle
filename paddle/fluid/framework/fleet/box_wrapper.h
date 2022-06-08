@@ -429,14 +429,14 @@ class BoxWrapper {
                       const std::vector<float*>& values,
                       const std::vector<int64_t>& slot_lengths,
                       const int hidden_size, const int expand_embed_dim,
-                      const int skip_offset);
+                      const int skip_offset, bool expand_only);
 
   void PullSparse(const paddle::platform::Place& place,
                   const std::vector<const uint64_t*>& keys,
                   const std::vector<float*>& values,
                   const std::vector<int64_t>& slot_lengths,
                   const int hidden_size, const int expand_embed_dim,
-                  const int skip_offset);
+                  const int skip_offset, bool expand_only);
 
   template <typename FeaturePushValueGpuType>
   void PushSparseGradCase(const paddle::platform::Place& place,
@@ -444,14 +444,16 @@ class BoxWrapper {
                           const std::vector<const float*>& grad_values,
                           const std::vector<int64_t>& slot_lengths,
                           const int hidden_size, const int expand_embed_dim,
-                          const int batch_size, const int skip_offset);
+                          const int batch_size, const int skip_offset,
+                          bool expand_only);
 
   void PushSparseGrad(const paddle::platform::Place& place,
                       const std::vector<const uint64_t*>& keys,
                       const std::vector<const float*>& grad_values,
                       const std::vector<int64_t>& slot_lengths,
                       const int hidden_size, const int expand_embed_dim,
-                      const int batch_size, const int skip_offset);
+                      const int batch_size, const int skip_offset,
+                      bool expand_only);
 
   void CopyForPull(const paddle::platform::Place& place, uint64_t** gpu_keys,
                    float** gpu_values, void* total_values_gpu,
@@ -459,6 +461,7 @@ class BoxWrapper {
                    const int* key2slot, const int hidden_size,
                    const int expand_embed_dim, const int64_t total_length,
                    int* total_dims, const int skip_offset,
+                   bool expand_only,
                    const uint32_t* gpu_restore_idx = nullptr);
 
   void CopyForPush(const paddle::platform::Place& place, float** grad_values,
@@ -468,6 +471,7 @@ class BoxWrapper {
                    const int64_t total_length, const int batch_size,
                    const int* total_dims, const int* key2slot,
                    const int skip_offset,
+                   bool expand_only,
                    const uint32_t* gpu_sort_idx = nullptr,
                    const uint32_t* gpu_sort_offset = nullptr,
                    const uint32_t* gpu_sort_lens = nullptr);
