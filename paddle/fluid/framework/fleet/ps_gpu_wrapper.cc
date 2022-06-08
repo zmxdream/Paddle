@@ -835,7 +835,7 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
     delete mem_pool;
   };
 
-  int thread_num = 8;
+  int thread_num = 16;
   auto build_dynamic_mf_func = [this, &gpu_task, thread_num](int i, int j, int z) {
     int mf_dim = this->index_dim_vec_[j];
     VLOG(3) << "building table: " << i << "with mf dim: " << mf_dim;
@@ -914,7 +914,6 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
     }
     threads.clear();
     // multi-thread process
-    // int thread_num = 8;
     threads.resize(device_num * multi_mf_dim_ * thread_num);
     for (int i = 0; i < device_num; i++) {
       for (int j = 0; j < multi_mf_dim_; j++) {
