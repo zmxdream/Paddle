@@ -41,6 +41,7 @@ class PullBoxExtendedSparseOp : public framework::OperatorWithKernel {
     const size_t n_ids = all_ids_dim.size();
     std::vector<framework::DDim> outs_dims;
     std::vector<framework::DDim> outs_extended_dims;
+    auto expand_only = ctx->Attrs().Get<bool>("expand_only");
     auto flags = ctx->Attrs().Get<std::vector<int>>("mask");
     if (flags.empty()) {
       for (size_t i = 0; i < n_ids; ++i) {
@@ -58,7 +59,11 @@ class PullBoxExtendedSparseOp : public framework::OperatorWithKernel {
         outs_dims.push_back(framework::make_ddim(out_dim));
         auto out_extended_dim = framework::vectorize(
             framework::slice_ddim(ids_dims, 0, ids_rank - 1));
-        out_extended_dim.push_back(emb_extended_size);
+        if (expand_only) {
+          out_extended_dim.push_back(emb_extended_size);
+        } else {
+          out_extended_dim.push_back(emb_size + emb_extended_size);
+        }
         outs_extended_dims.push_back(framework::make_ddim(out_extended_dim));
       }
       ctx->SetOutputsDim("Out", outs_dims);
@@ -87,7 +92,11 @@ class PullBoxExtendedSparseOp : public framework::OperatorWithKernel {
         if (flags[i] & 0x02) {
           auto out_extended_dim = framework::vectorize(
               framework::slice_ddim(ids_dims, 0, ids_rank - 1));
-          out_extended_dim.push_back(emb_extended_size);
+          if (expand_only) {
+            out_extended_dim.push_back(emb_extended_size);
+          } else {
+            out_extended_dim.push_back(emb_size + emb_extended_size);
+          }
           outs_extended_dims.push_back(framework::make_ddim(out_extended_dim));
         }
       }
@@ -135,6 +144,7 @@ class PullBoxExtendedSparseOpMaker : public framework::OpProtoAndCheckerMaker {
     AddAttr<std::vector<int>>("mask", "The embedx expand mask.").SetDefault({});
     AddAttr<int>("offset", "(int, the skip pull value cvm offset")
         .SetDefault(0);
+    AddAttr<bool>("expand_only","bool, expand output with show clk embed or not").SetDefault(true);
     AddComment(R"DOC(
 Pull Box Extended Sparse Operator.
 
