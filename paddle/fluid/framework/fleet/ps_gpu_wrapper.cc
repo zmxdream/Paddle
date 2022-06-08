@@ -803,7 +803,6 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
   auto build_dymf_mem_pool = [this, &gpu_task](int i, int j) {
     this->HeterPs_->set_multi_mf_dim(multi_mf_dim_, max_mf_dim_);
     int mf_dim = this->index_dim_vec_[j];
-    // VLOG(3) << "building table: " << i << "with mf dim: " << mf_dim;
     size_t feature_value_size =
         TYPEALIGN(8, sizeof(FeatureValue) + ((mf_dim + 1) * sizeof(float)));
     auto& device_dim_keys = gpu_task->device_dim_keys_[i][j];
@@ -838,14 +837,8 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
 
   int thread_num = 8;
   auto build_dynamic_mf_func = [this, &gpu_task, thread_num](int i, int j, int z) {
-
-    // this->HeterPs_->set_multi_mf_dim(multi_mf_dim_, max_mf_dim_);
-
     int mf_dim = this->index_dim_vec_[j];
     VLOG(3) << "building table: " << i << "with mf dim: " << mf_dim;
-    //size_t feature_value_size =
-    //    TYPEALIGN(8, sizeof(FeatureValue) + ((mf_dim + 1) * sizeof(float)));
-
 
     auto& device_dim_keys = gpu_task->device_dim_keys_[i][j];
     auto& device_dim_ptrs = gpu_task->device_dim_ptr_[i][j];
@@ -853,7 +846,6 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
     size_t len = device_dim_keys.size();
     CHECK(len == device_dim_ptrs.size());
 
-    // this->mem_pools_[i * this->multi_mf_dim_ + j] = new MemoryPool(len, feature_value_size);
     auto& mem_pool = this->mem_pools_[i * this->multi_mf_dim_ + j];
 
     // ============ add for multi-thread ================ 
@@ -901,27 +893,7 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
         }
       }
     }
-
-    /*
-    platform::CUDADeviceGuard guard(resource_->dev_id(i));
-    this->hbm_pools_[i * this->multi_mf_dim_ + j] = new HBMMemoryPool(mem_pool);
-    auto& cur_pool = this->hbm_pools_[i * this->multi_mf_dim_ + j];
-
-    this->HeterPs_->build_ps(i, device_dim_keys.data(),
-                             cur_pool->mem(), len, feature_value_size,
-                             500000, 2);
-
-    if (device_dim_keys.size() > 0) {
-      VLOG(3) << "show table: " << i << " table kv size: " << device_dim_keys.size() << "dim: " << mf_dim << " len: " << len;
-      HeterPs_->show_one_table(i);
-    }
-
-    delete mem_pool;
-    */
-
   };
-
-
   if (!multi_mf_dim_) {
     for (size_t i = 0; i < threads.size(); i++) {
       threads[i] = std::thread(build_func, i);
@@ -931,7 +903,6 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
     }
     threads.clear();
   } else {
-
     threads.resize(device_num * multi_mf_dim_);
     for (int i = 0; i < device_num; i++) {
       for (int j = 0; j < multi_mf_dim_; j++) {
@@ -966,15 +937,10 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
       t.join();
     }
     threads.clear();
-
   }
-
   timeline.Pause();
   VLOG(0) << "GpuPs build table total costs: " << timeline.ElapsedSec()
           << " s.";
-
-
-
 }
 
 void PSGPUWrapper::LoadIntoMemory(bool is_shuffle) {
