@@ -1514,7 +1514,8 @@ def _pull_box_extended_sparse(input,
                               extend_size=64,
                               dtype='float32',
                               mask=[],
-                              offset=0):
+                              offset=0,
+                              expand_only=True):
     r"""
     **Pull Box Extended Sparse Layer**
     This layer is used to lookup embeddings of IDs, provided by :attr:`input`, in
@@ -1570,7 +1571,8 @@ def _pull_box_extended_sparse(input,
             'emb_size': size,
             'emb_extended_size': extend_size,
             'mask': mask,
-            'offset': offset
+            'offset': offset,
+            'expand_only': expand_only
         })
     if len(outs) == 1:
         return outs[0], outs_extend[0]
@@ -1590,7 +1592,8 @@ def fused_seqpool_cvm(input,
                       embed_threshold=0,
                       cvm_offset=2,
                       quant_ratio=0,
-                      clk_filter=False):
+                      clk_filter=False,
+                      embed_thres_size=0):
     """
      **Notes: The Op only receives List of LoDTensor as input, only support SUM pooling now.
     :attr:`input`.
@@ -1645,7 +1648,8 @@ def fused_seqpool_cvm(input,
             "threshold": threshold,
             "embed_threshold": embed_threshold,
             "quant_ratio": quant_ratio,
-            "clk_filter": clk_filter
+            "clk_filter": clk_filter,
+            "embed_thres_size": embed_thres_size
         })
 
     return outs

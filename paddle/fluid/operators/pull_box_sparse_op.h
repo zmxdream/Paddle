@@ -152,7 +152,7 @@ static void PullBoxSparseFunctor(const framework::ExecutionContext &ctx) {
   auto box_ptr = paddle::framework::BoxWrapper::GetInstance();
   auto expand_dim = box_ptr->GetExpandEmbedDim();
   box_ptr->PullSparse(ctx.GetPlace(), all_keys, all_values, slot_lengths,
-                      hidden_size, expand_dim, skip_offset);
+                      hidden_size, expand_dim, skip_offset, true);
 #endif
 }
 
@@ -207,7 +207,7 @@ static void PushBoxSparseFunctor(const framework::ExecutionContext &ctx) {
   auto expand_dim = box_ptr->GetExpandEmbedDim();
   box_ptr->PushSparseGrad(ctx.GetPlace(), all_keys, all_grad_values,
                           slot_lengths, hidden_size, expand_dim, batch_size,
-                          skip_offset);
+                          skip_offset, true);
 #endif
 }
 
