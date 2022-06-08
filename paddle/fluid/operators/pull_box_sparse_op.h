@@ -106,7 +106,9 @@ static void PullBoxSparseFunctor(const framework::ExecutionContext &ctx) {
   int batch_size = -1;
   if (slot_idx != -1) {
     if (slot_idx > static_cast<int>(slot_size)) {
-      batch_size = 1;
+      const auto *slot = inputs[0];
+      batch_size =
+          slot->lod().size() ? slot->lod()[0].size() - 1 : slot->dims()[0];
     } else {
       batch_size = inputs[slot_idx]->dims()[0];
     }

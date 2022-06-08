@@ -43,6 +43,10 @@ class RetryAllocator : public Allocator {
   }
 
   bool IsAllocThreadSafe() const override { return true; }
+  // return real used, total is in alloc
+  size_t GetTotalMemInfo(size_t *total, size_t *available) {
+    return underlying_allocator_->GetTotalMemInfo(total, available);
+  }
 
  protected:
   void FreeImpl(Allocation *allocation) override;

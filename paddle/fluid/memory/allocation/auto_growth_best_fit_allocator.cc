@@ -43,12 +43,15 @@ AutoGrowthBestFitAllocator::AutoGrowthBestFitAllocator(
     : underlying_allocator_(
           std::make_shared<AlignedAllocator>(underlying_allocator, alignment)),
       alignment_(alignment),
-      chunk_size_(std::max(AlignedSize(chunk_size, alignment), alignment)) {}
+      chunk_size_(std::max(AlignedSize(chunk_size, alignment), alignment)) {
+  VLOG(0) << "AutoGrowthBestFitAllocator init";
+}
 
 Allocation *AutoGrowthBestFitAllocator::AllocateImpl(size_t size) {
   size = AlignedSize(size, alignment_);
 
   std::lock_guard<std::mutex> guard(mtx_);
+  mem_bytes_.used += size;
   auto iter = free_blocks_.lower_bound(std::make_pair(size, nullptr));
   BlockIt block_it;
   if (iter != free_blocks_.end()) {
@@ -86,7 +89,7 @@ Allocation *AutoGrowthBestFitAllocator::AllocateImpl(size_t size) {
     realloc_size = chunk->allocation_->size();
     uint8_t *p = reinterpret_cast<uint8_t *>(chunk->allocation_->ptr());
     auto &blocks = chunk->blocks_;
-
+    mem_bytes_.total += realloc_size;
     size_t remaining_size = realloc_size - size;
     if (remaining_size > 0) {
       blocks.emplace_back(p, remaining_size, true, chunk);
@@ -104,7 +107,7 @@ void AutoGrowthBestFitAllocator::FreeImpl(Allocation *allocation) {
   std::lock_guard<std::mutex> guard(mtx_);
   auto block_it = static_cast<BlockAllocation *>(allocation)->block_it_;
   auto &blocks = block_it->chunk_->blocks_;
-
+  mem_bytes_.used -= allocation->size();
   block_it->is_free_ = true;
 
   if (block_it != blocks.begin()) {
@@ -152,6 +155,7 @@ uint64_t AutoGrowthBestFitAllocator::FreeIdleChunks() {
       ++chunk_it;
     }
   }
+  mem_bytes_.total -= bytes;
   return bytes;
 }
 

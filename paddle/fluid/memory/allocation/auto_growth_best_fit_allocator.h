@@ -33,6 +33,12 @@ class AutoGrowthBestFitAllocator : public Allocator {
       size_t chunk_size = 0);
 
   bool IsAllocThreadSafe() const override { return true; }
+  // return real used, total is in alloc
+  size_t GetTotalMemInfo(size_t *total, size_t *available) {
+    *total = mem_bytes_.total;
+    *available = mem_bytes_.total - mem_bytes_.used;
+    return mem_bytes_.used;
+  }
 
  protected:
   Allocation *AllocateImpl(size_t size) override;
@@ -87,6 +93,12 @@ class AutoGrowthBestFitAllocator : public Allocator {
   size_t chunk_size_;
 
   mutable std::mutex mtx_;
+
+  struct MemBytes {
+    size_t used = 0;
+    size_t total = 0;
+  };
+  MemBytes mem_bytes_;
 };
 
 }  // namespace allocation
