@@ -378,6 +378,7 @@ class BoxWrapper {
     platform::Timer boxps_push_timer;
     platform::Timer dense_nccl_timer;
     platform::Timer dense_sync_timer;
+    platform::Timer pull_dedup_timer;
 
     int64_t total_key_length = 0;
     int64_t dedup_key_length = 0;
@@ -389,6 +390,7 @@ class BoxWrapper {
       boxps_push_timer.Reset();
       dense_nccl_timer.Reset();
       dense_sync_timer.Reset();
+      pull_dedup_timer.Reset();
     }
     double GpuMemUsed(void) {
       size_t total = 0;
@@ -431,6 +433,22 @@ class BoxWrapper {
                       const int hidden_size, const int expand_embed_dim,
                       const int skip_offset, bool expand_only);
 
+  template <typename FEATURE_VALUE_GPU_TYPE>
+  void PullSparseCaseGPU(const paddle::platform::Place& place,
+                         const std::vector<const uint64_t*>& keys,
+                         const std::vector<float*>& values,
+                         const std::vector<int64_t>& slot_lengths,
+                         const int hidden_size, const int expand_embed_dim,
+                         const int skip_offset, bool expand_only);
+
+  template <typename FEATURE_VALUE_GPU_TYPE>
+  void PullSparseCaseCPU(const paddle::platform::Place& place,
+                         const std::vector<const uint64_t*>& keys,
+                         const std::vector<float*>& values,
+                         const std::vector<int64_t>& slot_lengths,
+                         const int hidden_size, const int expand_embed_dim,
+                         const int skip_offset, bool expand_only);
+
   void PullSparse(const paddle::platform::Place& place,
                   const std::vector<const uint64_t*>& keys,
                   const std::vector<float*>& values,
@@ -446,6 +464,23 @@ class BoxWrapper {
                           const int hidden_size, const int expand_embed_dim,
                           const int batch_size, const int skip_offset,
                           bool expand_only);
+  template <typename FeaturePushValueGpuType>
+  void PushSparseGradCaseGPU(const paddle::platform::Place& place,
+                             const std::vector<const uint64_t*>& keys,
+                             const std::vector<const float*>& grad_values,
+                             const std::vector<int64_t>& slot_lengths,
+                             const int hidden_size, const int expand_embed_dim,
+                             const int batch_size, const int skip_offset,
+                             bool expand_only);
+
+  template <typename FeaturePushValueGpuType>
+  void PushSparseGradCaseCPU(const paddle::platform::Place& place,
+                             const std::vector<const uint64_t*>& keys,
+                             const std::vector<const float*>& grad_values,
+                             const std::vector<int64_t>& slot_lengths,
+                             const int hidden_size, const int expand_embed_dim,
+                             const int batch_size, const int skip_offset,
+                             bool expand_only);
 
   void PushSparseGrad(const paddle::platform::Place& place,
                       const std::vector<const uint64_t*>& keys,
@@ -460,9 +495,17 @@ class BoxWrapper {
                    const int64_t* slot_lens, const int slot_num,
                    const int* key2slot, const int hidden_size,
                    const int expand_embed_dim, const int64_t total_length,
-                   int* total_dims, const int skip_offset,
-                   bool expand_only,
+                   int* total_dims, const int skip_offset, bool expand_only,
                    const uint32_t* gpu_restore_idx = nullptr);
+
+  void CopyForPullCPU(const paddle::platform::Place& place,
+                      const std::vector<const uint64_t*>& keys,
+                      const std::vector<float*>& values, void* total_values_gpu,
+                      const int64_t* slot_lens, const int slot_num,
+                      const int* key2slot, const int hidden_size,
+                      const int expand_embed_dim, const int64_t total_length,
+                      int* total_dims, const int skip_offset, bool expand_only,
+                      const uint32_t* gpu_restore_idx = nullptr);
 
   void CopyForPush(const paddle::platform::Place& place, float** grad_values,
                    void* total_grad_values_gpu, const int* slots,
@@ -470,15 +513,31 @@ class BoxWrapper {
                    const int hidden_size, const int expand_embed_dim,
                    const int64_t total_length, const int batch_size,
                    const int* total_dims, const int* key2slot,
-                   const int skip_offset,
-                   bool expand_only,
+                   const int skip_offset, bool expand_only,
                    const uint32_t* gpu_sort_idx = nullptr,
                    const uint32_t* gpu_sort_offset = nullptr,
                    const uint32_t* gpu_sort_lens = nullptr);
 
+  void CopyForPushCPU(const paddle::platform::Place& place,
+                      const std::vector<const float*>& grad_values,
+                      void* total_grad_values_gpu, const int* slots,
+                      const int64_t* slot_lens, const int slot_num,
+                      const int hidden_size, const int expand_embed_dim,
+                      const int64_t total_length, const int batch_size,
+                      const int* total_dims, const int* key2slot,
+                      const int skip_offset, bool expand_only,
+                      const uint32_t* gpu_sort_idx = nullptr,
+                      const uint32_t* gpu_sort_offset = nullptr,
+                      const uint32_t* gpu_sort_lens = nullptr);
+
   void CopyKeys(const paddle::platform::Place& place, uint64_t** origin_keys,
                 uint64_t* total_keys, const int64_t* gpu_len, int slot_num,
                 int total_len, int* key2slot);
+  // copy cpu keys
+  void CopyCPUKeys(const paddle::platform::Place& place,
+                   const std::vector<const uint64_t*>& keys,
+                   uint64_t* total_keys, const int64_t* slot_lengths_lod,
+                   int slot_num, int total_len, int* key2slot);
 
   void CheckEmbedSizeIsValid(int embedx_dim, int expand_embed_dim);
 
@@ -652,6 +711,18 @@ class BoxWrapper {
   int GetExpandEmbedDim(void) { return expand_embed_dim_; }
   // shrink boxps resource
   void ShrinkResource(void) { return boxps_ptr_->ShrinkResource(); }
+  // get device id
+  int GetPlaceDeviceId(const paddle::platform::Place& place) {
+    if (platform::is_gpu_place(place)) {
+      return BOOST_GET_CONST(platform::CUDAPlace, place).GetDeviceId();
+    }
+    thread_local int device_id = -1;
+    static std::atomic<int> dev_id{0};
+    if (device_id < 0) {
+      device_id = dev_id.fetch_add(1);
+    }
+    return device_id;
+  }
 
  private:
   static cudaStream_t stream_list_[MAX_GPU_NUM];
