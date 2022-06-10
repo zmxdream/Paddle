@@ -187,7 +187,8 @@ void PSGPUWrapper::PreBuildTask(std::shared_ptr<HeterContext> gpu_task) {
         for (const auto feasign : feasign_v) {
           int shard_id = feasign % thread_keys_shard_num_;
           if (slot_idx >= slot_index_vec_.size()) {
-            VLOG(0) << "yxf::WRONG:::slot_idx: " << slot_idx << " size: " << slot_index_vec_.size();
+            VLOG(0) << "WRONG::slot_idx: " << slot_idx << " slot_index_vec_size: " <<
+      slot_index_vec_.size();
           }
           int dim_id = slot_index_vec_[slot_idx];
           if (feasign_v[j] != 0) {
@@ -1043,7 +1044,7 @@ void PSGPUWrapper::EndPass() {
       if (gpu_val->mf_size > 0) {
         for (int x = 0; x < gpu_val->mf_dim + 1; x++) {
           if (x + 8 >= int(downpour_value->size())) {
-            VLOG(0) << "yxfff::14: x: " << x << " size: " << downpour_value_size;
+            VLOG(0) << "x: " << x << " size: "<< downpour_value_size;
           }
           cpu_val[x + 8] = gpu_val->mf[x];
         }
@@ -1081,12 +1082,6 @@ void PSGPUWrapper::EndPass() {
   current_task_ = nullptr;
   gpu_free_channel_->Put(current_task_);
   timer.Pause();
-  // timer.Pause();
-  // VLOG(1) << "EndPass end, cost time: " << timer.ElapsedSec() << "s";
-  // VLOG(1) << "yxf::pull: " << time_1;
-  // VLOG(1) << "yxf::pull_1: " << time_2;
-  // VLOG(1) << "yxf::push: " << time_3;
-  // VLOG(1) << "yxf::push_1: " << time_4;
   VLOG(0) << "EndPass end, cost time: " << timer.ElapsedSec() << "s";
 }
 

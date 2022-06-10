@@ -31,6 +31,7 @@ SET(PSLIB_ROOT          ${PSLIB_INSTALL_DIR})
 SET(PSLIB_INC_DIR       ${PSLIB_ROOT}/include)
 SET(PSLIB_LIB_DIR       ${PSLIB_ROOT}/lib)
 SET(PSLIB_LIB           ${PSLIB_LIB_DIR}/libps.so)
+SET(JVM_LIB           ${PSLIB_LIB_DIR}/libjvm.so)
 SET(PSLIB_VERSION_PY    ${PSLIB_DOWNLOAD_DIR}/pslib/version.py)
 SET(PSLIB_IOMP_LIB      ${PSLIB_LIB_DIR}/libiomp5.so) #todo what is this
 SET(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_RPATH}" "${PSLIB_ROOT}/lib")
@@ -48,7 +49,8 @@ ExternalProject_Add(
     ${EXTERNAL_PROJECT_LOG_ARGS}
     PREFIX                ${PSLIB_PREFIX_DIR}
     DOWNLOAD_DIR          ${PSLIB_DOWNLOAD_DIR}
-    DOWNLOAD_COMMAND      wget --no-check-certificate ${PSLIB_URL} -c -q -O ${PSLIB_NAME}.tar.gz
+    #DOWNLOAD_COMMAND      wget --no-check-certificate ${PSLIB_URL} -c -q -O ${PSLIB_NAME}.tar.gz
+    DOWNLOAD_COMMAND      cp /zhangminxu/so_debug/baidu/paddlepaddle/pslib_4/pslib.tar.gz ./
                           && tar zxvf ${PSLIB_NAME}.tar.gz
     DOWNLOAD_NO_PROGRESS  1
     UPDATE_COMMAND        ""
@@ -62,3 +64,7 @@ ExternalProject_Add(
 ADD_LIBRARY(pslib SHARED IMPORTED GLOBAL)
 SET_PROPERTY(TARGET pslib PROPERTY IMPORTED_LOCATION ${PSLIB_LIB})
 ADD_DEPENDENCIES(pslib ${PSLIB_PROJECT})
+
+ADD_LIBRARY(jvm SHARED IMPORTED GLOBAL)
+SET_PROPERTY(TARGET jvm PROPERTY IMPORTED_LOCATION  ${JVM_LIB})
+ADD_DEPENDENCIES(jvm ${PSLIB_PROJECT})
