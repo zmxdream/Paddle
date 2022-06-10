@@ -11,9 +11,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#ifdef PADDLE_WITH_BOX_PS
 #include "paddle/fluid/framework/fleet/box_wrapper.h"
-
+#ifdef PADDLE_WITH_BOX_PS
 #include <algorithm>
 #include <ctime>
 #include <memory>
@@ -489,8 +488,7 @@ void BoxWrapper::PushSparseGrad(const paddle::platform::Place& place,
                                 const std::vector<int64_t>& slot_lengths,
                                 const int hidden_size,
                                 const int expand_embed_dim,
-                                const int batch_size, 
-                                const int skip_offset,
+                                const int batch_size, const int skip_offset,
                                 bool expand_only) {
 #define EMBEDX_CASE(i, ...)                                                  \
   case i: {                                                                  \
@@ -1298,6 +1296,7 @@ void BoxWrapper::PrintSyncTimer(int device, double train_span) {
   LOG(WARNING) << "gpu: " << device << ", phase: " << phase_
                << ", train dnn: " << train_span
                << ", sparse pull span: " << dev.all_pull_timer.ElapsedSec()
+               << ", dedup span: " << dev.pull_dedup_timer.ElapsedSec()
                << ", boxps span: " << dev.boxps_pull_timer.ElapsedSec()
                << ", push span: " << dev.all_push_timer.ElapsedSec()
                << ", boxps span:" << dev.boxps_push_timer.ElapsedSec()
