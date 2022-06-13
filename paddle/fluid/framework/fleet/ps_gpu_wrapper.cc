@@ -1063,14 +1063,14 @@ void PSGPUWrapper::EndPass() {
     auto& device_keys = this->current_task_->device_dim_keys_[i][j];
     size_t len = device_keys.size();
     // ============ add for multi-thread ================
-    int len_per_thread = len / thread_num;
-    int remain = len % thread_num;
-    int left = -1, right = -1;
+    size_t len_per_thread = len / thread_num;
+    size_t remain = len % thread_num;
+    size_t left = 0, right = 0;
 
-    int real_len = len_per_thread;
-    if (z < remain) real_len++;
+    size_t real_len = len_per_thread;
+    if ((size_t)z < remain) real_len++;
 
-    if (z < remain) {
+    if ((size_t)z < remain) {
       left = z * (len_per_thread + 1);
       right = left + real_len;
     } else {
@@ -1083,12 +1083,12 @@ void PSGPUWrapper::EndPass() {
     size_t feature_value_size =
         TYPEALIGN(8, sizeof(FeatureValue) + ((mf_dim + 1) * sizeof(float)));
     char* test_build_values = (char*)malloc(feature_value_size * real_len);
-    uint64_t offset = left * feature_value_size;
+    size_t offset = left * feature_value_size;
     cudaMemcpy(test_build_values, hbm_pool->mem() + offset,
                feature_value_size * real_len, cudaMemcpyDeviceToHost);
     CHECK(len == hbm_pool->capacity());
     uint64_t unuse_key = std::numeric_limits<uint64_t>::max();
-    for (int i = left; i < right; ++i) {
+    for (size_t i = left; i < right; ++i) {
       if (device_keys[i] == unuse_key) {
         continue;
       }
