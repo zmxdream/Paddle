@@ -38,7 +38,8 @@ void show_tensor(T* input, size_t len, gpuStream_t stream, std::string name) {
   }
   std::cout << std::endl;
 }
-
+// idx是shard id 拍完序以后的数组
+// left, right存储的是根据shard id排序后的第i个key，这个key原来的idx在d_idx_ptr 
 template <typename T>
 __global__ void calc_shard_offset(T* idx, T* left, T* right, size_t len) {
   const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -92,11 +93,21 @@ __global__ void dy_mf_fill_shard_grads(KeyType* d_shard_keys, KeyType* d_keys,
                                        size_t grad_value_size) {
   const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
   if (i < len) {
+    
     d_shard_keys[i] = d_keys[idx[i]];
+
     *(GradType*)((char*)d_shard_grads + i * grad_value_size) =
         *(GradType*)((char*)d_grads + uint64_t(idx[i]) * grad_value_size);
+
   }
 }
+
+  // d_offset存储的是它的前缀和，[0, 8, 14, 21, 26, 29, 29]
+  // 如果 d_fea_num_info_ptr存储的是[8, 6, 7, 5, 3, 0, 9]，也就是key排序去重后，每个key出现的次数
+  // d_index存储的是key sort以后，每个key对应的idx
+  // merge_gradient_kernel<<<grid_size, block_size_, 0, stream>>>(
+  //    d_offset, d_fea_num_info_ptr, d_index, (char*)d_grads,
+  //    (char*)d_merge_grads_ptr, uniq_len, grad_value_size, merger_);
 
 __global__ void merge_gradient_kernel(const uint32_t* offset,
                                       const uint32_t* fea_num,
@@ -104,6 +115,7 @@ __global__ void merge_gradient_kernel(const uint32_t* offset,
                                       char* output, int n,
                                       size_t grad_value_size,
                                       CustomGradMerger& merger_) {
+
   const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
   
   if (i < n) {
@@ -114,6 +126,8 @@ __global__ void merge_gradient_kernel(const uint32_t* offset,
     FeaturePushValue& lhs = *(FeaturePushValue*)(output + i * grad_value_size);
     FeaturePushValue& in =
         *(FeaturePushValue*)(input + size_t(ori_index) * grad_value_size);
+    
+    
     merger_.copy_basic_field(lhs, in);
     
     for (int j = 1; j < num; ++j) {
@@ -243,20 +257,23 @@ void HeterComm<KeyType, ValType, GradType>::init_path() {
 template <typename KeyType, typename ValType, typename GradType>
 void HeterComm<KeyType, ValType, GradType>::create_storage(int start_index,
                                                            int end_index,
-                                                           int keylen,
-                                                           int vallen) {
+                                                           size_t keylen,
+                                                           size_t vallen) {
   auto& allocator = allocators_[start_index];
   auto& nodes = path_[start_index][end_index].nodes_;
   for (size_t i = 0; i < nodes.size(); ++i) {
+
     platform::CUDADeviceGuard guard(resource_->dev_id(nodes[i].gpu_num));
-    allocator->DeviceAllocate(
+
+    PADDLE_ENFORCE_GPU_SUCCESS(allocator->DeviceAllocate(
         resource_->dev_id(nodes[i].gpu_num),
         (void**)&(nodes[i].key_storage),  // NOLINT
-        keylen, resource_->remote_stream(nodes[i].gpu_num, start_index));
-    allocator->DeviceAllocate(
+        keylen, resource_->remote_stream(nodes[i].gpu_num, start_index)));
+
+    PADDLE_ENFORCE_GPU_SUCCESS(allocator->DeviceAllocate(
         resource_->dev_id(nodes[i].gpu_num),
         (void**)&(nodes[i].val_storage),  // NOLINT
-        vallen, resource_->remote_stream(nodes[i].gpu_num, start_index));
+        vallen, resource_->remote_stream(nodes[i].gpu_num, start_index)));
 
     nodes[i].key_bytes_len = keylen;
     nodes[i].val_bytes_len = vallen;
@@ -271,10 +288,10 @@ void HeterComm<KeyType, ValType, GradType>::destroy_storage(int start_index,
   for (size_t i = 0; i < nodes.size(); ++i) {
     platform::CUDADeviceGuard guard(resource_->dev_id(nodes[i].gpu_num));
 
-    allocator->DeviceFree(resource_->dev_id(nodes[i].gpu_num),
-                          nodes[i].key_storage);
-    allocator->DeviceFree(resource_->dev_id(nodes[i].gpu_num),
-                          nodes[i].val_storage);
+    PADDLE_ENFORCE_GPU_SUCCESS(allocator->DeviceFree(resource_->dev_id(nodes[i].gpu_num),
+                          nodes[i].key_storage));
+    PADDLE_ENFORCE_GPU_SUCCESS(allocator->DeviceFree(resource_->dev_id(nodes[i].gpu_num),
+                          nodes[i].val_storage));
   }
 }
 
@@ -340,21 +357,26 @@ void HeterComm<KeyType, ValType, GradType>::walk_to_dest(
   }
   std::queue<CopyTask> que;
   for (int i = 0; i < gpu_num; i++) {
+
     if (h_left[i] == -1 || h_right[i] == -1) {
       continue;
     }
+
     int size = path_[start_index][i].nodes_.size();
     auto& node = path_[start_index][i].nodes_[0];
     CopyTask t(&path_[start_index][i], 0);
     que.push(t);
+
     cudaMemcpyAsync(node.key_storage,
                     reinterpret_cast<char*>(src_key + h_left[i]),
                     node.key_bytes_len, cudaMemcpyDefault, node.in_stream);
+
     if (need_copy_val) {
       cudaMemcpyAsync(node.val_storage,
                       src_val + uint64_t(h_left[i]) * uint64_t(val_size),
                       node.val_bytes_len, cudaMemcpyDefault, node.in_stream);
     }
+
   }
   while (!que.empty()) {
     CopyTask& cur_task = que.front();
@@ -660,6 +682,9 @@ void HeterComm<KeyType, ValType, GradType>::merge_grad(
   GradType* d_merge_grads_ptr =
       reinterpret_cast<GradType*>(d_merge_grads->ptr());
 
+
+  // 把key sort了一下
+  // 
   PADDLE_ENFORCE_GPU_SUCCESS(cub::DeviceRadixSort::SortPairs(
       NULL, temp_storage_bytes, d_keys, d_merge_keys_ptr, d_grads,
       d_merge_grads_ptr, len, 0, 8 * sizeof(KeyType), stream, false));
@@ -690,6 +715,7 @@ void HeterComm<KeyType, ValType, GradType>::merge_grad(
 
   cudaMemcpyAsync(&uniq_len, d_num_runs_out, sizeof(int),
                   cudaMemcpyDeviceToHost, stream);
+
   PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
 }
 
@@ -723,50 +749,68 @@ void HeterComm<KeyType, ValType, GradType>::merge_grad(int gpu_num,
       memory::Alloc(place, sizeof(uint32_t) * (len * 3 + 1));
   uint32_t* d_fea_num_info_ptr =
       reinterpret_cast<uint32_t*>(d_fea_num_info->ptr());
+
   uint32_t* d_index = (uint32_t*)&d_fea_num_info_ptr[len];
   uint32_t* d_idx = (uint32_t*)&d_index[len];
+
   int* d_merged_size = (int*)&d_idx[len];
+
   int grid_size = (len - 1) / block_size_ + 1;
   fill_idx<<<grid_size, block_size_, 0, stream>>>(d_idx, len);
+
   PADDLE_ENFORCE_GPU_SUCCESS(cub::DeviceRadixSort::SortPairs(
       NULL, temp_storage_bytes, d_keys, d_merge_keys_ptr, d_idx, d_index, len,
       0, 8 * sizeof(KeyType), stream));
 
   void* d_buff = NULL;
   auto d_temp_storage = memory::Alloc(place, temp_storage_bytes);
+
   PADDLE_ENFORCE_GPU_SUCCESS(cub::DeviceRadixSort::SortPairs(
       d_temp_storage->ptr(), temp_storage_bytes, d_keys, d_merge_keys_ptr,
       d_idx, d_index, len, 0, 8 * sizeof(KeyType), stream));
+
   PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
+
+
   timeline.Pause();
   mg_time_4[gpu_num] += timeline.ElapsedSec();
   timeline.Start();
+
+  // d_merge_keys_ptr已经排好序
+  // d_fea_num_info_ptr存储每个key的次数
+  // d_merged_size存储有几个unique key
   temp_storage_bytes = 0;
   PADDLE_ENFORCE_GPU_SUCCESS(cub::DeviceRunLengthEncode::Encode(
       NULL, temp_storage_bytes, d_merge_keys_ptr, d_keys, d_fea_num_info_ptr,
       d_merged_size, len, stream));
+
   if (d_temp_storage->size() < temp_storage_bytes) {
     d_temp_storage = NULL;
     d_temp_storage = memory::Alloc(place, temp_storage_bytes);
   }
+
   PADDLE_ENFORCE_GPU_SUCCESS(cub::DeviceRunLengthEncode::Encode(
       d_temp_storage->ptr(), temp_storage_bytes, d_merge_keys_ptr, d_keys,
       d_fea_num_info_ptr, d_merged_size, len, stream));
 
   cudaMemcpyAsync((void*)&uniq_len, d_merged_size, sizeof(int),
                   cudaMemcpyDeviceToHost, stream);
+
   PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
   timeline.Pause();
   mg_time_5[gpu_num] += timeline.ElapsedSec();
   timeline.Start();
-
+  // 这是个指针
   assert(d_merged_size > 0);
+  
+  // 这是d_idx, 0,1,2...len-1吗
   uint32_t* d_offset = (uint32_t*)&d_index[len];
 
   temp_storage_bytes = 0;
   PADDLE_ENFORCE_GPU_SUCCESS(cub::DeviceScan::ExclusiveSum(
       NULL, temp_storage_bytes, d_fea_num_info_ptr, d_offset, uniq_len,
       stream));
+
   if (d_temp_storage->size() < temp_storage_bytes) {
     d_temp_storage = NULL;
     d_temp_storage = memory::Alloc(place, temp_storage_bytes);
@@ -774,15 +818,31 @@ void HeterComm<KeyType, ValType, GradType>::merge_grad(int gpu_num,
   PADDLE_ENFORCE_GPU_SUCCESS(cub::DeviceScan::ExclusiveSum(
       d_temp_storage->ptr(), temp_storage_bytes, d_fea_num_info_ptr, d_offset,
       uniq_len, stream));
+
+  // 如果 d_fea_num_info_ptr存储的是[8, 6, 7, 5, 3, 0, 9]，也就是key排序去重后，每个key出现的次数
+  // d_offset存储的是它的前缀和，[0, 8, 14, 21, 26, 29, 29]
+ 
   PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
+
+
   timeline.Pause();
   mg_time_6[gpu_num] += timeline.ElapsedSec();
   timeline.Start();
+
   grid_size = (uniq_len - 1) / block_size_ + 1;
+
+
+  // d_offset存储的是它的前缀和，[0, 8, 14, 21, 26, 29, 29]
+  // 如果 d_fea_num_info_ptr存储的是[8, 6, 7, 5, 3, 0, 9]，也就是key排序去重后，每个key出现的次数
+  // d_index存储的是key sort以后，每个key对应的idx
+  // d_merge_grads_ptr存储的是key sort以后，梯度merge以后的输出
   merge_gradient_kernel<<<grid_size, block_size_, 0, stream>>>(
       d_offset, d_fea_num_info_ptr, d_index, (char*)d_grads,
       (char*)d_merge_grads_ptr, uniq_len, grad_value_size, merger_);
+
   PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
+
+
   timeline.Pause();
   mg_time_7[gpu_num] += timeline.ElapsedSec();
   timeline.Start();
@@ -790,6 +850,7 @@ void HeterComm<KeyType, ValType, GradType>::merge_grad(int gpu_num,
   PADDLE_ENFORCE_GPU_SUCCESS(
       cudaMemcpyAsync(d_grads, d_merge_grads_ptr, grad_value_size * uniq_len,
                       cudaMemcpyDeviceToDevice, stream));
+
   PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
   timeline.Pause();
   mg_time_1[gpu_num] += timeline.ElapsedSec();
@@ -800,6 +861,7 @@ template <typename KeyType, typename ValType, typename GradType>
 void HeterComm<KeyType, ValType, GradType>::split_input_to_shard(
     KeyType* d_keys, int* d_idx_ptr, size_t len, int* left, int* right,
     int gpu_num) {
+
   int total_gpu = resource_->total_gpu();
   int dev_id = resource_->dev_id(gpu_num);
   platform::CUDAPlace place = platform::CUDAPlace(dev_id);
@@ -815,13 +877,23 @@ void HeterComm<KeyType, ValType, GradType>::split_input_to_shard(
   auto d_shard_index_tmp = memory::Alloc(place, len * sizeof(int));
   int* d_shard_index_tmp_ptr = reinterpret_cast<int*>(d_shard_index_tmp->ptr());
 
+
   int grid_size = (len - 1) / block_size_ + 1;
   fill_idx<<<grid_size, block_size_, 0, stream>>>(d_idx_tmp_ptr, len);
+
+  // d_keys是排序去重以后的
+  // d_shard_index_tmp_ptr存储的是每个key对应的device id
+  //  
   calc_shard_index<<<grid_size, block_size_, 0, stream>>>(
       d_keys, len, d_shard_index_tmp_ptr, total_gpu);
 
   size_t temp_storage_bytes;
   const int num_bits = 1 + log2i(total_gpu);
+
+  // shard 排序后
+  // 每个key原来的index存储在d_idx_ptr
+  // d_shard_index_ptr是每个key的shard id, 然后进行了排序
+
   PADDLE_ENFORCE_GPU_SUCCESS(cub::DeviceRadixSort::SortPairs(
       NULL, temp_storage_bytes, d_shard_index_tmp_ptr, d_shard_index_ptr,
       d_idx_tmp_ptr, d_idx_ptr, len, 0, num_bits, stream));
@@ -830,6 +902,8 @@ void HeterComm<KeyType, ValType, GradType>::split_input_to_shard(
   PADDLE_ENFORCE_GPU_SUCCESS(cub::DeviceRadixSort::SortPairs(
       d_temp_storage->ptr(), temp_storage_bytes, d_shard_index_tmp_ptr,
       d_shard_index_ptr, d_idx_tmp_ptr, d_idx_ptr, len, 0, num_bits, stream));
+  
+   
   calc_shard_offset<<<grid_size, block_size_, 0, stream>>>(d_shard_index_ptr,
                                                            left, right, len);
   cudaStreamSynchronize(stream);
@@ -990,6 +1064,7 @@ void HeterComm<KeyType, ValType, GradType>::push_sparse(int gpu_num,
 
   // int h_left[total_gpu];   // NOLINT
   // int h_right[total_gpu];  // NOLINT
+
   auto h_left_alloc = memory::Alloc(phi::GPUPinnedPlace(), sizeof(int) * total_gpu);
   auto h_right_alloc = memory::Alloc(phi::GPUPinnedPlace(), sizeof(int) * total_gpu);
   int* h_left = reinterpret_cast<int*>(h_left_alloc->ptr());
@@ -1005,10 +1080,18 @@ void HeterComm<KeyType, ValType, GradType>::push_sparse(int gpu_num,
   auto d_idx = memory::Alloc(place, len * sizeof(int));
   int* d_idx_ptr = reinterpret_cast<int*>(d_idx->ptr());
 
+
+
+  
+
+
+
   auto d_shard_keys = memory::Alloc(place, len * sizeof(KeyType));
   KeyType* d_shard_keys_ptr = reinterpret_cast<KeyType*>(d_shard_keys->ptr());
 
   GradType* d_shard_grads_ptr;
+
+
   if (!multi_mf_dim_) {
     auto d_shard_grads = memory::Alloc(place, len * sizeof(GradType));
     d_shard_grads_ptr = reinterpret_cast<GradType*>(d_shard_grads->ptr());
@@ -1022,6 +1105,8 @@ void HeterComm<KeyType, ValType, GradType>::push_sparse(int gpu_num,
 
   int grid_size = (uniq_len - 1) / block_size_ + 1;
 
+  // d_keys已经sort,并且去重
+  // 
   split_input_to_shard(d_keys, d_idx_ptr, uniq_len, d_left_ptr, d_right_ptr,
                        gpu_num);
 
@@ -1084,7 +1169,7 @@ void HeterComm<KeyType, ValType, GradType>::push_sparse(int gpu_num,
                          resource_->remote_stream(i, gpu_num));
     } else {
       ptr_tables_[i]->rwlock_->WRLock();
-      ptr_tables_[i]->update(reinterpret_cast<KeyType*>(node.key_storage),
+      ptr_tables_[i]->update(i, reinterpret_cast<KeyType*>(node.key_storage),
                              node.val_storage, h_right[i] - h_left[i] + 1, sgd,
                              resource_->remote_stream(i, gpu_num));
     }

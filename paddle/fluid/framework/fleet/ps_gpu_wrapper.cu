@@ -82,6 +82,7 @@ __global__ void PullCopy(float** dest, const FeatureValue* src,
     
     int mf_dim = feature_value_ptr->mf_dim;
     mf_dim = gpu_dim[x] - 3;
+
     if (*(keys[x] + y) == 0) {
       *(dest[x] + y * (cur_dim + 3)) = 0;
       *(dest[x] + y * (cur_dim + 3) + 1) = 0;
@@ -91,6 +92,7 @@ __global__ void PullCopy(float** dest, const FeatureValue* src,
       *(dest[x] + y * (mf_dim + 3) + 1) = feature_value_ptr->clk;
       *(dest[x] + y * (mf_dim + 3) + 2) = feature_value_ptr->lr;
     }
+
     if ((feature_value_ptr)->mf_size == 0 || *(keys[x] + y) == 0 ){
       if (*(keys[x] + y) == 0) {
         for (int j = 0; j < cur_dim; j++) {
@@ -150,6 +152,18 @@ __global__ void CopyKeysKernel(uint64_t** src_keys, uint64_t* dest_total_keys,
 //    //};
 //  }
 //}
+
+
+
+__global__ void CHECK_HBM(int graphid, int opid, size_t len, const uint64_t* total_keys, const uint64_t* cudagraph_keys) {
+   
+  const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i < len) {
+    if (total_keys[i] != cudagraph_keys[i]) printf("grapid:%d,opid:%d,len:%llu,pull_key:%llu,cudagraph_key:%llu\n", graphid , opid, len, total_keys[i], cudagraph_keys[i]); 
+  }
+}
+
+
 
 __global__ void PushCopy(FeaturePushValue* dest, float** src, int64_t* len,
                          int hidden, int slot_num, int total_len, int bs,
@@ -212,6 +226,18 @@ __global__ void PushCopyWithPool(FeaturePushValue* dest, float** src,
     }
   }
 }
+
+void PSGPUWrapper::check_hbm(const paddle::platform::Place& place, int graphid, int opid, size_t pull_len, const uint64_t* total_keys, const uint64_t* cudagraph_keys) {
+  auto stream = dynamic_cast<platform::CUDADeviceContext*>(
+                    platform::DeviceContextPool::Instance().Get(place))
+                    ->stream();
+  CHECK_HBM<<<(pull_len + 1024 - 1) / 1024, 1024, 0, stream>>>(graphid, opid, pull_len, total_keys, cudagraph_keys);
+  cudaStreamSynchronize(stream);
+}
+
+
+
+
 
 void PSGPUWrapper::CopyForPull(const paddle::platform::Place& place,
                                uint64_t** gpu_keys,

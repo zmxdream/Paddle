@@ -21,6 +21,7 @@ limitations under the License. */
 #include "paddle/fluid/platform/cuda_graph_with_memory_pool.h"
 #include "paddle/fluid/platform/profiler.h"
 #include "paddle/fluid/platform/profiler/event_tracing.h"
+#include "paddle/fluid/framework/fleet/ps_gpu_wrapper.h"
 
 #if (defined PADDLE_WITH_NCCL || defined PADDLE_WITH_RCCL) && \
     (defined PADDLE_WITH_PSLIB)
@@ -201,6 +202,14 @@ void PSGPUWorker::PrepareCudaGraph() {
       op_or_cuda_graph.ops.emplace_back(op);
     }
   }
+  // debug
+  if (thread_id_ == 0) {
+    // worker0 print cuda graph
+    for(auto& local_cudagraph: op_or_cudagraphs_) {
+      VLOG(0) << op_or_cudagraphs_.size() << " " << local_cudagraph.name << " " << local_cudagraph.need_capture;
+    }
+  }
+  
 }
 
 void PSGPUWorker::TrainFiles() {
@@ -217,6 +226,9 @@ void PSGPUWorker::TrainFiles() {
   int batch_cnt = 0;
 
   int graph_batch_size = 0;
+
+
+  auto ps_gpu_wrapper = paddle::framework::PSGPUWrapper::GetInstance();
 
   platform::SetDeviceId(place_.GetDeviceId());
   while ((cur_batch = device_reader_->Next()) > 0) {
@@ -236,9 +248,13 @@ void PSGPUWorker::TrainFiles() {
           op->Run(*thread_scope_, place_);
         }
       }
+
       graph_batch_size = cur_batch;
       PrepareCudaGraph();
+
+
     } else if (graph_batch_size != cur_batch || batch_cnt <= thread_id_) {
+
       // when batch_size changed, run original ops
       for (auto& op : ops_) {
         bool need_skip = false;
@@ -253,25 +269,33 @@ void PSGPUWorker::TrainFiles() {
         }
       }
     } else {
-      // secend batch we capture the cudagraph
+
+      // second batch we capture the cudagraph
+      int graph_id = 0;
       for (auto& op_or_cuda_graph : op_or_cudagraphs_) {
+        graph_id++;
         if (op_or_cuda_graph.need_capture) {
+          int op_id = 0;
           if (op_or_cuda_graph.cudagraph == nullptr) {
             static std::mutex _capture_mutex;
             std::lock_guard<std::mutex> lock(_capture_mutex);
             platform::BeginCUDAGraphCapture(place_, cudaStreamCaptureModeThreadLocal);
             for (auto& op : op_or_cuda_graph.ops) {
               op->Run(*thread_scope_, place_);
+              ps_gpu_wrapper->CheckHBM(place_, graph_id, op_id);
             }
             op_or_cuda_graph.cudagraph = platform::EndCUDAGraphCapture();
           }
 
           platform::RecordEvent op_type_record_event(
               op_or_cuda_graph.name, platform::TracerEventType::Operator, 1);
+          
           op_or_cuda_graph.cudagraph->Replay();
+
         } else {
           for (auto& op : op_or_cuda_graph.ops) {
             op->Run(*thread_scope_, place_);
+            
           }
         }
       }

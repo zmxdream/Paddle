@@ -69,7 +69,7 @@ class HashTable {
               Sgd sgd, gpuStream_t stream);
 
   template <typename Sgd>
-  void update(const KeyType* d_keys, const char* d_grads, size_t len, Sgd sgd,
+  void update(int gpu_num, const KeyType* d_keys, const char* d_grads, size_t len, Sgd sgd,
               gpuStream_t stream);
 
   int size() { return container_->size(); }

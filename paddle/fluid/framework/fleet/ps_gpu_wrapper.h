@@ -98,7 +98,18 @@ class PSGPUWrapper {
     for (size_t i = 0; i < pull_thread_pool_.size(); i++) {
       pull_thread_pool_[i].reset(new ::ThreadPool(1));
     }
+    
+    // for debug
+    debug_total_keys_.resize(8);
+    debug_total_keys2_.resize(8);
+    tmp_total_keys_.resize(8);
+   
+    cudagraph_keys_.resize(8, NULL); 
+    pull_len_ = 0;
+
   }
+  
+  void CheckHBM(const paddle::platform::Place& place, int graphid , int opid);
 
   void PullSparse(const paddle::platform::Place& place, const int table_id,
                   const std::vector<const uint64_t*>& keys,
@@ -116,6 +127,11 @@ class PSGPUWrapper {
                       const std::vector<const float*>& grad_values,
                       const std::vector<int64_t>& slot_lengths,
                       const int hidden_size, const int batch_size);
+
+
+  void check_hbm(const paddle::platform::Place& place, int graphid, int opid, size_t pull_len, const uint64_t* total_keys, const uint64_t* cudagraph_keys);
+
+
   void CopyKeys(const paddle::platform::Place& place, uint64_t** origin_keys,
                 uint64_t* total_keys, const int64_t* gpu_len, int slot_num,
                 int total_len);
@@ -450,8 +466,8 @@ class PSGPUWrapper {
   std::vector<std::vector<robin_hood::unordered_set<uint64_t>>> thread_keys_;
   std::vector<std::vector<std::vector<robin_hood::unordered_set<uint64_t>>>>
       thread_dim_keys_;
-  int thread_keys_thread_num_ = 37;
-  int thread_keys_shard_num_ = 37;
+  int thread_keys_thread_num_ = 37 * 4;
+  int thread_keys_shard_num_ = 64; // 37;
   uint64_t max_fea_num_per_pass_ = 5000000000;
   int year_;
   int month_;
@@ -480,6 +496,12 @@ class PSGPUWrapper {
   bool running_ = false;
   std::vector<std::shared_ptr<ThreadPool>> hbm_thread_pool_;
   std::vector<std::shared_ptr<ThreadPool>> pull_thread_pool_;
+
+  std::vector<uint64_t*> debug_total_keys_;
+  std::vector<uint64_t*> debug_total_keys2_;
+  std::vector<uint64_t*> tmp_total_keys_;
+  std::vector<char*> cudagraph_keys_;
+  size_t pull_len_;
 
  protected:
   static bool is_initialized_;

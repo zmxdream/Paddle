@@ -211,7 +211,7 @@ __global__ void update_kernel(Table* table,
 }
 
 template <typename Table, typename Sgd>
-__global__ void dy_mf_update_kernel(Table* table,
+__global__ void dy_mf_update_kernel(int gpu_num, Table* table,
                                     const typename Table::key_type* const keys,
                                     const char* const grads, size_t len,
                                     Sgd sgd, size_t grad_value_size) {
@@ -222,7 +222,10 @@ __global__ void dy_mf_update_kernel(Table* table,
       FeaturePushValue* cur = (FeaturePushValue*)(grads + i * grad_value_size);
       sgd.dy_mf_update_value((it.getter())->second, *cur);
     } else {
-      if(keys[i] != 0) printf("push miss key: %d", keys[i]);
+      if (keys[i] != 0) {
+        // get device id
+        printf("push miss key: %llu %d\n", keys[i], gpu_num);
+      }
     }
   }
 }
@@ -387,7 +390,7 @@ void HashTable<KeyType, ValType>::update(const KeyType* d_keys,
 
 template <typename KeyType, typename ValType>
 template <typename Sgd>
-void HashTable<KeyType, ValType>::update(const KeyType* d_keys,
+void HashTable<KeyType, ValType>::update(int gpu_num, const KeyType* d_keys,
                                          const char* d_grads, size_t len,
                                          Sgd sgd, gpuStream_t stream) {
   if (len == 0) {
@@ -395,7 +398,7 @@ void HashTable<KeyType, ValType>::update(const KeyType* d_keys,
   }
   const int grid_size = (len - 1) / BLOCK_SIZE_ + 1;
 
-  dy_mf_update_kernel<<<grid_size, BLOCK_SIZE_, 0, stream>>>(
+  dy_mf_update_kernel<<<grid_size, BLOCK_SIZE_, 0, stream>>>(gpu_num,
       container_, d_keys, d_grads, len, sgd, push_grad_value_size_);
 }
 
