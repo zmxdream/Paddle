@@ -111,11 +111,15 @@ void CUDAGraph::EndSegmentCapture() {
 #if CUDA_VERSION >= 10010
   PADDLE_ENFORCE_EQ(IsCapturing(), true,
                     errors::PermissionDenied("No CUDA Graph is capturing."));
+
   cudaGraph_t graph;
+
   PADDLE_ENFORCE_GPU_SUCCESS(
       cudaStreamEndCapture(capturing_graph_->stream_, &graph));
+
   auto num_nodes = static_cast<size_t>(-1);
   PADDLE_ENFORCE_GPU_SUCCESS(cudaGraphGetNodes(graph, nullptr, &num_nodes));
+
   if (num_nodes == 0) {
     PADDLE_ENFORCE_GPU_SUCCESS(cudaGraphDestroy(graph));
     VLOG(10) << "Skip empty CUDA Graph with ID " << capturing_graph_->id_

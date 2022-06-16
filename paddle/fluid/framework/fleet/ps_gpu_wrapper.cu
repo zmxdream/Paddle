@@ -232,7 +232,7 @@ void PSGPUWrapper::check_hbm(const paddle::platform::Place& place, int graphid, 
                     platform::DeviceContextPool::Instance().Get(place))
                     ->stream();
   CHECK_HBM<<<(pull_len + 1024 - 1) / 1024, 1024, 0, stream>>>(graphid, opid, pull_len, total_keys, cudagraph_keys);
-  cudaStreamSynchronize(stream);
+  // cudaStreamSynchronize(stream);
 }
 
 

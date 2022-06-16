@@ -1235,8 +1235,8 @@ void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
     if (cudagraph_keys_[devid_2_index] != NULL) cudaFree(cudagraph_keys_[devid_2_index]);
     // debug for cudagraph
     cudaMalloc(&cudagraph_keys_[devid_2_index], total_length * sizeof(uint64_t));
-    cudaMemcpy(cudagraph_keys_[devid_2_index], total_keys, total_length * sizeof(uint64_t),
-               cudaMemcpyDeviceToDevice);
+    // cudaMemcpy(cudagraph_keys_[devid_2_index], total_keys, total_length * sizeof(uint64_t),
+    //            cudaMemcpyDeviceToDevice);
     
     // construct slot_level lod info
     auto slot_lengths_lod = slot_lengths;
@@ -1264,6 +1264,8 @@ void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
                    static_cast<int>(total_length));
    
     cudaMemcpy(debug_total_keys_[devid_2_index], total_keys, total_length * sizeof(uint64_t), cudaMemcpyDeviceToHost);
+    cudaMemcpy(cudagraph_keys_[devid_2_index], total_keys, total_length * sizeof(uint64_t),
+               cudaMemcpyDeviceToDevice);
 
     VLOG(0) << "Begin call PullSparseGPU in GPUPS, dev: " << devid_2_index
             << " len: " << total_length;
