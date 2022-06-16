@@ -85,7 +85,11 @@ class AfsWrapper {
 
 class PSGPUWrapper {
  public:
-  virtual ~PSGPUWrapper() { delete HeterPs_; }
+  virtual ~PSGPUWrapper() { 
+
+    delete HeterPs_;
+    cudaFree(pull_len_);
+  }
 
   PSGPUWrapper() {
     HeterPs_ = NULL;
@@ -105,7 +109,7 @@ class PSGPUWrapper {
     tmp_total_keys_.resize(8);
    
     cudagraph_keys_.resize(8, NULL); 
-    pull_len_ = 0;
+    cudaMalloc(&pull_len_, sizeof(size_t));
 
   }
   
@@ -129,7 +133,7 @@ class PSGPUWrapper {
                       const int hidden_size, const int batch_size);
 
 
-  void check_hbm(const paddle::platform::Place& place, int graphid, int opid, size_t pull_len, const uint64_t* total_keys, const uint64_t* cudagraph_keys);
+  void check_hbm(const paddle::platform::Place& place, int graphid, int opid, size_t* pull_len, const uint64_t* total_keys, const uint64_t* cudagraph_keys);
 
 
   void CopyKeys(const paddle::platform::Place& place, uint64_t** origin_keys,
@@ -501,7 +505,7 @@ class PSGPUWrapper {
   std::vector<uint64_t*> debug_total_keys2_;
   std::vector<uint64_t*> tmp_total_keys_;
   std::vector<char*> cudagraph_keys_;
-  size_t pull_len_;
+  size_t* pull_len_;
 
  protected:
   static bool is_initialized_;

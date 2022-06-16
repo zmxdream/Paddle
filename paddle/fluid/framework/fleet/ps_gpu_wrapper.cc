@@ -1177,11 +1177,13 @@ void PSGPUWrapper::CheckHBM(const paddle::platform::Place& place, int graphid, i
     int devid_2_index = HeterPs_->get_index_by_devid(device_id);
 
     LoDTensor& total_keys_tensor = keys_tensor[devid_2_index];
-    // get size 
+
+    // get size
+    //  
     uint64_t* total_keys =
         reinterpret_cast<uint64_t*>(total_keys_tensor.data<int64_t>());
- 
-    this->check_hbm(place, graphid, opid, pull_len_, total_keys, (const uint64_t*)cudagraph_keys_[devid_2_index]);
+     
+    this->check_hbm(place, graphid, opid, *pull_len_, total_keys, (const uint64_t*)cudagraph_keys_[devid_2_index]);
   
 }
 
@@ -1201,7 +1203,9 @@ void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
   size_t total_length =
       std::accumulate(slot_lengths.begin(), slot_lengths.end(), 0UL);
 
-  pull_len_ = total_length;
+  
+  cudaMemcpy(pull_len_, &total_length, sizeof(size_t), cudaMemcpyHostToDevice);
+  // pull_len_ = total_length;
 
   size_t feature_value_size = 0;
   if (!multi_mf_dim_) {
@@ -1217,8 +1221,6 @@ void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
     PADDLE_THROW(platform::errors::Unimplemented(
         "Warning:: CPUPlace is not supported in GpuPs now."));
   } else if (platform::is_gpu_place(place)) {
-
-
 
     VLOG(3) << "Begin copy keys, key_num[" << total_length << "]";
     int device_id = place.GetDeviceId();
