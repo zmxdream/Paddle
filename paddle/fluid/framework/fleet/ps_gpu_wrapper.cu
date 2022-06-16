@@ -157,10 +157,10 @@ __global__ void CopyKeysKernel(uint64_t** src_keys, uint64_t* dest_total_keys,
 
 __global__ void CHECK_HBM(int graphid, int opid, size_t* len, const uint64_t* total_keys, const uint64_t* cudagraph_keys) {
    
-  const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
-  if (i < *len) {
+  CUDA_KERNEL_LOOP(i, *len) {
     if (total_keys[i] != cudagraph_keys[i]) printf("grapid:%d,opid:%d,len:%llu,pull_key:%llu,cudagraph_key:%llu\n", graphid , opid, *len, total_keys[i], cudagraph_keys[i]); 
   }
+
 }
 
 
@@ -231,7 +231,10 @@ void PSGPUWrapper::check_hbm(const paddle::platform::Place& place, int graphid, 
   auto stream = dynamic_cast<platform::CUDADeviceContext*>(
                     platform::DeviceContextPool::Instance().Get(place))
                     ->stream();
-  CHECK_HBM<<<(pull_len + 1024 - 1) / 1024, 1024, 0, stream>>>(graphid, opid, pull_len, total_keys, cudagraph_keys);
+
+
+
+  CHECK_HBM<<<2048, 1024, 0, stream>>>(graphid, opid, pull_len, total_keys, cudagraph_keys);
   // cudaStreamSynchronize(stream);
 }
 

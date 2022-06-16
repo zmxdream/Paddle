@@ -1175,16 +1175,12 @@ void PSGPUWrapper::CheckHBM(const paddle::platform::Place& place, int graphid, i
     // check keys_tensor
     int device_id = place.GetDeviceId();
     int devid_2_index = HeterPs_->get_index_by_devid(device_id);
-
     LoDTensor& total_keys_tensor = keys_tensor[devid_2_index];
 
     // get size
-    //  
     uint64_t* total_keys =
         reinterpret_cast<uint64_t*>(total_keys_tensor.data<int64_t>());
-     
-    this->check_hbm(place, graphid, opid, *pull_len_, total_keys, (const uint64_t*)cudagraph_keys_[devid_2_index]);
-  
+    this->check_hbm(place, graphid, opid, pull_len_, total_keys, (const uint64_t*)cudagraph_keys_[devid_2_index]);
 }
 
 
