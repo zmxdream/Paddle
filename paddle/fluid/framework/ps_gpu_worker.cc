@@ -281,6 +281,7 @@ void PSGPUWorker::TrainFiles() {
             std::lock_guard<std::mutex> lock(_capture_mutex);
             platform::BeginCUDAGraphCapture(place_, cudaStreamCaptureModeThreadLocal);
             for (auto& op : op_or_cuda_graph.ops) {
+              op_id++;
               op->Run(*thread_scope_, place_);
               ps_gpu_wrapper->CheckHBM(place_, graph_id, op_id);
             }
