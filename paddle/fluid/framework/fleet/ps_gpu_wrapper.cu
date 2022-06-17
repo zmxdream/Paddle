@@ -155,10 +155,10 @@ __global__ void CopyKeysKernel(uint64_t** src_keys, uint64_t* dest_total_keys,
 
 
 
-__global__ void CHECK_HBM(int graphid, int opid, size_t* len, const uint64_t* total_keys, const uint64_t* cudagraph_keys) {
+__global__ void CHECK_HBM(int batch_id, int graphid, int opid, size_t* len, const uint64_t* total_keys, const uint64_t* cudagraph_keys) {
    
   CUDA_KERNEL_LOOP(i, *len) {
-    if (total_keys[i] != cudagraph_keys[i]) printf("graphid:%d,opid:%d,len:%llu,pull_key:%llu,cudagraph_key:%llu\n", graphid , opid, *len, total_keys[i], cudagraph_keys[i]); 
+    if (total_keys[i] != cudagraph_keys[i]) printf("batch_id:%d, graphid:%d,opid:%d,len:%llu,idx:%llu, pull_key:%llu,cudagraph_key:%llu\n", batch_id, graphid , opid, *len, i, total_keys[i], cudagraph_keys[i]); 
   }
 
 }
@@ -227,12 +227,12 @@ __global__ void PushCopyWithPool(FeaturePushValue* dest, float** src,
   }
 }
 
-void PSGPUWrapper::check_hbm(const paddle::platform::Place& place, int graphid, int opid, size_t* pull_len, const uint64_t* total_keys, const uint64_t* cudagraph_keys) {
+void PSGPUWrapper::check_hbm(const paddle::platform::Place& place, int batch_id, int graphid, int opid, size_t* pull_len, const uint64_t* total_keys, const uint64_t* cudagraph_keys) {
   auto stream = dynamic_cast<platform::CUDADeviceContext*>(
                     platform::DeviceContextPool::Instance().Get(place))
                     ->stream();
 
-  CHECK_HBM<<<2048, 1024, 0, stream>>>(graphid, opid, pull_len, total_keys, cudagraph_keys);
+  CHECK_HBM<<<2048, 1024, 0, stream>>>(batch_id, graphid, opid, pull_len, total_keys, cudagraph_keys);
   // cudaStreamSynchronize(stream);
 }
 

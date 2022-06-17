@@ -256,7 +256,8 @@ void PSGPUWorker::TrainFiles() {
       PrepareCudaGraph();
 
 
-    } else if (graph_batch_size != cur_batch || batch_cnt <= thread_id_) {
+    // } else if (graph_batch_size != cur_batch || batch_cnt <= thread_id_) {
+    } else if (graph_batch_size != cur_batch) {
       int op_id = 0;
       // when batch_size changed, run original ops
       for (auto& op : ops_) {
@@ -270,7 +271,7 @@ void PSGPUWorker::TrainFiles() {
         }
         if (!need_skip) {
           op->Run(*thread_scope_, place_);
-          ps_gpu_wrapper->CheckHBM(place_, -2, op_id);
+          ps_gpu_wrapper->CheckHBM(place_, batch_cnt, -2, op_id);
         }
       }
     } else {
@@ -288,7 +289,7 @@ void PSGPUWorker::TrainFiles() {
             for (auto& op : op_or_cuda_graph.ops) {
               op_id++;
               op->Run(*thread_scope_, place_);
-              ps_gpu_wrapper->CheckHBM(place_, graph_id, op_id);
+              ps_gpu_wrapper->CheckHBM(place_, batch_cnt, graph_id, op_id);
             }
             op_or_cuda_graph.cudagraph = platform::EndCUDAGraphCapture();
           }
@@ -303,7 +304,7 @@ void PSGPUWorker::TrainFiles() {
           for (auto& op : op_or_cuda_graph.ops) {
             op_id++;
             op->Run(*thread_scope_, place_);
-            ps_gpu_wrapper->CheckHBM(place_, graph_id, op_id);
+            ps_gpu_wrapper->CheckHBM(place_, batch_cnt, graph_id, op_id);
             
           }
         }

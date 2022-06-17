@@ -1171,7 +1171,7 @@ void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
   VLOG(3) << "End PullSparse";
 }
 
-void PSGPUWrapper::CheckHBM(const paddle::platform::Place& place, int graphid, int opid) {
+void PSGPUWrapper::CheckHBM(const paddle::platform::Place& place, int batch_id, int graphid, int opid) {
     // check keys_tensor
     int device_id = place.GetDeviceId();
     int devid_2_index = HeterPs_->get_index_by_devid(device_id);
@@ -1180,7 +1180,7 @@ void PSGPUWrapper::CheckHBM(const paddle::platform::Place& place, int graphid, i
     // get size
     uint64_t* total_keys =
         reinterpret_cast<uint64_t*>(total_keys_tensor.data<int64_t>());
-    this->check_hbm(place, graphid, opid, pull_len_, total_keys, (const uint64_t*)cudagraph_keys_[devid_2_index].data<int64_t>());
+    this->check_hbm(place, batch_id, graphid, opid, pull_len_[devid_2_index], total_keys, (const uint64_t*)cudagraph_keys_[devid_2_index].data<int64_t>());
 }
 
 void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
@@ -1199,7 +1199,6 @@ void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
       std::accumulate(slot_lengths.begin(), slot_lengths.end(), 0UL);
 
   
-  cudaMemcpy(pull_len_, &total_length, sizeof(size_t), cudaMemcpyHostToDevice);
   // pull_len_ = total_length;
 
   size_t feature_value_size = 0;
@@ -1220,6 +1219,9 @@ void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
     VLOG(3) << "Begin copy keys, key_num[" << total_length << "]";
     int device_id = place.GetDeviceId();
     int devid_2_index = HeterPs_->get_index_by_devid(device_id);
+    
+    // copy len 
+    cudaMemcpy(pull_len_[devid_2_index], &total_length, sizeof(size_t), cudaMemcpyHostToDevice);
 
     if (keys_tensor[devid_2_index].numel() == 0) {
         VLOG(0)<< "keys_tensor devid_2_index:" << devid_2_index << " numel = 0";
