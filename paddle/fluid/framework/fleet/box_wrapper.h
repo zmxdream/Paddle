@@ -764,10 +764,15 @@ class BoxWrapper {
   void InitializeAucRunner(std::vector<std::vector<std::string>> slot_eval,
                            int thread_num, int pool_size,
                            std::vector<std::string> slot_list) {
-    PADDLE_ENFORCE_EQ(FLAGS_padbox_auc_runner_mode, true,
-                      platform::errors::InvalidArgument(
-                          "you should export FLAGS_padbox_auc_runner_mode=true "
-                          "in auc runner mode."));
+    //    PADDLE_ENFORCE_EQ(FLAGS_padbox_auc_runner_mode, true,
+    //                      platform::errors::InvalidArgument(
+    //                          "you should export
+    //                          FLAGS_padbox_auc_runner_mode=true "
+    //                          "in auc runner mode."));
+    size_t object_bytes = sizeof(SlotRecordObject) +
+                          sizeof(float) * FLAGS_padbox_slotrecord_extend_dim +
+                          sizeof(AucRunnerInfo);
+    SlotRecordPool().set_slotrecord_size(object_bytes);
 
     mode_ = 1;
     phase_num_ = static_cast<int>(slot_eval.size());
@@ -788,7 +793,8 @@ class BoxWrapper {
 
     VLOG(0) << "AucRunner configuration: thread number[" << thread_num
             << "], pool size[" << pool_size << "], runner_group[" << phase_num_
-            << "], eval size:[" << slot_eval_set_.size() << "]";
+            << "], eval size:[" << slot_eval_set_.size() << "]"
+            << ", object size:[" << object_bytes << "]";
     //    VLOG(0) << "Slots that need to be evaluated:";
     //    for (auto e : slot_index_to_replace_) {
     //      VLOG(0) << e << ": " << slot_list[e];

@@ -2327,8 +2327,10 @@ void PadBoxSlotDataset::PrepareTrain(void) {
                         ->GetPvBatchSize();
     compute_thread_batch_nccl(thread_num_, GetPvDataSize(), batchsize, &offset);
     for (int i = 0; i < thread_num_; ++i) {
-      reinterpret_cast<SlotPaddleBoxDataFeed*>(readers_[i].get())
-          ->SetPvInstance(&input_pv_ins_[0]);
+      SlotPaddleBoxDataFeed* feed =
+          reinterpret_cast<SlotPaddleBoxDataFeed*>(readers_[i].get());
+      feed->SetEnablePvMerge(enable_pv_merge_);
+      feed->SetPvInstance(&input_pv_ins_[0]);
     }
     for (size_t i = 0; i < offset.size(); ++i) {
       reinterpret_cast<SlotPaddleBoxDataFeed*>(readers_[i % thread_num_].get())
@@ -2343,8 +2345,10 @@ void PadBoxSlotDataset::PrepareTrain(void) {
     compute_thread_batch_nccl(thread_num_, GetMemoryDataSize(), batchsize,
                               &offset);
     for (int i = 0; i < thread_num_; ++i) {
-      reinterpret_cast<SlotPaddleBoxDataFeed*>(readers_[i].get())
-          ->SetSlotRecord(&input_records_[0]);
+      SlotPaddleBoxDataFeed* feed =
+          reinterpret_cast<SlotPaddleBoxDataFeed*>(readers_[i].get());
+      feed->SetEnablePvMerge(false);
+      feed->SetSlotRecord(&input_records_[0]);
     }
     for (size_t i = 0; i < offset.size(); ++i) {
       reinterpret_cast<SlotPaddleBoxDataFeed*>(readers_[i % thread_num_].get())

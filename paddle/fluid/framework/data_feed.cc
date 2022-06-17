@@ -1661,10 +1661,8 @@ bool MultiSlotFileInstantDataFeed::ParseOneMiniBatch() {
 
 bool PaddleBoxDataFeed::Start() {
 #ifdef _LINUX
-  // join: 1, update: 0, join_test: 3, update_test: 2
-  int phase = GetCurrentPhase();
   this->CheckSetFileList();
-  if (enable_pv_merge_ && (phase == 1 || phase == 3)) {
+  if (enable_pv_merge_) {
     // join phase : input_pv_channel to output_pv_channel
     if (output_pv_channel_->Size() == 0 && input_pv_channel_->Size() != 0) {
       std::vector<PvInstance> data;
@@ -1693,10 +1691,8 @@ bool PaddleBoxDataFeed::Start() {
 
 int PaddleBoxDataFeed::Next() {
 #ifdef _LINUX
-  // join: 1, update: 0, join_test: 3, update_test: 2
-  int phase = GetCurrentPhase();
   this->CheckStart();
-  if (enable_pv_merge_ && (phase == 1 || phase == 3)) {
+  if (enable_pv_merge_) {
     // join phase : output_pv_channel to consume_pv_channel
     CHECK(output_pv_channel_ != nullptr);
     CHECK(consume_pv_channel_ != nullptr);
@@ -1827,9 +1823,7 @@ void PaddleBoxDataFeed::GetRankOffset(const std::vector<PvInstance>& pv_vec,
 void PaddleBoxDataFeed::AssignFeedVar(const Scope& scope) {
   MultiSlotInMemoryDataFeed::AssignFeedVar(scope);
   // set rank offset memory
-  // join: 1, update: 0, join_test: 3, update_test: 2
-  int phase = GetCurrentPhase();
-  if (enable_pv_merge_ && (phase == 1 || phase == 3)) {
+  if (enable_pv_merge_) {
     rank_offset_ = scope.FindVar(rank_offset_name_)->GetMutable<LoDTensor>();
   }
 }
@@ -2341,14 +2335,12 @@ bool SlotPaddleBoxDataFeed::Start() {
   return true;
 }
 int SlotPaddleBoxDataFeed::Next() {
-  // join: 1, update: 0, join_test: 3, update_test: 2
-  int phase = GetCurrentPhase();
   this->CheckStart();
   if (offset_index_ >= static_cast<int>(batch_offsets_.size())) {
     return 0;
   }
   auto& batch = batch_offsets_[offset_index_++];
-  if (enable_pv_merge_ && (phase == 1 || phase == 3)) {
+  if (enable_pv_merge_) {
     // join phase : output_pv_channel to consume_pv_channel
     this->batch_size_ = batch.second;
     if (this->batch_size_ != 0) {
@@ -2364,17 +2356,13 @@ int SlotPaddleBoxDataFeed::Next() {
     batch_timer_.Resume();
     PutToFeedSlotVec(&records_[batch.first], this->batch_size_);
     // update set join q value
-    if ((phase == 0 || phase == 2) && FLAGS_padbox_slotrecord_extend_dim > 0) {
+    if (FLAGS_padbox_slotrecord_extend_dim > 0) {
       // pcoc
       pack_->pack_qvalue();
     }
     batch_timer_.Pause();
     return this->batch_size_;
   }
-}
-bool SlotPaddleBoxDataFeed::EnablePvMerge(void) {
-  return (enable_pv_merge_ &&
-          (GetCurrentPhase() == 1 || GetCurrentPhase() == 3));
 }
 int SlotPaddleBoxDataFeed::GetPackInstance(SlotRecord** ins) {
   if (offset_index_ >= static_cast<int>(batch_offsets_.size())) {
@@ -2399,9 +2387,7 @@ void SlotPaddleBoxDataFeed::AssignFeedVar(const Scope& scope) {
         scope.FindVar(used_slots_info_[i].slot)->GetMutable<LoDTensor>();
   }
   // set rank offset memory
-  // join: 1, update: 0, join_test: 3, update_test: 2
-  int phase = GetCurrentPhase();
-  if (enable_pv_merge_ && (phase == 1 || phase == 3)) {
+  if (enable_pv_merge_) {
     rank_offset_ = scope.FindVar(rank_offset_name_)->GetMutable<LoDTensor>();
   }
 }
