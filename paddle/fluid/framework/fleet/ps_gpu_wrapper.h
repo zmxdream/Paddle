@@ -108,9 +108,8 @@ class PSGPUWrapper {
     debug_total_keys2_.resize(8);
     tmp_total_keys_.resize(8);
    
-    cudagraph_keys_.resize(8, NULL); 
+    cudagraph_keys_.resize(8); 
     cudaMalloc(&pull_len_, sizeof(size_t));
-
   }
   
   void CheckHBM(const paddle::platform::Place& place, int graphid , int opid);
@@ -504,7 +503,7 @@ class PSGPUWrapper {
   std::vector<uint64_t*> debug_total_keys_;
   std::vector<uint64_t*> debug_total_keys2_;
   std::vector<uint64_t*> tmp_total_keys_;
-  std::vector<char*> cudagraph_keys_;
+  std::vector<LoDTensor> cudagraph_keys_;
   size_t* pull_len_;
 
  protected:

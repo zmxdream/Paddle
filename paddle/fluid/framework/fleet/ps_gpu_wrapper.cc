@@ -1180,9 +1180,8 @@ void PSGPUWrapper::CheckHBM(const paddle::platform::Place& place, int graphid, i
     // get size
     uint64_t* total_keys =
         reinterpret_cast<uint64_t*>(total_keys_tensor.data<int64_t>());
-    this->check_hbm(place, graphid, opid, pull_len_, total_keys, (const uint64_t*)cudagraph_keys_[devid_2_index]);
+    this->check_hbm(place, graphid, opid, pull_len_, total_keys, (const uint64_t*)cudagraph_keys_[devid_2_index].data<int64_t>());
 }
-
 
 void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
                               const int table_id,
@@ -1229,10 +1228,14 @@ void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
     debug_total_keys_[devid_2_index] = new uint64_t[total_length];
     debug_total_keys2_[devid_2_index] = new uint64_t[total_length];
  
-
-    if (cudagraph_keys_[devid_2_index] != NULL) cudaFree(cudagraph_keys_[devid_2_index]);
+    if (cudagraph_keys_[devid_2_index].numel() == 0) {
+        VLOG(0)<< "devid_2_index:" << devid_2_index << " numel = 0";
+        LoDTensor& tt = cudagraph_keys_[devid_2_index];
+        tt.mutable_data<int64_t>({int64_t(1000000000), 1}, place);
+        VLOG(0) << "devidd_2_index:" << devid_2_index << " numel:" << tt.numel(); 
+    }
     // debug for cudagraph
-    cudaMalloc(&cudagraph_keys_[devid_2_index], total_length * sizeof(uint64_t));
+   // cudaMalloc(&cudagraph_keys_[devid_2_index], total_length * sizeof(uint64_t));
     // cudaMemcpy(cudagraph_keys_[devid_2_index], total_keys, total_length * sizeof(uint64_t),
     //            cudaMemcpyDeviceToDevice);
     
@@ -1262,7 +1265,7 @@ void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
                    static_cast<int>(total_length));
    
     cudaMemcpy(debug_total_keys_[devid_2_index], total_keys, total_length * sizeof(uint64_t), cudaMemcpyDeviceToHost);
-    cudaMemcpy(cudagraph_keys_[devid_2_index], total_keys, total_length * sizeof(uint64_t),
+    cudaMemcpy(cudagraph_keys_[devid_2_index].data<int64_t>(), total_keys, total_length * sizeof(uint64_t),
                cudaMemcpyDeviceToDevice);
 
     VLOG(0) << "Begin call PullSparseGPU in GPUPS, dev: " << devid_2_index
