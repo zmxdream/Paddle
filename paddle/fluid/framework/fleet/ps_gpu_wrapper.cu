@@ -158,7 +158,7 @@ __global__ void CopyKeysKernel(uint64_t** src_keys, uint64_t* dest_total_keys,
 __global__ void CHECK_HBM(int graphid, int opid, size_t* len, const uint64_t* total_keys, const uint64_t* cudagraph_keys) {
    
   CUDA_KERNEL_LOOP(i, *len) {
-    if (total_keys[i] != cudagraph_keys[i]) printf("grapid:%d,opid:%d,len:%llu,pull_key:%llu,cudagraph_key:%llu\n", graphid , opid, *len, total_keys[i], cudagraph_keys[i]); 
+    if (total_keys[i] != cudagraph_keys[i]) printf("graphid:%d,opid:%d,len:%llu,pull_key:%llu,cudagraph_key:%llu\n", graphid , opid, *len, total_keys[i], cudagraph_keys[i]); 
   }
 
 }

@@ -1221,18 +1221,28 @@ void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
     int device_id = place.GetDeviceId();
     int devid_2_index = HeterPs_->get_index_by_devid(device_id);
 
+    if (keys_tensor[devid_2_index].numel() == 0) {
+        VLOG(0)<< "keys_tensor devid_2_index:" << devid_2_index << " numel = 0";
+        LoDTensor& tt = keys_tensor[devid_2_index];
+        tt.mutable_data<int64_t>({int64_t(1000000000), 1}, place);
+        VLOG(0) << "keys_tensor devidd_2_index:" << devid_2_index << " numel:" << tt.numel(); 
+    }
+    
     LoDTensor& total_keys_tensor = keys_tensor[devid_2_index];
     uint64_t* total_keys = reinterpret_cast<uint64_t*>(
         total_keys_tensor.mutable_data<int64_t>({int64_t(total_length), 1}, place));
+
+
+
     
     debug_total_keys_[devid_2_index] = new uint64_t[total_length];
     debug_total_keys2_[devid_2_index] = new uint64_t[total_length];
  
     if (cudagraph_keys_[devid_2_index].numel() == 0) {
-        VLOG(0)<< "devid_2_index:" << devid_2_index << " numel = 0";
+        VLOG(0)<< "cudagraph_keys devid_2_index:" << devid_2_index << " numel = 0";
         LoDTensor& tt = cudagraph_keys_[devid_2_index];
         tt.mutable_data<int64_t>({int64_t(1000000000), 1}, place);
-        VLOG(0) << "devidd_2_index:" << devid_2_index << " numel:" << tt.numel(); 
+        VLOG(0) << "cudagraph_keys devid_2_index:" << devid_2_index << " numel:" << tt.numel(); 
     }
     // debug for cudagraph
    // cudaMalloc(&cudagraph_keys_[devid_2_index], total_length * sizeof(uint64_t));

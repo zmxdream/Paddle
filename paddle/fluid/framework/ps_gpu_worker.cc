@@ -236,7 +236,9 @@ void PSGPUWorker::TrainFiles() {
 
     if (op_or_cudagraphs_.empty()) {
       // first batch we run original ops to check whethere the tensors has lod
+      int op_id = 0;
       for (auto& op : ops_) {
+        op_id++;
         bool need_skip = false;
         for (auto t = 0u; t < skip_ops_.size(); ++t) {
           if (op->Type().find(skip_ops_[t]) != std::string::npos) {
@@ -246,6 +248,7 @@ void PSGPUWorker::TrainFiles() {
         }
         if (!need_skip) {
           op->Run(*thread_scope_, place_);
+          // ps_gpu_wrapper->CheckHBM(place_, -1, op_id);
         }
       }
 
@@ -254,9 +257,10 @@ void PSGPUWorker::TrainFiles() {
 
 
     } else if (graph_batch_size != cur_batch || batch_cnt <= thread_id_) {
-
+      int op_id = 0;
       // when batch_size changed, run original ops
       for (auto& op : ops_) {
+        op_id++;
         bool need_skip = false;
         for (auto t = 0u; t < skip_ops_.size(); ++t) {
           if (op->Type().find(skip_ops_[t]) != std::string::npos) {
@@ -266,6 +270,7 @@ void PSGPUWorker::TrainFiles() {
         }
         if (!need_skip) {
           op->Run(*thread_scope_, place_);
+          ps_gpu_wrapper->CheckHBM(place_, -2, op_id);
         }
       }
     } else {
@@ -294,8 +299,11 @@ void PSGPUWorker::TrainFiles() {
           op_or_cuda_graph.cudagraph->Replay();
 
         } else {
+          int op_id = 0;
           for (auto& op : op_or_cuda_graph.ops) {
+            op_id++;
             op->Run(*thread_scope_, place_);
+            ps_gpu_wrapper->CheckHBM(place_, graph_id, op_id);
             
           }
         }
