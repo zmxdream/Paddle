@@ -847,12 +847,8 @@ struct SlotRecordObject {
 };
 using SlotRecord = SlotRecordObject*;
 
-inline SlotRecord make_slotrecord() {
-  static const size_t slot_record_byte_size =
-      sizeof(SlotRecordObject) +
-      sizeof(float) * FLAGS_padbox_slotrecord_extend_dim +
-      sizeof(AucRunnerInfo) * static_cast<int>(FLAGS_padbox_auc_runner_mode);
-  void* p = malloc(slot_record_byte_size);
+inline SlotRecord make_slotrecord(const size_t& byte_size) {
+  void* p = malloc(byte_size);
   new (p) SlotRecordObject;
   return reinterpret_cast<SlotRecordObject*>(p);
 }
@@ -963,6 +959,8 @@ class SlotObjPool {
       : inited_(true),
         max_capacity_(FLAGS_padbox_record_pool_max_size),
         alloc_(free_slotrecord) {
+    slot_record_byte_size_ = sizeof(SlotRecordObject) +
+                             sizeof(float) * FLAGS_padbox_slotrecord_extend_dim;
     for (int i = 0; i < FLAGS_padbox_slotpool_thread_num; ++i) {
       threads_.push_back(std::thread([this]() { run(); }));
     }
@@ -975,6 +973,9 @@ class SlotObjPool {
     for (auto& t : threads_) {
       t.join();
     }
+  }
+  void set_slotrecord_size(size_t byte_size) {
+    slot_record_byte_size_ = byte_size;
   }
   void disable_pool(bool disable) { disable_pool_ = disable; }
   void set_max_capacity(size_t max_capacity) { max_capacity_ = max_capacity; }
@@ -993,7 +994,7 @@ class SlotObjPool {
       return;
     }
     for (size_t i = size; i < n; ++i) {
-      output[i] = make_slotrecord();
+      output[i] = make_slotrecord(slot_record_byte_size_);
     }
   }
   void put(std::vector<SlotRecord>* input) {
@@ -1069,6 +1070,7 @@ class SlotObjPool {
   bool disable_pool_;
   size_t count_;  // NOLINT
   std::condition_variable cond_;
+  size_t slot_record_byte_size_ = 0;
 };
 
 inline SlotObjPool& SlotRecordPool() {
@@ -1617,7 +1619,6 @@ class SlotPaddleBoxDataFeed : public DataFeed {
   // expand values
   void ExpandSlotRecord(SlotRecord* ins);
   // pack
-  bool EnablePvMerge(void);
   int GetPackInstance(SlotRecord** ins);
   int GetPackPvInstance(SlotPvInstance** pv_ins);
   void SetSlotRecordPool(SlotObjPool* pool) { slot_pool_ = pool; }
