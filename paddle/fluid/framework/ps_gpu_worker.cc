@@ -128,8 +128,8 @@ void PSGPUWorker::PrepareCudaGraph() {
   op_or_cudagraphs_.reserve(ops_.size());
 
   static const std::unordered_set<std::string> op_whitelist = {
-    "adam",
-    "coalesce_tensor",
+     "adam",
+     "coalesce_tensor",
   };
   // these op can not be captured
   static const std::unordered_set<std::string> op_blacklist = {
@@ -248,6 +248,7 @@ void PSGPUWorker::TrainFiles() {
         }
         if (!need_skip) {
           op->Run(*thread_scope_, place_);
+          // in first batch , we don't check hbm
           // ps_gpu_wrapper->CheckHBM(place_, -1, op_id);
         }
       }
@@ -256,9 +257,9 @@ void PSGPUWorker::TrainFiles() {
       PrepareCudaGraph();
 
 
-    // } else if (graph_batch_size != cur_batch || batch_cnt <= thread_id_) {
-    } else if (graph_batch_size != cur_batch) {
+    } else if (graph_batch_size != cur_batch || batch_cnt <= thread_id_) {
       int op_id = 0;
+      bool can_check = false;
       // when batch_size changed, run original ops
       for (auto& op : ops_) {
         op_id++;
@@ -271,7 +272,9 @@ void PSGPUWorker::TrainFiles() {
         }
         if (!need_skip) {
           op->Run(*thread_scope_, place_);
-          ps_gpu_wrapper->CheckHBM(place_, batch_cnt, -2, op_id);
+          if (op->Type() == "pull_gpups_sparse") can_check = true;
+          if (op->Type() == "push_gpups_sparse") can_check = false;
+          if (can_check) ps_gpu_wrapper->CheckHBM(place_, batch_cnt, -2, op_id);
         }
       }
     } else {
@@ -286,10 +289,13 @@ void PSGPUWorker::TrainFiles() {
             static std::mutex _capture_mutex;
             std::lock_guard<std::mutex> lock(_capture_mutex);
             platform::BeginCUDAGraphCapture(place_, cudaStreamCaptureModeThreadLocal);
+            bool can_check = false;
             for (auto& op : op_or_cuda_graph.ops) {
               op_id++;
               op->Run(*thread_scope_, place_);
-              ps_gpu_wrapper->CheckHBM(place_, batch_cnt, graph_id, op_id);
+              if (op->Type() == "pull_gpups_sparse") can_check = true;
+              if (op->Type() == "push_gpups_sparse") can_check = false;
+              if (can_check) ps_gpu_wrapper->CheckHBM(place_, batch_cnt, graph_id, op_id);
             }
             op_or_cuda_graph.cudagraph = platform::EndCUDAGraphCapture();
           }
@@ -301,10 +307,13 @@ void PSGPUWorker::TrainFiles() {
 
         } else {
           int op_id = 0;
+          bool can_check = false;
           for (auto& op : op_or_cuda_graph.ops) {
             op_id++;
             op->Run(*thread_scope_, place_);
-            ps_gpu_wrapper->CheckHBM(place_, batch_cnt, graph_id, op_id);
+              if (op->Type() == "pull_gpups_sparse") can_check = true;
+              if (op->Type() == "push_gpups_sparse") can_check = false;
+              if (can_check == true)ps_gpu_wrapper->CheckHBM(place_, batch_cnt, graph_id, op_id);
             
           }
         }

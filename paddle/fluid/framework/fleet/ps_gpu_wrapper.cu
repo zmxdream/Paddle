@@ -239,7 +239,6 @@ void PSGPUWrapper::check_hbm(const paddle::platform::Place& place, int batch_id,
 
 
 
-
 void PSGPUWrapper::CopyForPull(const paddle::platform::Place& place,
                                uint64_t** gpu_keys,
                                const std::vector<float*>& values,

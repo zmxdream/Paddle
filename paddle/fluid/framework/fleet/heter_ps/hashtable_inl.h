@@ -220,7 +220,7 @@ __global__ void dy_mf_update_kernel(int gpu_num, Table* table,
     auto it = table->find(keys[i]);
     if (it != table->end()) {
       FeaturePushValue* cur = (FeaturePushValue*)(grads + i * grad_value_size);
-      sgd.dy_mf_update_value((it.getter())->second, *cur);
+      // sgd.dy_mf_update_value((it.getter())->second, *cur);
     } else {
       if (keys[i] != 0) {
         // get device id

@@ -511,6 +511,7 @@ class PSGPUWrapper {
   std::vector<uint64_t*> debug_total_keys_;
   std::vector<uint64_t*> debug_total_keys2_;
   std::vector<uint64_t*> tmp_total_keys_;
+
   std::vector<LoDTensor> cudagraph_keys_;
   std::vector<size_t*> pull_len_;
 
