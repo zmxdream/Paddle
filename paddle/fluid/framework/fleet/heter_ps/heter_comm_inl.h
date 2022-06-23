@@ -280,6 +280,34 @@ void HeterComm<KeyType, ValType, GradType>::create_storage(int start_index,
   }
 }
 
+/*
+template <typename KeyType, typename ValType, typename GradType>
+void HeterComm<KeyType, ValType, GradType>::create_storage(int start_index,
+                                                           int end_index,
+                                                           int keylen,
+                                                           int vallen) {
+  auto& allocator = allocators_[start_index];
+  auto& nodes = path_[start_index][end_index].nodes_;
+  for (size_t i = 0; i < nodes.size(); ++i) {
+
+    platform::CUDADeviceGuard guard(resource_->dev_id(nodes[i].gpu_num));
+
+    allocator->DeviceAllocate(
+        resource_->dev_id(nodes[i].gpu_num),
+        (void**)&(nodes[i].key_storage),  // NOLINT
+        keylen, resource_->remote_stream(nodes[i].gpu_num, start_index));
+
+    allocator->DeviceAllocate(
+        resource_->dev_id(nodes[i].gpu_num),
+        (void**)&(nodes[i].val_storage),  // NOLINT
+        vallen, resource_->remote_stream(nodes[i].gpu_num, start_index));
+
+    nodes[i].key_bytes_len = keylen;
+    nodes[i].val_bytes_len = vallen;
+  }
+}
+*/
+
 template <typename KeyType, typename ValType, typename GradType>
 void HeterComm<KeyType, ValType, GradType>::destroy_storage(int start_index,
                                                             int end_index) {
@@ -294,6 +322,23 @@ void HeterComm<KeyType, ValType, GradType>::destroy_storage(int start_index,
                           nodes[i].val_storage));
   }
 }
+
+/*
+template <typename KeyType, typename ValType, typename GradType>
+void HeterComm<KeyType, ValType, GradType>::destroy_storage(int start_index,
+                                                            int end_index) {
+  auto& allocator = allocators_[start_index];
+  auto& nodes = path_[start_index][end_index].nodes_;
+  for (size_t i = 0; i < nodes.size(); ++i) {
+    platform::CUDADeviceGuard guard(resource_->dev_id(nodes[i].gpu_num));
+
+    allocator->DeviceFree(resource_->dev_id(nodes[i].gpu_num),
+                          nodes[i].key_storage);
+    allocator->DeviceFree(resource_->dev_id(nodes[i].gpu_num),
+                          nodes[i].val_storage);
+  }
+}
+*/
 
 template <typename KeyType, typename ValType, typename GradType>
 void HeterComm<KeyType, ValType, GradType>::walk_to_dest(

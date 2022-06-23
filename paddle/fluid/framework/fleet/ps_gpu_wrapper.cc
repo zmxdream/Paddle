@@ -1171,6 +1171,7 @@ void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
   VLOG(3) << "End PullSparse";
 }
 
+/*
 void PSGPUWrapper::CheckHBM(const paddle::platform::Place& place, int batch_id, int graphid, int opid) {
     // check keys_tensor
     int device_id = place.GetDeviceId();
@@ -1182,6 +1183,8 @@ void PSGPUWrapper::CheckHBM(const paddle::platform::Place& place, int batch_id, 
         reinterpret_cast<uint64_t*>(total_keys_tensor.data<int64_t>());
     this->check_hbm(place, batch_id, graphid, opid, pull_len_[devid_2_index], total_keys, (const uint64_t*)cudagraph_keys_[devid_2_index].data<int64_t>());
 }
+*/
+
 
 void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
                               const int table_id,
@@ -1221,33 +1224,40 @@ void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
     int devid_2_index = HeterPs_->get_index_by_devid(device_id);
     
     // copy len 
-    cudaMemcpy(pull_len_[devid_2_index], &total_length, sizeof(size_t), cudaMemcpyHostToDevice);
+    // cudaMemcpy(pull_len_[devid_2_index], &total_length, sizeof(size_t), cudaMemcpyHostToDevice);
 
+    /*
     if (keys_tensor[devid_2_index].numel() == 0) {
         VLOG(0)<< "keys_tensor devid_2_index:" << devid_2_index << " numel = 0";
         LoDTensor& tt = keys_tensor[devid_2_index];
-        tt.mutable_data<int64_t>({int64_t(1000000000), 1}, place);
+        tt.mutable_data<int64_t>({int64_t(100000000), 1}, place);
         VLOG(0) << "keys_tensor devidd_2_index:" << devid_2_index << " numel:" << tt.numel(); 
     }
+    if (total_length > 100000000) {
+      VLOG(0) << "total length > billion/10";
+    }
+    */
     
     LoDTensor& total_keys_tensor = keys_tensor[devid_2_index];
     uint64_t* total_keys = reinterpret_cast<uint64_t*>(
         total_keys_tensor.mutable_data<int64_t>({int64_t(total_length), 1}, place));
 
-
-
-    
     debug_total_keys_[devid_2_index] = new uint64_t[total_length];
     debug_total_keys2_[devid_2_index] = new uint64_t[total_length];
  
+
+    /*
     if (cudagraph_keys_[devid_2_index].numel() == 0) {
         VLOG(0)<< "cudagraph_keys devid_2_index:" << devid_2_index << " numel = 0";
         LoDTensor& tt = cudagraph_keys_[devid_2_index];
-        tt.mutable_data<int64_t>({int64_t(1000000000), 1}, place);
+        tt.mutable_data<int64_t>({int64_t(100000000), 1}, place);
         VLOG(0) << "cudagraph_keys devid_2_index:" << devid_2_index << " numel:" << tt.numel(); 
     }
+    */
+    
+
     // debug for cudagraph
-   // cudaMalloc(&cudagraph_keys_[devid_2_index], total_length * sizeof(uint64_t));
+    // cudaMalloc(&cudagraph_keys_[devid_2_index], total_length * sizeof(uint64_t));
     // cudaMemcpy(cudagraph_keys_[devid_2_index], total_keys, total_length * sizeof(uint64_t),
     //            cudaMemcpyDeviceToDevice);
     
@@ -1277,8 +1287,8 @@ void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
                    static_cast<int>(total_length));
    
     cudaMemcpy(debug_total_keys_[devid_2_index], total_keys, total_length * sizeof(uint64_t), cudaMemcpyDeviceToHost);
-    cudaMemcpy(cudagraph_keys_[devid_2_index].data<int64_t>(), total_keys, total_length * sizeof(uint64_t),
-               cudaMemcpyDeviceToDevice);
+    // cudaMemcpy(cudagraph_keys_[devid_2_index].data<int64_t>(), total_keys, total_length * sizeof(uint64_t),
+    //           cudaMemcpyDeviceToDevice);
 
     VLOG(0) << "Begin call PullSparseGPU in GPUPS, dev: " << devid_2_index
             << " len: " << total_length;
@@ -1288,10 +1298,9 @@ void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
                           total_length);
     
     cudaMemcpy(debug_total_keys2_[devid_2_index], total_keys, total_length * sizeof(uint64_t), cudaMemcpyDeviceToHost);
-    
     for (size_t i = 0; i < total_length; i++) {
       if (debug_total_keys_[devid_2_index][i] != debug_total_keys2_[devid_2_index][i]) { 
-        VLOG(0) << "zmx:key_check2:" << total_length << ":" << devid_2_index << ":" << i << ":" << debug_total_keys_[devid_2_index][i] << ":" << debug_total_keys2_[devid_2_index][i];
+        VLOG(0) << "zmx:key_check1:" << total_length << ":" << devid_2_index << ":" << i << ":" << debug_total_keys_[devid_2_index][i] << ":" << debug_total_keys2_[devid_2_index][i];
       }
     }
 
@@ -1308,6 +1317,12 @@ void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
                       total_length, gpu_dim);
     }
 
+    cudaMemcpy(debug_total_keys2_[devid_2_index], total_keys, total_length * sizeof(uint64_t), cudaMemcpyDeviceToHost);
+    for (size_t i = 0; i < total_length; i++) {
+      if (debug_total_keys_[devid_2_index][i] != debug_total_keys2_[devid_2_index][i]) { 
+        VLOG(0) << "zmx:key_check2:" << total_length << ":" << devid_2_index << ":" << i << ":" << debug_total_keys_[devid_2_index][i] << ":" << debug_total_keys2_[devid_2_index][i];
+      }
+    }
 
 
     pull_gpups_timer.Pause();
@@ -1358,7 +1373,6 @@ void PSGPUWrapper::PushSparseGrad(const paddle::platform::Place& place,
     int devid_2_index = HeterPs_->get_index_by_devid(device_id);
 
 
-    // 会不会是
     LoDTensor& cached_total_keys_tensor = keys_tensor[devid_2_index];
 
     uint64_t* total_keys =
@@ -1373,12 +1387,13 @@ void PSGPUWrapper::PushSparseGrad(const paddle::platform::Place& place,
 
     for (int i = 0; i < total_length; i++) {
       if (debug_total_keys_[devid_2_index][i] != tmp_total_keys_[devid_2_index][i]) { 
-        VLOG(0) << "zmx:key_check:" << total_length << ":" << devid_2_index << ":" << i << ":" << debug_total_keys_[devid_2_index][i] << ":" << tmp_total_keys_[devid_2_index][i];
+        VLOG(0) << "zmx:key_check3:" << total_length << ":" << devid_2_index << ":" << i << ":" << debug_total_keys_[devid_2_index][i] << ":" << tmp_total_keys_[devid_2_index][i];
       }
     }
-    delete[] debug_total_keys_[devid_2_index];
-    delete[] debug_total_keys2_[devid_2_index];
-    delete[] tmp_total_keys_[devid_2_index];
+
+    // delete[] debug_total_keys_[devid_2_index];
+    // delete[] debug_total_keys2_[devid_2_index];
+    // delete[] tmp_total_keys_[devid_2_index];
 
     VLOG(3) << "Begin copy grad tensor to gpups struct";
     if (!multi_mf_dim_) {
@@ -1389,12 +1404,31 @@ void PSGPUWrapper::PushSparseGrad(const paddle::platform::Place& place,
                         total_length, batch_size, grad_value_size);
     }
 
+    cudaMemcpy(tmp_total_keys_[devid_2_index], total_keys, total_length * sizeof(uint64_t), cudaMemcpyDeviceToHost);
+    for (int i = 0; i < total_length; i++) {
+      if (debug_total_keys_[devid_2_index][i] != tmp_total_keys_[devid_2_index][i]) { 
+        VLOG(0) << "zmx:key_check4:" << total_length << ":" << devid_2_index << ":" << i << ":" << debug_total_keys_[devid_2_index][i] << ":" << tmp_total_keys_[devid_2_index][i];
+      }
+    }
+
     VLOG(0) << "Begin call PushSparseGPU in GPUPS, dev: " << devid_2_index
             << " len: " << total_length;
     push_gpups_timer.Start();
     HeterPs_->push_sparse(devid_2_index, total_keys, total_grad_values_gpu,
                           static_cast<int>(total_length));
+
+    // cudaMemcpy(tmp_total_keys_[devid_2_index], total_keys, total_length * sizeof(uint64_t), cudaMemcpyDeviceToHost);
+    // for (int i = 0; i < total_length; i++) {
+    //  if (debug_total_keys_[devid_2_index][i] != tmp_total_keys_[devid_2_index][i]) { 
+    //    VLOG(0) << "zmx:key_check3:" << total_length << ":" << devid_2_index << ":" << i << ":" << debug_total_keys_[devid_2_index][i] << ":" << tmp_total_keys_[devid_2_index][i];
+    //  }
+    // }
+    delete[] debug_total_keys_[devid_2_index];
+    delete[] debug_total_keys2_[devid_2_index];
+    delete[] tmp_total_keys_[devid_2_index];
+
     push_gpups_timer.Pause();
+
   } else {
     PADDLE_THROW(platform::errors::PreconditionNotMet(
         "GPUPS: PushSparseGrad Only Support CUDAPlace Now."));

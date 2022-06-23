@@ -227,6 +227,7 @@ __global__ void PushCopyWithPool(FeaturePushValue* dest, float** src,
   }
 }
 
+/*
 void PSGPUWrapper::check_hbm(const paddle::platform::Place& place, int batch_id, int graphid, int opid, size_t* pull_len, const uint64_t* total_keys, const uint64_t* cudagraph_keys) {
   auto stream = dynamic_cast<platform::CUDADeviceContext*>(
                     platform::DeviceContextPool::Instance().Get(place))
@@ -235,7 +236,7 @@ void PSGPUWrapper::check_hbm(const paddle::platform::Place& place, int batch_id,
   CHECK_HBM<<<2048, 1024, 0, stream>>>(batch_id, graphid, opid, pull_len, total_keys, cudagraph_keys);
   // cudaStreamSynchronize(stream);
 }
-
+*/
 
 
 
