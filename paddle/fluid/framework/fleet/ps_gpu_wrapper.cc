@@ -777,6 +777,26 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
       size_max = std::max(size_max, feature_keys_count[i]);
     }
   }
+  // size_t val_type_size = TYPEALIGN(8, sizeof(FeatureValue) + sizeof(float) * (max_mf_dim_ + 1));
+  // ====  debug FeatureValue ======
+  // FeatureValue a;
+  // char* b = (char*)malloc(val_type_size);
+  // FeatureValue* f = (FeatureValue*)b;
+  // uint64_t p = (uint64_t)f;
+  // std::cout << "delta_score:" << (uint64_t)&f->delta_score - p << std::endl;
+  // std::cout << "show:" << (uint64_t)&f->show - p << std::endl;
+  // std::cout << "clk:" << (uint64_t)&f->clk - p << std::endl;
+  // std::cout << "slot:" << (uint64_t)&f->slot - p << std::endl;
+  // std::cout << "lr:" << (uint64_t)&f->lr - p << std::endl;
+  // std::cout << "lr_g2sum:" << (uint64_t)&f->lr_g2sum - p << std::endl;
+  // std::cout << "mf_size:" << (uint64_t)&f->mf_size - p << std::endl;
+  // std::cout << "mf_dim:" << (uint64_t)&f->mf_dim - p << std::endl;
+  // std::cout << "cpu_ptr:" << (uint64_t)&f->cpu_ptr - p << std::endl;
+  // std::cout << "mf:" << (uint64_t)&f->mf[0] - p << std::endl;
+  // std::cout << "mf[1]:" << (uint64_t)&f->mf[1] - p << std::endl; 
+
+  // ==== debug FeatureValue ============
+
   if (HeterPs_) {
     delete HeterPs_;
     HeterPs_ = nullptr;
@@ -836,7 +856,7 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
     delete mem_pool;
   };
 
-  int thread_num = 8;
+  int thread_num = 16;
   auto build_dynamic_mf_func = [this, &gpu_task, thread_num](int i, int j, int z) {
 
     // this->HeterPs_->set_multi_mf_dim(multi_mf_dim_, max_mf_dim_);
@@ -1286,18 +1306,29 @@ void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
     feature_value_size = TYPEALIGN(
         8, sizeof(FeatureValue) + sizeof(float) * (index_dim_vec_.back() + 1));
   }
+
   auto buf = memory::Alloc(place, total_length * feature_value_size);
   FeatureValue* total_values_gpu = reinterpret_cast<FeatureValue*>(buf->ptr());
+
+
+
   if (platform::is_cpu_place(place)) {
+
     PADDLE_THROW(platform::errors::Unimplemented(
         "Warning:: CPUPlace is not supported in GpuPs now."));
+
   } else if (platform::is_gpu_place(place)) {
+
     VLOG(3) << "Begin copy keys, key_num[" << total_length << "]";
     int device_id = place.GetDeviceId();
+
     int devid_2_index = HeterPs_->get_index_by_devid(device_id);
+
     LoDTensor& total_keys_tensor = keys_tensor[devid_2_index];
+
     uint64_t* total_keys = reinterpret_cast<uint64_t*>(
         total_keys_tensor.mutable_data<int64_t>({int64_t(total_length), 1}, place));
+
     // construct slot_level lod info
     auto slot_lengths_lod = slot_lengths;
     for (size_t i = 1; i < slot_lengths_lod.size(); i++) {
@@ -1306,17 +1337,21 @@ void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
     auto buf_key = memory::Alloc(place, keys.size() * sizeof(uint64_t*));
     auto buf_length =
         memory::Alloc(place, slot_lengths.size() * sizeof(int64_t));
+
     uint64_t** gpu_keys = reinterpret_cast<uint64_t**>(buf_key->ptr());
     int64_t* gpu_len = reinterpret_cast<int64_t*>(buf_length->ptr());
     cudaMemcpy(gpu_keys, keys.data(), keys.size() * sizeof(uint64_t*),
                cudaMemcpyHostToDevice);
+
     cudaMemcpy(gpu_len, slot_lengths_lod.data(),
                slot_lengths.size() * sizeof(int64_t), cudaMemcpyHostToDevice);
     auto buf_dim =
         memory::Alloc(place, slot_dim.size() * sizeof(int));
     int* gpu_dim = reinterpret_cast<int*>(buf_dim->ptr());
+
     cudaMemcpy(gpu_dim, slot_dim.data(),
                slot_dim.size() * sizeof(int), cudaMemcpyHostToDevice);
+
     this->CopyKeys(place, gpu_keys, total_keys, gpu_len,
                    static_cast<int>(slot_lengths.size()),
                    static_cast<int>(total_length));
@@ -1325,11 +1360,13 @@ void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
             << " len: " << total_length;
     
     pull_gpups_timer.Start();
+
     HeterPs_->pull_sparse(devid_2_index, total_keys, total_values_gpu,
                           total_length);
     
     VLOG(3) << "Begin Copy result to tensor, total_length[" << total_length
             << "]";
+
     if (!multi_mf_dim_) {
     this->CopyForPull(place, gpu_keys, values, total_values_gpu, gpu_len,
                       static_cast<int>(slot_lengths.size()), hidden_size,

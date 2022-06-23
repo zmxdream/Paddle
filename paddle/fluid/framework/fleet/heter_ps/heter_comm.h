@@ -232,6 +232,33 @@ class HeterComm {
   int multi_node_{0};
   std::vector<ncclComm_t> nccl_inner_comms_;
   std::vector<ncclComm_t> nccl_inter_comms_;
+
+  std::vector<double> alloc_time;
+  std::vector<double> split_input_to_shard_time;
+  // std::vector<std::vector<double>> fill_shard_key_time;
+  std::vector<double> mem_cpy_time;
+  std::vector<double> fill_dval_time;
+  std::vector<std::vector<double>> destroy_storage_time;
+  // std::vector<std::vector<double>> create_storage_time;
+  std::vector<std::vector<double>> walk_to_dest_time;
+  std::vector<std::vector<double>> walk_to_src_time;
+  std::vector<std::vector<double>> table_get_time;
+  
+  std::vector<double> push_alloc_time;
+  std::vector<double> merge_grad_time;
+  std::vector<double> fill_shard_grads_time;
+  std::vector<double> push_split_input_to_shard_time;
+  // std::vector<std::vector<double>> fill_shard_key_time;
+  // std::vector<double> push_mem_cpy_time;
+  // std::vector<double> push_fill_dval_time;
+  // std::vector<std::vector<double>> destroy_storage_time;
+  std::vector<std::vector<double>> push_create_storage_time;
+  std::vector<std::vector<double>> push_walk_to_dest_time;
+  std::vector<std::vector<double>> push_walk_to_src_time;
+  std::vector<std::vector<double>> table_update_time;
+
+
+ /*
   std::vector<double> mg_time_1;
   std::vector<double> mg_time_2;
   std::vector<double> mg_time_3;
@@ -240,6 +267,8 @@ class HeterComm {
   std::vector<double> mg_time_6;
   std::vector<double> mg_time_7;
   std::vector<double> mg_time_8;
+*/
+
   int node_size_;
   std::vector<std::shared_ptr<cub::CachingDeviceAllocator>> allocators_;
   int multi_mf_dim_{8};

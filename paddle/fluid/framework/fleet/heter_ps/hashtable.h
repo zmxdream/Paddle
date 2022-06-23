@@ -61,6 +61,7 @@ class HashTable {
   void get(const KeyType* d_keys, ValType* d_vals, size_t len,
            gpuStream_t stream);
   void get(const KeyType* d_keys, char* d_vals, size_t len, gpuStream_t stream);
+  void get(const KeyType* d_keys, char* d_vals, size_t len, const int max_mf_dim, gpuStream_t stream);
   void show();
   void dump_to_cpu(int devid, cudaStream_t stream);
 
