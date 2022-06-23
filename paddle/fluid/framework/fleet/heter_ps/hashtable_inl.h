@@ -73,7 +73,6 @@ __global__ void search_kernel(Table* table,
     if (it != table->end()) {
       vals[i] = it->second;
     } else {
-    } else {
       printf("pull miss key: %llu", keys[i]);
     }
   }
