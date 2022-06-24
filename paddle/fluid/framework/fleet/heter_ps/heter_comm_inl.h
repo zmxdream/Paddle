@@ -118,8 +118,8 @@ __global__ void merge_gradient_kernel(const uint32_t* offset,
     
     for (int j = 1; j < num; ++j) {
       ori_index = index[start + j];
-      in = *(FeaturePushValue*)(input + size_t(ori_index) * grad_value_size);
-      merger_.add_basic_field(lhs, in);
+      FeaturePushValue& ins = *(FeaturePushValue*)(input + size_t(ori_index) * grad_value_size);
+      merger_.add_basic_field(lhs, ins);
     }
   }
   
