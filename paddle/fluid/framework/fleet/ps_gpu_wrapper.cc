@@ -1126,8 +1126,7 @@ void PSGPUWrapper::EndPass() {
       if (gpu_val->mf_size > 0) {
         for (int x = 0; x < gpu_val->mf_dim + 1; x++) {
           if (x + 8 >= int(downpour_value->size())) {
-            VLOG(0) << "x: " << x
-                    << " size:  << downpour_value_size;
+            VLOG(0) << "x: " << x << " size: "<< downpour_value_size;
           }
           cpu_val[x + 8] = gpu_val->mf[x];
         }
