@@ -953,8 +953,13 @@ void HeterComm<KeyType, ValType, GradType>::push_sparse(int gpu_num,
   platform::CUDADeviceGuard guard(dev_id);
   auto stream = resource_->local_stream(gpu_num, 0);
 
-  size_t grad_value_size =
-      TYPEALIGN(8, sizeof(FeaturePushValue) + (max_mf_dim_ * sizeof(float)));
+  size_t grad_value_size = 0;
+  if (!multi_mf_dim_) {
+    grad_value_size = sizeof(GradType);
+  } else {
+    grad_value_size =
+        TYPEALIGN(8, sizeof(FeaturePushValue) + (max_mf_dim_ * sizeof(float)));
+  }
 
   // int h_left[total_gpu];   // NOLINT
   // int h_right[total_gpu];  // NOLINT
@@ -976,14 +981,8 @@ void HeterComm<KeyType, ValType, GradType>::push_sparse(int gpu_num,
   auto d_shard_keys = memory::Alloc(place, len * sizeof(KeyType));
   KeyType* d_shard_keys_ptr = reinterpret_cast<KeyType*>(d_shard_keys->ptr());
 
-  GradType* d_shard_grads_ptr;
-  if (!multi_mf_dim_) {
-    auto d_shard_grads = memory::Alloc(place, len * sizeof(GradType));
-    d_shard_grads_ptr = reinterpret_cast<GradType*>(d_shard_grads->ptr());
-  } else {
-    auto d_shard_grads = memory::Alloc(place, len * grad_value_size);
-    d_shard_grads_ptr = reinterpret_cast<GradType*>(d_shard_grads->ptr());
-  }
+  auto d_shard_grads = memory::Alloc(place, len * grad_value_size);
+  GradType* d_shard_grads_ptr = reinterpret_cast<GradType*>(d_shard_grads->ptr());
 
   int uniq_len = len;
   merge_grad(gpu_num, d_keys, d_grads, NULL, len, uniq_len);
