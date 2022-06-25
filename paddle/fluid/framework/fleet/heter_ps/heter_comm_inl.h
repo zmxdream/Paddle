@@ -953,7 +953,7 @@ void HeterComm<KeyType, ValType, GradType>::push_sparse(int gpu_num,
   platform::CUDADeviceGuard guard(dev_id);
   auto stream = resource_->local_stream(gpu_num, 0);
 
-  grad_value_size =
+  size_t grad_value_size =
     TYPEALIGN(8, sizeof(FeaturePushValue) + (max_mf_dim_ * sizeof(float)));
 
   // int h_left[total_gpu];   // NOLINT
