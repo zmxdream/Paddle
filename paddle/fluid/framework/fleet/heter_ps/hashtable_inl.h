@@ -219,6 +219,23 @@ __global__ void dy_mf_update_kernel(Table* table,
   }
 }
 
+template <typename Table, typename Sgd>
+__global__ void dy_mf_update_kernel(Table* table,
+                                    const typename Table::key_type* const keys,
+                                    const char* const grads, curandState* p_state, size_t len,
+                                    Sgd sgd, size_t grad_value_size) {
+  const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i < len) {
+    auto it = table->find(keys[i]);
+    if (it != table->end()) {
+      FeaturePushValue* cur = (FeaturePushValue*)(grads + i * grad_value_size);
+      sgd.dy_mf_update_value((it.getter())->second, *cur, p_state[i]);
+    } else {
+      if(keys[i] != 0) printf("push miss key: %llu", keys[i]);
+    }
+  }
+}
+
 template <typename KeyType, typename ValType>
 HashTable<KeyType, ValType>::HashTable(size_t capacity) {
   container_ = new TableContainer<KeyType, ValType>(capacity);
@@ -385,10 +402,12 @@ void HashTable<KeyType, ValType>::update(const KeyType* d_keys,
   if (len == 0) {
     return;
   }
+  auto state = CuRandState::get();
+  auto d_state = state->get(len, stream);
   const int grid_size = (len - 1) / BLOCK_SIZE_ + 1;
-
   dy_mf_update_kernel<<<grid_size, BLOCK_SIZE_, 0, stream>>>(
-      container_, d_keys, d_grads, len, sgd, push_grad_value_size_);
+      container_, d_keys, d_grads, d_state, len, sgd, push_grad_value_size_);
+  CuRandState::push(state, stream);
 }
 
 }  // end namespace framework
