@@ -118,8 +118,8 @@ __global__ void merge_gradient_kernel(const uint32_t* offset,
     
     for (int j = 1; j < num; ++j) {
       ori_index = index[start + j];
-      in = *(FeaturePushValue*)(input + size_t(ori_index) * grad_value_size);
-      merger_.add_basic_field(lhs, in);
+      FeaturePushValue& rhs = *(FeaturePushValue*)(input + size_t(ori_index) * grad_value_size);
+      merger_.add_basic_field(lhs, rhs);
     }
   }
   
@@ -176,14 +176,6 @@ HeterComm<KeyType, ValType, GradType>::HeterComm(
       storage_[i].init(feanum_, resource_->dev_id(i));
     }
   }
-  mg_time_1 = std::vector<double>(resource_->total_gpu(), 0.0);
-  mg_time_2 = std::vector<double>(resource_->total_gpu(), 0.0);
-  mg_time_3 = std::vector<double>(resource_->total_gpu(), 0.0);
-  mg_time_4 = std::vector<double>(resource_->total_gpu(), 0.0);
-  mg_time_5 = std::vector<double>(resource_->total_gpu(), 0.0);
-  mg_time_6 = std::vector<double>(resource_->total_gpu(), 0.0);
-  mg_time_7 = std::vector<double>(resource_->total_gpu(), 0.0);
-  mg_time_8 = std::vector<double>(resource_->total_gpu(), 0.0);
   init_path();
 }
 
@@ -243,20 +235,20 @@ void HeterComm<KeyType, ValType, GradType>::init_path() {
 template <typename KeyType, typename ValType, typename GradType>
 void HeterComm<KeyType, ValType, GradType>::create_storage(int start_index,
                                                            int end_index,
-                                                           int keylen,
-                                                           int vallen) {
+                                                           size_t keylen,
+                                                           size_t vallen) {
   auto& allocator = allocators_[start_index];
   auto& nodes = path_[start_index][end_index].nodes_;
   for (size_t i = 0; i < nodes.size(); ++i) {
     platform::CUDADeviceGuard guard(resource_->dev_id(nodes[i].gpu_num));
-    allocator->DeviceAllocate(
+    PADDLE_ENFORCE_GPU_SUCCESS(allocator->DeviceAllocate(
         resource_->dev_id(nodes[i].gpu_num),
         (void**)&(nodes[i].key_storage),  // NOLINT
-        keylen, resource_->remote_stream(nodes[i].gpu_num, start_index));
-    allocator->DeviceAllocate(
+        keylen, resource_->remote_stream(nodes[i].gpu_num, start_index)));
+    PADDLE_ENFORCE_GPU_SUCCESS(allocator->DeviceAllocate(
         resource_->dev_id(nodes[i].gpu_num),
         (void**)&(nodes[i].val_storage),  // NOLINT
-        vallen, resource_->remote_stream(nodes[i].gpu_num, start_index));
+        vallen, resource_->remote_stream(nodes[i].gpu_num, start_index)));
 
     nodes[i].key_bytes_len = keylen;
     nodes[i].val_bytes_len = vallen;
@@ -271,10 +263,10 @@ void HeterComm<KeyType, ValType, GradType>::destroy_storage(int start_index,
   for (size_t i = 0; i < nodes.size(); ++i) {
     platform::CUDADeviceGuard guard(resource_->dev_id(nodes[i].gpu_num));
 
-    allocator->DeviceFree(resource_->dev_id(nodes[i].gpu_num),
-                          nodes[i].key_storage);
-    allocator->DeviceFree(resource_->dev_id(nodes[i].gpu_num),
-                          nodes[i].val_storage);
+    PADDLE_ENFORCE_GPU_SUCCESS(allocator->DeviceFree(resource_->dev_id(nodes[i].gpu_num),
+                          nodes[i].key_storage));
+    PADDLE_ENFORCE_GPU_SUCCESS(allocator->DeviceFree(resource_->dev_id(nodes[i].gpu_num),
+                          nodes[i].val_storage));
   }
 }
 
@@ -498,24 +490,6 @@ HeterComm<KeyType, ValType, GradType>::~HeterComm() {
       delete table;
       table = nullptr;
     }
-    for (size_t i = 1; i < mg_time_1.size(); i++) {
-      mg_time_1[0] += mg_time_1[i];
-      mg_time_2[0] += mg_time_2[i];
-      mg_time_3[0] += mg_time_3[i];
-      mg_time_4[0] += mg_time_4[i];
-      mg_time_5[0] += mg_time_5[i];
-      mg_time_6[0] += mg_time_6[i];
-      mg_time_7[0] += mg_time_7[i];
-      mg_time_8[0] += mg_time_8[i];
-    }
-    VLOG(0) << "yxfffff::mg_1::merge: " << mg_time_1[0];
-    VLOG(0) << "yxf::mg_2:pull: " << mg_time_2[0];
-    VLOG(0) << "yxf::mg_3:push: " << mg_time_3[0];
-    VLOG(0) << "yxf::mg_4:sort: " << mg_time_4[0];
-    VLOG(0) << "yxf::mg_5:encode: " << mg_time_5[0];
-    VLOG(0) << "yxf::mg_6:sum: " << mg_time_6[0];
-    VLOG(0) << "yxf::mg_7:merge_kernel: " << mg_time_7[0];
-    VLOG(0) << "yxf::mg_8:merge_kernel_1: " << mg_time_8[0];
    }
 }
 
@@ -739,7 +713,6 @@ void HeterComm<KeyType, ValType, GradType>::merge_grad(int gpu_num,
       d_idx, d_index, len, 0, 8 * sizeof(KeyType), stream));
   PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
   timeline.Pause();
-  mg_time_4[gpu_num] += timeline.ElapsedSec();
   timeline.Start();
   temp_storage_bytes = 0;
   PADDLE_ENFORCE_GPU_SUCCESS(cub::DeviceRunLengthEncode::Encode(
@@ -757,7 +730,6 @@ void HeterComm<KeyType, ValType, GradType>::merge_grad(int gpu_num,
                   cudaMemcpyDeviceToHost, stream);
   PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
   timeline.Pause();
-  mg_time_5[gpu_num] += timeline.ElapsedSec();
   timeline.Start();
 
   assert(d_merged_size > 0);
@@ -776,7 +748,6 @@ void HeterComm<KeyType, ValType, GradType>::merge_grad(int gpu_num,
       uniq_len, stream));
   PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
   timeline.Pause();
-  mg_time_6[gpu_num] += timeline.ElapsedSec();
   timeline.Start();
   grid_size = (uniq_len - 1) / block_size_ + 1;
   merge_gradient_kernel<<<grid_size, block_size_, 0, stream>>>(
@@ -784,7 +755,6 @@ void HeterComm<KeyType, ValType, GradType>::merge_grad(int gpu_num,
       (char*)d_merge_grads_ptr, uniq_len, grad_value_size, merger_);
   PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
   timeline.Pause();
-  mg_time_7[gpu_num] += timeline.ElapsedSec();
   timeline.Start();
 
   PADDLE_ENFORCE_GPU_SUCCESS(
@@ -792,7 +762,6 @@ void HeterComm<KeyType, ValType, GradType>::merge_grad(int gpu_num,
                       cudaMemcpyDeviceToDevice, stream));
   PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
   timeline.Pause();
-  mg_time_1[gpu_num] += timeline.ElapsedSec();
   timeline.Start();
 }
 
@@ -938,7 +907,6 @@ void HeterComm<KeyType, ValType, GradType>::pull_sparse(int num,
       ptr_tables_[i]->rwlock_->UNLock();
     }
     time_lines[i].Pause();
-    mg_time_2[i] += time_lines[i].ElapsedSec();
   }
 
   if (!multi_mf_dim_) {
@@ -986,7 +954,7 @@ void HeterComm<KeyType, ValType, GradType>::push_sparse(int gpu_num,
   auto stream = resource_->local_stream(gpu_num, 0);
 
   size_t grad_value_size =
-      TYPEALIGN(8, sizeof(FeaturePushValue) + (max_mf_dim_ * sizeof(float)));
+    TYPEALIGN(8, sizeof(FeaturePushValue) + (max_mf_dim_ * sizeof(float)));
 
   // int h_left[total_gpu];   // NOLINT
   // int h_right[total_gpu];  // NOLINT
@@ -1008,14 +976,8 @@ void HeterComm<KeyType, ValType, GradType>::push_sparse(int gpu_num,
   auto d_shard_keys = memory::Alloc(place, len * sizeof(KeyType));
   KeyType* d_shard_keys_ptr = reinterpret_cast<KeyType*>(d_shard_keys->ptr());
 
-  GradType* d_shard_grads_ptr;
-  if (!multi_mf_dim_) {
-    auto d_shard_grads = memory::Alloc(place, len * sizeof(GradType));
-    d_shard_grads_ptr = reinterpret_cast<GradType*>(d_shard_grads->ptr());
-  } else {
-    auto d_shard_grads = memory::Alloc(place, len * grad_value_size);
-    d_shard_grads_ptr = reinterpret_cast<GradType*>(d_shard_grads->ptr());
-  }
+  auto d_shard_grads = memory::Alloc(place, len * grad_value_size);
+  GradType* d_shard_grads_ptr = reinterpret_cast<GradType*>(d_shard_grads->ptr());
 
   int uniq_len = len;
   merge_grad(gpu_num, d_keys, d_grads, NULL, len, uniq_len);
@@ -1098,7 +1060,6 @@ void HeterComm<KeyType, ValType, GradType>::push_sparse(int gpu_num,
         ptr_tables_[i]->rwlock_->UNLock();
       }
       time_lines[i].Pause();
-      mg_time_3[i] += time_lines[i].ElapsedSec();
     }
   }
   for (int i = 0; i < total_gpu; ++i) {
