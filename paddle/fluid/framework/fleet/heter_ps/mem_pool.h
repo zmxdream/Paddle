@@ -29,11 +29,11 @@ class MemoryPool {
       : capacity_(capacity), block_size_(block_size) {
     VLOG(3) << "mem_pool init with block_size: " << block_size
             << " capacity: " << capacity;
-    mem_ = (char*)malloc(block_size * capacity_);
+    mem_alloc_ = memory::Alloc(phi::GPUPinnedPlace(), block_size * capacity_);
+    mem_ = reinterpret_cast<char*>(mem_alloc_->ptr());
   }
   ~MemoryPool() {
     VLOG(3) << "mem pool delete";
-    free(mem_);
   }
   size_t block_size() { return block_size_; }
   char* mem() { return mem_; }
@@ -45,6 +45,7 @@ class MemoryPool {
   }
 
  private:
+  memory::allocation::AllocationPtr mem_alloc_;
   char* mem_ = NULL;
   size_t capacity_;
   size_t block_size_;
@@ -60,8 +61,13 @@ class HBMMemoryPool : public managed {
     VLOG(3) << "hbm memory pool with capacity" << capacity_
             << " bs: " << block_size_;
     cudaMalloc(&mem_, block_size_ * capacity_);
-    cudaMemcpy(mem_, mem_pool->mem(), mem_pool->byte_size(),
-               cudaMemcpyHostToDevice);
+    gpuStream_t streams;
+    cudaStreamCreate(&streams);
+    cudaMemcpyAsync(mem_, mem_pool->mem(), mem_pool->byte_size(),
+               cudaMemcpyHostToDevice, streams);
+    cudaStreamSynchronize(streams);
+    cudaStreamDestroy(streams);
+    
   }
 
   ~HBMMemoryPool() {
@@ -70,30 +76,6 @@ class HBMMemoryPool : public managed {
   }
 
   size_t block_size() { return block_size_; }
-
-  void clear(void) { cudaMemset(mem_, 0, block_size_ * capacity_); }
-
-  void reset(size_t capacity) {
-    cudaFree(mem_);
-    mem_ = NULL;
-    capacity_ = capacity;
-    cudaMalloc(&mem_, (block_size_ * capacity / 8 + 1) * 8);
-    cudaMemset(mem_, 0, block_size_ * capacity);
-  }
-
-  friend std::ostream& operator<<(std::ostream& out, HBMMemoryPool& p) {
-    for (size_t k = 0; k < 5; k++) {
-      auto x = (FeatureValue*)(p.mem() + k * p.capacity());
-      out << "show: " << x->show << " clk: " << x->clk << " slot: " << x->slot
-          << " lr: " << x->lr << " mf_dim: " << x->mf_size
-          << " mf_size: " << x->mf_size << " mf:";
-      for (int i = 0; i < x->mf_size + 1; ++i) {
-        out << " " << x->mf[i];
-      }
-      out << "\n";
-    }
-    return out;
-  }
 
   char* mem() { return mem_; }
 

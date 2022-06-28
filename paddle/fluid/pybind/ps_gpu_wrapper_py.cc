@@ -41,6 +41,12 @@ void BindPSGPUWrapper(py::module* m) {
            py::call_guard<py::gil_scoped_release>())
       .def("set_slot_dim_vector", &framework::PSGPUWrapper::SetSlotDimVector,
            py::call_guard<py::gil_scoped_release>())
+      .def("set_slot_dim_fixed", &framework::PSGPUWrapper::SetSlotDimFixed,
+           py::call_guard<py::gil_scoped_release>())
+      .def("set_table_shard_num", &framework::PSGPUWrapper::SetTableShardNum,
+           py::call_guard<py::gil_scoped_release>())
+      .def("set_accssor_and_gpuvalue_type", &framework::PSGPUWrapper::SetAccessorAndValueType,
+           py::call_guard<py::gil_scoped_release>())
       .def("set_slot_offset_vector",
            &framework::PSGPUWrapper::SetSlotOffsetVector,
            py::call_guard<py::gil_scoped_release>())

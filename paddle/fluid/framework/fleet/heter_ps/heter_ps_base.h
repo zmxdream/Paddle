@@ -30,24 +30,22 @@ class HeterPsBase {
   virtual ~HeterPsBase(){};
   HeterPsBase(const HeterPsBase&) = delete;
   HeterPsBase& operator=(const HeterPsBase&) = delete;
-
-  virtual void pull_sparse(int num, FeatureKey* d_keys, FeatureValue* d_vals,
+  virtual void pull_sparse(int num, FeatureKey* d_keys, void* d_vals,
                            size_t len) = 0;
-  virtual void build_ps(int num, FeatureKey* h_keys, FeatureValue* h_vals,
-                        size_t len, size_t chunk_size, int stream_num) = 0;
   virtual void build_ps(int num, FeatureKey* h_keys, char* pool,
                         size_t len, size_t feature_value_size, size_t chunk_size, int stream_num) = 0;
   virtual int get_index_by_devid(int devid) = 0;
   virtual void set_nccl_comm_and_size(
       const std::vector<ncclComm_t>& inner_comms,
       const std::vector<ncclComm_t>& inter_comms, int comm_size) = 0;
-  virtual void set_multi_mf_dim(int multi_mf_dim, int max_mf_dim) = 0;
-  virtual void end_pass() = 0;
+  virtual void set_multi_mf_dim(int max_mf_dim) = 0;
   virtual void show_one_table(int gpu_num) = 0;
   virtual void push_sparse(int num, FeatureKey* d_keys,
-                           FeaturePushValue* d_grads, size_t len) = 0;
+                           void* d_grads, size_t len) = 0;
   static HeterPsBase* get_instance(size_t capacity,
-                                   std::shared_ptr<HeterPsResource> resource);
+                                   std::shared_ptr<HeterPsResource> resource,
+                                   std::string accessor_type,
+                                   std::string gpu_value_type);
 };
 
 }  // end namespace framework

@@ -242,7 +242,6 @@ void PSGPUTrainer::InitializeGPUServer(const TrainerDesc& trainer_desc) {
     }
     config["mf_create_thresholds"] = sparse_table_accessor.embedx_threshold();
   }
-
   auto ps_gpu_wrapper = paddle::framework::PSGPUWrapper::GetInstance();
   ps_gpu_wrapper->InitializeGPUServer(config);
 }

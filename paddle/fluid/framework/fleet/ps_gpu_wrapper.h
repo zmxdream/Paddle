@@ -90,14 +90,8 @@ class PSGPUWrapper {
   PSGPUWrapper() {
     HeterPs_ = NULL;
     sleep_seconds_before_fail_exit_ = 300;
-    hbm_thread_pool_.resize(thread_keys_shard_num_);
-    for (size_t i = 0; i < hbm_thread_pool_.size(); i++) {
-      hbm_thread_pool_[i].reset(new ::ThreadPool(1));
-    }
-    pull_thread_pool_.resize(thread_keys_shard_num_);
-    for (size_t i = 0; i < pull_thread_pool_.size(); i++) {
-      pull_thread_pool_[i].reset(new ::ThreadPool(1));
-    }
+    ps_accessor_type_ = "DownpourCtrAccessor";
+    gpu_value_type_ = "FeatureValue";
   }
 
   void PullSparse(const paddle::platform::Place& place, const int table_id,
@@ -121,33 +115,10 @@ class PSGPUWrapper {
   void CopyKeys(const paddle::platform::Place& place, uint64_t** origin_keys,
                 uint64_t* total_keys, const int64_t* gpu_len, int slot_num,
                 int total_len, int* gpu_dim);
-  void CopyForPull(const paddle::platform::Place& place, uint64_t** gpu_keys,
-                   const std::vector<float*>& values,
-                   const FeatureValue* total_values_gpu, const int64_t* gpu_len,
-                   const int slot_num, const int hidden_size,
-                   const int64_t total_length);
-  void CopyForPull(const paddle::platform::Place& place, uint64_t** gpu_keys,
-                   const std::vector<float*>& values,
-                   const FeatureValue* total_values_gpu, const int64_t* gpu_len,
-                   const int slot_num, const int hidden_size,
-                   const int64_t total_length, int* gpu_dim);
-  void CopyForPush(const paddle::platform::Place& place,
-                   const std::vector<const float*>& grad_values,
-                   FeaturePushValue* total_grad_values_gpu,
-                   const std::vector<int64_t>& slot_lengths,
-                   const int hidden_size, const int64_t total_length,
-                   const int batch_size);
-  void CopyForPush(const paddle::platform::Place& place,
-                   const std::vector<const float*>& grad_values,
-                   FeaturePushValue* total_grad_values_gpu,
-                   const std::vector<int64_t>& slot_lengths,
-                   const uint64_t total_length, const int batch_size,
-                   size_t grad_value_size);
 
   void BuildGPUTask(std::shared_ptr<HeterContext> gpu_task);
   void PreBuildTask(std::shared_ptr<HeterContext> gpu_task);
   void BuildPull(std::shared_ptr<HeterContext> gpu_task);
-  void PrepareGPUTask(std::shared_ptr<HeterContext> gpu_task);
   void LoadIntoMemory(bool is_shuffle);
   void BeginPass();
   void EndPass();
@@ -180,7 +151,7 @@ class PSGPUWrapper {
       is_initialized_ = true;
       resource_ = std::make_shared<HeterPsResource>(dev_ids);
       resource_->enable_p2p();
-      keys_tensor.resize(resource_->total_gpu());
+      keys_tensor_.resize(resource_->total_gpu());
 #ifdef PADDLE_WITH_GLOO
       auto gloo = paddle::framework::GlooWrapper::GetInstance();
       if (gloo->Size() > 1) {
@@ -308,7 +279,9 @@ class PSGPUWrapper {
     day_ = day;
   }
 
-  void SetDataset(Dataset* dataset) { dataset_ = dataset; }
+  void SetDataset(Dataset* dataset) { 
+    dataset_ = dataset; 
+  }
 
   // PSGPUWrapper singleton
   static std::shared_ptr<PSGPUWrapper> GetInstance() {
@@ -316,10 +289,6 @@ class PSGPUWrapper {
       s_instance_.reset(new paddle::framework::PSGPUWrapper());
     }
     return s_instance_;
-  }
-  std::vector<std::unordered_map<uint64_t, std::vector<float>>>& GetLocalTable(
-      int table_id) {
-    return local_tables_[table_id];
   }
   void SetSlotVector(const std::vector<int>& slot_vector) {
     slot_vector_ = slot_vector;
@@ -334,48 +303,41 @@ class PSGPUWrapper {
     assert(slot_mf_dim_vector_.size() == slot_vector_.size());
   }
 
+  void SetSlotDimFixed(const int dim) {
+    assert(slot_vector_.size() != 0);
+    for (size_t ii = 0; ii < slot_vector_.size(); ii++) {
+      slot_mf_dim_vector_.push_back(dim);
+    }
+  }
+
+  void SetTableShardNum(const int shard_num) {
+    thread_keys_shard_num_ = shard_num;
+  }
+
+  void SetAccessorAndValueType(std::string accessor_type, std::string value_type) {
+    ps_accessor_type_ = accessor_type;
+    gpu_value_type_ = value_type;
+  }
+
   void InitSlotInfo() {
     if (slot_info_initialized_) {
       return;
     }
     SlotRecordDataset* dataset = dynamic_cast<SlotRecordDataset*>(dataset_);
     auto slots_vec = dataset->GetSlots();
-    auto multi_slot_desc = dataset_->GetDataFeedDesc().multi_slot_desc();
-    std::vector<std::string> slots_vec_test;
-    for (int i = 0; i < multi_slot_desc.slots_size(); ++i) {
-      const auto& slot = multi_slot_desc.slots(i);
-      // VLOG(0) << "yxfslotname: " << slot.name();
-      if (slot.type() == "uint64" || slot.type() == "uint32") {
-        slots_vec_test.push_back(slot.name());
-      }
-    }
-    std::cout << "wrapper use slots: ";
-    for (auto s : slots_vec_test) {
-      std::cout << s << " | ";
-    }
-    std::cout << " end wrapper " << std::endl;
-    VLOG(0) << "get slot desc";
     slot_offset_vector_.clear();
     for (auto& slot : slot_vector_) {
       for (size_t i = 0; i < slots_vec.size(); ++i) {
         if (std::to_string(slot) == slots_vec[i]) {
-          // VLOG(0) << "yxf slot: " << slot;
           slot_offset_vector_.push_back(i);
           break;
         }
       }
     }
-    for (auto s : slot_offset_vector_) {
-      std::cout << s << " | ";
-    }
-    std::cout << " end " << std::endl;
-    for (size_t i = 0; i < slot_mf_dim_vector_.size(); i++) {
-      slot_dim_map_[slot_vector_[i]] = slot_mf_dim_vector_[i];
-    }
 
     std::unordered_set<int> dims_set;
-    for (auto& it : slot_dim_map_) {
-      dims_set.insert(it.second);
+    for (auto& it : slot_mf_dim_vector_) {
+      dims_set.insert(it);
     }
     size_t num_of_dim = dims_set.size();
     index_dim_vec_.resize(num_of_dim);
@@ -394,10 +356,17 @@ class PSGPUWrapper {
     for (size_t i = 0; i < slot_index_vec_.size(); i++) {
       slot_index_vec_[i] = dim_index_map[slot_mf_dim_vector_[i]];
     }
-    val_type_size_ =
-        TYPEALIGN(8, sizeof(FeatureValue) + sizeof(float) * (max_mf_dim_ + 1));
-    grad_type_size_ =
-        TYPEALIGN(8, sizeof(FeaturePushValue) + (max_mf_dim_ * sizeof(float)));
+    //初始化一些线程池
+    CHECK(thread_keys_shard_num_ != 0);
+    hbm_thread_pool_.resize(thread_keys_shard_num_);
+    for (size_t i = 0; i < hbm_thread_pool_.size(); i++) {
+      hbm_thread_pool_[i].reset(new ::ThreadPool(1));
+    }
+    pull_thread_pool_.resize(thread_keys_shard_num_);
+    for (size_t i = 0; i < pull_thread_pool_.size(); i++) {
+      pull_thread_pool_[i].reset(new ::ThreadPool(1));
+    }
+    GlobalValueTransfor::get_instance().init(ps_accessor_type_, gpu_value_type_);
     slot_info_initialized_ = true;
   }
 
@@ -417,33 +386,26 @@ class PSGPUWrapper {
 
  private:
   static std::shared_ptr<PSGPUWrapper> s_instance_;
+  //主要用于load数据的时候用的
   Dataset* dataset_;
+  //当load数据完成后，会将其筛入到如下队列，后续异步pull会用到这个队列的数据
+  //因为load 和 异步build是两个线程，所以才需要下面的队列来解耦这个dataset对象
+  std::queue<Dataset*> dataset_pipe_;
+  std::mutex dataset_mutex_;
 #ifdef PADDLE_WITH_PSLIB
   paddle::ps::AfsApiWrapper afs_handler_;
 #endif
-  std::unordered_map<
-      uint64_t, std::vector<std::unordered_map<uint64_t, std::vector<float>>>>
-      local_tables_;
   HeterPsBase* HeterPs_;
-  std::vector<LoDTensor> keys_tensor;  // Cache for pull_sparse
+  std::vector<LoDTensor> keys_tensor_;  // Cache for pull_sparse
   std::shared_ptr<HeterPsResource> resource_;
   int32_t sleep_seconds_before_fail_exit_;
   std::vector<int> slot_vector_;
   std::vector<int> slot_offset_vector_;
   std::vector<int> slot_mf_dim_vector_;
-  std::unordered_map<int, int> slot_dim_map_;
   std::vector<int> slot_index_vec_;
   std::vector<int> index_dim_vec_;
   int multi_mf_dim_{0};
   int max_mf_dim_{0};
-  size_t val_type_size_{0};
-  size_t grad_type_size_{0};
-
-  double time_1 = 0.0;
-  double time_2 = 0.0;
-  double time_3 = 0.0;
-  double time_4 = 0.0;
-
   int multi_node_{0};
   int node_size_;
   uint64_t table_id_;
@@ -451,20 +413,18 @@ class PSGPUWrapper {
   std::vector<ncclComm_t> inter_comms_;
   std::vector<ncclUniqueId> inter_ncclids_;
   std::vector<int> heter_devices_;
-  std::unordered_set<std::string> gpu_ps_config_keys_;
   HeterObjectPool<HeterContext> gpu_task_pool_;
-  std::vector<std::vector<robin_hood::unordered_set<uint64_t>>> thread_keys_;
-  std::vector<std::vector<std::vector<robin_hood::unordered_set<uint64_t>>>>
-      thread_dim_keys_;
+  std::vector<std::vector<std::vector<robin_hood::unordered_set<uint64_t>>>> thread_keys_;
   int thread_keys_thread_num_ = 37 * 4;
-  int thread_keys_shard_num_ = 64;
+  int thread_keys_shard_num_ = 0;
   uint64_t max_fea_num_per_pass_ = 5000000000;
   int year_;
   int month_;
   int day_;
   bool slot_info_initialized_ = false;
   int use_afs_api_ = 0;
-
+  std::string ps_accessor_type_;
+  std::string gpu_value_type_;
   std::vector<MemoryPool*> mem_pools_;
   std::vector<HBMMemoryPool*> hbm_pools_;  // in multi mfdim, one table need hbm
                                            // pools of totol dims number
