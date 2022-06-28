@@ -279,41 +279,6 @@ HeterComm<KeyType, ValType, GradType>::HeterComm(
       storage_[i].init(feanum_, resource_->dev_id(i));
     }
   }
-
-
-
-
-template <typename KeyType, typename ValType, typename GradType>
-HeterComm<KeyType, ValType, GradType>::HeterComm(
-    size_t capacity, std::shared_ptr<HeterPsResource> resource) {
-  VLOG(1) << "Construct new HeterComm";
-  resource_ = resource;
-  storage_.resize(resource_->total_gpu());
-  multi_mf_dim_ = resource->multi_mf();
-  for (int i = 0; i < resource_->total_gpu(); ++i) {
-    platform::CUDADeviceGuard guard(resource_->dev_id(i));
-    // allocators_.push_back(std::make_shared<cub::CachingDeviceAllocator>(
-    //     2, 1, 20, (size_t)-1, false, false));  // NOLINT
-    allocators_.push_back(std::make_shared<cub::CachingDeviceAllocator>(
-        8, 1, (unsigned int)-1, (size_t)-1, false, false));
-    if (!multi_mf_dim_) {
-      auto table = new Table(capacity / load_factor_);
-      tables_.push_back(table);
-    } else {
-      max_mf_dim_ = resource->max_mf_dim();
-      size_t val_type_size =
-      TYPEALIGN(8, sizeof(FeatureValue) + sizeof(float) * (max_mf_dim_ + 1));
-      size_t grad_type_size =
-      TYPEALIGN(8, sizeof(FeaturePushValue) + (max_mf_dim_ * sizeof(float)));
-      auto ptr_table = new PtrTable(capacity / load_factor_);
-      ptr_table->set_feature_value_size(val_type_size, grad_type_size);
-      ptr_tables_.push_back(ptr_table);
-
-    }
-    if (multi_node_) {
-      storage_[i].init(feanum_, resource_->dev_id(i));
-    }
-  }
   init_path();
 }
 
