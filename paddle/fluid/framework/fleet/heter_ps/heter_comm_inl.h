@@ -98,6 +98,59 @@ __global__ void dy_mf_fill_shard_grads(KeyType* d_shard_keys, KeyType* d_keys,
   }
 }
 
+// optimized version
+template <>
+__global__ void dy_mf_fill_shard_grads<FeatureKey, FeaturePushValue, int>(FeatureKey* d_shard_keys, FeatureKey* d_keys,
+                                       FeaturePushValue* d_shard_grads,
+                                       FeaturePushValue* d_grads, int* idx, size_t len,
+                                       size_t grad_value_size) {
+  const size_t i = blockIdx.x * blockDim.y + threadIdx.y;
+  const size_t k = threadIdx.x;
+  if (i < len) {
+    if (k == 0) {
+      d_shard_keys[i] = d_keys[idx[i]];
+    }
+    // *(GradType*)((char*)d_shard_grads + i * grad_value_size) =
+    //    *(GradType*)((char*)d_grads + uint64_t(idx[i]) * grad_value_size);
+
+    FeaturePushValue* cur = (FeaturePushValue*)((char*)d_shard_grads + i * grad_value_size);
+    FeaturePushValue& input = *(FeaturePushValue*)((char*)d_grads + uint64_t(idx[i]) * grad_value_size);
+
+    // *(ValType*)((char*)d_vals + new_offset) =
+    //     *(ValType*)((char*)d_shard_vals + i * val_size);
+
+    char* cur_p = (char*)cur;
+    char* input_p = (char*)(&input);
+       
+    int len = 5 + input.mf_dim;
+
+    if (k == 2 || k == 4) *(int*)(cur_p + k * 4) = *(int*)(input_p + k * 4);
+    else if (k < 5) *(float*)(cur_p + k * 4) = *(float*)(input_p + k * 4);
+    else {
+
+        int len_per_thread = (len - 5) / (blockDim.y - 5);
+        int remain = (len - 5) % (blockDim.y - 5);
+        int real_len = len_per_thread;
+        if ((k - 5) < remain) real_len++;
+        int left = -1, right = -1;
+        if ((k - 5) < remain) {
+          left = 5 + (k - 5) * (len_per_thread + 1);
+          right = left + real_len;
+        } else {
+          left = 5 + remain * (len_per_thread + 1) + (k - 5 - remain) * len_per_thread;
+          right = left + real_len;
+        }
+
+        for(int j = left; j < right; j++) *(float*)(cur_p + j * 4) = *(float*)(input_p + j * 4);
+
+    }
+
+
+
+
+  }
+}
+
 __global__ void merge_gradient_kernel(const uint32_t* offset,
                                       const uint32_t* fea_num,
                                       const uint32_t* index, const char* input,
@@ -134,6 +187,7 @@ __global__ void fill_dvals(ValType* d_shard_vals, ValType* d_vals, T* idx,
   }
 }
 
+
 template <typename ValType, typename T>
 __global__ void dy_mf_fill_dvals(ValType* d_shard_vals, ValType* d_vals, T* idx,
                                  size_t len, size_t val_size) {
@@ -142,6 +196,57 @@ __global__ void dy_mf_fill_dvals(ValType* d_shard_vals, ValType* d_vals, T* idx,
     uint64_t new_offset = uint64_t(idx[i]) * val_size;
     *(ValType*)((char*)d_vals + new_offset) =
         *(ValType*)((char*)d_shard_vals + i * val_size);
+  }
+}
+
+
+// optimized version
+template <>
+__global__ void dy_mf_fill_dvals<FeatureValue, int>(FeatureValue* d_shard_vals, FeatureValue* d_vals, int* idx,
+                                 size_t len, size_t val_size) {
+  const size_t i = blockIdx.x * blockDim.y + threadIdx.y;
+  const size_t k = threadIdx.x;
+  if (i < len) {
+    uint64_t new_offset = uint64_t(idx[i]) * val_size;
+    // uint64_t offset = i * pull_feature_value_size;
+    FeatureValue* cur = (FeatureValue*)((char*)d_vals + new_offset);
+    FeatureValue& input = *(FeatureValue*)((char*)d_shard_vals + i * val_size);
+
+    // *(ValType*)((char*)d_vals + new_offset) =
+    //     *(ValType*)((char*)d_shard_vals + i * val_size);
+
+    char* cur_p = (char*)cur;
+    char* input_p = (char*)(&input);
+       
+    int len = 9 + input.mf_dim + 1;
+
+    if (k == 3 || k == 6 || k == 7) *(int*)(cur_p + k * 4) = *(int*)(input_p + k * 4);
+    else if (k < 8) *(float*)(cur_p + k * 4) = *(float*)(input_p + k * 4);
+    else if (k == 8) { 
+      *(uint64_t*)(cur_p + k * 4) = *(uint64_t*)(input_p + k * 4);
+    } else {
+
+        int len_per_thread = (len - 9) / (blockDim.x - 9);
+        int remain = (len - 9) % (blockDim.y - 9);
+        int real_len = len_per_thread;
+        if ((k - 9) < remain) real_len++;
+        int left = -1, right = -1;
+        if ((k - 9) < remain) {
+          left = 9 + (k - 9) * (len_per_thread + 1);
+          right = left + real_len;
+        } else {
+          left = 9 + remain * (len_per_thread + 1) + (k - 9 - remain) * len_per_thread;
+          right = left + real_len;
+        }
+
+        for(int j = left; j < right; j++) *(float*)(cur_p + (j + 1) * 4) = *(float*)(input_p + (j + 1) * 4);
+
+    }
+
+
+    // *(ValType*)((char*)d_vals + new_offset) =
+    //    *(ValType*)((char*)d_shard_vals + i * val_size);
+
   }
 }
 
@@ -201,7 +306,7 @@ HeterComm<KeyType, ValType, GradType>::HeterComm(
   push_create_storage_time.resize(gpu_num, {});
   // destroy_storage_time.resize(gpu_num, {});
   push_walk_to_dest_time.resize(gpu_num, {});
-  push_walk_to_src_time.resize(gpu_num, {});
+  // push_walk_to_src_time.resize(gpu_num, {});
   table_update_time.resize(gpu_num, {});
 
 
@@ -216,7 +321,7 @@ HeterComm<KeyType, ValType, GradType>::HeterComm(
     walk_to_dest_time[i].resize(gpu_num, 0);
     walk_to_src_time[i].resize(gpu_num, 0);
     push_walk_to_dest_time[i].resize(gpu_num, 0);
-    push_walk_to_src_time[i].resize(gpu_num, 0);
+    // push_walk_to_src_time[i].resize(gpu_num, 0);
     table_get_time[i].resize(gpu_num, 0);
     table_update_time[i].resize(gpu_num, 0);
   }
@@ -562,13 +667,17 @@ HeterComm<KeyType, ValType, GradType>::~HeterComm() {
     for (size_t i = 1; i < walk_to_dest_time[0].size(); i++) {
       // create_storage_time[0][0] += create_storage_time[0][i];
       destroy_storage_time[0][0] += destroy_storage_time[0][i];
-      walk_to_dest_time[0][0] += walk_to_dest_time[0][i];
-      walk_to_src_time[0][0] += walk_to_src_time[0][i];
-      table_get_time[0][0] += table_get_time[0][i];
+      // walk_to_dest_time[0][0] += walk_to_dest_time[0][i];
+      walk_to_dest_time[0][0] = std::max(walk_to_dest_time[0][0], walk_to_dest_time[0][i]);
+      // walk_to_src_time[0][0] += walk_to_src_time[0][i];
+      walk_to_src_time[0][0] = std::max(walk_to_src_time[0][0], walk_to_src_time[0][i]);
+      // table_get_time[0][0] += table_get_time[0][i];
+      table_get_time[0][0] = std::max(table_get_time[0][0], table_get_time[0][i]);
 
-      push_walk_to_dest_time[0][0] += push_walk_to_dest_time[0][i];
-      push_walk_to_src_time[0][0] += push_walk_to_src_time[0][i];
-      table_update_time[0][0] += table_update_time[0][i];
+      push_walk_to_dest_time[0][0] = std::max(push_walk_to_dest_time[0][0], push_walk_to_dest_time[0][i]);
+      // push_walk_to_src_time[0][0] = std::max(push_walk_to_src_time[0][0], push_walk_to_src_time[0][i]);
+      // table_update_time[0][0] += table_update_time[0][i];
+      table_update_time[0][0] = std::max(table_update_time[0][0], table_update_time[0][i]);
     }
 
     VLOG(0) << "zmx::alloc_time: " << alloc_time[0];
@@ -584,7 +693,7 @@ HeterComm<KeyType, ValType, GradType>::~HeterComm() {
     
     VLOG(0) << "zmx::push_create_storage_time: " << push_create_storage_time[0][0];
     VLOG(0) << "zmx::push_walk_to_dest_time: " << push_walk_to_dest_time[0][0];
-    VLOG(0) << "zmx::push_walk_to_src_time: " << push_walk_to_src_time[0][0];
+    // VLOG(0) << "zmx::push_walk_to_src_time: " << push_walk_to_src_time[0][0];
     VLOG(0) << "zmx::table_update_time: " << table_update_time[0][0];
     VLOG(0) << "zmx::merge_grad_time: " << merge_grad_time[0];
     VLOG(0) << "zmx::push_split_input_to_shard_time: " << push_split_input_to_shard_time[0];
@@ -1082,10 +1191,7 @@ void HeterComm<KeyType, ValType, GradType>::pull_sparse(int num,
       ptr_tables_[i]->rwlock_->RDLock();
       ptr_tables_[i]->get(reinterpret_cast<KeyType*>(node.key_storage),
                           node.val_storage, h_right[i] - h_left[i] + 1,
-                          max_mf_dim_, resource_->remote_stream(i, num));
-      //ptr_tables_[i]->get(reinterpret_cast<KeyType*>(node.key_storage),
-      //                    node.val_storage, h_right[i] - h_left[i] + 1,
-      //                    resource_->remote_stream(i, num));
+                          resource_->remote_stream(i, num));
     }
     
   }
@@ -1146,6 +1252,7 @@ void HeterComm<KeyType, ValType, GradType>::pull_sparse(int num,
     time_lines[i].Pause();
     walk_to_src_time[num][i] += time_lines[i].ElapsedSec();
   }
+
   // ==== walk to src end ======
 
   // ==== fill_dvals start === 
@@ -1154,8 +1261,15 @@ void HeterComm<KeyType, ValType, GradType>::pull_sparse(int num,
     fill_dvals<<<grid_size, block_size_, 0, stream>>>(d_shard_vals_ptr, d_vals,
                                                       d_idx_ptr, len);
   } else {
-    dy_mf_fill_dvals<<<grid_size, block_size_, 0, stream>>>(
+
+    dim3 block_dims(32,32);
+    const size_t grid_size_ = (len - 1) / 32 + 1;
+    dim3 grid_dims(grid_size_);
+
+    dy_mf_fill_dvals<<<grid_dims, block_dims, 0, stream>>>(
         d_shard_vals_ptr, d_vals, d_idx_ptr, len, val_type_size);
+
+
   }
   cudaStreamSynchronize(stream);
   timeline.Pause();
@@ -1273,12 +1387,17 @@ void HeterComm<KeyType, ValType, GradType>::push_sparse(int gpu_num,
         d_shard_keys_ptr, d_keys, d_shard_grads_ptr, d_grads, d_idx_ptr,
         uniq_len);
   } else {
-    dy_mf_fill_shard_grads<<<grid_size, block_size_, 0, stream>>>(
+
+    dim3 block_dims(32, 32);
+    const size_t grid_size = (uniq_len - 1) / 32 + 1; 
+    dim3 grid_dims(grid_size);
+
+    dy_mf_fill_shard_grads<<<grid_dims, block_dims, 0, stream>>>(
         d_shard_keys_ptr, d_keys, d_shard_grads_ptr, d_grads, d_idx_ptr,
         uniq_len, grad_value_size);
   }
-  timeline.Pause();
-  fill_shard_grads_time[gpu_num] += timeline.ElapsedSec();
+  // timeline.Pause();
+  // fill_shard_grads_time[gpu_num] += timeline.ElapsedSec();
 
   // ===========fill shard grads end ===========
 
@@ -1287,6 +1406,8 @@ void HeterComm<KeyType, ValType, GradType>::push_sparse(int gpu_num,
   cudaMemcpyAsync(h_right, d_right_ptr, total_gpu * sizeof(int),
              cudaMemcpyDeviceToHost, stream);
   cudaStreamSynchronize(stream);
+  timeline.Pause();
+  fill_shard_grads_time[gpu_num] += timeline.ElapsedSec();
 
   
   std::vector<platform::Timer> time_lines;

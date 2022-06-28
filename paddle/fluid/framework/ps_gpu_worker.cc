@@ -127,8 +127,8 @@ void PSGPUWorker::PrepareCudaGraph() {
   op_or_cudagraphs_.reserve(ops_.size());
 
   static const std::unordered_set<std::string> op_whitelist = {
-    "adam",
-    "coalesce_tensor",
+    // "adam",
+    // "coalesce_tensor",
   };
   // these op can not be captured
   static const std::unordered_set<std::string> op_blacklist = {

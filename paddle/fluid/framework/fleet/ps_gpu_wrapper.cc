@@ -1294,6 +1294,7 @@ void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
   VLOG(3) << "Begine Gpu Ps PullSparse";
   platform::Timer all_timer;
   platform::Timer pull_gpups_timer;
+  platform::Timer copy_for_pull_timer;
   all_timer.Start();
 
   size_t total_length =
@@ -1321,9 +1322,7 @@ void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
 
     VLOG(3) << "Begin copy keys, key_num[" << total_length << "]";
     int device_id = place.GetDeviceId();
-
     int devid_2_index = HeterPs_->get_index_by_devid(device_id);
-
     LoDTensor& total_keys_tensor = keys_tensor[devid_2_index];
 
     uint64_t* total_keys = reinterpret_cast<uint64_t*>(
@@ -1367,6 +1366,9 @@ void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
     VLOG(3) << "Begin Copy result to tensor, total_length[" << total_length
             << "]";
 
+    pull_gpups_timer.Pause();
+   
+    copy_for_pull_timer.Start(); 
     if (!multi_mf_dim_) {
     this->CopyForPull(place, gpu_keys, values, total_values_gpu, gpu_len,
                       static_cast<int>(slot_lengths.size()), hidden_size,
@@ -1376,18 +1378,20 @@ void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
                       static_cast<int>(slot_lengths.size()), hidden_size,
                       total_length, gpu_dim);
     }
-    pull_gpups_timer.Pause();
+    copy_for_pull_timer.Pause();
   } else {
     PADDLE_THROW(platform::errors::PreconditionNotMet(
         "GpuPs: PullSparse Only Support CUDAPlace Now."));
   }
+  int device_id = place.GetDeviceId();
+  int devid_2_index = HeterPs_->get_index_by_devid(device_id);
   all_timer.Pause();
   time_1 += all_timer.ElapsedSec();
   time_2 += pull_gpups_timer.ElapsedSec();
-  VLOG(3) << "GpuPs PullSparse total costs: " << all_timer.ElapsedSec()
+  VLOG(0) << "dev id:" << devid_2_index << " GpuPs PullSparse total costs: " << all_timer.ElapsedSec()
             << " s, of which pullsparse costs: " << pull_gpups_timer.ElapsedSec()
-            << " s";
-  VLOG(3) << "End PullSparse";
+            << " s, of which copy for pull costs:" << copy_for_pull_timer.ElapsedSec();
+  VLOG(0) << "End PullSparse";
 
 }
 
