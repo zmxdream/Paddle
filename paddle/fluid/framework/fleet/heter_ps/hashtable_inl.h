@@ -14,6 +14,8 @@ limitations under the License. */
 
 #ifdef PADDLE_WITH_HETERPS
 #include "paddle/fluid/framework/heter_util.h"
+#include <inttypes.h>
+#include <stdio.h>
 
 namespace paddle {
 namespace framework {
@@ -128,7 +130,7 @@ __global__ void dy_mf_search_kernel(Table* table,
       // }
     } else {
       if (keys[i] != 0) {
-        printf("yxf::pull miss key: %d",keys[i]);
+        printf("yxf::pull miss key: %"PRIu64"", keys[i]);
       }
       
       //it = table->find(0);
@@ -252,12 +254,13 @@ __global__ void dy_mf_update_kernel(Table* table,
     if (it != table->end()) {
       FeaturePushValue* cur = (FeaturePushValue*)(grads + i * grad_value_size);
       sgd.dy_mf_update_value((it.getter())->second, *cur);
-    } else {
-      if (keys[i] != 0) {
-        printf("yxf::push miss key: %d", keys[i]);
-      }
+    } 
+    // else {
+    //   if (keys[i] != 0) {
+    //     printf("yxf::push miss key: %"PRIu64"", keys[i]);
+    //   }
       
-    }
+    // }
   }
 }
 

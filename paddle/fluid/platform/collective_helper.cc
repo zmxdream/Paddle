@@ -150,7 +150,7 @@ void NCCLCommContext::CreateNCCLCommMultiTrainer(
   const int kDevices = dev_ids.size();
   VLOG(1) << "Begin CreateNCCLCommMultiTrainer. device number: " << kDevices
           << ", ntrainers: " << ntrainers << ", train_id: " << train_id
-          << ", rind_id: " << ring_id;
+          << ", ring_id: " << ring_id;
   ncclComm_t comms[kDevices];
   {
     PADDLE_ENFORCE_GPU_SUCCESS(dynload::ncclGroupStart());

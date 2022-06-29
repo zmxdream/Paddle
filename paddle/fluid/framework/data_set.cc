@@ -1746,21 +1746,21 @@ void SlotRecordDataset::PrepareTrain() {
     if (input_records_.size() == 0 && input_channel_ != nullptr &&
         input_channel_->Size() != 0) {
       input_channel_->ReadAll(input_records_);
-      VLOG(3) << "read from channel to records with records size: "
+      VLOG(1) << "read from channel to records with records size: "
               << input_records_.size();
     }
-    VLOG(3) << "input records size: " << input_records_.size();
+    VLOG(1) << "input records size: " << input_records_.size();
     int64_t total_ins_num = input_records_.size();
     std::vector<std::pair<int, int>> offset;
     int default_batch_size =
         reinterpret_cast<SlotRecordInMemoryDataFeed*>(readers_[0].get())
             ->GetDefaultBatchSize();
-    VLOG(3) << "thread_num: " << thread_num_
+    VLOG(1) << "thread_num: " << thread_num_
             << " memory size: " << total_ins_num
             << " default batch_size: " << default_batch_size;
     compute_thread_batch_nccl(thread_num_, total_ins_num, default_batch_size,
                               &offset);
-    VLOG(3) << "offset size: " << offset.size();
+    VLOG(1) << "offset size: " << offset.size();
     for (int i = 0; i < thread_num_; i++) {
       reinterpret_cast<SlotRecordInMemoryDataFeed*>(readers_[i].get())
           ->SetRecord(&input_records_[0]);

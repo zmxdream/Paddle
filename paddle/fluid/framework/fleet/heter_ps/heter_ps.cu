@@ -30,6 +30,8 @@ HeterPs::HeterPs(size_t capacity, std::shared_ptr<HeterPsResource> resource) {
       std::make_shared<HeterComm<FeatureKey, FeatureValue, FeaturePushValue>>(
           capacity, resource);
   opt_ = Optimizer<FeatureValue, FeaturePushValue>();
+  multi_node_ = resource->multi_node();
+  std::cout << "yxf heterps::multinode: " <<  multi_node_ << std::endl;
 }
 
 HeterPs::~HeterPs() {}
@@ -59,8 +61,13 @@ void HeterPs::show_one_table(int gpu_num) { comm_->show_one_table(gpu_num); }
 
 void HeterPs::push_sparse(int num, FeatureKey* d_keys,
                           FeaturePushValue* d_grads, size_t len) {
-  comm_->push_sparse(num, d_keys, d_grads, len, opt_);
-  // comm_->push_sparse_multi_node(num, d_keys, d_grads, len, opt_);
+  if (multi_node_ <= 0) {
+
+    comm_->push_sparse(num, d_keys, d_grads, len, opt_);
+  } else {
+    comm_->push_sparse_multi_node(num, d_keys, d_grads, len, opt_);
+  }
+  
 }
 
 void HeterPs::set_nccl_comm_and_size(const std::vector<ncclComm_t>& inner_comms,

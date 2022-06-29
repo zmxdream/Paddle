@@ -192,17 +192,29 @@ class HeterComm {
 
   struct LocalStorage {
     LocalStorage() {}
-    void init(int size, int dev_id) {
+    void init(size_t size, int dev_id) {
       place_ = platform::CUDAPlace(dev_id);
       alloc(size, true);
     }
 
-    void alloc(int size, bool force = false) {
+    void init(size_t size, int dev_id, size_t grad_type_size) {
+      place_ = platform::CUDAPlace(dev_id);
+      grad_type_size_ = grad_type_size;
+      alloc(size, true);
+    }
+
+    void alloc(size_t size, bool force = false) {
+      // VLOG(0) << "yxf local storage alloc size: " << size << " force: " << force;
+      // VLOG(0) << "yxf LocalStorage alloc grad size: " << grad_type_size_;
       if (force || size > all_keys_mem->size()) {
+        // VLOG(0) << "yxf11 LocalStorage alloc grad size: " << grad_type_size_;
         all_keys_mem.reset();
+        // VLOG(0) << "yxf22 LocalStorage alloc grad size: " << grad_type_size_;
         all_grads_mem.reset();
+        // VLOG(0) << "yxf33 LocalStorage alloc grad size: " << grad_type_size_;
         all_keys_mem = memory::Alloc(place_, size * sizeof(KeyType));
-        all_grads_mem = memory::Alloc(place_, size * sizeof(GradType));
+        // VLOG(0) << "yxf LocalStorage alloc grad size: " << grad_type_size_;
+        all_grads_mem = memory::Alloc(place_, size * grad_type_size_);
         all_keys = reinterpret_cast<KeyType*>(all_keys_mem->ptr());
         all_grads = reinterpret_cast<GradType*>(all_grads_mem->ptr());
       }
@@ -210,7 +222,8 @@ class HeterComm {
         local_keys_mem.reset();
         local_grads_mem.reset();
         local_keys_mem = memory::Alloc(place_, size * sizeof(KeyType));
-        local_grads_mem = memory::Alloc(place_, size * sizeof(GradType));
+        // VLOG(0) << "yxf LocalStorage111 alloc grad size: " << grad_type_size_;
+        local_grads_mem = memory::Alloc(place_, size * grad_type_size_);
         local_keys = reinterpret_cast<KeyType*>(local_keys_mem->ptr());
         local_grads = reinterpret_cast<GradType*>(local_grads_mem->ptr());
       }
@@ -226,6 +239,8 @@ class HeterComm {
     std::shared_ptr<memory::Allocation> local_grads_mem;
     KeyType* local_keys;
     GradType* local_grads;
+    size_t grad_type_size_;
+  
   };
 
   void init_path();
@@ -256,7 +271,8 @@ class HeterComm {
   CustomGradMerger merger_;
   int topo_aware_{0};
   int feanum_{1800 * 2048};
-  int multi_node_{0};
+  int multi_node_{1};
+  int node_rank_{-1};
   std::vector<ncclComm_t> nccl_inner_comms_;
   std::vector<ncclComm_t> nccl_inter_comms_;
   std::vector<double> mg_time_1;
@@ -271,6 +287,8 @@ class HeterComm {
   std::vector<std::shared_ptr<cub::CachingDeviceAllocator>> allocators_;
   int multi_mf_dim_{8};
   int max_mf_dim_ = 8;
+  size_t val_type_size_;
+  size_t grad_type_size_;
 };
 
 }  // end namespace framework

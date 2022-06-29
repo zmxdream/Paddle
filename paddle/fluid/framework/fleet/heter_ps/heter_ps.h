@@ -50,6 +50,7 @@ class HeterPs : public HeterPsBase {
  private:
   std::shared_ptr<HeterComm<FeatureKey, FeatureValue, FeaturePushValue>> comm_;
   Optimizer<FeatureValue, FeaturePushValue> opt_;
+  int multi_node_{0};
 };
 
 }  // end namespace framework

@@ -178,6 +178,8 @@ class PSGPUWrapper {
       auto gloo = paddle::framework::GlooWrapper::GetInstance();
       if (gloo->Size() > 1) {
         multi_node_ = 1;
+        resource_->enable_multi_node(gloo->Rank());
+        std::cout << "yxf multi node" << std::endl;
       }
 #else
       PADDLE_THROW(
@@ -195,7 +197,7 @@ class PSGPUWrapper {
         inter_comms_.resize(dev_size);
         if (gloo->Rank() == 0) {
           for (int i = 0; i < dev_size; ++i) {
-            platform::dynload::ncclGetUniqueId(&inter_ncclids_[i]);
+            platform::dynload::ncclGetUniqueId(&(inter_ncclids_[i]));
           }
         }
 
@@ -204,12 +206,13 @@ class PSGPUWrapper {
             platform::errors::PreconditionNotMet(
                 "You must initialize the gloo environment first to use it."));
         gloo::BroadcastOptions opts(gloo->GetContext());
-        opts.setOutput(&inter_ncclids_[0], dev_size);
+        opts.setOutput(&(inter_ncclids_[0]), dev_size);
         opts.setRoot(0);
         gloo::broadcast(opts);
 
         for (int i = 0; i < dev_size; ++i) {
-          platform::dynload::ncclCommInitRank(&inter_comms_[i], gloo->Size(),
+          platform::CUDADeviceGuard guard(resource_->dev_id(i));
+          platform::dynload::ncclCommInitRank(&(inter_comms_[i]), gloo->Size(),
                                               inter_ncclids_[i], gloo->Rank());
         }
         node_size_ = gloo->Size();

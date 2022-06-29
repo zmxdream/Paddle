@@ -137,6 +137,14 @@ struct FeaturePushValue {
      mf_g[i] = in.mf_g[i];
     }
   }
+  friend std::ostream& operator<<(std::ostream& out, FeaturePushValue& val) {
+    out << "yxf show: " << val.show << " clk: " << val.clk << " slot: " << val.slot
+        << " lr: " << val.lr_g << " mf_dim: " << val.mf_dim;
+    for (int i = 0; i < val.mf_dim; ++i) {
+      out << " " << val.mf_g[i];
+    }
+    return out;
+  }
 };
 
 }  // end namespace framework

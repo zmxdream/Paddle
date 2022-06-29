@@ -59,6 +59,12 @@ class HeterPsResource {
   void set_multi_mf(int multi_mf_dim, int max_mf_dim);
   int multi_mf() { return multi_mf_dim_; }
   int max_mf_dim() { return max_mf_dim_; }
+  int multi_node() {return multi_node_;}
+  void enable_multi_node(int rank) {
+    multi_node_ = 1;
+    node_rank_ = rank;
+  }
+  int node_rank() { return node_rank_;}
   gpuStream_t local_stream(int gpu_num, int stream_num);
   gpuStream_t remote_stream(int gpu_num, int stream_num);
   gpuStream_t comm_stream(int gpu_num, int stream_num);
@@ -68,6 +74,8 @@ class HeterPsResource {
   std::map<int, int> devid_2_index_;
   int multi_mf_dim_{0};
   int max_mf_dim_{0};
+  int multi_node_{0};
+  int node_rank_{-1};
 };
 
 }  // end namespace framework
