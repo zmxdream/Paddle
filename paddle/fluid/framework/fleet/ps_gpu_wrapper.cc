@@ -1234,6 +1234,7 @@ void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
   VLOG(3) << "Begine Gpu Ps PullSparse";
   platform::Timer all_timer;
   platform::Timer pull_gpups_timer;
+  platform::Timer copy_for_pull_timer;
   all_timer.Start();
 
   size_t total_length =
@@ -1288,6 +1289,9 @@ void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
     HeterPs_->pull_sparse(devid_2_index, total_keys, total_values_gpu,
                           total_length);
     
+    pull_gpups_timer.Pause();
+
+    copy_for_pull_timer.Start();
     VLOG(3) << "Begin Copy result to tensor, total_length[" << total_length
             << "]";
     if (!multi_mf_dim_) {
@@ -1299,17 +1303,21 @@ void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
                       static_cast<int>(slot_lengths.size()), hidden_size,
                       total_length, gpu_dim);
     }
-    pull_gpups_timer.Pause();
+    copy_for_pull_timer.Pause();
   } else {
     PADDLE_THROW(platform::errors::PreconditionNotMet(
         "GpuPs: PullSparse Only Support CUDAPlace Now."));
-  }
+  } 
+
+  int device_id = place.GetDeviceId();
+  int devid_2_index = HeterPs_->get_index_by_devid(device_id);
   all_timer.Pause();
   time_1 += all_timer.ElapsedSec();
   time_2 += pull_gpups_timer.ElapsedSec();
-  VLOG(3) << "GpuPs PullSparse total costs: " << all_timer.ElapsedSec()
+  VLOG(0) << "devid:" << devid_2_index << " GpuPs PullSparse total costs: " << all_timer.ElapsedSec()
             << " s, of which pullsparse costs: " << pull_gpups_timer.ElapsedSec()
-            << " s";
+            << " s, of which copy for pull costs:" << copy_for_pull_timer.ElapsedSec()
+            << " s.";
   VLOG(3) << "End PullSparse";
 
 }
