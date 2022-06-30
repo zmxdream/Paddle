@@ -62,7 +62,6 @@ void HeterPs::show_one_table(int gpu_num) { comm_->show_one_table(gpu_num); }
 void HeterPs::push_sparse(int num, FeatureKey* d_keys,
                           FeaturePushValue* d_grads, size_t len) {
   if (multi_node_ <= 0) {
-
     comm_->push_sparse(num, d_keys, d_grads, len, opt_);
   } else {
     comm_->push_sparse_multi_node(num, d_keys, d_grads, len, opt_);
