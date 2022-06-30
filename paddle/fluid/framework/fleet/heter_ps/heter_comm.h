@@ -37,6 +37,43 @@ namespace framework {
 #define TYPEALIGN(ALIGNVAL, LEN) \
   (((uint64_t)(LEN) + ((ALIGNVAL)-1)) & ~((uint64_t)((ALIGNVAL)-1)))
 
+struct CustomGradMerger {
+  template <typename T>
+  CUB_RUNTIME_FUNCTION __forceinline__ __device__ T
+  operator()(const T& a, const T& b) const {
+    T out;
+    out.slot = a.slot;
+    out.mf_dim = a.mf_dim;
+    out.show = a.show + b.show;
+    out.clk = a.clk + b.clk;
+    out.lr_g = a.lr_g + b.lr_g;
+    return out;
+  }
+
+  template <typename T>
+  __device__ __forceinline__
+  void copy_basic_field(T& output, const T& input) {
+      output.slot    = input.slot;
+      output.show    = input.show;
+      output.clk     = input.clk;
+      output.mf_dim = input.mf_dim;
+      output.lr_g = input.lr_g;
+      for(int i = 0; i < output.mf_dim ; ++i) {
+         output.mf_g[i] = input.mf_g[i];
+      }
+  }
+  template <typename T>
+  __device__ __forceinline__
+  void add_basic_field(T& output, const T& input) {
+      output.show    += input.show;
+      output.clk     += input.clk;
+      output.lr_g += input.lr_g;
+      for(int i = 0; i < input.mf_dim; ++i) {
+         output.mf_g[i] += input.mf_g[i];
+      }
+  }
+};
+
 template <typename KeyType, typename ValType, typename GradType>
 class HeterComm {
  public:
@@ -44,40 +81,66 @@ class HeterComm {
   virtual ~HeterComm();
   HeterComm(const HeterComm&) = delete;
   HeterComm& operator=(const HeterComm&) = delete;
-  int get_index_by_devid(int devid);
-  void set_nccl_comm_and_size(const std::vector<ncclComm_t>& inner_comms,
-                              const std::vector<ncclComm_t>& inter_comms,
-                              int comm_size);
-  void set_multi_mf_dim(int max_mf_dim);
-  void show_one_table(int gpu_num);
+
+  void split_input_to_shard(KeyType* d_keys, int* d_idx_ptr, size_t len,
+                            int* left, int* right, int gpu_num);
+  void merge_grad(int gpu_num, KeyType* d_keys, GradType* d_grads, size_t len,
+                  int& uniq_len);  // NOLINT
+  void merge_grad(int gpu_num, KeyType* d_keys, GradType* d_grads, float* mf,
+                  size_t len, int& uniq_len);
+  void pull_sparse(int num, KeyType* d_keys, ValType* d_vals, size_t len);
+  void build_ps(int num, KeyType* h_keys, ValType* h_vals, size_t len,
+                size_t chunk_size, int stream_num);
   void build_ps(int num, KeyType* h_keys, char* pool, size_t len, size_t feature_value_size,
                 size_t chunk_size, int stream_num);
-  void pull_sparse(int num, KeyType* d_keys, ValType* d_vals, size_t len);
+  void dump();
+  void show_one_table(int gpu_num);
+  int get_index_by_devid(int devid);
+
   template <typename Sgd>
-  void push_sparse(int num, KeyType* d_keys, GradType* d_grads, size_t len, Sgd& sgd);
+  void push_sparse(int num, KeyType* d_keys, GradType* d_grads, size_t len,
+                   Sgd& sgd);  // NOLINT
+
   template <typename Sgd>
   void push_sparse_multi_node(int num, KeyType* d_keys, GradType* d_grads,
-                              size_t len, Sgd& sgd);
-private:
-  void split_input_to_shard(KeyType* d_keys, int* d_idx_ptr, size_t len,
-            int* left, int* right, int gpu_num);
-  void create_storage(int start_index, int end_index, size_t keylen, size_t vallen);
-  void walk_to_dest(int start_index, int gpu_num, int* h_left, int* h_right,
-                    KeyType* src_key, char* src_val, size_t val_size);
-  void walk_to_src(int start_index, int gpu_num, int* h_left, int* h_right,
-                   char* src_val, size_t val_size);
-  void destroy_storage(int start_index, int end_index);
-  void merge_grad(int gpu_num, KeyType* d_keys, GradType* d_grads, size_t len, int& uniq_len);
-  int log2i(int x);
-  int gather_one_node_grad(int num, KeyType* d_keys, GradType* d_grads, int len);
-  int gather_multi_node_grad(int num, KeyType* d_keys, GradType* d_grads, int len);
+                              size_t len, Sgd& sgd);  // NOLINT
+
   template <typename Sgd>
-  void update_one_table(int num, KeyType* d_keys, GradType* d_grads, size_t len, Sgd& sgd);
+  void update_one_table(int num, KeyType* d_keys, GradType* d_grads, size_t len,
+                        Sgd& sgd);  // NOLINT
+
+  int gather_one_node_grad(int num, KeyType* d_keys, GradType* d_grads,
+                           int len);
+
+  int gather_multi_node_grad(int num, KeyType* d_keys, GradType* d_grads,
+                             int len);
+
+  int log2i(int x);
+
+  void set_nccl_comm_and_size(const std::vector<ncclComm_t>& inner_comms,
+                              const std::vector<ncclComm_t>& inter_comms,
+                              int comm_size) {
+    nccl_inner_comms_ = inner_comms;
+    nccl_inter_comms_ = inter_comms;
+    node_size_ = comm_size;
+  }
+  
+  void set_multi_mf_dim(int multi_mf_dim, int max_mf_dim) {
+    
+    multi_mf_dim_ = multi_mf_dim;
+    max_mf_dim_ = max_mf_dim;
+    VLOG(3) << "heter comm set multi multi_mf_dim_: " << multi_mf_dim_ << " max_mf_dim_: " << max_mf_dim_;
+  }
+
   bool need_transfer(int send_id, int receive_id) {
     return ((send_id / 4 != receive_id / 4) && (send_id + 4) % 8 != receive_id);
   }
+
+  // void dump_to_cpu(int index);
+
+  void end_pass();
+
   int get_transfer_devid(int send_id) { return (send_id + 4) % 8; }
-  void init_path();
 
   struct Node {
     cudaStream_t in_stream;
@@ -89,14 +152,17 @@ private:
     size_t val_bytes_len;
     int gpu_num;
   };
+
   struct Path {
     std::vector<Node> nodes_;
   };
+
   struct CopyTask {
     Path* path;
     int step;
     CopyTask(Path* path_, int step_) : path(path_), step(step_) {}
   };
+
   struct LocalStorage {
     LocalStorage() {}
     void init(int size, int dev_id) {
@@ -135,13 +201,23 @@ private:
     GradType* local_grads;
   };
 
-  
-  
-  
+  void init_path();
+
+  void create_storage(int start_index, int end_index, size_t keylen, size_t vallen);
+  void destroy_storage(int start_index, int end_index);
+  void walk_to_dest(int start_index, int gpu_num, int* h_left, int* h_right,
+                    KeyType* src_key, GradType* src_val);
+  void walk_to_dest(int start_index, int gpu_num, int* h_left, int* h_right,
+                    KeyType* src_key, char* src_val, size_t val_size);
+  void walk_to_src(int start_index, int gpu_num, int* h_left, int* h_right,
+                   ValType* src_val);
+  void walk_to_src(int start_index, int gpu_num, int* h_left, int* h_right,
+                   char* src_val, size_t val_size);
 
  protected:
   using Table = HashTable<KeyType, ValType>;
   using PtrTable = HashTable<KeyType, ValType*>;
+  std::vector<Table*> tables_;
   std::vector<PtrTable*> ptr_tables_;
   std::shared_ptr<HeterPsResource> resource_;
   std::vector<std::vector<Path>> path_;
@@ -150,6 +226,7 @@ private:
 
  private:
   std::vector<LocalStorage> storage_;
+  CustomGradMerger merger_;
   int topo_aware_{0};
   int feanum_{1800 * 2048};
   int multi_node_{0};
@@ -157,6 +234,7 @@ private:
   std::vector<ncclComm_t> nccl_inter_comms_;
   int node_size_;
   std::vector<std::shared_ptr<cub::CachingDeviceAllocator>> allocators_;
+  int multi_mf_dim_{8};
   int max_mf_dim_ = 8;
 };
 

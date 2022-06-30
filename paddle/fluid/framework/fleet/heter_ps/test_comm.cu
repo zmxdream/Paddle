@@ -23,7 +23,6 @@ limitations under the License. */
 using namespace paddle::framework;
 
 TEST(TEST_FLEET, heter_comm) {
-  /*
   int gpu_count = 3;
   std::vector<int> dev_ids;
   dev_ids.push_back(0);
@@ -34,14 +33,14 @@ TEST(TEST_FLEET, heter_comm) {
   resource->enable_p2p();
   std::vector<size_t> count;
   std::vector<std::vector<FeatureKey>> keys;
-  std::vector<std::vector<LxchDyFeatureValue>> vals;
+  std::vector<std::vector<FeatureValue>> vals;
   count.resize(dev_ids.size(), 0);
   keys.resize(dev_ids.size());
   vals.resize(dev_ids.size());
 
   for (int i = 0; i < 10; i++) {
     FeatureKey key;
-    LxchDyFeatureValue val;
+    FeatureValue val;
     int gpu_num = i % gpu_count;
     key = i;
     val.lr = i;
@@ -57,7 +56,7 @@ TEST(TEST_FLEET, heter_comm) {
   }
 
   auto heter_comm =
-      std::make_shared<HeterComm<FeatureKey, LxchDyFeatureValue, LxchDyFeaturePushValue>>(
+      std::make_shared<HeterComm<FeatureKey, FeatureValue, FeaturePushValue>>(
           size, resource);
   for (int i = 0; i < gpu_count; ++i) {
     std::cout << "building table: " << i << std::endl;
@@ -68,9 +67,9 @@ TEST(TEST_FLEET, heter_comm) {
   std::cout << "testing pull sparse:" << std::endl;
   paddle::platform::CUDADeviceGuard guard(0);
   FeatureKey* pull_keys;
-  LxchDyFeatureValue* pull_vals;
+  FeatureValue* pull_vals;
   cudaMallocManaged(&pull_keys, 5 * sizeof(FeatureKey));
-  cudaMallocManaged(&pull_vals, 5 * sizeof(LxchDyFeatureValue));
+  cudaMallocManaged(&pull_vals, 5 * sizeof(FeatureValue));
 
   pull_keys[0] = 2;
   pull_keys[1] = 3;
@@ -86,11 +85,11 @@ TEST(TEST_FLEET, heter_comm) {
   cudaFree(pull_vals);
 
   std::cout << "testing push sparse:" << std::endl;
-  Optimizer<LxchDyFeatureValue, LxchDyFeaturePushValue> opt;
+  Optimizer<FeatureValue, FeaturePushValue> opt;
   FeatureKey* push_keys;
-  LxchDyFeaturePushValue* push_vals;
+  FeaturePushValue* push_vals;
   cudaMallocManaged(&push_keys, 5 * sizeof(FeatureKey));
-  cudaMallocManaged(&push_vals, 5 * sizeof(LxchDyFeaturePushValue));
+  cudaMallocManaged(&push_vals, 5 * sizeof(FeaturePushValue));
   push_keys[0] = 2;
   push_keys[1] = 3;
   push_keys[2] = 9;
@@ -110,5 +109,4 @@ TEST(TEST_FLEET, heter_comm) {
 
   cudaFree(push_keys);
   cudaFree(push_vals);
-  */
 }
