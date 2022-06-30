@@ -98,12 +98,50 @@ __global__ void dy_mf_fill_shard_grads(KeyType* d_shard_keys, KeyType* d_keys,
   }
 }
 
-__global__ void merge_gradient_kernel(const uint32_t* offset,
+
+// optimized version
+template <>
+__global__ void dy_mf_fill_shard_grads<FeatureKey, FeaturePushValue, int>(FeatureKey* d_shard_keys, FeatureKey* d_keys,
+                                       FeaturePushValue* d_shard_grads,
+                                       FeaturePushValue* d_grads, int* idx, size_t len,
+                                       size_t grad_value_size) {
+  const size_t i = blockIdx.x * blockDim.y + threadIdx.y;
+  const size_t k = threadIdx.x;
+  if (i < len) {
+    if (k == 0) {
+      d_shard_keys[i] = d_keys[idx[i]];
+    }
+    FeaturePushValue* cur = (FeaturePushValue*)((char*)d_shard_grads + i * grad_value_size);
+    FeaturePushValue& input = *(FeaturePushValue*)((char*)d_grads + uint64_t(idx[i]) * grad_value_size);
+    char* cur_p = (char*)cur;
+    char* input_p = (char*)(&input);
+    int len = 5 + input.mf_dim;
+    if (k == 2 || k == 4) *(int*)(cur_p + k * 4) = *(int*)(input_p + k * 4);
+    else if (k < 5) *(float*)(cur_p + k * 4) = *(float*)(input_p + k * 4);
+    else {
+        int len_per_thread = (len - 5) / (blockDim.y - 5);
+        int remain = (len - 5) % (blockDim.y - 5);
+        int real_len = len_per_thread;
+        if ((k - 5) < remain) real_len++;
+        int left = -1, right = -1;
+        if ((k - 5) < remain) {
+          left = 5 + (k - 5) * (len_per_thread + 1);
+          right = left + real_len;
+        } else {
+          left = 5 + remain * (len_per_thread + 1) + (k - 5 - remain) * len_per_thread;
+          right = left + real_len;
+        }
+        for(int j = left; j < right; j++) *(float*)(cur_p + j * 4) = *(float*)(input_p + j * 4);
+    }
+  }
+}
+
+__global__ void merge_gradient_basic_kernel(const uint32_t* offset,
                                       const uint32_t* fea_num,
                                       const uint32_t* index, const char* input,
                                       char* output, int n,
                                       size_t grad_value_size,
-                                      CustomGradMerger& merger_) {
+                                      CustomGradMerger& merger) {
   const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
   
   if (i < n) {
@@ -114,15 +152,44 @@ __global__ void merge_gradient_kernel(const uint32_t* offset,
     FeaturePushValue& lhs = *(FeaturePushValue*)(output + i * grad_value_size);
     FeaturePushValue& in =
         *(FeaturePushValue*)(input + size_t(ori_index) * grad_value_size);
-    merger_.copy_basic_field(lhs, in);
+    merger.copy_basic_field(lhs, in);
     
     for (int j = 1; j < num; ++j) {
       ori_index = index[start + j];
-      in = *(FeaturePushValue*)(input + size_t(ori_index) * grad_value_size);
-      merger_.add_basic_field(lhs, in);
+      FeaturePushValue& rhs = *(FeaturePushValue*)(input + size_t(ori_index) * grad_value_size);
+      merger.add_basic_field(lhs, rhs);
     }
   }
-  
+}
+
+__global__ void merge_gradient_embedx_kernel(const uint32_t* offset,
+                                       const uint32_t* fea_num,
+                                       const uint32_t* index, const char* input,
+                                       char* output, int n,
+                                       size_t grad_dim,
+                                       size_t grad_value_size,
+                                       CustomGradMerger& merger) {
+  const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+
+  if (i < n) {
+    size_t value_idx = i / grad_dim;
+    size_t field_idx = i % grad_dim;
+
+    uint32_t start = offset[value_idx];
+    uint32_t num = fea_num[value_idx];
+    int ori_index = index[start];
+
+    FeaturePushValue& in = *(FeaturePushValue*)(input + size_t(ori_index) * grad_value_size);
+    FeaturePushValue& lhs = *(FeaturePushValue*)(output + value_idx * grad_value_size);
+
+    merger.copy_embedx_field(lhs, in, field_idx);
+
+    for (int j = 1; j < num; ++j) {
+      int ori_index = index[start + j];
+      FeaturePushValue& rhs = *(FeaturePushValue*)(input + size_t(ori_index) * grad_value_size);
+      merger.add_embedx_field(lhs, rhs, field_idx);
+    }
+  }
 }
 
 template <typename ValType, typename T>
@@ -142,6 +209,42 @@ __global__ void dy_mf_fill_dvals(ValType* d_shard_vals, ValType* d_vals, T* idx,
     uint64_t new_offset = uint64_t(idx[i]) * val_size;
     *(ValType*)((char*)d_vals + new_offset) =
         *(ValType*)((char*)d_shard_vals + i * val_size);
+  }
+}
+
+// optimized version
+template <>
+__global__ void dy_mf_fill_dvals<FeatureValue, int>(FeatureValue* d_shard_vals, FeatureValue* d_vals, int* idx,
+                                 size_t len, size_t val_size) {
+  const size_t i = blockIdx.x * blockDim.y + threadIdx.y;
+  const size_t k = threadIdx.x;
+  if (i < len) {
+    uint64_t new_offset = uint64_t(idx[i]) * val_size;
+    FeatureValue* cur = (FeatureValue*)((char*)d_vals + new_offset);
+    FeatureValue& input = *(FeatureValue*)((char*)d_shard_vals + i * val_size);
+    char* cur_p = (char*)cur;
+    char* input_p = (char*)(&input);
+    int len = 9 + input.mf_dim + 1;
+
+    if (k == 3 || k == 6 || k == 7) *(int*)(cur_p + k * 4) = *(int*)(input_p + k * 4);
+    else if (k < 8) *(float*)(cur_p + k * 4) = *(float*)(input_p + k * 4);
+    else if (k == 8) { 
+      *(uint64_t*)(cur_p + k * 4) = *(uint64_t*)(input_p + k * 4);
+    } else {
+        int len_per_thread = (len - 9) / (blockDim.x - 9);
+        int remain = (len - 9) % (blockDim.y - 9);
+        int real_len = len_per_thread;
+        if ((k - 9) < remain) real_len++;
+        int left = -1, right = -1;
+        if ((k - 9) < remain) {
+          left = 9 + (k - 9) * (len_per_thread + 1);
+          right = left + real_len;
+        } else {
+          left = 9 + remain * (len_per_thread + 1) + (k - 9 - remain) * len_per_thread;
+          right = left + real_len;
+        }
+        for(int j = left; j < right; j++) *(float*)(cur_p + (j + 1) * 4) = *(float*)(input_p + (j + 1) * 4);
+    }
   }
 }
 
@@ -833,109 +936,20 @@ void HeterComm<KeyType, ValType, GradType>::merge_grad(int gpu_num,
   mg_time_6[gpu_num] += timeline.ElapsedSec();
   timeline.Start();
 
-  /*
-  char* h_offset =
-      (char*)malloc(sizeof(uint32_t) * len);
-  char* h_fea_num_info_ptr =
-      (char*)malloc(sizeof(uint32_t) * len);
-  char* h_index =
-      (char*)malloc(sizeof(uint32_t) * len);
-  char* h_merge_grads_ptr =
-      (char*)malloc(grad_value_size * len);
-  char* h_grads =
-      (char*)malloc(grad_value_size * len);
-  char* h_keys =
-      (char*)malloc(sizeof(KeyType) * len);
-  cudaMemcpy(h_merge_grads_ptr, (char*)d_merge_grads_ptr,
-            grad_value_size * len, cudaMemcpyDeviceToHost);
-  cudaMemcpy(h_grads, (char*)d_grads,
-            grad_value_size * len, cudaMemcpyDeviceToHost);
-  cudaMemcpy(h_offset, d_offset,
-            sizeof(uint32_t) * len, cudaMemcpyDeviceToHost);
-  cudaMemcpy(h_fea_num_info_ptr, d_fea_num_info_ptr,
-            sizeof(uint32_t) * len, cudaMemcpyDeviceToHost);
-  cudaMemcpy(h_index, d_index,
-            sizeof(uint32_t) * len, cudaMemcpyDeviceToHost);
-  cudaMemcpy(h_keys, d_keys,
-            sizeof(KeyType) * len, cudaMemcpyDeviceToHost);
-
-  uint32_t test_index = 0;
-  for (int i = 0; i < uniq_len; i++) {
-    if (((uint64_t*)h_keys)[i] == 1306488441314719671) {
-      test_index = i;
-      break;
-    }
-  }
-  VLOG(0) << "yxf::test_index: " << test_index;
-  uint32_t start = ((uint32_t*)h_offset)[test_index];
-  uint32_t num = ((uint32_t*)h_fea_num_info_ptr)[test_index];
-  int ori_index = ((uint32_t*)h_index)[start];
-
-  VLOG(0) << "yxf:: start: " << start << " num: " << num << " index: " << ori_index;
-  FeaturePushValue* cur =
-        (FeaturePushValue*)((char*)h_grads + ori_index * grad_value_size);
-  VLOG(0) << "yxfpush33333::cur->slot: " << cur->slot << " mf_dim: " << cur->mf_dim
-            << " show: " << cur->show << " clk: " << cur->clk << " : " << cur->mf_g[0] << " : " << cur->mf_g[1] << " : " << cur->mf_g[2] << " : " << cur->mf_g[3] << " : " << cur->mf_g[4] << " : " << cur->mf_g[5] << " : " << cur->mf_g[6] << " : " << cur->mf_g[7];
-    
-  for (int j = 1; j < num; ++j) {
-    ori_index = ((uint32_t*)h_index)[start + j];
-    VLOG(0) << "yxf:: ori_index: " << ori_index;
-    cur = (FeaturePushValue*)((char*)h_grads + ori_index * grad_value_size);
-    VLOG(0) << "yxfpush33333::cur->slot: " << cur->slot << " mf_dim: " << cur->mf_dim
-            << " show: " << cur->show << " clk: " << cur->clk << " : " << cur->mf_g[0] << " : " << cur->mf_g[1] << " : " << cur->mf_g[2] << " : " << cur->mf_g[3] << " : " << cur->mf_g[4] << " : " << cur->mf_g[5] << " : " << cur->mf_g[6] << " : " << cur->mf_g[7];
-  }
-  */
-
-
-  //VLOG(0) << "yxf111";
 
   grid_size = (uniq_len - 1) / block_size_ + 1;
-  merge_gradient_kernel<<<grid_size, block_size_, 0, stream>>>(
+  merge_gradient_basic_kernel<<<grid_size, block_size_, 0, stream>>>(
       d_offset, d_fea_num_info_ptr, d_index, (char*)d_grads,
       (char*)d_merge_grads_ptr, uniq_len, grad_value_size, merger_);
-  // grid_size = (len - 1) / block_size_ + 1;
-  // shared_merge_gradient_kernel<<<grid_size, block_size_, len * grad_value_size, stream>>>(
-  //     d_offset, d_fea_num_info_ptr, d_index, (char*)d_grads,
-  //     (char*)d_merge_grads_ptr, uniq_len, grad_value_size, merger_, len);
-  // // merge kernel use cuda shared memory
-  // grid_size = (len - 1) / block_size_ + 1;
-  // auto d_test = memory::Alloc(place, len * grad_value_size);
-  // GradType* d_test_ptr =
-  //     reinterpret_cast<GradType*>(d_test->ptr());
-  // merge_gradient_kernel<<<grid_size, block_size_, len * 5 * sizeof(float), stream>>>(
-  //     d_offset, d_fea_num_info_ptr, d_index, (char*)d_grads,
-  //     (char*)d_merge_grads_ptr, uniq_len, grad_value_size, merger_, len, (char*)d_test_ptr);
-  // PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
-  // VLOG(0) << "yxf:: mergelen: " << len << " uniq_len: " << uniq_len;
-  // char* test_grad_values =
-  //     (char*)malloc(grad_value_size * len);
-  // char* test_grad_keys =
-  //     (char*)malloc(sizeof(KeyType) * len);
-  // cudaMemcpy(test_grad_values, d_test_ptr,
-  //           grad_value_size * len, cudaMemcpyDeviceToHost);
-  // cudaMemcpy(test_grad_keys, d_keys,
-  //           sizeof(KeyType) * len, cudaMemcpyDeviceToHost);
-  // for (int i = 0; i < len; i++) {
-  //   FeaturePushValue* cur =
-  //       (FeaturePushValue*)(test_grad_values + i * grad_value_size);
-  //   VLOG(0) << "yxfpush merge:: i: " << i << " key: " << ((uint64_t*)test_grad_keys)[i] << " cur->slot: " << cur->slot << " mf_dim: " << cur->mf_dim
-  //           << " show: " << cur->show << " clk: " << cur->clk << " : " << cur->mf_g[0] << " : " << cur->mf_g[1] << " : " << cur->mf_g[2] << " : " << cur->mf_g[3] << " : " << cur->mf_g[4] << " : " << cur->mf_g[5] << " : " << cur->mf_g[6] << " : " << cur->mf_g[7];
-  // }
-  // VLOG(0) << "yxf::merge len: enddd";
-  // VLOG(0) << "yxf222";
-  
-  // timeline.Pause();
-  // mg_time_8[gpu_num] += timeline.ElapsedSec();
-  // timeline.Start();
-  // grid_size = (uniq_len * max_mf_dim_  - 1) / block_size_ + 1;
-  // kernel_merge_embedx_value<<<grid_size, block_size_, 0, stream>>>(
-  //               uniq_len * max_mf_dim_, max_mf_dim_, d_offset, d_fea_num_info_ptr, d_index, (char*)d_grads, (char*)d_merge_grads_ptr, grad_value_size);
 
-  // kernel_merge_embedx_value<<<grid_size, block_size_, len * max_mf_dim_ * sizeof(float), stream>>>(
-  // kernel_merge_embedx_value<<<grid_size, block_size_, len * max_mf_dim_ * sizeof(float), stream>>>(
-  //               uniq_len * max_mf_dim_, max_mf_dim_, d_offset, d_fea_num_info_ptr, d_index, (char*)d_grads, (char*)d_merge_grads_ptr, grad_value_size, len * max_mf_dim_);
-  // cudaMemcpyAsync(&uniq_len, d_merged_size, sizeof(int),
-  //                cudaMemcpyDeviceToHost, stream);
+  const size_t grad_dim = max_mf_dim_;
+  if (grad_dim > 0) {
+    int grid_size2 = (uniq_len * grad_dim - 1) / block_size_ + 1;
+    merge_gradient_embedx_kernel<<<grid_size2, block_size_, 0, stream>>>(
+            d_offset, d_fea_num_info_ptr, d_index, (char*)d_grads, (char*)d_merge_grads_ptr, uniq_len * grad_dim, grad_dim, grad_value_size, merger_);
+  }
+
+
   PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
   //VLOG(0) << "yxf333";
   timeline.Pause();
@@ -1119,8 +1133,13 @@ void HeterComm<KeyType, ValType, GradType>::pull_sparse(int num,
     fill_dvals<<<grid_size, block_size_, 0, stream>>>(d_shard_vals_ptr, d_vals,
                                                       d_idx_ptr, len);
   } else {
-    // grid_size = (len - 1) / 2048 + 1;
-    dy_mf_fill_dvals<<<grid_size, block_size_, 0, stream>>>(
+
+    dim3 block_dims(32,32);
+    const size_t grid_size_ = (len - 1) / 32 + 1;
+    dim3 grid_dims(grid_size_);
+
+
+    dy_mf_fill_dvals<<<grid_dims, block_dims, 0, stream>>>(
         d_shard_vals_ptr, d_vals, d_idx_ptr, len, val_type_size);
   }
   cudaStreamSynchronize(stream);
@@ -1196,7 +1215,10 @@ void HeterComm<KeyType, ValType, GradType>::push_sparse(int gpu_num,
         d_shard_keys_ptr, d_keys, d_shard_grads_ptr, d_grads, d_idx_ptr,
         uniq_len);
   } else {
-    dy_mf_fill_shard_grads<<<grid_size, block_size_, 0, stream>>>(
+    dim3 block_dims(32, 32);
+    const size_t grid_size = (uniq_len - 1) / 32 + 1; 
+    dim3 grid_dims(grid_size);
+    dy_mf_fill_shard_grads<<<grid_dims, block_dims, 0, stream>>>(
         d_shard_keys_ptr, d_keys, d_shard_grads_ptr, d_grads, d_idx_ptr,
         uniq_len, grad_value_size);
   }
@@ -1346,12 +1368,12 @@ void HeterComm<KeyType, ValType, GradType>::push_sparse_multi_node(
   // // VLOG(0) << "yxf::merge len: enddd";
   // // VLOG(0) << "yxf222";
 
-  // VLOG(0) << "yxf::multinode merge grad done: len: " << len << "uniq len: " << uniq_len << " gpunum: " << gpu_num;
+  VLOG(0) << "yxf::multinode merge grad done: len: " << len << "uniq len: " << uniq_len << " gpunum: " << gpu_num;
   time_line.Start();
   uniq_len = gather_one_node_grad(gpu_num, d_keys, d_grads, uniq_len);
   time_line.Pause();
   mg_time_10[gpu_num] += time_line.ElapsedSec();
-  // VLOG(0) << "yxf::multinode gather_one_node_grad done: uniq len: " << uniq_len << " gpunum: " << gpu_num;
+  VLOG(0) << "yxf::multinode gather_one_node_grad done: uniq len: " << uniq_len << " gpunum: " << gpu_num;
   
   // test_grad_values =
   //     (char*)malloc(grad_type_size_ * uniq_len);
@@ -1379,7 +1401,7 @@ void HeterComm<KeyType, ValType, GradType>::push_sparse_multi_node(
                                   storage_[gpu_num].local_grads, uniq_len);
   time_line.Pause();
   mg_time_11[gpu_num] += time_line.ElapsedSec();
-  // VLOG(0) << "yxf::multinode gather_multi_node_grad done: uniq len: " << uniq_len << " gpunum: " << gpu_num;
+  VLOG(0) << "yxf::multinode gather_multi_node_grad done: uniq len: " << uniq_len << " gpunum: " << gpu_num;
   
   // test_grad_values =
   //     (char*)malloc(grad_type_size_ * uniq_len);
@@ -1408,7 +1430,7 @@ void HeterComm<KeyType, ValType, GradType>::push_sparse_multi_node(
                    storage_[gpu_num].local_grads, uniq_len, sgd);
   time_line.Pause();
   mg_time_12[gpu_num] += time_line.ElapsedSec();
-  // VLOG(0) << "yxf::multinode update_one_table done: uniq len: " << uniq_len << " gpunum: " << gpu_num;
+  VLOG(0) << "yxf::multinode update_one_table done: uniq len: " << uniq_len << " gpunum: " << gpu_num;
 }
 
 template <typename KeyType, typename ValType, typename GradType>
@@ -1501,7 +1523,7 @@ int HeterComm<KeyType, ValType, GradType>::gather_one_node_grad(
   PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
   cudaMemcpy(h_node_len, d_node_len, sizeof(int) * total_gpu,
              cudaMemcpyDeviceToHost);
-  // VLOG(0) << "yxffff: end one nccl: gpu: " << gpu_num;
+  VLOG(0) << "yxffff: end one nccl: gpu: " << gpu_num;
   for (int i = 0; i < total_gpu; ++i) {
     if (h_node_len[i] > max_size) {
       max_size = h_node_len[i];
@@ -1525,7 +1547,7 @@ int HeterComm<KeyType, ValType, GradType>::gather_one_node_grad(
       nccl_inner_comm, stream));
   PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclGroupEnd());
   PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
-  // VLOG(0) << "yxffff: end two nccl: gpu: " << gpu_num << " max_size: " << max_size << " size: " << max_size * grad_type_size_;
+  VLOG(0) << "yxffff: end two nccl: gpu: " << gpu_num << " max_size: " << max_size << " size: " << max_size * grad_type_size_;
   int h_left[total_gpu];   // NOLINT
   int h_right[total_gpu];  // NOLINT
   auto d_left = memory::Alloc(place, total_gpu * sizeof(int));
@@ -1550,10 +1572,13 @@ int HeterComm<KeyType, ValType, GradType>::gather_one_node_grad(
                cudaMemcpyDeviceToHost);
     // VLOG(0) << "yxf111 i: " << i << " index: " << index << " h_node_len: " << h_node_len[i] << " right: " << h_right[gpu_num] << " left: " << h_left[gpu_num] << " index: " << index * grad_type_size_ << " merge: " << merge_num * grad_type_size_;
     size_t cur_len = size_t(h_right[gpu_num]) - size_t(h_left[gpu_num]) + 1;
-    int grid_size = (cur_len - 1) / block_size_ + 1;
+    // int grid_size = (cur_len - 1) / block_size_ + 1;
     GradType* current_all_grads = (GradType*)((char*)(storage.all_grads) + index * grad_type_size_);
     GradType* current_local_grads = (GradType*)((char*)(storage.local_grads) + merge_num * grad_type_size_);
-    dy_mf_fill_shard_grads<<<grid_size, block_size_, 0, stream>>>(
+    dim3 block_dims(32, 32);
+    const size_t grid_size = (cur_len - 1) / 32 + 1; 
+    dim3 grid_dims(grid_size);
+    dy_mf_fill_shard_grads<<<grid_dims, block_dims, 0, stream>>>(
         storage.local_keys + merge_num, storage.all_keys + index,
         current_local_grads, current_all_grads,
         d_idx_ptr + h_left[gpu_num], cur_len, grad_type_size_);
