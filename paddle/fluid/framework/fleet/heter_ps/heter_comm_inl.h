@@ -1048,17 +1048,18 @@ void HeterComm<KeyType, ValType, GradType>::pull_sparse(int num,
              cudaMemcpyDeviceToHost, stream);
   cudaStreamSynchronize(stream);
 
-  for (int i = 0; i < total_gpu; ++i) {
-    int shard_len = h_right[i] - h_left[i] + 1;
-    if (shard_len == 0) {
-      continue;
+  if (!direct_access_) {
+    for (int i = 0; i < total_gpu; ++i) {
+      int shard_len = h_right[i] - h_left[i] + 1;
+      if (shard_len == 0) {
+        continue;
+      }
+      create_storage(num, i, shard_len * sizeof(KeyType),
+                    shard_len * val_type_size);
     }
-    create_storage(num, i, shard_len * sizeof(KeyType),
-                   shard_len * val_type_size);
+
+    walk_to_dest(num, total_gpu, h_left, h_right, d_shard_keys_ptr, NULL);
   }
-
-  walk_to_dest(num, total_gpu, h_left, h_right, d_shard_keys_ptr, NULL);
-
   std::vector<platform::Timer> time_lines;
   time_lines.resize(total_gpu);
 
@@ -1068,22 +1069,25 @@ void HeterComm<KeyType, ValType, GradType>::pull_sparse(int num,
       continue;
     }
     auto& node = path_[num][i].nodes_.back();
-    cudaStreamSynchronize(node.in_stream);
+    if (!direct_access_) {
+      cudaStreamSynchronize(node.in_stream);
+    }
     platform::CUDADeviceGuard guard(resource_->dev_id(i));
-    if (!multi_mf_dim_) {
-      tables_[i]->rwlock_->RDLock();
-      tables_[i]->get(reinterpret_cast<KeyType*>(node.key_storage),
-                      reinterpret_cast<ValType*>(node.val_storage),
-                      h_right[i] - h_left[i] + 1,
-                      resource_->remote_stream(i, num));
-    } else {
-      // VLOG(0) << "yxf:: start table get in device: " << num << " remote device: " << i;
-      ptr_tables_[i]->rwlock_->RDLock();
-      // VLOG(0) << "after lock yxf:: start table get in device: " << num << " remote device: " << i;
+    
+    // VLOG(0) << "yxf:: start table get in device: " << num << " remote device: " << i;
+    ptr_tables_[i]->rwlock_->RDLock();
+    // VLOG(0) << "after lock yxf:: start table get in device: " << num << " remote device: " << i;
+    if (!direct_access_) {
       ptr_tables_[i]->get(reinterpret_cast<KeyType*>(node.key_storage),
                           node.val_storage, h_right[i] - h_left[i] + 1,
                           resource_->remote_stream(i, num));
+    } else {
+      ptr_tables_[i]->get(
+          d_shard_keys_ptr + h_left[i],
+          reinterpret_cast<char*>(d_shard_vals_ptr) + h_left[i] * val_type_size,
+          h_right[i] - h_left[i] + 1, resource_->remote_stream(i, num));
     }
+    
   }
   for (int i = 0; i < total_gpu; ++i) {
     cudaStreamSynchronize(resource_->remote_stream(i, num));
@@ -1099,15 +1103,14 @@ void HeterComm<KeyType, ValType, GradType>::pull_sparse(int num,
     mg_time_2[i] += time_lines[i].ElapsedSec();
   }
 
-  if (!multi_mf_dim_) {
-    walk_to_src(num, total_gpu, h_left, h_right, d_shard_vals_ptr);
-  } else {
+  if (!direct_access_) {
     walk_to_src(num, total_gpu, h_left, h_right, reinterpret_cast<char*>(d_shard_vals_ptr), val_type_size);
-  }
+    
 
-  for (int i = 0; i < total_gpu; ++i) {
-    auto& node = path_[num][i].nodes_.front();
-    cudaStreamSynchronize(node.out_stream);
+    for (int i = 0; i < total_gpu; ++i) {
+      auto& node = path_[num][i].nodes_.front();
+      cudaStreamSynchronize(node.out_stream);
+    }
   }
 
   // VLOG(0) << "yxf::finish walk to src: " << num;
@@ -1122,9 +1125,11 @@ void HeterComm<KeyType, ValType, GradType>::pull_sparse(int num,
   }
   cudaStreamSynchronize(stream);
   // VLOG(0) << "yxf::finish walk to fill: " << num;
-  for (int i = 0; i < total_gpu; ++i) {
-    destroy_storage(num, i);
-    // VLOG(0) << "yxf::end get device: " << num << "from device: " << i;
+  if (!direct_access_) {
+    for (int i = 0; i < total_gpu; ++i) {
+      destroy_storage(num, i);
+      // VLOG(0) << "yxf::end get device: " << num << "from device: " << i;
+    }
   }
 }
 
