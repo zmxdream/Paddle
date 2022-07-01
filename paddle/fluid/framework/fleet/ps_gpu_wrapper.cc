@@ -958,18 +958,27 @@ void PSGPUWrapper::LoadIntoMemory(bool is_shuffle) {
   InitSlotInfo();
   std::shared_ptr<HeterContext> gpu_task = gpu_task_pool_.Get();
   gpu_task->Reset();
-  
-  data_ready_channel_->Put(gpu_task);
-  
   VLOG(3) << "End LoadIntoMemory(), dataset[" << dataset_ << "]";
+  
+  VLOG(3) << "PreBuildTask start.";
+  timer.Start();
+  // build cpu ps data process
+  PreBuildTask(gpu_task);
+  timer.Pause();
+  VLOG(0) << "thread PreBuildTask end, cost time: " << timer.ElapsedSec()
+          << "s";
+  buildcpu_ready_channel_->Put(gpu_task);
+  // data_ready_channel_->Put(gpu_task);
+  
+  // VLOG(3) << "End LoadIntoMemory(), dataset[" << dataset_ << "]";
 }
 
-void PSGPUWrapper::start_build_thread() {
-  running_ = true;
-  VLOG(3) << "start build CPU ps thread.";
-  pre_build_threads_ = std::thread([this] { pre_build_thread(); });
-}
-
+//void PSGPUWrapper::start_build_thread() {
+//  running_ = true;
+//  VLOG(3) << "start build CPU ps thread.";
+//  pre_build_threads_ = std::thread([this] { pre_build_thread(); });
+//}
+/*
 void PSGPUWrapper::pre_build_thread() {
   // prebuild: process load_data
   while (running_) {
@@ -989,6 +998,7 @@ void PSGPUWrapper::pre_build_thread() {
   }
   VLOG(3) << "build cpu thread end";
 }
+*/
 
 void PSGPUWrapper::build_task() {
   // build_task: build_pull + build_gputask
