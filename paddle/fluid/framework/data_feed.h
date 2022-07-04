@@ -781,7 +781,7 @@ class DLManager {
     }
     handle.module = dlopen(name.c_str(), RTLD_NOW);
     if (handle.module == nullptr) {
-      VLOG(0) << "Create so of " << name << " fail";
+      VLOG(0) << "Create so of " << name << " fail" << dlerror();
       exit(-1);
       return nullptr;
     }
