@@ -58,9 +58,9 @@ struct CustomGradMerger {
       output.clk     = input.clk;
       output.mf_dim = input.mf_dim;
       output.lr_g = input.lr_g;
-      for(int i = 0; i < output.mf_dim ; ++i) {
-         output.mf_g[i] = input.mf_g[i];
-      }
+      // for(int i = 0; i < output.mf_dim ; ++i) {
+      //   output.mf_g[i] = input.mf_g[i];
+      //}
   }
   template <typename T>
   __device__ __forceinline__
@@ -68,10 +68,29 @@ struct CustomGradMerger {
       output.show    += input.show;
       output.clk     += input.clk;
       output.lr_g += input.lr_g;
-      for(int i = 0; i < input.mf_dim; ++i) {
-         output.mf_g[i] += input.mf_g[i];
-      }
+      // for(int i = 0; i < input.mf_dim; ++i) {
+      //   output.mf_g[i] += input.mf_g[i];
+      // }
   }
+
+
+  template <typename T>
+  __device__ __forceinline__
+  void copy_embedx_field(T& output, const T& input, size_t embedx_id) {
+       if (embedx_id < output.mf_dim) {
+         output.mf_g[embedx_id] = input.mf_g[embedx_id];
+       }
+  }
+
+
+  template <typename T>
+  __device__ __forceinline__
+  void add_embedx_field(T& output, const T& input, size_t embedx_id) {
+       if (embedx_id < output.mf_dim) {
+         output.mf_g[embedx_id] += input.mf_g[embedx_id];
+       }
+  }
+
 };
 
 template <typename KeyType, typename ValType, typename GradType>
