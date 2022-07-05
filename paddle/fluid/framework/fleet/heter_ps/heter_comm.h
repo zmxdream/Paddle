@@ -265,7 +265,7 @@ class HeterComm {
   std::vector<std::vector<Path>> path_;
   float load_factor_{0.75};
   int block_size_{256};
-  int direct_access_ = 1;
+  int direct_access_ = 0;
 
  private:
   std::vector<LocalStorage> storage_;

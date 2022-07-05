@@ -1423,6 +1423,65 @@ int HeterComm<KeyType, ValType, GradType>::gather_one_node_grad(
   int max_size = 0;
 
   ncclComm_t nccl_inner_comm = nccl_inner_comms_[gpu_num];
+  
+  // // compute each shard len 
+  // auto d_left = memory::Alloc(place, total_gpu * sizeof(int));
+  // auto d_right = memory::Alloc(place, total_gpu * sizeof(int));
+  // int* d_left_ptr = reinterpret_cast<int*>(d_left->ptr());
+  // int* d_right_ptr = reinterpret_cast<int*>(d_right->ptr());
+
+  // cudaMemsetAsync(d_left_ptr, -1, total_gpu * sizeof(int), stream);
+  // cudaMemsetAsync(d_right_ptr, -1, total_gpu * sizeof(int), stream);
+  // //
+  // auto d_idx = memory::Alloc(place, len * sizeof(int));
+  // int* d_idx_ptr = reinterpret_cast<int*>(d_idx->ptr());
+  // split_input_to_shard(d_keys, d_idx_ptr, len, d_left_ptr, d_right_ptr,
+  //                      gpu_num);
+  // auto d_shard_keys = memory::Alloc(place, len * sizeof(KeyType));
+  // KeyType* d_shard_keys_ptr = reinterpret_cast<KeyType*>(d_shard_keys->ptr());
+  // auto d_shard_grads = memory::Alloc(place, len * grad_value_size);
+  // GradType* d_shard_grads_ptr = reinterpret_cast<GradType*>(d_shard_grads->ptr());
+  // int grid_size = (len - 1) / block_size_ + 1;
+  // dy_mf_fill_shard_grads<<<grid_size, block_size_, 0, stream>>>(
+  //       d_shard_keys_ptr, d_keys, d_shard_grads_ptr, d_grads, d_idx_ptr,
+  //       len, grad_value_size);
+  // auto h_left_alloc = memory::Alloc(phi::GPUPinnedPlace(), sizeof(int) * total_gpu);
+  // auto h_right_alloc = memory::Alloc(phi::GPUPinnedPlace(), sizeof(int) * total_gpu);
+  // int* h_left = reinterpret_cast<int*>(h_left_alloc->ptr());
+  // int* h_right = reinterpret_cast<int*>(h_right_alloc->ptr());
+  // cudaMemcpyAsync(h_left, d_left_ptr, total_gpu * sizeof(int),
+  //            cudaMemcpyDeviceToHost, stream);
+  // cudaMemcpyAsync(h_right, d_right_ptr, total_gpu * sizeof(int),
+  //            cudaMemcpyDeviceToHost, stream);
+  // cudaStreamSynchronize(stream);
+  // int total_shard_len = total_gpu * total_gpu;
+  // int cur_shard_offset = total_gpu * gpu_num;
+  // int h_node_shard_len[total_shard_len];
+  // for (int local_shard_id = 0; local_shard_id < gpu_num; local_shard_id++) {
+  //   h_node_shard_len[cur_shard_offset + local_shard_id] = h_right[local_shard_id] - h_left[local_shard_id] + 1;
+  // }
+  // auto d_node_shard_len_mem = memory::Alloc(place, total_gpu * total_gpu * sizeof(int));
+  // int* d_node_shard_len = reinterpret_cast<int*>(d_node_len_mem->ptr());
+  // cudaMemcpy(d_node_shard_len + cur_shard_offset, h_node_shard_len, sizeof(int) * total_gpu,
+  //            cudaMemcpyHostToDevice);
+
+  // PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclGroupStart());
+  // PADDLE_ENFORCE_GPU_SUCCESS(
+  //     platform::dynload::ncclAllGather((const void*)(d_node_shard_len + cur_shard_offset),
+  //                                      (void*)d_node_shard_len, total_gpu, ncclInt,  // NOLINT
+  //                                      nccl_inner_comm, stream));
+  // PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclGroupEnd());
+  // PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
+  // cudaMemcpy(h_node_shard_len, d_node_shard_len, sizeof(int) * total_shard_len,
+  //            cudaMemcpyDeviceToHost);
+  // for (int i = 0; i < total_gpu; ++i) {
+  //   if (h_node_len[i*total_gpu + gpu_num] > max_size) {
+  //     max_size = h_node_len[i*total_gpu + gpu_num];
+  //   }
+  // }
+  // storage.alloc(max_size * total_gpu);
+  // // compute each shard len enddddddddd
+  
   // alloc for size
   int h_node_len[total_gpu];  // NOLINT
   auto d_node_len_mem = memory::Alloc(place, total_gpu * sizeof(int));
