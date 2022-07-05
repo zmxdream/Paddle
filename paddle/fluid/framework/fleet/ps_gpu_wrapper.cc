@@ -137,16 +137,13 @@ void PSGPUWrapper::PreBuildTask(std::shared_ptr<HeterContext> gpu_task) {
   int remain = 0;
   size_t begin = 0;
 
-  std::string data_set_name = std::string(typeid(*dataset_).name());
-
   dataset_mutex_.lock();
   Dataset* cur_dataset = dataset_pipe_.front();
   dataset_pipe_.pop();
   dataset_mutex_.unlock();
-
+  std::string data_set_name = std::string(typeid(*cur_dataset).name());
 
   if (data_set_name.find("SlotRecordDataset") != std::string::npos) {
-    // SlotRecordDataset* dataset = dynamic_cast<SlotRecordDataset*>(dataset_);
     SlotRecordDataset* dataset = dynamic_cast<SlotRecordDataset*>(cur_dataset);
     auto input_channel = dataset->GetInputChannel();
     VLOG(3) << "buildtask::inputslotchannle size: "
