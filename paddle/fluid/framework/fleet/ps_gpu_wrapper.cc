@@ -116,22 +116,6 @@ void PSGPUWrapper::PreBuildTask(std::shared_ptr<HeterContext> gpu_task) {
 
   std::vector<std::thread> threads;
 
-  // data should be in input channel
-  // if (!multi_mf_dim_) {
-  //  thread_keys_.resize(thread_keys_thread_num_);
-  //  for (int i = 0; i < thread_keys_thread_num_; i++) {
-  //    thread_keys_[i].resize(thread_keys_shard_num_);
-  //  }
-  //} else {
-    // thread_dim_keys_.resize(thread_keys_thread_num_);
-    //for (int i = 0; i < thread_keys_thread_num_; i++) {
-    //  thread_dim_keys_[i].resize(thread_keys_shard_num_);
-    //  for (int j = 0; j < thread_keys_shard_num_; j++) {
-    //    thread_dim_keys_[i][j].resize(multi_mf_dim_);
-    //  }
-    //}
-  //}
-
   // ================== lxch optimize start ====================
 
   dataset_mutex_.lock();
@@ -994,15 +978,11 @@ void PSGPUWrapper::LoadIntoMemory(bool is_shuffle) {
   InitSlotInfo();
   std::shared_ptr<HeterContext> gpu_task = gpu_task_pool_.Get();
   gpu_task->Reset();
-<<<<<<< HEAD
-  
-=======
  
   dataset_mutex_.lock();
   dataset_pipe_.push(dataset_);
   dataset_mutex_.unlock();
  
->>>>>>> cdd3bebacfe63af849e9f919e33edf4284979d63
   data_ready_channel_->Put(gpu_task);
   
   VLOG(3) << "End LoadIntoMemory(), dataset[" << dataset_ << "]";
