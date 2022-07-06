@@ -104,7 +104,8 @@ class PSGPUWrapper {
                   const std::vector<const uint64_t*>& keys,
                   const std::vector<float*>& values,
                   const std::vector<int64_t>& slot_lengths,
-                  const std::vector<int>& slot_dim, const int hidden_size);
+                  const std::vector<int>& slot_dim,
+                  const int hidden_size);
   void PullSparse(const paddle::platform::Place& place, const int table_id,
                   const std::vector<const uint64_t*>& keys,
                   const std::vector<float*>& values,
@@ -147,13 +148,11 @@ class PSGPUWrapper {
   void BuildGPUTask(std::shared_ptr<HeterContext> gpu_task);
   void PreBuildTask(std::shared_ptr<HeterContext> gpu_task);
   void BuildPull(std::shared_ptr<HeterContext> gpu_task);
-  void PrepareGPUTask(std::shared_ptr<HeterContext> gpu_task);
   void LoadIntoMemory(bool is_shuffle);
   void BeginPass();
   void EndPass();
   void start_build_thread();
   void pre_build_thread();
-  void build_pull_thread();
   void build_task();
 
   void Finalize() {
@@ -163,13 +162,10 @@ class PSGPUWrapper {
     }
     data_ready_channel_->Close();
     buildcpu_ready_channel_->Close();
-    buildpull_ready_channel_->Close();
     gpu_free_channel_->Close();
     running_ = false;
     VLOG(3) << "begin stop pre_build_threads_";
     pre_build_threads_.join();
-    VLOG(3) << "begin stop buildpull_threads_";
-    buildpull_threads_.join();
     s_instance_ = nullptr;
     VLOG(3) << "PSGPUWrapper Finalize Finished.";
   }
@@ -230,8 +226,6 @@ class PSGPUWrapper {
       data_ready_channel_->SetCapacity(3);
       buildcpu_ready_channel_->Open();
       buildcpu_ready_channel_->SetCapacity(3);
-      buildpull_ready_channel_->Open();
-      buildpull_ready_channel_->SetCapacity(1);
       gpu_free_channel_->Open();
       gpu_free_channel_->SetCapacity(1);
 
@@ -353,7 +347,7 @@ class PSGPUWrapper {
     for (auto s : slots_vec_test) {
       std::cout << s << " | ";
     }
-    std::cout << " end wrapper " << std::endl;
+    std::cout << " end wrapper " <<std::endl;
     VLOG(0) << "get slot desc";
     slot_offset_vector_.clear();
     for (auto& slot : slot_vector_) {
@@ -368,7 +362,7 @@ class PSGPUWrapper {
     for (auto s : slot_offset_vector_) {
       std::cout << s << " | ";
     }
-    std::cout << " end " << std::endl;
+    std::cout << " end " <<std::endl;
     for (size_t i = 0; i < slot_mf_dim_vector_.size(); i++) {
       slot_dim_map_[slot_vector_[i]] = slot_mf_dim_vector_[i];
     }
@@ -481,13 +475,8 @@ class PSGPUWrapper {
       paddle::framework::ChannelObject<std::shared_ptr<HeterContext>>>
       gpu_free_channel_ =
           paddle::framework::MakeChannel<std::shared_ptr<HeterContext>>();
-  std::shared_ptr<
-      paddle::framework::ChannelObject<std::shared_ptr<HeterContext>>>
-      buildpull_ready_channel_ =
-          paddle::framework::MakeChannel<std::shared_ptr<HeterContext>>();
   std::shared_ptr<HeterContext> current_task_ = nullptr;
   std::thread pre_build_threads_;
-  std::thread buildpull_threads_;
   bool running_ = false;
   std::vector<std::shared_ptr<ThreadPool>> hbm_thread_pool_;
   std::vector<std::shared_ptr<ThreadPool>> pull_thread_pool_;
