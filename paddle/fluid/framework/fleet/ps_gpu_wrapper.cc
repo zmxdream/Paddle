@@ -132,14 +132,203 @@ void PSGPUWrapper::PreBuildTask(std::shared_ptr<HeterContext> gpu_task) {
     }
   }
 
-  size_t total_len = 0;
-  size_t len_per_thread = 0;
-  int remain = 0;
-  size_t begin = 0;
+  // ================== lxch optimize start ====================
 
   std::string data_set_name = std::string(typeid(*dataset_).name());
-
   if (data_set_name.find("SlotRecordDataset") != std::string::npos) {
+  
+  {
+    timeline.Start();
+    // SlotRecordDataset* dataset = dynamic_cast<SlotRecordDataset*>(cur_dataset);
+    SlotRecordDataset* dataset = dynamic_cast<SlotRecordDataset*>(dataset_);
+    auto input_channel = dataset->GetInputChannel();
+    const std::deque<SlotRecord>* vec_data = &(input_channel->GetData());
+    auto record_vec = (void*)(vec_data);
+    auto total_len = vec_data->size();
+
+    static KeyDup dup_ins;
+    //自适应调节map的bucket大小
+    if (!dup_ins.is_init()) {
+      size_t feasign_size = 0;
+      for (auto iter = vec_data->begin(); iter != vec_data->end() && iter != vec_data->begin() + 500; iter++) {
+        feasign_size += (*iter)->slot_uint64_feasigns_.slot_values.size();
+      }
+      size_t avg_size = feasign_size / 500;
+      size_t uniq_size = total_len * avg_size / 40 * 1.3;
+      uniq_size = uniq_size / thread_keys_shard_num_ / multi_mf_dim_;
+      if (uniq_size < 10000) uniq_size = 10001;
+      uniq_size = uniq_size / 10 * 10 + 1;
+      dup_ins.init(thread_keys_shard_num_ * multi_mf_dim_, uniq_size);
+    } else {
+      dup_ins.reset();
+    }
+    const uint32_t commit_id = 5000;
+    std::atomic<uint64_t> task_doing_num(0);
+    std::atomic<uint64_t> lxch_test_1(0);
+    std::atomic<uint64_t> lxch_test_2(0);
+    std::atomic<uint64_t> lxch_test_3(0);
+    const uint64_t max_task_limit = 6000;
+    auto& l_dup_ins = dup_ins;
+    auto fill_func = [this, &task_doing_num, &lxch_test_1](std::shared_ptr< std::vector<uint64_t> > task, size_t shard_id) -> void {
+      platform::Timer timeline;
+      timeline.Start();
+      l_dup_ins.batch_add_keys(shard_id, *task);
+      timeline.Pause();
+      uint64_t aa = timeline.ElapsedUS();
+      lxch_test_1.fetch_add(aa);
+      task_doing_num.fetch_sub(1);
+    };
+
+    auto first_uniq_func = [this, &task_doing_num, &fill_func, &lxch_test_2, &lxch_test_3](void* ptr, int begin_index, int end_index) -> void {
+      platform::Timer timeline;
+      timeline.Start();
+      uint64_t sleep_time = 0;
+      std::vector< std::shared_ptr< std::vector<uint64_t> > > cache_key;
+      cache_key.resize(thread_keys_shard_num_ * multi_mf_dim_);
+      for (auto &iter : cache_key) {
+        iter = std::shared_ptr< std::vector<uint64_t> >(new std::vector<uint64_t>());
+        iter->reserve(commit_id + 200);
+      }
+      const std::deque<SlotRecord>& total_data = *((const std::deque<SlotRecord>*)ptr);
+      for (auto iter = total_data.begin() + begin_index; iter != total_data.begin() + end_index; iter++) {
+        const auto& ins = *iter;
+        const auto& feasign_v = ins->slot_uint64_feasigns_.slot_values;
+        const auto& slot_offset = ins->slot_uint64_feasigns_.slot_offsets;
+        for (size_t slot_idx = 0; slot_idx < slot_offset_vector_.size(); slot_idx++) {
+          for (size_t j = slot_offset[slot_offset_vector_[slot_idx]]; j < slot_offset[slot_offset_vector_[slot_idx] + 1]; j++) {
+            int shard_id = feasign_v[j] % thread_keys_shard_num_;
+            int dim_id = slot_index_vec_[slot_idx];
+            int uniq_index = shard_id * multi_mf_dim_ + dim_id;
+            cache_key[uniq_index]->emplace_back(feasign_v[j]);
+            if (cache_key[uniq_index]->size() >= commit_id) {
+              while(task_doing_num.load() >= max_task_limit) {
+                platform::Timer timeline_1;
+                timeline_1.Start();
+                usleep(10000);
+                timeline_1.Pause();
+                sleep_time += (uint64_t)timeline_1.ElapsedUS();
+                continue;
+              }
+              task_doing_num.fetch_add(1);
+              uniq_thread_pool_[uniq_index % 32]->enqueue(fill_func, cache_key[uniq_index], uniq_index);
+              cache_key[uniq_index] = std::shared_ptr< std::vector<uint64_t> >(new std::vector<uint64_t>());
+              cache_key[uniq_index]->reserve(commit_id + 200);
+            }
+          }
+        }
+      };
+
+      for (size_t i = 0; i < cache_key.size(); i++) {
+        if (cache_key[i]->size() == 0) {
+          continue;
+        }
+        while(task_doing_num.load() >= max_task_limit) {
+          platform::Timer timeline_1;
+          timeline_1.Start();
+          usleep(10000);
+          timeline_1.Pause();
+          sleep_time += (uint64_t)timeline_1.ElapsedUS();
+          continue;
+        }
+        task_doing_num.fetch_add(1);
+        uniq_thread_pool_[i %32]->enqueue(fill_func, cache_key[i], i);
+      }
+      timeline.Pause();
+      lxch_test_3.fetch_add(sleep_time);
+      uint64_t scan_time = (uint64_t)timeline.ElapsedUS();
+      lxch_test_2.fetch_add(scan_time);
+    };
+
+    //开始做数据分发
+    const int thread_num = 48;
+    size_t per_thread_len = total_len / thread_num + 1;
+
+    std::vector<std::thread> threads;
+    for (int i = 0; i < thread_num; i++) {
+      size_t start_index = i * per_thread_len;
+      size_t end_index = start_index + per_thread_len;
+      if (end_index > total_len) end_index = total_len;
+      threads.push_back( std::thread(first_uniq_func, record_vec, start_index, end_index));
+    }
+
+    for (auto& t : threads) {
+      t.join();
+    }
+
+    threads.clear();
+
+    while (task_doing_num.load() != 0) {
+      usleep(100000);
+    }
+
+    timeline.Pause();
+    // auto lxch_time = timeline.ElapsedSec();
+    // VLOG(0) << "lxch_pass_id: " << lxch_time << "   " << step_1 + step_2 + step_3;
+    // VLOG(0) << "lxch_pass_no: " << lxch_test_1.load() << "   " << lxch_test_2.load() << "   " << lxch_test_3.load();
+
+    //调用trans_to_array接口，将数据转移到gpu_task->feature_keys_[ii][jj]
+    //然后sort一下
+    // 已经分shard,分dim去重了,我直接写入gpu_task->feature_dim_keys
+    // 
+    // std::vector<uint64_t> test_vec;
+    // for (int ii = 0; ii < thread_keys_shard_num_; ii++) {
+    //  for (int jj = 0; jj < multi_mf_dim_; jj++) {
+
+
+
+    auto merge_ins_dynamic_mf_func = [this, gpu_task](int shard_num, int dim_id) {
+        std::vector<uint64_t> test_vec;
+        // auto& old_value = gpu_task->feature_keys_[ii][jj];
+        size_t uniq_key = shard_num * multi_mf_dim_ + dim_id;
+        test_vec.resize(dup_ins.get_uniq_key_size(uniq_key));
+        dup_ins.trans_to_array(uniq_key, test_vec.data());
+        // std::sort(test_vec.begin(), test_vec.end());
+        gpu_task->batch_add_keys(shard_num, dim_id,
+                                test_vec);
+    };
+    for (int i = 0; i < thread_keys_shard_num_; ++i) {
+      for (int j = 0; j < multi_mf_dim_; j++) {
+        threads.push_back(std::thread(merge_ins_dynamic_mf_func, i, j));
+      }
+    }
+   
+    for (auto& t : threads) {
+      t.join();
+    }
+    threads.clear();
+    
+        // if (old_value.size() != test_vec.size()) {
+        //  VLOG(0) << "lxch_error_1  " << ii << "  " << jj << "  " << old_value.size() << "  " <<  test_vec.size();
+        //  abort();
+        //}
+
+        // for (size_t kk = 0; kk < old_value.size(); kk++) {
+        //  if (old_value[kk] != test_vec[kk]) {
+        //    VLOG(0) << "lxch_error_1  " << ii << "  " << jj << "  " << kk << "  " << old_value[kk] << "  " << test_vec[kk];
+        //     abort();
+        //   }
+        // }
+
+
+
+    //   }
+    // }
+
+
+
+  }
+
+  // =================== lxch optimize end ======================
+
+  // size_t total_len = 0;
+  // size_t len_per_thread = 0;
+  // int remain = 0;
+  // size_t begin = 0;
+
+  // std::string data_set_name = std::string(typeid(*dataset_).name());
+  // if (data_set_name.find("SlotRecordDataset") != std::string::npos) {
+
+    /*
     SlotRecordDataset* dataset = dynamic_cast<SlotRecordDataset*>(dataset_);
     auto input_channel = dataset->GetInputChannel();
     VLOG(3) << "buildtask::inputslotchannle size: "
@@ -148,6 +337,7 @@ void PSGPUWrapper::PreBuildTask(std::shared_ptr<HeterContext> gpu_task) {
     total_len = vec_data.size();
     len_per_thread = total_len / (thread_keys_thread_num_);
     remain = total_len % (thread_keys_thread_num_);
+
     auto gen_func = [this](const std::deque<SlotRecord>& total_data,
                            int begin_index, int end_index, int i) {
       for (auto iter = total_data.begin() + begin_index;
@@ -160,25 +350,28 @@ void PSGPUWrapper::PreBuildTask(std::shared_ptr<HeterContext> gpu_task) {
         }
       }
     };
-    auto gen_dynamic_mf_func = [this](const std::deque<SlotRecord>& total_data,
-                                      int begin_index, int end_index, int i) {
-      for (auto iter = total_data.begin() + begin_index;
-           iter != total_data.begin() + end_index; iter++) {
-        const auto& ins = *iter;
-        const auto& feasign_v = ins->slot_uint64_feasigns_.slot_values;
-        const auto& slot_offset = ins->slot_uint64_feasigns_.slot_offsets;
-        for (size_t slot_idx = 0; slot_idx < slot_offset_vector_.size();
-             slot_idx++) {
-          for (size_t j = slot_offset[slot_offset_vector_[slot_idx]];
-               j < slot_offset[slot_offset_vector_[slot_idx] + 1]; j++) {
-            int shard_id = feasign_v[j] % thread_keys_shard_num_;
-            int dim_id = slot_index_vec_[slot_idx];
-            if (feasign_v[j] != 0) {
-              this->thread_dim_keys_[i][shard_id][dim_id].insert(feasign_v[j]);
-            }
-          }
-        }
-      }
+    */
+
+    
+    // auto gen_dynamic_mf_func = [this](const std::deque<SlotRecord>& total_data,
+    //                                  int begin_index, int end_index, int i) {
+    //  for (auto iter = total_data.begin() + begin_index;
+    //       iter != total_data.begin() + end_index; iter++) {
+    //    const auto& ins = *iter;
+    //    const auto& feasign_v = ins->slot_uint64_feasigns_.slot_values;
+    //    const auto& slot_offset = ins->slot_uint64_feasigns_.slot_offsets;
+    //    for (size_t slot_idx = 0; slot_idx < slot_offset_vector_.size();
+    //         slot_idx++) {
+    //      for (size_t j = slot_offset[slot_offset_vector_[slot_idx]];
+    //           j < slot_offset[slot_offset_vector_[slot_idx] + 1]; j++) {
+    //        int shard_id = feasign_v[j] % thread_keys_shard_num_;
+    //        int dim_id = slot_index_vec_[slot_idx];
+    //        if (feasign_v[j] != 0) {
+    //          this->thread_dim_keys_[i][shard_id][dim_id].insert(feasign_v[j]);
+    //        }
+    //      }
+   //     }
+   //   }
       /*
       for (auto iter = total_data.begin() + begin_index;
            iter != total_data.begin() + end_index; iter++) {
@@ -197,7 +390,10 @@ void PSGPUWrapper::PreBuildTask(std::shared_ptr<HeterContext> gpu_task) {
         }
       }
       */
-    };
+    // };
+
+
+    /*
     for (int i = 0; i < thread_keys_thread_num_; i++) {
       if (!multi_mf_dim_) {
         threads.push_back(
@@ -216,7 +412,16 @@ void PSGPUWrapper::PreBuildTask(std::shared_ptr<HeterContext> gpu_task) {
     }
     timeline.Pause();
     VLOG(0) << "GpuPs build task cost " << timeline.ElapsedSec() << " seconds.";
+    */
+
+
+
+
   } else {
+  size_t total_len = 0;
+  size_t len_per_thread = 0;
+  int remain = 0;
+  size_t begin = 0;
     CHECK(data_set_name.find("MultiSlotDataset") != std::string::npos);
     VLOG(0) << "ps_gpu_wrapper use MultiSlotDataset";
     MultiSlotDataset* dataset = dynamic_cast<MultiSlotDataset*>(dataset_);
@@ -255,7 +460,11 @@ void PSGPUWrapper::PreBuildTask(std::shared_ptr<HeterContext> gpu_task) {
   timeline.Start();
 
   threads.clear();
+
+
+  
   // merge thread_keys to shard_keys
+/*
   auto merge_ins_func = [this, gpu_task](int shard_num) {
     for (int i = 0; i < thread_keys_thread_num_; ++i) {
       gpu_task->batch_add_keys(shard_num, thread_keys_[i][shard_num]);
@@ -269,12 +478,16 @@ void PSGPUWrapper::PreBuildTask(std::shared_ptr<HeterContext> gpu_task) {
       thread_dim_keys_[i][shard_num][dim_id].clear();
     }
   };
+*/
+
   // for (size_t i = 0; i < thread_keys_.size(); i++) {
   //  gpu_task->batch_add_keys(thread_keys_[i]);
   //  for (int j = 0; j < thread_keys_thread_num_; j++) {
   //    thread_keys_[i][j].clear();
   //  }
   //}
+
+  /*
   for (int i = 0; i < thread_keys_shard_num_; ++i) {
     if (!multi_mf_dim_) {
       threads.push_back(std::thread(merge_ins_func, i));
@@ -287,7 +500,14 @@ void PSGPUWrapper::PreBuildTask(std::shared_ptr<HeterContext> gpu_task) {
   for (auto& t : threads) {
     t.join();
   }
+
+  */
+
   timeline.Pause();
+
+
+
+
 
   VLOG(0) << "GpuPs task add keys cost " << timeline.ElapsedSec()
           << " seconds.";
@@ -296,6 +516,8 @@ void PSGPUWrapper::PreBuildTask(std::shared_ptr<HeterContext> gpu_task) {
   timeline.Pause();
 
   VLOG(0) << "GpuPs task unique cost " << timeline.ElapsedSec() << " seconds.";
+
+
 
   if (!multi_mf_dim_) {
     for (int i = 0; i < thread_keys_shard_num_; i++) {
@@ -312,6 +534,13 @@ void PSGPUWrapper::PreBuildTask(std::shared_ptr<HeterContext> gpu_task) {
       }
     }
   }
+
+
+
+
+
+
+
 }
 
 void PSGPUWrapper::BuildPull(std::shared_ptr<HeterContext> gpu_task) {

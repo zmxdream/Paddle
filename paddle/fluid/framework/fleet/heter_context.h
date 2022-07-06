@@ -37,6 +37,226 @@ limitations under the License. */
 namespace paddle {
 namespace framework {
 
+
+// lxch opt
+template<typename _Tp>
+class FixedMempool {
+public:
+    FixedMempool(size_t chunk_elemts) : chunk_elemts_(chunk_elemts), cur_chunk_(NULL), cur_index_(0), chunk_list_index_(0) {}
+    ~FixedMempool() {
+        for (auto iter : chunk_list_) {
+            free(iter);
+        }
+    }
+    //获得一个元素
+    _Tp* get_one_element() {
+        //没有可用元素，分配一个chunk
+        if (unlikely(cur_chunk_ == NULL || cur_index_ >= chunk_elemts_)) {
+            if (chunk_list_index_ < chunk_list_.size()) {
+                cur_chunk_ = chunk_list_[chunk_list_index_];
+                chunk_list_index_++;
+            } else {
+                _Tp* tmp = NULL;
+                posix_memalign((void**)&tmp, alignof(_Tp), sizeof(_Tp) * chunk_elemts_);
+                chunk_list_.push_back(tmp);
+                cur_chunk_ = tmp;
+                chunk_list_index_++;
+            }
+            cur_index_ = 0;
+        }
+        size_t pre = cur_index_;
+        cur_index_++;
+        return cur_chunk_ + pre;
+    }
+    //批量获取元素
+    _Tp* get_batch_element(size_t batch_num) {
+        if (unlikely(cur_chunk_ == NULL || cur_index_ + batch_num > chunk_elemts_)) {
+            if (chunk_list_index_ < chunk_list_.size()) {
+                cur_chunk_ = chunk_list_[chunk_list_index_];
+                chunk_list_index_++;
+            } else {
+                _Tp* tmp = NULL;
+                posix_memalign((void**)&tmp, alignof(_Tp), sizeof(_Tp) * chunk_elemts_);
+                chunk_list_.push_back(tmp);
+                cur_chunk_ = tmp;
+                chunk_list_index_++;
+            }
+            cur_index_ = 0;
+        }
+        size_t pre = cur_index_;
+        cur_index_ += batch_num;
+        return cur_chunk_ + pre;
+    }
+    //占用的内存大小
+    size_t get_size() {
+        return chunk_list_.size() * sizeof(_Tp) * chunk_elemts_;
+    }
+    void reset() {
+        cur_chunk_ = NULL;
+        cur_index_ = 0;
+        chunk_list_index_ = 0;
+    }
+private:
+    size_t chunk_elemts_; //每个块持有的元素个数
+    _Tp* cur_chunk_; //当前块
+    size_t cur_index_; //当前块索引
+    std::vector<_Tp*> chunk_list_; //块集合
+    size_t chunk_list_index_;
+};
+
+struct DupUnit {
+    uint64_t key;
+    DupUnit* next;
+};
+
+class KeyDupUnit {
+public:
+    KeyDupUnit(size_t shard_size) : mempool_(shard_size) {
+        local_bucket_ = shard_size;
+        buckets_ = mempool_.get_batch_element(local_bucket_);
+        memset(buckets_, 0, sizeof(DupUnit) * local_bucket_);
+        uniq_keys_num_ = 0;
+    } 
+    void batch_add_keys(const std::vector<uint64_t>& keys) {
+        for (auto key : keys) {
+            if (unlikely(key == 0)) {
+                continue;
+            }
+            auto local_id = key % local_bucket_;
+            if (buckets_[local_id].key == 0) {
+                buckets_[local_id].key = key;
+                uniq_keys_num_++;
+                continue;
+            }
+            auto* pre_element = buckets_ + local_id;
+            auto* cur_element = buckets_ + local_id;
+            while (cur_element != NULL && cur_element->key != key) {
+                pre_element = cur_element;
+                cur_element = cur_element->next;
+            }
+            if (cur_element == NULL) {
+                cur_element = mempool_.get_one_element();
+                cur_element->key = key;
+                cur_element->next = NULL;
+                pre_element->next = cur_element;
+                uniq_keys_num_++;
+            }
+        }
+    }
+    size_t get_uniq_key_size() {
+        return uniq_keys_num_;
+    }
+    void trans_to_array(uint64_t* key_start) {
+        for (size_t i = 0; i < local_bucket_; i++) {
+            if (buckets_[i].key == 0) {
+                continue;
+            }
+            *key_start++ = buckets_[i].key;
+            auto cur_element = buckets_[i].next;
+            while (cur_element != nullptr) {
+                *key_start++ = cur_element->key;
+                cur_element = cur_element->next;
+            }
+        }
+    }
+    void reset() {
+        mempool_.reset();
+        uniq_keys_num_ = 0;
+        buckets_ = mempool_.get_batch_element(local_bucket_);
+        memset(buckets_, 0, sizeof(DupUnit) * local_bucket_);
+    }
+    void reset(size_t bucket_size) {
+        local_bucket_ = bucket_size;
+        reset();
+    }
+    size_t get_bucket_size() {
+        return local_bucket_;   
+    }
+private:
+    FixedMempool<DupUnit> mempool_; //内存分配器
+    DupUnit* buckets_; //bucket
+    size_t local_bucket_; //本地bucket个数
+    size_t uniq_keys_num_; //去重后的key数量 
+};
+
+class KeyDup {
+public:
+    KeyDup() {};
+    ~KeyDup() {
+        clear();
+    }
+    void init(size_t shard_size, size_t bucket_size) {
+        shard_size_ = shard_size;
+        shard_ = (KeyDupUnit*) operator new(shard_size_ * sizeof(KeyDupUnit));
+        for (size_t i = 0; i < shard_size_; i++) {
+            new (shard_ + i)KeyDupUnit(bucket_size);
+        }
+        max_bucket_count_ = bucket_size;
+    }
+    void batch_add_keys(size_t shard_id, const std::vector<uint64_t>& keys) {
+        shard_[shard_id].batch_add_keys(keys);
+    }
+    size_t get_uniq_key_size(size_t shard_id) {
+        return shard_[shard_id].get_uniq_key_size();
+    }
+    void trans_to_array(size_t shard_id, uint64_t* key_start) {
+        return shard_[shard_id].trans_to_array(key_start);
+    }
+    void reset() {
+        double max_factor = 0;
+        size_t bucket_size = 0;
+        for (size_t i = 0; i < shard_size_; i++) {
+            bucket_size = shard_[i].get_bucket_size();
+            auto uniqkeys = shard_[i].get_uniq_key_size();
+            double factor = uniqkeys / 1.0 / bucket_size;
+            max_factor = std::max(max_factor, factor);
+        }
+        if (max_factor > 1.2) {
+            size_t new_bucket_size = (size_t)(bucket_size * (max_factor + 0.5));
+            if (new_bucket_size < 10000) new_bucket_size = 10000;
+            new_bucket_size = new_bucket_size / 10 * 10 + 1;
+            if (new_bucket_size > max_bucket_count_) {
+                clear();
+                init(shard_size_, new_bucket_size);
+            } else {
+                shard_reset(new_bucket_size);
+            }
+        } else if (max_factor < 0.5) {
+            size_t new_bucket_size = (size_t)(bucket_size * 0.5);
+            if (new_bucket_size < 10000) new_bucket_size = 10000;
+            new_bucket_size = new_bucket_size / 10 * 10 + 1;
+            shard_reset(new_bucket_size);
+        } else {
+            shard_reset(0);
+        }
+    }
+    bool is_init() {
+        return shard_size_ != 0;
+    }
+private:
+    void shard_reset(size_t bucket_size) {
+        if (bucket_size == 0) {
+            for (size_t i = 0; i < shard_size_; i++) {
+                shard_[i].reset();
+            }
+        } else {
+            for (size_t i = 0; i < shard_size_; i++) {
+                shard_[i].reset(bucket_size);
+            }
+        }
+    }
+    void clear() {
+        if (shard_ != NULL) {
+            delete []shard_;
+        }
+    }
+    KeyDupUnit* shard_ = NULL;
+    size_t shard_size_ = 0;
+    size_t max_bucket_count_ = 0;
+};
+
+
+
 class HeterContext {
  public:
   virtual ~HeterContext() {
@@ -226,6 +446,14 @@ class HeterContext {
               feature_dim_keys_[shard_num][dim_id].begin() + idx);
   }
 
+  void batch_add_keys(int shard_num, int dim_id,
+                      const std::vector<uint64_t>& shard_keys) {
+    int idx = feature_dim_keys_[shard_num][dim_id].size();
+    feature_dim_keys_[shard_num][dim_id].resize(
+        feature_dim_keys_[shard_num][dim_id].size() + shard_keys.size());
+    std::copy(shard_keys.begin(), shard_keys.end(),
+              feature_dim_keys_[shard_num][dim_id].begin() + idx);
+  }
   void UniqueKeys() {
     std::vector<std::thread> threads;
     auto unique_func = [this](int i) {
