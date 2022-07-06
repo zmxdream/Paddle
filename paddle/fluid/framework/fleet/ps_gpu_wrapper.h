@@ -417,6 +417,12 @@ class PSGPUWrapper {
  private:
   static std::shared_ptr<PSGPUWrapper> s_instance_;
   Dataset* dataset_;
+
+  //当load数据完成后，会将其筛入到如下队列，后续异步pull会用到这个队列的数据
+  //因为load 和 异步build是两个线程，所以才需要下面的队列来解耦这个dataset对象
+  std::queue<Dataset*> dataset_pipe_;
+  std::mutex dataset_mutex_;
+
 #ifdef PADDLE_WITH_PSLIB
   paddle::ps::AfsApiWrapper afs_handler_;
 #endif
