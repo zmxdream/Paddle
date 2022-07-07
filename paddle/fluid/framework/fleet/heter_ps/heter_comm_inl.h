@@ -119,8 +119,8 @@ __global__ void dy_mf_fill_shard_grads<FeatureKey, FeaturePushValue, int>(Featur
     if (k == 2 || k == 4) *(int*)(cur_p + k * 4) = *(int*)(input_p + k * 4);
     else if (k < 5) *(float*)(cur_p + k * 4) = *(float*)(input_p + k * 4);
     else {
-        int len_per_thread = (len - 5) / (blockDim.y - 5);
-        int remain = (len - 5) % (blockDim.y - 5);
+        int len_per_thread = (len - 5) / (blockDim.x - 5);
+        int remain = (len - 5) % (blockDim.x - 5);
         int real_len = len_per_thread;
         if ((k - 5) < remain) real_len++;
         int left = -1, right = -1;
@@ -224,15 +224,15 @@ __global__ void dy_mf_fill_dvals<FeatureValue, int>(FeatureValue* d_shard_vals, 
     FeatureValue& input = *(FeatureValue*)((char*)d_shard_vals + i * val_size);
     char* cur_p = (char*)cur;
     char* input_p = (char*)(&input);
-    int len = 9 + input.mf_dim + 1;
-
-    if (k == 3 || k == 6 || k == 7) *(int*)(cur_p + k * 4) = *(int*)(input_p + k * 4);
-    else if (k < 8) *(float*)(cur_p + k * 4) = *(float*)(input_p + k * 4);
-    else if (k == 8) { 
-      *(uint64_t*)(cur_p + k * 4) = *(uint64_t*)(input_p + k * 4);
-    } else {
+    if (input.mf_dim != 0) {
+      int len = 9 + input.mf_dim + 1;
+      if (k == 3 || k == 6 || k == 7) *(int*)(cur_p + k * 4) = *(int*)(input_p + k * 4);
+      else if (k < 8) *(float*)(cur_p + k * 4) = *(float*)(input_p + k * 4);
+      else if (k == 8) { 
+        *(uint64_t*)(cur_p + k * 4) = *(uint64_t*)(input_p + k * 4);
+      } else {
         int len_per_thread = (len - 9) / (blockDim.x - 9);
-        int remain = (len - 9) % (blockDim.y - 9);
+        int remain = (len - 9) % (blockDim.x - 9);
         int real_len = len_per_thread;
         if ((k - 9) < remain) real_len++;
         int left = -1, right = -1;
@@ -244,6 +244,7 @@ __global__ void dy_mf_fill_dvals<FeatureValue, int>(FeatureValue* d_shard_vals, 
           right = left + real_len;
         }
         for(int j = left; j < right; j++) *(float*)(cur_p + (j + 1) * 4) = *(float*)(input_p + (j + 1) * 4);
+      }
     }
   }
 }
