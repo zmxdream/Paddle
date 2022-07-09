@@ -101,8 +101,8 @@ __global__ void dy_mf_search_kernel(Table* table,
         *(uint64_t*)(cur_p + k * 4) = *(uint64_t*)(input_p + k * 4);
       }
       else {
-        int len_per_thread = (len - 9) / (blockDim.y - 9);
-        int remain = (len - 9) % (blockDim.y - 9);
+        int len_per_thread = (len - 9) / (blockDim.x - 9);
+        int remain = (len - 9) % (blockDim.x - 9);
         int real_len = len_per_thread;
         if ((k - 9) < remain) real_len++;
         int left = -1, right = -1;
@@ -116,7 +116,12 @@ __global__ void dy_mf_search_kernel(Table* table,
         for(int j = left; j < right; j++) *(float*)(cur_p + (j + 1) * 4) = *(float*)(input_p + (j + 1) * 4);
       }
     } else {
-      if (keys[i] != 0) printf("pull miss key: %llu",keys[i]);
+      if (keys[i] != 0 && k == 0) printf("pull miss key: %llu",keys[i]);
+      if (keys[i] == 0 && k == 0) {
+        uint64_t offset = i * pull_feature_value_size;
+        FeatureValue* cur = (FeatureValue*)(vals + offset);
+        cur->mf_dim = 0;
+      }
     }
   }
 }
