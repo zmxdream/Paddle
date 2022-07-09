@@ -224,7 +224,7 @@ __global__ void dy_mf_fill_dvals<FeatureValue, int>(FeatureValue* d_shard_vals, 
     FeatureValue& input = *(FeatureValue*)((char*)d_shard_vals + i * val_size);
     char* cur_p = (char*)cur;
     char* input_p = (char*)(&input);
-    if (input.mf_dim != 0) {
+    if (input.mf_dim != 0) { // for feasign 0, mf_dim = 0
       int len = 9 + input.mf_dim + 1;
       if (k == 3 || k == 6 || k == 7) *(int*)(cur_p + k * 4) = *(int*)(input_p + k * 4);
       else if (k < 8) *(float*)(cur_p + k * 4) = *(float*)(input_p + k * 4);
