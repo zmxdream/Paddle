@@ -121,9 +121,7 @@ __global__ void dy_mf_search_kernel(Table* table,
         uint64_t offset = i * pull_feature_value_size;
         FeatureValue* cur = (FeatureValue*)(vals + offset);
         cur->mf_dim = 0;
-      }   
-
-
+      }
     }
   }
 }
