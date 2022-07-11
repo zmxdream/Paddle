@@ -130,6 +130,8 @@ class HeterComm {
 
   void split_input_to_shard(KeyType* d_keys, int* d_idx_ptr, size_t len,
                             int* left, int* right, int gpu_num);
+  void split_input_by_mfdim(
+    GradType* d_grads, int* d_idx_ptr, size_t len, int* left, int* right, int gpu_num);
   void merge_grad(int gpu_num, KeyType* d_keys, GradType* d_grads, size_t len,
                   int& uniq_len);  // NOLINT
   void merge_grad(int gpu_num, KeyType* d_keys, GradType* d_grads, float* mf,
@@ -160,6 +162,9 @@ class HeterComm {
 
   int gather_multi_node_grad(int num, KeyType* d_keys, GradType* d_grads,
                              int len);
+
+  int gather_multi_node_grad_v2(
+    int gpu_num, KeyType* d_keys, GradType* d_grads, int len);
 
   int log2i(int x);
 
@@ -264,7 +269,7 @@ class HeterComm {
 
   void init_path();
 
-  void create_storage(int start_index, int end_index, int keylen, int vallen);
+  void create_storage(int start_index, int end_index, size_t keylen, size_t vallen);
   void destroy_storage(int start_index, int end_index);
   void walk_to_dest(int start_index, int gpu_num, int* h_left, int* h_right,
                     KeyType* src_key, GradType* src_val);
@@ -284,7 +289,8 @@ class HeterComm {
   std::vector<std::vector<Path>> path_;
   float load_factor_{0.75};
   int block_size_{256};
-  int direct_access_ = 0;
+  int direct_access_ = 1;
+  int test_batch = 0;
 
  private:
   std::vector<LocalStorage> storage_;
@@ -307,6 +313,9 @@ class HeterComm {
   std::vector<double> mg_time_10;
   std::vector<double> mg_time_11;
   std::vector<double> mg_time_12;
+  std::vector<double> mg_time_13;
+  std::vector<double> mg_time_14;
+  std::vector<double> mg_time_15;
   int node_size_;
   std::vector<std::shared_ptr<cub::CachingDeviceAllocator>> allocators_;
   int multi_mf_dim_{8};

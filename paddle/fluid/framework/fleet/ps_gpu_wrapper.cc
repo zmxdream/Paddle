@@ -819,6 +819,15 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
     size_t feature_value_size =
         TYPEALIGN(8, sizeof(FeatureValue) + ((mf_dim + 1) * sizeof(float)));
     auto& device_dim_keys = gpu_task->device_dim_keys_[i][j];
+    // if (i == 6) {
+    //   uint64_t test_key = 11533819413369098910;
+    //   for (auto key : device_dim_keys) {
+    //     if (key == test_key) {
+    //       VLOG(0) << "yyyyyxxxfffj: " << j << " key: " << key;
+    //       break; 
+    //     }
+    //   }
+    // }
     auto& device_dim_ptrs = gpu_task->device_dim_ptr_[i][j];
     size_t len = device_dim_keys.size();
     // VLOG(0) << "yxf::len:: " << len;
@@ -942,12 +951,23 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
       threads[i] = std::thread(build_func, i);
     }
   } else {
-    threads.resize(device_num * multi_mf_dim_);
+    // for conflicts caused by same keys with different mf_dim
+    threads.resize(device_num);
     for (int i = 0; i < device_num; i++) {
-      for (int j = 0; j < multi_mf_dim_; j++) {
-        threads[i + j * device_num] = std::thread(build_dynamic_mf_func, i, j);
-      }
+      threads[i] = std::thread(build_dynamic_mf_func, i, 0);
     }
+    for (std::thread& t : threads) {
+      t.join();
+    }
+    for (int i = 0; i < device_num; i++) {
+      threads[i] = std::thread(build_dynamic_mf_func, i, 1);
+    }
+    // threads.resize(device_num * multi_mf_dim_);
+    // for (int i = 0; i < device_num; i++) {
+    //   for (int j = 0; j < multi_mf_dim_; j++) {
+    //     threads[i + j * device_num] = std::thread(build_dynamic_mf_func, i, j);
+    //   }
+    // }
   }
   for (std::thread& t : threads) {
     t.join();
@@ -1424,15 +1444,15 @@ void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
     //   FeatureValue* cur =
     //       (FeatureValue*)(test_pull_values_all + i * feature_value_size);
     //   auto dim_from_op = slot_dim[slot_idx];
-    //   if (i == 7111000) {
-    //     VLOG(0) << "yxf::test one dim from op: " << dim_from_op << " mf_dim: " << cur->mf_dim;
-    //   }
-    //   if (dim_from_op - 3 != cur->mf_dim && ((uint64_t*)test_keys_all)[i] != 0) {
-    //     test_flag = true;
-    //     VLOG(0) << "yxfpullsssss0000:: i: " << i << " len: " << total_length << " key: " << ((uint64_t*)test_keys_all)[i] <<  " dev: " << devid_2_index << " value: " << *cur << "slot_idx: " << slot_idx << " op dim: " << dim_from_op; 
-    //   }
+    //   // if (i == 7111000) {
+    //   //   VLOG(0) << "yxf::test one dim from op: " << dim_from_op << " mf_dim: " << cur->mf_dim;
+    //   // }
+    //   // if (dim_from_op - 3 != cur->mf_dim && ((uint64_t*)test_keys_all)[i] != 0) {
+    //   //   test_flag = true;
+    //   //   VLOG(0) << "yxfpullsssss0000:: i: " << i << " len: " << total_length << " key: " << ((uint64_t*)test_keys_all)[i] <<  " dev: " << devid_2_index << " value: " << *cur << "slot_idx: " << slot_idx << " op dim: " << dim_from_op; 
+    //   // }
     //   if (cur->mf_dim != 8 && cur->mf_dim != 64) {
-    //     VLOG(0) << "yxfpullss2222:: i: " << i << " len: " << total_length << " key: " << ((uint64_t*)test_keys_all)[i] << " key before: " <<  ((uint64_t*)test_keys_all_before)[i] << " dev: " << devid_2_index << " value: " << *cur << "slot_idx: " << slot_idx << " op dim: " << dim_from_op;
+    //     VLOG(0) << "yxfpullss2222:: i: " << i << " len: " << total_length << " key: " << ((uint64_t*)test_keys_all)[i] << " key before: " <<  ((uint64_t*)test_keys_all_before)[i] << " dev: " << devid_2_index << " value: " << cur->mf_dim << "slot_idx: " << slot_idx << " op dim: " << dim_from_op;
     //   }
     // }
     

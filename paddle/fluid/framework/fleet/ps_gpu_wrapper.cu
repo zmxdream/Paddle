@@ -81,8 +81,11 @@ __global__ void PullCopy(float** dest, const FeatureValue* src,
     FeatureValue* feature_value_ptr =
         (FeatureValue*)((char*)src + uint64_t(i) * uint64_t(max_val_size));
     
-    int mf_dim = feature_value_ptr->mf_dim;
-    mf_dim = gpu_dim[x] - 3;
+    int feature_mf_dim = feature_value_ptr->mf_dim;
+    int mf_dim = gpu_dim[x] - 3;
+    //if (mf_dim != feature_mf_dim && *(keys[x] + y) != 0) {
+    //  printf("yyyeeeee: %d != %d key: %llu \n",mf_dim, feature_mf_dim, *(keys[x] + y));
+    //}
     if (*(keys[x] + y) == 0) {
       *(dest[x] + y * (cur_dim + 3)) = 0;
       *(dest[x] + y * (cur_dim + 3) + 1) = 0;

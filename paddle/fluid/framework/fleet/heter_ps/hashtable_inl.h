@@ -56,6 +56,11 @@ __global__ void insert_kernel(Table* table,
   const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
 
   if (i < len) {
+    // auto it_test = table->find(keys[i]);
+    // if (it_test != table->end()) {
+    //   // vals = it_test->second;
+    //   printf("yyyyyyyyyyyyyyyyy");
+    // }
     kv.first = keys[i];
     uint64_t offset = uint64_t(start_index + i) * feature_value_size;
     kv.second = (Table::mapped_type)(pool + offset);
@@ -104,42 +109,36 @@ __global__ void dy_mf_search_kernel(Table* table,
       FeatureValue& input = *(FeatureValue*)(it->second);
       char* cur_p = (char*)cur;
       char* input_p = (char*)(&input);
-      int len = 9 + input.mf_dim + 1;
-      if (k == 3 || k == 6 || k == 7) *(int*)(cur_p + k * 4) = *(int*)(input_p + k * 4);
-      else if (k < 8) *(float*)(cur_p + k * 4) = *(float*)(input_p + k * 4);
-      else if (k == 8) { 
-        *(uint64_t*)(cur_p + k * 4) = *(uint64_t*)(input_p + k * 4);
-      }
-      else {
-        int len_per_thread = (len - 9) / (blockDim.x - 9);
-        int remain = (len - 9) % (blockDim.y - 9);
-        int real_len = len_per_thread;
-        if ((k - 9) < remain) real_len++;
-        int left = -1, right = -1;
-        if ((k - 9) < remain) {
-          left = 9 + (k - 9) * (len_per_thread + 1);
-          right = left + real_len;
-        } else {
-          left = 9 + remain * (len_per_thread + 1) + (k - 9 - remain) * len_per_thread;
-          right = left + real_len;
+      int cur_len = 9 + input.mf_dim + 1;
+      if (cur_len == 18 || cur_len == 74) {
+
+        if (k == 3 || k == 6 || k == 7) *(int*)(cur_p + k * 4) = *(int*)(input_p + k * 4);
+        else if (k < 8) *(float*)(cur_p + k * 4) = *(float*)(input_p + k * 4);
+        else if (k == 8) { 
+          *(uint64_t*)(cur_p + k * 4) = *(uint64_t*)(input_p + k * 4);
         }
-        for(int j = left; j < right; j++) *(float*)(cur_p + (j + 1) * 4) = *(float*)(input_p + (j + 1) * 4);
+        else {
+          if (k - 9 < input.mf_dim + 1) {
+            for (int j = k-9; j < input.mf_dim + 1; j += (blockDim.x - 9)) {
+              cur->mf[j] = input.mf[j];
+            }
+          }
+          // int len_per_thread = (len - 9) / (blockDim.x - 9);
+          // int remain = (len - 9) % (blockDim.y - 9);
+          // int real_len = len_per_thread;
+          // if ((k - 9) < remain) real_len++;
+          // int left = -1, right = -1;
+          // if ((k - 9) < remain) {
+          //   left = 9 + (k - 9) * (len_per_thread + 1);
+          //   right = left + real_len;
+          // } else {
+          //   left = 9 + remain * (len_per_thread + 1) + (k - 9 - remain) * len_per_thread;
+          //   right = left + real_len;
+          // }
+          // for(int j = left; j < right; j++) *(float*)(cur_p + (j + 1) * 4) = *(float*)(input_p + (j + 1) * 4);
+        }
+
       }
-      // for(int i = 0; i < 8 + 1; ++i) {
-      //    cur->mf[i] = input.mf[i];
-      // }
-      // cur->delta_score = 0;
-      // cur->show = 0;
-      // cur->clk = 0;
-      // cur->slot = -1;
-      // cur->lr = 0;
-      // cur->lr_g2sum = 0;
-      // cur->mf_size = 0;
-      // cur->mf_dim = 64;
-      // cur->cpu_ptr;
-      // for (int j = 0; j < cur->mf_dim + 1; j++) {
-      //   cur->mf[j] = 0;
-      // }
     } else {
       if (keys[i] != 0) printf("pull miss key: %d",keys[i]);
     }
