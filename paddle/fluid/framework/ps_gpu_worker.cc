@@ -251,11 +251,6 @@ int PSGPUWorker::OpRunAndShapeCheck(OperatorBase& op,
                                     const Scope& scope,
                                     const platform::Place& place) {
     if (shape_check_flag_.load()) {
-      VLOG(0) << "Begin OpRunAndShapeCheck... "
-            << shape_check_count_.load();
-      if (shape_check_count_.fetch_sub(1) <= 0) {
-        shape_check_flag_ = false; 
-      }
       // before op run
       InferShapeCheckData check_data;
       auto& pre_dims = check_data.pre_dims;
@@ -412,6 +407,14 @@ void PSGPUWorker::TrainFiles() {
     }
 
     total_ins_num += cur_batch;
+
+    if (shape_check_flag_.load()) {
+      VLOG(0) << "Begin OpRunAndShapeCheck... "
+            << shape_check_count_.load();
+      if (shape_check_count_.fetch_sub(1) <= 0) {
+        shape_check_flag_ = false;
+      }
+    }
 
     if (op_or_cudagraphs_.empty()) {
       // first batch we run original ops to check whethere the tensors has lod
