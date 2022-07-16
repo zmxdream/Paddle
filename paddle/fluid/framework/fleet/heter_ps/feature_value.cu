@@ -1,4 +1,4 @@
-/* Copyright (c) 2020 PaddlePaddle Authors. All Rights Reserved.
+/* Copyright (c) 2022 PaddlePaddle Authors. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,10 +18,9 @@ limitations under the License. */
 #include <memory>
 #include <numeric>
 #include "paddle/fluid/framework/fleet/heter_ps/optimizer_conf.h"
-#include "paddle/fluid/framework/fleet/ps_gpu_wrapper.h"
 #include "paddle/fluid/framework/lod_tensor.h"
 #include "paddle/fluid/platform/device/gpu/gpu_info.h"
-
+#include "paddle/fluid/framework/fleet/heter_ps/feature_value.h"
 namespace paddle {
 namespace framework {
 
@@ -63,11 +62,19 @@ __global__ void PullCopy(float** dest, const FeatureValue* src,
 }
 */
 
-
-__global__ void CopyKeysKernel(uint64_t** src_keys, uint64_t* dest_total_keys,
-                               const int64_t* len, int slot_num,
-                               int total_len) {
+template <typename FVAccessor>
+__global__ void PullCopy(float** dest,
+                         const float* src,
+                         const int64_t* len,
+                         int slot_num,
+                         int total_len,
+                         uint64_t** keys,
+                         uint64_t max_val_size,
+                         int* gpu_dim,
+                         FVAccessor feature_value_accessor) {
+  
   CUDA_KERNEL_LOOP(i, total_len) {
+
     int low = 0;
     int high = slot_num - 1;
     while (low < high) {
@@ -79,9 +86,67 @@ __global__ void CopyKeysKernel(uint64_t** src_keys, uint64_t* dest_total_keys,
     }
     int x = low;
     int y = i - (x ? len[x - 1] : 0);
-    dest_total_keys[i] = src_keys[x][y];
+
+    int cur_dim = gpu_dim[x] - 3;
+    float* feature_value_ptr =
+        (float*)((char*)src + uint64_t(i) * uint64_t(max_val_size));
+
+    // int mf_dim = feature_value_ptr->mf_dim;
+    int mf_dim = gpu_dim[x] - 3;
+
+    // auto* accessor_wrapper = GlobalAccessorTransfor::GetInstance().GetAccessorWrapper();
+    feature_value_accessor.Select(
+        dest[x] + y * (mf_dim + 3), feature_value_ptr, keys[x] + y, mf_dim);
+
+    /*
+    if (*(keys[x] + y) == 0) {
+      *(dest[x] + y * (cur_dim + 3)) = 0;
+      *(dest[x] + y * (cur_dim + 3) + 1) = 0;
+      *(dest[x] + y * (cur_dim + 3) + 2) = 0;
+    } else {
+      *(dest[x] + y * (mf_dim + 3)) = feature_value_ptr->show;
+      *(dest[x] + y * (mf_dim + 3) + 1) = feature_value_ptr->clk;
+      *(dest[x] + y * (mf_dim + 3) + 2) = feature_value_ptr->lr;
+    }
+    if ((feature_value_ptr)->mf_size == 0 || *(keys[x] + y) == 0 ) {
+      if (*(keys[x] + y) == 0) {
+        for (int j = 0; j < cur_dim; j++) {
+          *(dest[x] + y * (cur_dim + 3) + 3 + j) = 0;
+        }
+      } else {
+        for (int j = 0; j < mf_dim; j++) {
+          *(dest[x] + y * (mf_dim + 3) + 3 + j) = 0;
+        }
+      }
+      
+    } else {
+      for (int j = 0; j < mf_dim; j++) {
+        *(dest[x] + y * (mf_dim + 3) + 3 + j) = feature_value_ptr->mf[1 + j];
+      }
+    }
+    */
+
   }
 }
+
+// __global__ void CopyKeysKernel(uint64_t** src_keys, uint64_t* dest_total_keys,
+//                               const int64_t* len, int slot_num,
+//                               int total_len) {
+//  CUDA_KERNEL_LOOP(i, total_len) {
+//    int low = 0;
+//    int high = slot_num - 1;
+//    while (low < high) {
+//      int mid = (low + high) / 2;
+//      if (i < len[mid])
+//        high = mid;
+//      else
+//        low = mid + 1;
+//    }
+//    int x = low;
+//    int y = i - (x ? len[x - 1] : 0);
+//    dest_total_keys[i] = src_keys[x][y];
+//  }
+//}
 
 //__global__ void CopyKeysKernel(uint64_t** src_keys, uint64_t* dest_total_keys,
 //                               const int64_t* len, int slot_num,
@@ -136,6 +201,54 @@ __global__ void PushCopy(FeaturePushValue* dest, float** src, int64_t* len,
 }
 */
 
+template <typename FVAccessor>
+__global__ void PushCopyWithPool(float* dest,
+                                 float** src,
+                                 int64_t* len,
+                                 int slot_num,
+                                 uint64_t total_len,
+                                 int bs,
+                                 int* slot_vector,
+                                 int* mf_dim_vector,
+                                 size_t grad_value_size,
+                                 FVAccessor feature_value_accessor) {
+
+  CUDA_KERNEL_LOOP(i, total_len) {
+    int low = 0;
+    int high = slot_num - 1;
+    while (low < high) {
+      int mid = (low + high) / 2;
+      if (i < len[mid])
+        high = mid;
+      else
+        low = mid + 1;
+    }
+    int x = low;
+    int y = i - (x ? len[low - 1] : 0);
+    float* cur =
+        (float*)((char*)dest + i * grad_value_size);
+   
+    int mf_dim = mf_dim_vector[x];  // slot_vector holds both slot and
+                                    // slot:mf_dim information
+    feature_value_accessor.GradientSelect(cur, src[x] + y * (mf_dim + 3), slot_vector[x], mf_dim, bs);
+
+/*
+    cur->slot = slot_vector[x];
+    // int mf_dim = mf_dim_vector[x];  // slot_vector holds both slot and
+    //                                // slot:mf_dim information
+    cur->mf_dim = mf_dim;
+
+    cur->show = *(src[x] + y * (mf_dim + 3));
+    cur->clk = *(src[x] + y * (mf_dim + 3) + 1);
+    cur->lr_g = *(src[x] + y * (mf_dim + 3) + 2) * -1. * bs;
+
+    for (int j = 0; j < cur->mf_dim; j++) {
+      cur->mf_g[j] = *(src[x] + y * (mf_dim + 3) + 3 + j) * -1. * bs;
+    }
+*/
+
+  }
+}
 
 /*
 void PSGPUWrapper::CopyForPull(const paddle::platform::Place& place,
@@ -159,14 +272,19 @@ void PSGPUWrapper::CopyForPull(const paddle::platform::Place& place,
   cudaStreamSynchronize(stream);
 }
 */
-/*
-void PSGPUWrapper::CopyForPull(const paddle::platform::Place& place,
-                               uint64_t** gpu_keys,
-                               const std::vector<float*>& values,
-                               const float* total_values_gpu,
-                               const int64_t* gpu_len, const int slot_num,
-                               const int hidden_size,
-                               const int64_t total_length, int* gpu_dim) {
+
+
+template <typename GPUAccessor>
+void AccessorWrapper<GPUAccessor>::CopyForPull(const paddle::platform::Place& place,
+                                               uint64_t** gpu_keys,
+                                               const std::vector<float*>& values,
+                                               const float* total_values_gpu,
+                                               const int64_t* gpu_len,
+                                               const int slot_num,
+                                               const int hidden_size,
+                                               const int64_t total_length,
+                                               int* gpu_dim,
+                                               int val_type_size) {
   auto stream = dynamic_cast<platform::CUDADeviceContext*>(
                     platform::DeviceContextPool::Instance().Get(place))
                     ->stream();
@@ -175,8 +293,6 @@ void PSGPUWrapper::CopyForPull(const paddle::platform::Place& place,
   cudaMemcpy(gpu_values, values.data(), values.size() * sizeof(float*),
              cudaMemcpyHostToDevice);
 
-  auto* accessor_wrapper = (AccessorWrapper*)(GlobalAccessorTransfor::GetInstance().GetAccessorWrapper());
-   
   // if (!multi_mf_dim_) {
   //  PullCopy<<<(total_length + 1024 - 1) / 1024, 1024, 0, stream>>>(
   //      gpu_values, total_values_gpu, gpu_len, hidden_size, slot_num,
@@ -184,24 +300,23 @@ void PSGPUWrapper::CopyForPull(const paddle::platform::Place& place,
   //} else {
     PullCopy<<<(total_length + 1024 - 1) / 1024, 1024, 0, stream>>>(
         gpu_values, total_values_gpu, gpu_len, slot_num, total_length, gpu_keys,
-        val_type_size_, gpu_dim, *(accessor_wrapper->AccessorPtr()));
+        val_type_size, gpu_dim, gpu_accessor_);
   //}
 
   cudaStreamSynchronize(stream);
 }
-*/
 
-void PSGPUWrapper::CopyKeys(const paddle::platform::Place& place,
-                            uint64_t** origin_keys, uint64_t* total_keys,
-                            const int64_t* gpu_len, int slot_num,
-                            int total_len) {
-  auto stream = dynamic_cast<platform::CUDADeviceContext*>(
-                    platform::DeviceContextPool::Instance().Get(place))
-                    ->stream();
-  CopyKeysKernel<<<(total_len + 1024 - 1) / 1024, 1024, 0, stream>>>(
-      origin_keys, total_keys, gpu_len, slot_num, total_len);
-  cudaStreamSynchronize(stream);
-}
+// void PSGPUWrapper::CopyKeys(const paddle::platform::Place& place,
+//                            uint64_t** origin_keys, uint64_t* total_keys,
+//                            const int64_t* gpu_len, int slot_num,
+//                            int total_len) {
+//  auto stream = dynamic_cast<platform::CUDADeviceContext*>(
+//                    platform::DeviceContextPool::Instance().Get(place))
+//                    ->stream();
+//  CopyKeysKernel<<<(total_len + 1024 - 1) / 1024, 1024, 0, stream>>>(
+//      origin_keys, total_keys, gpu_len, slot_num, total_len);
+//  cudaStreamSynchronize(stream);
+//}
 
 //void PSGPUWrapper::CopyKeys(const paddle::platform::Place& place,
 //                            uint64_t** origin_keys, uint64_t* total_keys,
@@ -253,14 +368,17 @@ void PSGPUWrapper::CopyForPush(const paddle::platform::Place& place,
   cudaStreamSynchronize(stream);
 }
 */
+template <typename GPUAccessor>
+void AccessorWrapper<GPUAccessor>::CopyForPush(const paddle::platform::Place& place,
+                                               const std::vector<const float*>& grad_values,
+                                               float* total_grad_values_gpu,
+                                               const std::vector<int64_t>& slot_lengths,
+                                               const uint64_t total_length,
+                                               const int batch_size,
+                                               size_t grad_value_size,
+                                               std::vector<int>& slot_vector,
+                                               std::vector<int>& slot_mf_dim_vector) {
 
-/*
-void PSGPUWrapper::CopyForPush(const paddle::platform::Place& place,
-                               const std::vector<const float*>& grad_values,
-                               float* total_grad_values_gpu,
-                               const std::vector<int64_t>& slot_lengths,
-                               const uint64_t total_length, const int batch_size,
-                               size_t grad_value_size) {
   auto stream = dynamic_cast<platform::CUDADeviceContext*>(
                     platform::DeviceContextPool::Instance().Get(place))
                     ->stream();
@@ -286,54 +404,24 @@ void PSGPUWrapper::CopyForPush(const paddle::platform::Place& place,
              grad_values.size() * sizeof(float*), cudaMemcpyHostToDevice);
   cudaMemcpy(gpu_len, slot_lengths_lod.data(),
              slot_lengths.size() * sizeof(int64_t), cudaMemcpyHostToDevice);
-  cudaMemcpy(d_slot_vector, slot_vector_.data(),
+  cudaMemcpy(d_slot_vector, slot_vector.data(),
              slot_lengths_lod.size() * sizeof(int), cudaMemcpyHostToDevice);
-  cudaMemcpy(d_mf_dim_vector, slot_mf_dim_vector_.data(),
+  cudaMemcpy(d_mf_dim_vector, slot_mf_dim_vector.data(),
              slot_lengths_lod.size() * sizeof(int), cudaMemcpyHostToDevice);
 
-  auto* accessor_wrapper = (AccessorWrapper*)GlobalAccessorTransfor::GetInstance().GetAccessorWrapper();
   PushCopyWithPool<<<(total_length + 1024 - 1) / 1024, 1024, 0, stream>>>(
       total_grad_values_gpu, gpu_values, gpu_len, slot_lengths.size(),
       total_length, batch_size, d_slot_vector, d_mf_dim_vector,
-      grad_value_size, *(accessor_wrapper->AccessorPtr()));
+      grad_value_size, gpu_accessor_);
 
   cudaStreamSynchronize(stream);
 }
-*/
 
-void PSGPUWrapper::SetSparseSGD(float nonclk_coeff, float clk_coeff,
-                                float min_bound, float max_bound,
-                                float learning_rate, float initial_g2sum,
-                                float initial_range) {
+#ifdef PADDLE_WITH_PSLIB
+template class AccessorWrapper<CommonFeatureValueAccessor>;
+#endif
 
- /*
-  optimizer_config_.set_sparse_sgd(nonclk_coeff,
-                                  clk_coeff,
-                                  min_bound,
-                                  max_bound,
-                                  learning_rate,
-                                  initial_g2sum,
-                                  initial_range);
-  // HeterPs_->set_sparse_sgd(optimizer_config_);
-*/
 
-}
-
-void PSGPUWrapper::SetEmbedxSGD(float mf_create_thresholds,
-                                float mf_learning_rate, float mf_initial_g2sum,
-                                float mf_initial_range, float mf_min_bound,
-                                float mf_max_bound) {
-/*
-  optimizer_config_.set_embedx_sgd(mf_create_thresholds,
-                                  mf_learning_rate,
-                                  mf_initial_g2sum,
-                                  mf_initial_range,
-                                  mf_min_bound,
-                                  mf_max_bound);
-  // HeterPs_->set_embedx_sgd(optimizer_config_);
-*/
-
-}
 
 }  // end namespace framework
 }  // end namespace paddle

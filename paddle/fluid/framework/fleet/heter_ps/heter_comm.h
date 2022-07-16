@@ -50,50 +50,49 @@ struct CustomGradMerger {
     return out;
   }
 
-  template <typename T>
+  template <typename FVAccessor>
   __device__ __forceinline__
-  void copy_basic_field(T& output, const T& input) {
-      output.slot    = input.slot;
-      output.show    = input.show;
-      output.clk     = input.clk;
-      output.mf_dim = input.mf_dim;
-      output.lr_g = input.lr_g;
-      // for(int i = 0; i < output.mf_dim ; ++i) {
-      //   output.mf_g[i] = input.mf_g[i];
-      //}
+  void copy_basic_field(float* output, const float* input, FVAccessor& feature_value_accessor) {
+      // output.slot    = input.slot;
+      // output.show    = input.show;
+      // output.clk     = input.clk;
+      // output.mf_dim = input.mf_dim;
+      // output.lr_g = input.lr_g;
+      feature_value_accessor.PushValueFillBasic(output, input);
   }
-  template <typename T>
+
+  template <typename FVAccessor>
   __device__ __forceinline__
-  void add_basic_field(T& output, const T& input) {
-      output.show    += input.show;
-      output.clk     += input.clk;
-      output.lr_g += input.lr_g;
-      // for(int i = 0; i < input.mf_dim; ++i) {
-      //   output.mf_g[i] += input.mf_g[i];
-      // }
+  void add_basic_field(float* output, const float* input, FVAccessor& feature_value_accessor) {
+      // output.show    += input.show;
+      // output.clk     += input.clk;
+      // output.lr_g += input.lr_g;
+      feature_value_accessor.MergePushValueBasic(output, input);
   }
 
 
-  template <typename T>
+  template <typename FVAccessor>
   __device__ __forceinline__
-  void copy_embedx_field(T& output, const T& input, size_t embedx_id) {
-       if (embedx_id < output.mf_dim) {
-         output.mf_g[embedx_id] = input.mf_g[embedx_id];
-       }
+  void copy_embedx_field(float* output, const float* input, size_t embedx_id, FVAccessor& feature_value_accessor) {
+       // if (embedx_id < output.mf_dim) {
+       //  output.mf_g[embedx_id] = input.mf_g[embedx_id];
+       //}
+       feature_value_accessor.PushValueFillEmbedx(output, input, embedx_id);
   }
 
 
-  template <typename T>
+  template <typename FVAccessor>
   __device__ __forceinline__
-  void add_embedx_field(T& output, const T& input, size_t embedx_id) {
-       if (embedx_id < output.mf_dim) {
-         output.mf_g[embedx_id] += input.mf_g[embedx_id];
-       }
+  void add_embedx_field(float* output, const float* input, size_t embedx_id, FVAccessor& feature_value_accessor) {
+       // if (embedx_id < output.mf_dim) {
+       //  output.mf_g[embedx_id] += input.mf_g[embedx_id];
+       // }
+       feature_value_accessor.MergePushValueEmbedx(output, input, embedx_id);
   }
 
 };
 
-template <typename KeyType, typename ValType, typename GradType>
+template <typename KeyType, typename ValType, typename GradType, typename FVAccessor>
 class HeterComm {
  public:
   HeterComm(size_t capacity, std::shared_ptr<HeterPsResource> resource);
@@ -133,6 +132,9 @@ class HeterComm {
 
   int gather_multi_node_grad(int num, KeyType* d_keys, GradType* d_grads,
                              int len);
+
+  void set_sparse_sgd(const OptimizerConfig& optimizer_config);
+  void set_embedx_sgd(const OptimizerConfig& optimizer_config);
 
   int log2i(int x);
 
@@ -233,7 +235,32 @@ class HeterComm {
   void walk_to_src(int start_index, int gpu_num, int* h_left, int* h_right,
                    char* src_val, size_t val_size);
 
+  void set_gpu_accessor(FVAccessor& accessor) {
+    feature_value_accessor_ = accessor;
+ /*
+    std::cout << "=============HeterComm GPUAccesor FeatureValue INFO=========" << std::endl;
+    std::cout << "optimizer type:" << feature_value_accessor_.common_feature_value.optimizer_type_ << std::endl;
+    std::cout << "Dim:" << feature_value_accessor_.common_feature_value.Dim() << std::endl;
+    std::cout << "EmbedDim:" << feature_value_accessor_.common_feature_value.EmbedDim() << std::endl;
+    std::cout << "EmbedXDim:" << feature_value_accessor_.common_feature_value.EmbedXDim() << std::endl;
+    std::cout << "EmbedWDim:" << feature_value_accessor_.common_feature_value.EmbedWDim() << std::endl;
+    std::cout << "CpuPtrIndex:" << feature_value_accessor_.common_feature_value.CpuPtrIndex() << std::endl;
+    std::cout << "DeltaScoreIndex:" << feature_value_accessor_.common_feature_value.DeltaScoreIndex() << std::endl;
+    std::cout << "ShowIndex:" << feature_value_accessor_.common_feature_value.ShowIndex() << std::endl;
+    std::cout << "ClickIndex:" << feature_value_accessor_.common_feature_value.ClickIndex() << std::endl;
+    std::cout << "EmbedWIndex:" << feature_value_accessor_.common_feature_value.EmbedWIndex() << std::endl;
+    std::cout << "EmbedG2SumIndex:" << feature_value_accessor_.common_feature_value.EmbedG2SumIndex() << std::endl;
+    std::cout << "SlotIndex:" << feature_value_accessor_.common_feature_value.SlotIndex() << std::endl;
+    std::cout << "MfDimIndex:" << feature_value_accessor_.common_feature_value.MfDimIndex() << std::endl;
+    std::cout << "MfSizeIndex:" << feature_value_accessor_.common_feature_value.MfSizeIndex() << std::endl;
+    std::cout << "EmbedxG2SumIndex:" << feature_value_accessor_.common_feature_value.EmbedxG2SumIndex() << std::endl;
+    std::cout << "EmbedxWIndex:" << feature_value_accessor_.common_feature_value.EmbedxWIndex() << std::endl;
+    std::cout << "=============HeterComm GPUAccesor FeatureValue INFO=========" << std::endl;
+*/
+  }
+
  protected:
+  FVAccessor feature_value_accessor_; 
   using Table = HashTable<KeyType, ValType>;
   using PtrTable = HashTable<KeyType, ValType*>;
   std::vector<Table*> tables_;

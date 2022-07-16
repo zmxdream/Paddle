@@ -13,7 +13,6 @@ See the License for the specific language governing permissions and
 limitations under the License. */
 
 #pragma once
-
 #include <memory>
 #ifdef PADDLE_WITH_PSLIB
 #include <archive.h>
@@ -240,6 +239,9 @@ class FleetWrapper {
   void InitWorker(const std::string& dist_desc,
                   const std::vector<uint64_t>& host_sign_list, int node_num,
                   int index);
+
+  std::string GetDistDesc();
+  void GetCPUAccessor(::paddle::ps::ValueAccessor*& cpu_accessor);
   // stop server
   void StopServer();
   // finalize worker to make worker can be stop
@@ -343,6 +345,9 @@ class FleetWrapper {
 #endif
 
  private:
+
+  std::string dist_desc_;
+
   static std::shared_ptr<FleetWrapper> s_instance_;
 #ifdef PADDLE_WITH_PSLIB
   std::map<uint64_t, std::vector<paddle::ps::Region>> _regions;

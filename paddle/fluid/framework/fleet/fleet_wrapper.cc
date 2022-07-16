@@ -75,10 +75,23 @@ void FleetWrapper::InitWorker(const std::string& dist_desc,
     pslib_ptr_->init_worker(dist_desc,
                             const_cast<uint64_t*>(host_sign_list.data()),
                             node_num, index);
+    dist_desc_ = dist_desc;
     is_initialized_ = true;
   } else {
     VLOG(3) << "Worker can be initialized only once";
   }
+#endif
+}
+
+std::string FleetWrapper::GetDistDesc() {
+  CHECK(is_initialized_ == true) << "fleetwrapper should be initialized first!!!";
+  return dist_desc_;
+}
+
+void FleetWrapper::GetCPUAccessor(::paddle::ps::ValueAccessor*& cpu_accessor) {
+#ifdef PADDLE_WITH_PSLIB
+    auto* cpu_accessor_ = pslib_ptr_->_worker_ptr->table_accessor(0);
+    cpu_accessor = cpu_accessor_;
 #endif
 }
 

@@ -16,6 +16,7 @@ limitations under the License. */
 
 #ifdef PADDLE_WITH_HETERPS
 
+#include <google/protobuf/text_format.h>
 #include <atomic>
 #include <ctime>
 #include <map>
@@ -122,28 +123,29 @@ class PSGPUWrapper {
   void CopyKeys(const paddle::platform::Place& place, uint64_t** origin_keys,
                 uint64_t* total_keys, const int64_t* gpu_len, int slot_num,
                 int total_len, int* gpu_dim);
-  void CopyForPull(const paddle::platform::Place& place, uint64_t** gpu_keys,
-                   const std::vector<float*>& values,
-                   const FeatureValue* total_values_gpu, const int64_t* gpu_len,
-                   const int slot_num, const int hidden_size,
-                   const int64_t total_length);
-  void CopyForPull(const paddle::platform::Place& place, uint64_t** gpu_keys,
-                   const std::vector<float*>& values,
-                   const FeatureValue* total_values_gpu, const int64_t* gpu_len,
-                   const int slot_num, const int hidden_size,
-                   const int64_t total_length, int* gpu_dim);
-  void CopyForPush(const paddle::platform::Place& place,
-                   const std::vector<const float*>& grad_values,
-                   FeaturePushValue* total_grad_values_gpu,
-                   const std::vector<int64_t>& slot_lengths,
-                   const int hidden_size, const int64_t total_length,
-                   const int batch_size);
-  void CopyForPush(const paddle::platform::Place& place,
-                   const std::vector<const float*>& grad_values,
-                   FeaturePushValue* total_grad_values_gpu,
-                   const std::vector<int64_t>& slot_lengths,
-                   const uint64_t total_length, const int batch_size,
-                   size_t grad_value_size);
+
+  // void CopyForPull(const paddle::platform::Place& place, uint64_t** gpu_keys,
+  //                 const std::vector<float*>& values,
+  //                 const FeatureValue* total_values_gpu, const int64_t* gpu_len,
+  //                 const int slot_num, const int hidden_size,
+  //                 const int64_t total_length);
+  // void CopyForPull(const paddle::platform::Place& place, uint64_t** gpu_keys,
+  //                 const std::vector<float*>& values,
+  //                  const float* total_values_gpu, const int64_t* gpu_len,
+  //                 const int slot_num, const int hidden_size,
+  //                 const int64_t total_length, int* gpu_dim);
+  // void CopyForPush(const paddle::platform::Place& place,
+  //                 const std::vector<const float*>& grad_values,
+  //                 FeaturePushValue* total_grad_values_gpu,
+  //                 const std::vector<int64_t>& slot_lengths,
+  //                 const int hidden_size, const int64_t total_length,
+  //                 const int batch_size);
+  // void CopyForPush(const paddle::platform::Place& place,
+  //                 const std::vector<const float*>& grad_values,
+  //                 float* total_grad_values_gpu,
+  //                 const std::vector<int64_t>& slot_lengths,
+  //                 const uint64_t total_length, const int batch_size,
+  //                 size_t grad_value_size);
 
   void BuildGPUTask(std::shared_ptr<HeterContext> gpu_task);
   void PreBuildTask(std::shared_ptr<HeterContext> gpu_task);
@@ -233,9 +235,13 @@ class PSGPUWrapper {
       gpu_free_channel_->Put(current_task_);
 
       table_id_ = 0;
-
       // start build cpu&gpu ps thread
       start_build_thread();
+#ifdef PADDLE_WITH_PSLIB
+      auto fleet_ptr = FleetWrapper::GetInstance();
+      std::string dist_desc = fleet_ptr->GetDistDesc();
+      InitializeGPUServer(dist_desc);
+#endif
     }
   }
 
@@ -245,7 +251,16 @@ class PSGPUWrapper {
   void SetEmbedxSGD(float mf_create_thresholds, float mf_learning_rate,
                     float mf_initial_g2sum, float mf_initial_range,
                     float mf_min_bound, float mf_max_bound);
+
   void InitializeGPUServer(std::unordered_map<std::string, float> config) {
+
+    // set sparse shard num
+    int sparse_shard_num = (config.find("sparse_shard_num") == config.end())
+                               ? 37
+                               : config["sparse_shard_num"];
+    thread_keys_shard_num_ = sparse_shard_num;
+    VLOG(0) << "GPUPS set sparse shard num: " << thread_keys_shard_num_;
+
     float nonclk_coeff = (config.find("nonclk_coeff") == config.end())
                              ? 1.0
                              : config["nonclk_coeff"];
@@ -287,15 +302,14 @@ class PSGPUWrapper {
     float mf_max_bound = (config.find("mf_max_bound") == config.end())
                              ? 1.0
                              : config["mf_max_bound"];
-    for (size_t i = 0; i < heter_devices_.size(); i++) {
-      PADDLE_ENFORCE_GPU_SUCCESS(cudaSetDevice(heter_devices_[i]));
-      this->SetSparseSGD(nonclk_coeff, clk_coeff, min_bound, max_bound,
+    this->SetSparseSGD(nonclk_coeff, clk_coeff, min_bound, max_bound,
                          learning_rate, initial_g2sum, initial_range);
-      this->SetEmbedxSGD(mf_create_thresholds, mf_learning_rate,
-                         mf_initial_g2sum, mf_initial_range, mf_min_bound,
+    this->SetEmbedxSGD(mf_create_thresholds, mf_learning_rate,
+                        mf_initial_g2sum, mf_initial_range, mf_min_bound,
                          mf_max_bound);
-    }
+       
   }
+
   void SetDate(int year, int month, int day) {
     year_ = year;
     month_ = month;
@@ -338,7 +352,6 @@ class PSGPUWrapper {
     std::vector<std::string> slots_vec_test;
     for (int i = 0; i < multi_slot_desc.slots_size(); ++i) {
       const auto& slot = multi_slot_desc.slots(i);
-      // VLOG(0) << "yxfslotname: " << slot.name();
       if (slot.type() == "uint64" || slot.type() == "uint32") {
         slots_vec_test.push_back(slot.name());
       }
@@ -353,7 +366,6 @@ class PSGPUWrapper {
     for (auto& slot : slot_vector_) {
       for (size_t i = 0; i < slots_vec.size(); ++i) {
         if (std::to_string(slot) == slots_vec[i]) {
-          // VLOG(0) << "yxf slot: " << slot;
           slot_offset_vector_.push_back(i);
           break;
         }
@@ -388,12 +400,25 @@ class PSGPUWrapper {
     for (size_t i = 0; i < slot_index_vec_.size(); i++) {
       slot_index_vec_[i] = dim_index_map[slot_mf_dim_vector_[i]];
     }
-    val_type_size_ =
-        TYPEALIGN(8, sizeof(FeatureValue) + sizeof(float) * (max_mf_dim_ + 1));
-    grad_type_size_ =
-        TYPEALIGN(8, sizeof(FeaturePushValue) + (max_mf_dim_ * sizeof(float)));
+
+    // val_type_size_ =
+    //    TYPEALIGN(8, sizeof(FeatureValue) + sizeof(float) * (max_mf_dim_ + 1));
+    // grad_type_size_ =
+    //     TYPEALIGN(8, sizeof(FeaturePushValue) + (max_mf_dim_ * sizeof(float)));
+
+    auto accessor_wrapper_ptr =
+        GlobalAccessorTransfor::GetInstance().GetAccessorWrapper();
+    val_type_size_ = accessor_wrapper_ptr->GetFeatureValueSize(max_mf_dim_);
+    grad_type_size_ = accessor_wrapper_ptr->GetPushValueSize(max_mf_dim_);
+    VLOG(0) << "InitSlotInfo: val_type_size:" << val_type_size_
+            << " grad_type_size:" << grad_type_size_;
     slot_info_initialized_ = true;
   }
+
+  void SetCPUAccessorType(std::string accessor_class) {
+    accessor_type_ = accessor_class;
+  }
+
 
   void ShowOneTable(int index) { HeterPs_->show_one_table(index); }
 
@@ -410,6 +435,11 @@ class PSGPUWrapper {
 #endif
 
  private:
+
+#ifdef PADDLE_WITH_PSLIB
+  ::paddle::ps::ValueAccessor* cpu_accessor_;
+#endif
+
   static std::shared_ptr<PSGPUWrapper> s_instance_;
   Dataset* dataset_;
 
@@ -464,6 +494,16 @@ class PSGPUWrapper {
   int day_;
   bool slot_info_initialized_ = false;
   int use_afs_api_ = 0;
+  
+  std::string accessor_type_ = "DownpourCtrDymfAccessor";
+  int optimizer_type_ = 1;
+
+#ifdef PADDLE_WITH_PSLIB
+  void InitializeGPUServer(const std::string& fleet_desc);
+  // _ps_param for gpups optimizer config
+  ::paddle::PSParameter _ps_param;
+#endif
+
 
   std::vector<MemoryPool*> mem_pools_;
   std::vector<HBMMemoryPool*> hbm_pools_;  // in multi mfdim, one table need hbm
@@ -486,7 +526,7 @@ class PSGPUWrapper {
   bool running_ = false;
   std::vector<std::shared_ptr<ThreadPool>> hbm_thread_pool_;
   std::vector<std::shared_ptr<ThreadPool>> pull_thread_pool_;
-
+  OptimizerConfig optimizer_config_;
  protected:
   static bool is_initialized_;
 };
