@@ -328,14 +328,14 @@ public:
         // ptr_mf_size =  feature_value_accessor_.common_feature_value.MFSize(ptr_mf_dim) / sizeof(float);
         // ptr->mf_size = ptr->mf_dim + 1;
         // ptr->mf[0] = 0;
-        ptr[11] = 0;
+        ptr[10] = 0;
         // ptr[feature_value_accessor_.common_feature_value.EmbedxWIndex()] = 0;
         // int tid_x = blockIdx.x * blockDim.x + threadIdx.x;
         //curandState state;
         //curand_init(clock64(), tid_x, 0, &state);
         for (int i = 0; i < ptr_mf_dim; ++i) {
           // ptr[feature_value_accessor_.common_feature_value.EmbedxWIndex() + i + 1] =
-          ptr[11 + i + 1] = (curand_uniform(&state)) * optimizer_config.mf_initial_range;
+          ptr[10 + i + 1] = (curand_uniform(&state)) * optimizer_config.mf_initial_range;
           // ptr->mf[i + 1] =
           //    (curand_uniform(&state)) * optimizer_config.mf_initial_range;
         }
@@ -344,8 +344,8 @@ public:
       update_mf(
           optimizer_config,
           ptr_mf_dim,
-          &ptr[12],
-          ptr[11],
+          &ptr[11],
+          ptr[10],
           &grad[5],
           grad_show);
           // &(ptr[feature_value_accessor_.common_feature_value.EmbedxWIndex() + 1]),

@@ -828,7 +828,7 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
     //    TYPEALIGN(8, sizeof(FeatureValue) + ((mf_dim + 1) * sizeof(float)));
     size_t feature_value_size =
         accessor_wrapper_ptr->GetFeatureValueSize(mf_dim);
-
+    VLOG(0) << "build dymf mem pool with device:" << i << " dim:" << mf_dim << " feature_value_size:" << feature_value_size;
     auto& device_dim_keys = gpu_task->device_dim_keys_[i][j];
     auto& device_dim_ptrs = gpu_task->device_dim_ptr_[i][j];
     size_t len = device_dim_keys.size();
@@ -1396,7 +1396,7 @@ void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
                                       hidden_size,
                                       total_length,
                                       gpu_dim,
-                                      val_type_size_);
+                                      feature_value_size);
 
 
     pull_gpups_timer.Pause();

@@ -412,6 +412,8 @@ class PSGPUWrapper {
     grad_type_size_ = accessor_wrapper_ptr->GetPushValueSize(max_mf_dim_);
     VLOG(0) << "InitSlotInfo: val_type_size:" << val_type_size_
             << " grad_type_size:" << grad_type_size_;
+
+
     slot_info_initialized_ = true;
   }
 

@@ -289,10 +289,10 @@ __global__ void dy_mf_update_kernel(Table* table,
     auto it = table->find(keys[i]);
     if (it != table->end()) {
       float* cur = (float*)(grads + i * grad_value_size);
+/*
       // debug
-      /*
       if (i == 1) {
-        sgd.print_accessor();
+        // sgd.print_accessor();
         // print ptr & grad
         float* ptr = (it.getter())->second;
         float* cur = (float*)(grads + i * grad_value_size);
@@ -309,9 +309,10 @@ __global__ void dy_mf_update_kernel(Table* table,
         float grad_click = cur[2];
         float grad_mf_dim = cur[3];
         float grad_lr = cur[4]; 
-        printf("feature:%f,%f,%f,%f,%f,%f,%f, grad:%f,%f,%f,%f, %f\n", ptr_show, ptr_clk, ptr_slot, ptr_mf_dim, ptr_mf_size, ptr_lr, ptr_lr_g, grad_slot, grad_show, grad_click, grad_mf_dim, grad_lr);
+        printf("feature:%f,%f,%f,%f,%f,%f,%f, grad:%f,%f,%f,%f,%f\n", ptr_show, ptr_clk, ptr_slot, ptr_mf_dim, ptr_mf_size, ptr_lr, ptr_lr_g, grad_slot, grad_show, grad_click, grad_mf_dim, grad_lr);
       }
-       */
+*/
+
       sgd.dy_mf_update_value(optimizer_config, (it.getter())->second, cur, p_state[i]);
     } else {
       if(keys[i] != 0) printf("push miss key: %llu", keys[i]);

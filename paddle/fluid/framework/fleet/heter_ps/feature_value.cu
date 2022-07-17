@@ -254,7 +254,7 @@ __global__ void PushCopyWithPool(float* dest,
 void PSGPUWrapper::CopyForPull(const paddle::platform::Place& place,
                                uint64_t** gpu_keys,
                                const std::vector<float*>& values,
-                               const FeatureValue* total_values_gpu,
+                        
                                const int64_t* gpu_len, const int slot_num,
                                const int hidden_size,
                                const int64_t total_length) {
@@ -284,7 +284,7 @@ void AccessorWrapper<GPUAccessor>::CopyForPull(const paddle::platform::Place& pl
                                                const int hidden_size,
                                                const int64_t total_length,
                                                int* gpu_dim,
-                                               int val_type_size) {
+                                               size_t val_type_size) {
   auto stream = dynamic_cast<platform::CUDADeviceContext*>(
                     platform::DeviceContextPool::Instance().Get(place))
                     ->stream();

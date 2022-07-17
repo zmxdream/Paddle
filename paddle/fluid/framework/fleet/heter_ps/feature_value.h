@@ -718,6 +718,7 @@ __device__ void FeatureValueFill(float* dest_val,
   //  dest_val[x] = src_val[x];
   //}
 }
+
 /*
 // dy_mf_fill_shard_grads_kernel,update_one 阶段 gpukernel 中从src_val赋值给dest_val
 __device__ void PushValueFill(float* dest_val, 
@@ -740,12 +741,9 @@ __device__ void PushValueFill(float* dest_val,
 
   dest_val[0] = src_val[0];
   dest_val[1] = src_val[1];
-
   dest_val[2] = src_val[2];
   dest_val[3] = src_val[3];
-
-  dest_val[4] = dest_val[4];
-
+  dest_val[4] = src_val[4];
   // dest_val[common_push_value.SlotIndex()] = src_val[common_push_value.SlotIndex()];
   // dest_val[common_push_value.ShowIndex()] = src_val[common_push_value.ShowIndex()];
   // dest_val[common_push_value.ClickIndex()] = src_val[common_push_value.ClickIndex()];
@@ -756,8 +754,9 @@ __device__ void PushValueFill(float* dest_val,
     // dest_val[common_push_value.EmbedxGIndex() + x] =  src_val[common_push_value.EmbedxGIndex() + x];
      dest_val[5 + x] = src_val[5 + x]; 
   }
-
 }
+
+
 /*
 // update_basic 阶段 gpukernel 中从src_val赋值给dest_val
 __device__ void PushValueFillBasic(float* dest_val, 
@@ -895,8 +894,8 @@ __device__ void GradientSelect(float* dest_val,
                                int mf_dim,
                                int bs) {
 #if defined PADDLE_WITH_PSLIB
-  dest_val[0] = (float)slot;
-  dest_val[3] = (float)mf_dim;
+  dest_val[0] = slot;
+  dest_val[3] = mf_dim;
   dest_val[1] = src_val[0];
   dest_val[2] = src_val[1];
   dest_val[4] = src_val[2] * -1. * bs;
@@ -997,7 +996,7 @@ class VirtualAccessor {
                            const int hidden_size,
                            const int64_t total_length,
                            int* gpu_dim,
-                           int val_type_size) = 0;
+                           size_t val_type_size) = 0;
 
   virtual void CopyForPush(const paddle::platform::Place& place,
                            const std::vector<const float*>& grad_values,
@@ -1074,7 +1073,7 @@ class AccessorWrapper : public VirtualAccessor {
                            const int hidden_size,
                            const int64_t total_length,
                            int* gpu_dim,
-                           int val_type_size) override;
+                           size_t val_type_size) override;
 
   virtual void CopyForPush(const paddle::platform::Place& place,
                            const std::vector<const float*>& grad_values,
