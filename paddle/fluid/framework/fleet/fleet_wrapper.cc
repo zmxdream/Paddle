@@ -88,12 +88,12 @@ std::string FleetWrapper::GetDistDesc() {
   return dist_desc_;
 }
 
-void FleetWrapper::GetCPUAccessor(::paddle::ps::ValueAccessor*& cpu_accessor) {
 #ifdef PADDLE_WITH_PSLIB
-    auto* cpu_accessor_ = pslib_ptr_->_worker_ptr->table_accessor(0);
-    cpu_accessor = cpu_accessor_;
-#endif
+void FleetWrapper::GetCPUAccessor(::paddle::ps::ValueAccessor*& cpu_accessor) {
+  auto* cpu_accessor_ = pslib_ptr_->_worker_ptr->table_accessor(0);
+  cpu_accessor = cpu_accessor_;
 }
+#endif
 
 void FleetWrapper::StopServer() {
 #ifdef PADDLE_WITH_PSLIB

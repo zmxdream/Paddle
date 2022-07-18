@@ -659,9 +659,6 @@ int HeterComm<KeyType, ValType, GradType, FVAccessor>::get_index_by_devid(int de
 template <typename KeyType, typename ValType, typename GradType, typename FVAccessor>
 void HeterComm<KeyType, ValType, GradType, FVAccessor>::set_sparse_sgd(
     const OptimizerConfig& optimizer_config) {
-
-  std::cout << "before heter_comm_inl setsparse sgd" << std::endl;
-
   for (int i = 0; i < resource_->total_gpu(); ++i) {
     platform::CUDADeviceGuard guard(resource_->dev_id(i));
     if (!multi_mf_dim_) {
@@ -670,7 +667,6 @@ void HeterComm<KeyType, ValType, GradType, FVAccessor>::set_sparse_sgd(
       ptr_tables_[i]->set_sparse_sgd(optimizer_config);
     }
   }
-  std::cout << "after heter_comm_inl setsparse sgd" << std::endl;
 }
 
 template <typename KeyType, typename ValType, typename GradType, typename FVAccessor>

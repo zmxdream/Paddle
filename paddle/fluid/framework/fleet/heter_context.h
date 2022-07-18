@@ -77,13 +77,8 @@ class HeterContext {
   std::vector<std::vector<std::vector<paddle::distributed::FixedFeatureValue*>>>
       device_dim_ptr_;
 #endif
-  // std::vector<std::vector<FeatureValue>> device_values_;
-
   std::vector<std::vector<FeatureKey>> device_keys_;
   std::vector<std::vector<std::vector<FeatureKey>>> device_dim_keys_;
-
-  //std::vector<std::vector<std::vector<FeatureValue>>> device_dim_values_;
-
   std::vector<std::mutex*> mutex_;
   std::vector<std::vector<std::mutex*>> dim_mutex_;
   int multi_mf_dim_ = 0;
@@ -109,7 +104,6 @@ class HeterContext {
       device_task_keys_[i].resize(device_num);
     }
 
-    // device_values_.resize(device_num);
     device_keys_.resize(device_num);
     mutex_.resize(device_num);
     for (size_t i = 0; i < mutex_.size(); ++i) {
@@ -133,8 +127,6 @@ class HeterContext {
       feature_dim_keys_[i].resize(dim_num);
       value_dim_ptr_[i].resize(dim_num);
     }
-    // device_values_.resize(device_num);
-    // device_dim_values_.resize(device_num);
     device_keys_.resize(device_num);
 
     device_dim_keys_.resize(device_num);
@@ -161,9 +153,6 @@ class HeterContext {
       for (size_t i = 0; i < value_ptr_.size(); ++i) {
         value_ptr_[i].clear();
       }
-      // for (size_t i = 0; i < device_values_.size(); ++i) {
-      //  device_values_[i].clear();
-      // }
       for (size_t i = 0; i < device_keys_.size(); ++i) {
         device_keys_[i].clear();
       }

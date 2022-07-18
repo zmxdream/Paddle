@@ -124,29 +124,6 @@ class PSGPUWrapper {
                 uint64_t* total_keys, const int64_t* gpu_len, int slot_num,
                 int total_len, int* gpu_dim);
 
-  // void CopyForPull(const paddle::platform::Place& place, uint64_t** gpu_keys,
-  //                 const std::vector<float*>& values,
-  //                 const FeatureValue* total_values_gpu, const int64_t* gpu_len,
-  //                 const int slot_num, const int hidden_size,
-  //                 const int64_t total_length);
-  // void CopyForPull(const paddle::platform::Place& place, uint64_t** gpu_keys,
-  //                 const std::vector<float*>& values,
-  //                  const float* total_values_gpu, const int64_t* gpu_len,
-  //                 const int slot_num, const int hidden_size,
-  //                 const int64_t total_length, int* gpu_dim);
-  // void CopyForPush(const paddle::platform::Place& place,
-  //                 const std::vector<const float*>& grad_values,
-  //                 FeaturePushValue* total_grad_values_gpu,
-  //                 const std::vector<int64_t>& slot_lengths,
-  //                 const int hidden_size, const int64_t total_length,
-  //                 const int batch_size);
-  // void CopyForPush(const paddle::platform::Place& place,
-  //                 const std::vector<const float*>& grad_values,
-  //                 float* total_grad_values_gpu,
-  //                 const std::vector<int64_t>& slot_lengths,
-  //                 const uint64_t total_length, const int batch_size,
-  //                 size_t grad_value_size);
-
   void BuildGPUTask(std::shared_ptr<HeterContext> gpu_task);
   void PreBuildTask(std::shared_ptr<HeterContext> gpu_task);
   void BuildPull(std::shared_ptr<HeterContext> gpu_task);
@@ -252,8 +229,7 @@ class PSGPUWrapper {
                     float mf_initial_g2sum, float mf_initial_range,
                     float mf_min_bound, float mf_max_bound);
 
-  void InitializeGPUServer(std::unordered_map<std::string, float> config) {
-
+  void InitializeGPUServer(std::unordered_map<std::string, float>& config) {
     // set sparse shard num
     int sparse_shard_num = (config.find("sparse_shard_num") == config.end())
                                ? 37
@@ -400,27 +376,18 @@ class PSGPUWrapper {
     for (size_t i = 0; i < slot_index_vec_.size(); i++) {
       slot_index_vec_[i] = dim_index_map[slot_mf_dim_vector_[i]];
     }
-
-    // val_type_size_ =
-    //    TYPEALIGN(8, sizeof(FeatureValue) + sizeof(float) * (max_mf_dim_ + 1));
-    // grad_type_size_ =
-    //     TYPEALIGN(8, sizeof(FeaturePushValue) + (max_mf_dim_ * sizeof(float)));
-
     auto accessor_wrapper_ptr =
         GlobalAccessorTransfor::GetInstance().GetAccessorWrapper();
     val_type_size_ = accessor_wrapper_ptr->GetFeatureValueSize(max_mf_dim_);
     grad_type_size_ = accessor_wrapper_ptr->GetPushValueSize(max_mf_dim_);
     VLOG(0) << "InitSlotInfo: val_type_size:" << val_type_size_
             << " grad_type_size:" << grad_type_size_;
-
-
     slot_info_initialized_ = true;
   }
 
   void SetCPUAccessorType(std::string accessor_class) {
     accessor_type_ = accessor_class;
   }
-
 
   void ShowOneTable(int index) { HeterPs_->show_one_table(index); }
 

@@ -50,10 +50,8 @@ class HeterPs : public HeterPsBase {
 
   void set_sparse_sgd(const OptimizerConfig& optimizer_config) override;
   void set_embedx_sgd(const OptimizerConfig& optimizer_config) override;
-  // void set_gpu_accessor(FVAccessor& gpu_accessor);
 
  private:
-  // FVAccessor gpu_accessor_;
   std::shared_ptr<HeterComm<FeatureKey, float, float, FVAccessor>> comm_;
   GPUOptimizer<FVAccessor> opt_;
 };

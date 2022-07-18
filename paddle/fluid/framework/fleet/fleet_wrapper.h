@@ -241,7 +241,11 @@ class FleetWrapper {
                   int index);
 
   std::string GetDistDesc();
+
+#ifdef PADDLE_WITH_PSLIB 
   void GetCPUAccessor(::paddle::ps::ValueAccessor*& cpu_accessor);
+#endif
+
   // stop server
   void StopServer();
   // finalize worker to make worker can be stop
@@ -345,9 +349,7 @@ class FleetWrapper {
 #endif
 
  private:
-
   std::string dist_desc_;
-
   static std::shared_ptr<FleetWrapper> s_instance_;
 #ifdef PADDLE_WITH_PSLIB
   std::map<uint64_t, std::vector<paddle::ps::Region>> _regions;

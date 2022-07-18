@@ -34,8 +34,8 @@ limitations under the License. */
 namespace paddle {
 namespace framework {
 
-#define TYPEALIGN(ALIGNVAL, LEN) \
-  (((uint64_t)(LEN) + ((ALIGNVAL)-1)) & ~((uint64_t)((ALIGNVAL)-1)))
+// #define TYPEALIGN(ALIGNVAL, LEN) \
+//   (((uint64_t)(LEN) + ((ALIGNVAL)-1)) & ~((uint64_t)((ALIGNVAL)-1)))
 
 struct CustomGradMerger {
   template <typename T>
@@ -53,20 +53,12 @@ struct CustomGradMerger {
   template <typename FVAccessor>
   __device__ __forceinline__
   void copy_basic_field(float* output, const float* input, FVAccessor& feature_value_accessor) {
-      // output.slot    = input.slot;
-      // output.show    = input.show;
-      // output.clk     = input.clk;
-      // output.mf_dim = input.mf_dim;
-      // output.lr_g = input.lr_g;
       feature_value_accessor.PushValueFillBasic(output, input);
   }
 
   template <typename FVAccessor>
   __device__ __forceinline__
   void add_basic_field(float* output, const float* input, FVAccessor& feature_value_accessor) {
-      // output.show    += input.show;
-      // output.clk     += input.clk;
-      // output.lr_g += input.lr_g;
       feature_value_accessor.MergePushValueBasic(output, input);
   }
 
@@ -74,9 +66,6 @@ struct CustomGradMerger {
   template <typename FVAccessor>
   __device__ __forceinline__
   void copy_embedx_field(float* output, const float* input, size_t embedx_id, FVAccessor& feature_value_accessor) {
-       // if (embedx_id < output.mf_dim) {
-       //  output.mf_g[embedx_id] = input.mf_g[embedx_id];
-       //}
        feature_value_accessor.PushValueFillEmbedx(output, input, embedx_id);
   }
 
@@ -84,9 +73,6 @@ struct CustomGradMerger {
   template <typename FVAccessor>
   __device__ __forceinline__
   void add_embedx_field(float* output, const float* input, size_t embedx_id, FVAccessor& feature_value_accessor) {
-       // if (embedx_id < output.mf_dim) {
-       //  output.mf_g[embedx_id] += input.mf_g[embedx_id];
-       // }
        feature_value_accessor.MergePushValueEmbedx(output, input, embedx_id);
   }
 
@@ -237,26 +223,6 @@ class HeterComm {
 
   void set_gpu_accessor(FVAccessor& accessor) {
     feature_value_accessor_ = accessor;
- /*
-    std::cout << "=============HeterComm GPUAccesor FeatureValue INFO=========" << std::endl;
-    std::cout << "optimizer type:" << feature_value_accessor_.common_feature_value.optimizer_type_ << std::endl;
-    std::cout << "Dim:" << feature_value_accessor_.common_feature_value.Dim() << std::endl;
-    std::cout << "EmbedDim:" << feature_value_accessor_.common_feature_value.EmbedDim() << std::endl;
-    std::cout << "EmbedXDim:" << feature_value_accessor_.common_feature_value.EmbedXDim() << std::endl;
-    std::cout << "EmbedWDim:" << feature_value_accessor_.common_feature_value.EmbedWDim() << std::endl;
-    std::cout << "CpuPtrIndex:" << feature_value_accessor_.common_feature_value.CpuPtrIndex() << std::endl;
-    std::cout << "DeltaScoreIndex:" << feature_value_accessor_.common_feature_value.DeltaScoreIndex() << std::endl;
-    std::cout << "ShowIndex:" << feature_value_accessor_.common_feature_value.ShowIndex() << std::endl;
-    std::cout << "ClickIndex:" << feature_value_accessor_.common_feature_value.ClickIndex() << std::endl;
-    std::cout << "EmbedWIndex:" << feature_value_accessor_.common_feature_value.EmbedWIndex() << std::endl;
-    std::cout << "EmbedG2SumIndex:" << feature_value_accessor_.common_feature_value.EmbedG2SumIndex() << std::endl;
-    std::cout << "SlotIndex:" << feature_value_accessor_.common_feature_value.SlotIndex() << std::endl;
-    std::cout << "MfDimIndex:" << feature_value_accessor_.common_feature_value.MfDimIndex() << std::endl;
-    std::cout << "MfSizeIndex:" << feature_value_accessor_.common_feature_value.MfSizeIndex() << std::endl;
-    std::cout << "EmbedxG2SumIndex:" << feature_value_accessor_.common_feature_value.EmbedxG2SumIndex() << std::endl;
-    std::cout << "EmbedxWIndex:" << feature_value_accessor_.common_feature_value.EmbedxWIndex() << std::endl;
-    std::cout << "=============HeterComm GPUAccesor FeatureValue INFO=========" << std::endl;
-*/
   }
 
  protected:

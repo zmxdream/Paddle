@@ -25,10 +25,10 @@ HeterPsBase* HeterPsBase::get_instance(
   if (accessor_type == "DownpourCtrDymfAccessor" && optimizer_type == 1) {
     auto* accessor_wrapper_ptr =
       GlobalAccessorTransfor::GetInstance().GetAccessorWrapper();
-    CommonFeatureValueAccessor* gpu_accessor = ((AccessorWrapper<CommonFeatureValueAccessor>*)accessor_wrapper_ptr)->AccessorPtr();
+    CommonFeatureValueAccessor* gpu_accessor =
+      ((AccessorWrapper<CommonFeatureValueAccessor>*)accessor_wrapper_ptr)->AccessorPtr();
 
-/*
-    // debug
+/*  use VLOG(0) instead of std::cout
     std::cout << "=============HeterPS GPUAccesor FeatureValue INFO=========" << std::endl;
     std::cout << "optimizer type:" << gpu_accessor->common_feature_value.optimizer_type_ << std::endl;
     std::cout << "Dim:" << gpu_accessor->common_feature_value.Dim() << std::endl;
@@ -93,23 +93,13 @@ int HeterPs<FVAccessor, GPUOptimizer>::get_index_by_devid(int devid) {
 
 template <typename FVAccessor, template<typename T> class GPUOptimizer>
 void HeterPs<FVAccessor, GPUOptimizer>::set_sparse_sgd(const OptimizerConfig& optimizer_config) {
-  std::cout << "before heterps setsparse sgd" << std::endl;
   comm_->set_sparse_sgd(optimizer_config);
-  std::cout << "after heterps setsparse sgd" << std::endl;
 }
 
 template <typename FVAccessor, template<typename T> class GPUOptimizer>
 void HeterPs<FVAccessor, GPUOptimizer>::set_embedx_sgd(const OptimizerConfig& optimizer_config) {
-  std::cout << "before heterps setembedx sgd" << std::endl;
   comm_->set_embedx_sgd(optimizer_config);
-  std::cout << "after heterps setembedx sgd" << std::endl;
 }
-
-// template <typename FVAccessor, template<typename T> class GPUOptimizer>
-// void HeterPs<FVAccessor, GPUOptimizer>::set_gpu_accessor(FVAccessor& gpu_accessor) {
-//  gpu_accessor_ = gpu_accessor;
-//  opt_ = GPUOptimizer<FVAccessor>(gpu_accessor_);
-//}
 
 template <typename FVAccessor, template<typename T> class GPUOptimizer>
 void HeterPs<FVAccessor, GPUOptimizer>::end_pass() { comm_->end_pass(); }

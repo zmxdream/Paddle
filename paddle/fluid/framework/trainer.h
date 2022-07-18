@@ -287,9 +287,6 @@ class PSGPUTrainer : public TrainerBase {
   int mpi_rank_;
   int mpi_size_;
   int dump_file_num_;
-
-  // _ps_param for gpups optimizer config
-  // ::paddle::PSParameter _ps_param;
 };
 #endif
 

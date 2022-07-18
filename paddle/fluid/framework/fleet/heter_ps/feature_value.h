@@ -16,7 +16,6 @@ limitations under the License. */
 
 #ifdef PADDLE_WITH_HETERPS
 
-
 #include <iostream>
 #include "paddle/fluid/platform/device_context.h"
 #include "paddle/fluid/platform/place.h"
@@ -27,8 +26,6 @@ limitations under the License. */
 #endif
 
 
-
-
 namespace paddle {
 namespace framework {
 #define MF_DIM 8
@@ -36,52 +33,7 @@ namespace framework {
 #define TYPEALIGN(ALIGNVAL, LEN) \
   (((uint64_t)(LEN) + ((ALIGNVAL)-1)) & ~((uint64_t)((ALIGNVAL)-1)))
 
-
 typedef uint64_t FeatureKey;
-
-/*
-struct FeatureValue {
-  float delta_score;
-  float show;
-  float clk;
-  int slot;
-  float lr;
-  float lr_g2sum;
-  int mf_size;
-  float mf[MF_DIM + 1];
-  uint64_t cpu_ptr;
-
-  friend std::ostream& operator<<(std::ostream& out, FeatureValue& val) {
-    out << "show: " << val.show << " clk: " << val.clk << " slot: " << val.slot
-        << " lr: " << val.lr << " mf_size: " << val.mf_size << " mf:";
-    for (int i = 0; i < val.mf_size; ++i) {
-      out << " " << val.mf[i];
-    }
-    return out;
-  }
-};
-
-struct FeaturePushValue {
-  float show;
-  float clk;
-  int slot;
-  float lr_g;
-  float mf_g[MF_DIM];
-
-  __device__ __forceinline__ FeaturePushValue
-  operator+(const FeaturePushValue& a) const {
-    FeaturePushValue out;
-    out.slot = a.slot;
-    out.show = a.show + show;
-    out.clk = a.clk + clk;
-    out.lr_g = a.lr_g + lr_g;
-    for (int i = 0; i < MF_DIM; ++i) {
-      out.mf_g[i] = a.mf_g[i] + mf_g[i];
-    }
-    return out;
-  }
-};
-*/
 
 /*
 struct FeatureValue {
@@ -258,7 +210,6 @@ class CommonFeatureValueAccessor : public FeatureValueAccessor {
       }
     }
 
-
     __host__ __device__ uint64_t CpuPtr(float* val) {return *(reinterpret_cast<uint64_t*>(val)); }
     __host__ __device__ float& DeltaScore(float* val) { return val[DeltaScoreIndex()]; }
     __host__ __device__ float& Show(float* val) { return val[ShowIndex()]; }
@@ -274,7 +225,7 @@ class CommonFeatureValueAccessor : public FeatureValueAccessor {
     int embed_sgd_dim;
     int embedx_dim;
     int embedx_sgd_dim;
-    int optimizer_type_;
+    int optimizer_type_ = 1; // default optimizer is adagrad
   };
 
   struct CommonPushValue {
@@ -288,7 +239,6 @@ class CommonFeatureValueAccessor : public FeatureValueAccessor {
        */
 
     __host__ __device__ int Dim(int embedx_dim) { return 5 + embedx_dim; }
-
     __host__ __device__ int DimSize(int dim, int embedx_dim) { return sizeof(float); }
     __host__ __device__ int Size(int embedx_dim) { return TYPEALIGN(8, Dim(embedx_dim) * sizeof(float)); }
     __host__ __device__ int SlotIndex() { return 0; }

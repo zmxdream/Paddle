@@ -1532,7 +1532,6 @@ void add_sparse_optimizer(
 void PSGPUWrapper::InitializeGPUServer(const std::string& fleet_desc) {
   // optimizer config for hbmps
   google::protobuf::TextFormat::ParseFromString(fleet_desc, &_ps_param);
-  std::cout << "before get sparse table" << std::endl; 
   auto sparse_table =
       _ps_param.server_param().downpour_server_param().downpour_table_param(0);
   auto sparse_table_accessor = sparse_table.accessor();
@@ -1640,22 +1639,13 @@ void PSGPUWrapper::InitializeGPUServer(const std::string& fleet_desc) {
   }
   config["sparse_shard_num"] = sparse_table.shard_num();
 
-
-  std::cout << "before global accessor init" << std::endl;
   GlobalAccessorTransfor::GetInstance().Init(accessor_class);
-  std::cout << "after global accessor init" << std::endl;
 
-  std::cout << "before accessor configure" << std::endl;
   GlobalAccessorTransfor::GetInstance().GetAccessorWrapper()->Configure(
         config);
-  std::cout << "after accessor configure" << std::endl;
   
-  std::cout << "before init gpu server" << std::endl;
   InitializeGPUServer(config);
-  std::cout << "after init gpu server" << std::endl;
-  std::cout << "before set cpu accessor type" << std::endl;
   SetCPUAccessorType(accessor_class);
-  std::cout << "after set cpu accessor type" << std::endl;
 }
 #endif
 

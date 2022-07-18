@@ -81,7 +81,8 @@ __global__ void search_kernel(Table* table,
 template <typename Table, typename FVAccessor>
 __global__ void dy_mf_search_kernel(Table* table,
                                     const typename Table::key_type* const keys,
-                                    char* vals, size_t len,
+                                    char* vals,
+                                    size_t len,
                                     size_t pull_feature_value_size,
                                     FVAccessor feature_value_accessor) {
   const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -92,18 +93,6 @@ __global__ void dy_mf_search_kernel(Table* table,
       float* cur = (float*)(vals + offset);
       float* input = it->second;
       feature_value_accessor.FeatureValueFill(cur, input);
-      // cur->slot = input.slot;
-      // cur->show = input.show;
-      // cur->clk = input.clk;
-      // cur->mf_dim = input.mf_dim;
-      // cur->lr = input.lr;
-      // cur->mf_size = input.mf_size;
-      // cur->cpu_ptr = input.cpu_ptr;
-      // cur->delta_score = input.delta_score;
-      // cur->lr_g2sum = input.lr_g2sum;
-      // for (int j = 0; j < cur->mf_dim + 1; ++j) {
-      //  cur->mf[j] = input.mf[j];
-      //}
     } else {
       if (keys[i] != 0) printf("pull miss key: %llu", keys[i]);
     }
@@ -276,43 +265,10 @@ __global__ void dy_mf_update_kernel(Table* table,
                                     const char* const grads, curandState* p_state, size_t len,
                                     Sgd sgd, size_t grad_value_size) {
   const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
-
-  // if (i == 0) {
-  //  sgd.print_accessor();
-  //  // print ptr & grad
-  //  float* ptr = (it.getter())->second;
-  //  float* cur = (float*)(grads + i * grad_value_size);
-  // }
-
-
   if (i < len) {
     auto it = table->find(keys[i]);
     if (it != table->end()) {
       float* cur = (float*)(grads + i * grad_value_size);
-/*
-      // debug
-      if (i == 1) {
-        // sgd.print_accessor();
-        // print ptr & grad
-        float* ptr = (it.getter())->second;
-        float* cur = (float*)(grads + i * grad_value_size);
-        float ptr_show = ptr[3];
-        float ptr_clk = ptr[4];
-        float ptr_slot = ptr[7];
-        float ptr_mf_dim = ptr[8];
-        float ptr_lr = ptr[5];
-        float ptr_lr_g = ptr[6];
-        float ptr_embedx_g = ptr[10];
-        float ptr_mf_size = ptr[9];
-        float grad_slot = cur[0];
-        float grad_show = cur[1];
-        float grad_click = cur[2];
-        float grad_mf_dim = cur[3];
-        float grad_lr = cur[4]; 
-        printf("feature:%f,%f,%f,%f,%f,%f,%f, grad:%f,%f,%f,%f,%f\n", ptr_show, ptr_clk, ptr_slot, ptr_mf_dim, ptr_mf_size, ptr_lr, ptr_lr_g, grad_slot, grad_show, grad_click, grad_mf_dim, grad_lr);
-      }
-*/
-
       sgd.dy_mf_update_value(optimizer_config, (it.getter())->second, cur, p_state[i]);
     } else {
       if(keys[i] != 0) printf("push miss key: %llu", keys[i]);
@@ -365,10 +321,9 @@ void HashTable<KeyType, ValType>::get(const KeyType* d_keys, char* d_vals,
   // const size_t grid_size = (len - 1) / 32 + 1;
   // dim3 grid_dims(grid_size);
 
-  const size_t grid_size_ = (len - 1) / 256 + 1;
-  // dim3 grid_dims(grid_size_);
+  const size_t grid_size = (len - 1) / 256 + 1;
   dim3 block_dims(256);
-  dim3 grid_dims(grid_size_);
+  dim3 grid_dims(grid_size);
 
   dy_mf_search_kernel<<<grid_dims, block_dims, 0, stream>>>(
       container_, d_keys, d_vals, len, pull_feature_value_size_, gpu_accessor);
@@ -515,9 +470,7 @@ void HashTable<KeyType, ValType>::update(const KeyType* d_keys,
 template <typename KeyType, typename ValType>
 void HashTable<KeyType, ValType>::set_sparse_sgd(
     const OptimizerConfig& optimizer_config) {
-  std::cout << "before hashtable_inl setsparse sgd" << std::endl;
   host_optimizer_config_.set_sparse_sgd(optimizer_config);
-  std::cout << "after hashtable_inl setsparse sgd" << std::endl;
   cudaMemcpy((void*)device_optimizer_config_,
              &host_optimizer_config_,
              sizeof(OptimizerConfig),
@@ -527,9 +480,7 @@ void HashTable<KeyType, ValType>::set_sparse_sgd(
 template <typename KeyType, typename ValType>
 void HashTable<KeyType, ValType>::set_embedx_sgd(
     const OptimizerConfig& optimizer_config) {
-  std::cout << "before hashtable_inl set embedx sgd" << std::endl;
   host_optimizer_config_.set_embedx_sgd(optimizer_config);
-  std::cout << "after hashtable_inl set embedx sgd" << std::endl;
   cudaMemcpy((void*)device_optimizer_config_,
              &host_optimizer_config_,
              sizeof(OptimizerConfig),

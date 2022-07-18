@@ -27,18 +27,12 @@ template <typename FVAccessor>
 class Optimizer {
  public:
   Optimizer() {}
-  // Optimizer(FVAccessor& feature_value_accessor) {
-  //  feature_value_accessor_ = feature_value_accessor;
-  // }
   ~Optimizer() {}
 
   virtual __device__ void dy_mf_update_value(const OptimizerConfig& optimizer_config,
                                      float* ptr,
                                      const float* grad,
                                      curandState& state) = 0;
-
-  // FVAccessor feature_value_accessor_;
-
 };
 
 template <typename FVAccessor>
@@ -48,7 +42,8 @@ public:
   SparseAdagradOptimizer() {}
   SparseAdagradOptimizer(FVAccessor& feature_value_accessor): Optimizer<FVAccessor>() {
     feature_value_accessor_ = feature_value_accessor;
-/*
+
+/* use VLOG instead of std::cout 
     std::cout << "=============Hashtable GPUAccesor FeatureValue INFO=========" << std::endl;
     std::cout << "optimizer type:" << feature_value_accessor_.common_feature_value.optimizer_type_ << std::endl;
     std::cout << "Dim:" << feature_value_accessor_.common_feature_value.Dim() << std::endl;
@@ -80,40 +75,6 @@ public:
   }
 
   ~SparseAdagradOptimizer() {}
-
-
-  __device__ void print_accessor() {
-  
-    printf("=============Print Accessor=================================\n");
-    printf("=============Hashtable GPUAccesor FeatureValue INFO=========\n");
-    printf("optimizer type:%d\n", feature_value_accessor_.common_feature_value.optimizer_type_);
-    printf("Dim:%d\n",feature_value_accessor_.common_feature_value.Dim());
-    printf("EmbedDim:%d\n", feature_value_accessor_.common_feature_value.EmbedDim());
-    printf("EmbedXDim:%d\n", feature_value_accessor_.common_feature_value.EmbedXDim());
-    printf("EmbedWDim:%d\n", feature_value_accessor_.common_feature_value.EmbedWDim());
-    printf("CpuPtrIndex:%d\n", feature_value_accessor_.common_feature_value.CpuPtrIndex());
-    printf("DeltaScoreIndex:%d\n", feature_value_accessor_.common_feature_value.DeltaScoreIndex());
-    printf("ShowIndex:%d\n", feature_value_accessor_.common_feature_value.ShowIndex());
-    printf("ClickIndex:%d\n", feature_value_accessor_.common_feature_value.ClickIndex());
-    printf("EmbedWIndex:%d\n", feature_value_accessor_.common_feature_value.EmbedWIndex());
-    printf("EmbedG2SumIndex:%d\n", feature_value_accessor_.common_feature_value.EmbedG2SumIndex());
-    printf("SlotIndex:%d\n", feature_value_accessor_.common_feature_value.SlotIndex());
-    printf("MfDimIndex:%d\n", feature_value_accessor_.common_feature_value.MfDimIndex());
-    printf("MfSizeIndex:%d\n", feature_value_accessor_.common_feature_value.MfSizeIndex());
-    printf("EmbedxG2SumIndex:%d\n", feature_value_accessor_.common_feature_value.EmbedxG2SumIndex());
-    printf("EmbedxWIndex:%d\n", feature_value_accessor_.common_feature_value.EmbedxWIndex());
-    printf("=============Hashtable GPUAccesor FeatureValue INFO=========\n");
-    printf("=============Hashtable GPUAccesor PushValue INFO=========\n");
-    printf("push slotIndex:%d\n", feature_value_accessor_.common_push_value.SlotIndex());
-    printf("push showIndex:%d\n",feature_value_accessor_.common_push_value.ShowIndex());
-    printf("push ClickIndex:%d\n", feature_value_accessor_.common_push_value.ClickIndex());
-    printf("push MfDimIndex:%d\n", feature_value_accessor_.common_push_value.MfDimIndex());
-    printf("push EmbedGIndex:%d\n",feature_value_accessor_.common_push_value.EmbedGIndex());
-    printf("push EmbedxGIndex:%d\n", feature_value_accessor_.common_push_value.EmbedxGIndex());
-    printf("=============Hashtable GPUAccesor PushValue INFO=========\n");
-
-
-  }
 
   __device__ void update_lr(const OptimizerConfig& optimizer_config, float& w, float& g2sum, float g, float scale) {
     double add_g2sum = 0;
@@ -153,60 +114,6 @@ public:
     g2sum += add_g2sum / n;
   }
 
-  // __device__ void update_value(const OptimizerConfig& optimizer_config, ValType& val, const GradType& grad) {
-  //  val.slot = grad.slot;
-  //  val.show += grad.show;
-  //  val.clk += grad.clk;
-  //  val.delta_score += optimizer_config.nonclk_coeff * (grad.show - grad.clk) +
-  //                     optimizer_config.clk_coeff * grad.clk;
-  //
-  //  update_lr(optimizer_config, val.lr, val.lr_g2sum, grad.lr_g, grad.show);
-  //
-  //  if (val.mf_size == 0) {
-  //    if (optimizer_config.mf_create_thresholds <=
-  //        optimizer_config.nonclk_coeff * (val.show - val.clk) +
-  //            optimizer_config.clk_coeff * val.clk) {
-  //      val.mf_size = MF_DIM + 1;
-  //      val.mf[0] = 0;
-  //      int tid_x = blockIdx.x * blockDim.x + threadIdx.x;
-  //      curandState state;
-  //      curand_init(clock64(), tid_x, 0, &state);
-  //      for (int i = 0; i < MF_DIM; ++i) {
-  //        val.mf[i + 1] =
-  //            (curand_uniform(&state)) * optimizer_config.mf_initial_range;
-  //      }
-  //    }
-  //  } else {
-  //    update_mf(optimizer_config, MF_DIM, &val.mf[1], val.mf[0], grad.mf_g, grad.show);
-  //  }
-  // }
-
-  // __device__ void update_value(const OptimizerConfig& optimizer_config, ValType& val, const GradType& grad, curandState& state) {
-  //  val.slot = grad.slot;
-  //  val.show += grad.show;
-  //  val.clk += grad.clk;
-  //  val.delta_score += optimizer_config.nonclk_coeff * (grad.show - grad.clk) +
-  //                     optimizer_config.clk_coeff * grad.clk;
-  //
-  //  update_lr(optimizer_config, val.lr, val.lr_g2sum, grad.lr_g, grad.show);
-  //
-  //  if (val.mf_size == 0) {
-  //    if (optimizer_config.mf_create_thresholds <=
-  //        optimizer_config.nonclk_coeff * (val.show - val.clk) +
-  //            optimizer_config.clk_coeff * val.clk) {
-  //      val.mf_size = MF_DIM + 1;
-  //      val.mf[0] = 0;
-  //      int tid_x = blockIdx.x * blockDim.x + threadIdx.x;
-  //      for (int i = 0; i < MF_DIM; ++i) {
-  //        val.mf[i + 1] =
-  //            (curand_uniform(&state)) * optimizer_config.mf_initial_range;
-  //      }
-  //    }
-  //  } else {
-  //    update_mf(optimizer_config, MF_DIM, &val.mf[1], val.mf[0], grad.mf_g, grad.show);
-  //  }
-  // }
-
  /*
   __device__ void dy_mf_update_value(const OptimizerConfig& optimizer_config, ValType* ptr, const GradType* grad) {
     ptr->slot = grad.slot;
@@ -245,16 +152,6 @@ public:
     // ptr->show += grad.show;
     // ptr->clk += grad.clk;
    
-    // debug 
-    // printf("zmx::optimizer config, mf_initial_range:%f, learning_rate:%f, initial_g2sum:%f, min_bound:%f, max_bound:%f, mf_lr:%f, mf_initial_g2sum:%f, mf_min_bound:%f, mf_max_bound:%f", 
-    //       optimizer_config.mf_initial_range, optimizer_config.learning_rate, optimizer_config.initial_g2sum, optimizer_config.min_bound, optimizer_config.max_bound,
-    //       optimizer_config.mf_learning_rate, optimizer_config.mf_initial_g2sum, optimizer_config.mf_min_bound, optimizer_config.mf_max_bound);
-   
-    // printf("zmx::debug: grad_show:%f, grad_clk:%f, ptr_slot:%d, grad_slot:%d, ptr_show:%f, ptr_clk:%f, ptr_mf_size:%d, ptr_mf_dim:%d\n",
-    //          grad_show, grad_clk, ptr[feature_value_accessor_.common_feature_value.SlotIndex()], grad[feature_value_accessor_.common_push_value.SlotIndex()],
-    //       ptr_show, ptr_clk, ptr_mf_size, ptr_mf_dim);
- 
-
     // int grad_show_index = feature_value_accessor_.common_push_value.ShowIndex();
     // int grad_clk_index = feature_value_accessor_.common_push_value.ClickIndex();
 
@@ -264,9 +161,6 @@ public:
     float grad_show = grad[1];
     float grad_clk = grad[2];
       
-
-
-
     // int ptr_slot_index = feature_value_accessor_.common_feature_value.SlotIndex();
     // int ptr_slot = (int)ptr[feature_value_accessor_.common_feature_value.SlotIndex()];
 
@@ -301,14 +195,7 @@ public:
     // int ptr_mf_dim = (int)(ptr[feature_value_accessor_.common_feature_value.MfDimIndex()]);
     float ptr_mf_dim = ptr[8];
     
-
-
     // int ptr_slot = (int)ptr[feature_value_accessor_.common_feature_value.SlotIndex()];
-    // printf("zmx::debug: mf_dim_index:%d, grad_show_index:%d, grad_clk_index:%d, grad_show:%f, grad_clk:%f, ptr_slot_index:%d,ptr_slot:%d, grad_slot:%d, ptr_show:%f, ptr_clk:%f, ptr_mf_size:%d,mf_dim_index:%d, ptr_mf_dim:%d\n",
-    //          mf_dim_index, grad_show_index, grad_clk_index, grad_show, grad_clk, ptr_slot_index, ptr_slot, (int)grad[feature_value_accessor_.common_push_value.SlotIndex()],
-    //       ptr_show, ptr_clk, ptr_mf_size, mf_dim_index, ptr_mf_dim);
-
-    // printf("zmx::debug, mf_dim_index:%d, mf_dim_index:%d\n", mf_dim_index, mf_dim_index);
 
     update_lr(
         optimizer_config,

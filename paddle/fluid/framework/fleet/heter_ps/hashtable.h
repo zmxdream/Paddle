@@ -58,7 +58,6 @@ class HashTable {
               gpuStream_t stream);
   void insert(const KeyType* d_keys, size_t len, char* pool, size_t feature_value_size,
               size_t start_index, gpuStream_t stream);
-
   void get(const KeyType* d_keys, ValType* d_vals, size_t len,
            gpuStream_t stream);
 
@@ -99,11 +98,8 @@ class HashTable {
   size_t max_mf_dim_ = 8;
   size_t pull_feature_value_size_;
   size_t push_grad_value_size_;
-
   OptimizerConfig* device_optimizer_config_;
   OptimizerConfig host_optimizer_config_;
-
-
 };
 }  // end namespace framework
 }  // end namespace paddle
