@@ -117,16 +117,12 @@ __global__ void dy_mf_fill_shard_grads<FeatureKey, int, CommonFeatureValueAccess
   const size_t i = blockIdx.x * blockDim.y + threadIdx.y;
   const size_t k = threadIdx.x;
   if (i < len) {
-
     if (k == 0) {
       d_shard_keys[i] = d_keys[idx[i]];
     }
-     
     float* cur = (float*)((char*)d_shard_grads + i * grad_value_size);
     float* input = (float*)((char*)d_grads + uint64_t(idx[i]) * grad_value_size);
-    
     gpu_accessor.FillShardGrads(cur, input, blockDim.x, k);
-
   }
 }
 

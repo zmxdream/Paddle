@@ -117,7 +117,12 @@ __global__ void dy_mf_search_kernel<TableContainer<FeatureKey, float*>, CommonFe
       float* input = it->second;
       gpu_accessor.FillDvals(cur, input, blockDim.x, k);
     } else {
-      if (keys[i] != 0) printf("pull miss key: %llu",keys[i]);
+      if (keys[i] != 0 && k == 0) printf("pull miss key: %llu",keys[i]);
+      if (keys[i] == 0 && k == 0) {
+        uint64_t offset = i * pull_feature_value_size;
+        FeatureValue* cur = (FeatureValue*)(vals + offset);
+        cur->mf_dim = 0;
+      }
     }
   }
 }
