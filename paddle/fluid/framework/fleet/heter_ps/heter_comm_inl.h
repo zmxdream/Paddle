@@ -244,7 +244,7 @@ HeterComm<KeyType, ValType, GradType, GPUAccessor>::HeterComm(
         8, 1, (unsigned int)-1, (size_t)-1, false, false));
       max_mf_dim_ = resource->max_mf_dim();
       auto accessor_wrapper_ptr =
-          GlobalAccessorTransfor::GetInstance().GetAccessorWrapper();
+          GlobalAccessorFactory::GetInstance().GetAccessorWrapper();
       size_t val_type_size =
           accessor_wrapper_ptr->GetFeatureValueSize(max_mf_dim_);
       size_t grad_type_size =
@@ -793,24 +793,14 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::merge_grad(int gpu_num,
   auto stream = resource_->local_stream(gpu_num, 0);
 
   size_t temp_storage_bytes;
-
-  //VLOG(1) << "hetercomm merge_grad: max_mf_dim: " << max_mf_dim_;
-  // size_t grad_value_size =
-  //    TYPEALIGN(8, sizeof(FeaturePushValue) + (max_mf_dim_ * sizeof(float)));
-
   auto accessor_wrapper_ptr =
-      GlobalAccessorTransfor::GetInstance().GetAccessorWrapper();
+      GlobalAccessorFactory::GetInstance().GetAccessorWrapper();
   size_t grad_value_size = accessor_wrapper_ptr->GetPushValueSize(max_mf_dim_);
 
-
-  VLOG(0) << "in merge grad, grad_value_size:" << grad_value_size << ", max_mf_dim:" << max_mf_dim_;
- 
   auto d_merge_keys = memory::Alloc(place, len * sizeof(KeyType));
   KeyType* d_merge_keys_ptr = reinterpret_cast<KeyType*>(d_merge_keys->ptr());
 
   auto d_merge_grads = memory::Alloc(place, len * grad_value_size);
-  // GradType* d_merge_grads_ptr =
-  //    reinterpret_cast<GradType*>(d_merge_grads->ptr());
   float* d_merge_grads_ptr =
       reinterpret_cast<float*>(d_merge_grads->ptr());
 
@@ -983,7 +973,7 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::pull_sparse(int num,
   int* d_idx_ptr = reinterpret_cast<int*>(d_idx->ptr());
 
   auto accessor_wrapper_ptr =
-      GlobalAccessorTransfor::GetInstance().GetAccessorWrapper();
+      GlobalAccessorFactory::GetInstance().GetAccessorWrapper();
   size_t val_type_size = accessor_wrapper_ptr->GetFeatureValueSize(max_mf_dim_);
 
   auto d_shard_keys = memory::Alloc(place, len * sizeof(KeyType));
@@ -1081,7 +1071,7 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::push_sparse(int gpu_num
   auto stream = resource_->local_stream(gpu_num, 0);
 
   auto accessor_wrapper_ptr =
-      GlobalAccessorTransfor::GetInstance().GetAccessorWrapper();
+      GlobalAccessorFactory::GetInstance().GetAccessorWrapper();
   size_t grad_value_size = accessor_wrapper_ptr->GetPushValueSize(max_mf_dim_);
 
   // int h_left[total_gpu];   // NOLINT

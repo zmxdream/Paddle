@@ -24,7 +24,7 @@ HeterPsBase* HeterPsBase::get_instance(
     size_t capacity, std::shared_ptr<HeterPsResource> resource, std::string accessor_type, int optimizer_type) {
   if (accessor_type == "DownpourCtrDymfAccessor" && optimizer_type == 1) {
     auto* accessor_wrapper_ptr =
-      GlobalAccessorTransfor::GetInstance().GetAccessorWrapper();
+      GlobalAccessorFactory::GetInstance().GetAccessorWrapper();
     CommonFeatureValueAccessor* gpu_accessor =
       ((AccessorWrapper<CommonFeatureValueAccessor>*)accessor_wrapper_ptr)->AccessorPtr();
     return new HeterPs<CommonFeatureValueAccessor, SparseAdagradOptimizer>(capacity, resource, *gpu_accessor);

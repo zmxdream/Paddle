@@ -798,7 +798,7 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
   }
   std::vector<std::thread> threads(device_num);
   auto* accessor_wrapper_ptr =
-      GlobalAccessorTransfor::GetInstance().GetAccessorWrapper();
+      GlobalAccessorFactory::GetInstance().GetAccessorWrapper();
 
   // auto* gpu_accessor = ((AccessorWrapper*)accessor_wrapper_ptr)->AccessorPtr();
   HeterPs_ = HeterPsBase::get_instance(size_max, resource_, accessor_type_, optimizer_type_);
@@ -1123,7 +1123,7 @@ void PSGPUWrapper::EndPass() {
   }
 
   auto accessor_wrapper_ptr =
-      GlobalAccessorTransfor::GetInstance().GetAccessorWrapper();
+      GlobalAccessorFactory::GetInstance().GetAccessorWrapper();
 
   int thread_num = 8; 
   auto dump_pool_to_cpu_func = [this, thread_num, &accessor_wrapper_ptr](int i, int j, int z) {
@@ -1325,7 +1325,7 @@ void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
   //      8, sizeof(FeatureValue) + sizeof(float) * (index_dim_vec_.back() + 1));
   //}
   auto accessor_wrapper_ptr =
-      GlobalAccessorTransfor::GetInstance().GetAccessorWrapper();
+      GlobalAccessorFactory::GetInstance().GetAccessorWrapper();
   feature_value_size = accessor_wrapper_ptr->GetFeatureValueSize(max_mf_dim_);
 
   VLOG(0) << "PullSparse, total_length:" << total_length << " featurevalue size:" << feature_value_size;
@@ -1429,7 +1429,7 @@ void PSGPUWrapper::PushSparseGrad(const paddle::platform::Place& place,
       std::accumulate(slot_lengths.begin(), slot_lengths.end(), 0UL);
 
   auto accessor_wrapper_ptr =
-      GlobalAccessorTransfor::GetInstance().GetAccessorWrapper();
+      GlobalAccessorFactory::GetInstance().GetAccessorWrapper();
   size_t grad_value_size = accessor_wrapper_ptr->GetPushValueSize(max_mf_dim_);
 
   // size_t grad_value_size =
@@ -1639,19 +1639,15 @@ void PSGPUWrapper::InitializeGPUServer(const std::string& fleet_desc) {
   }
   config["sparse_shard_num"] = sparse_table.shard_num();
 
-  GlobalAccessorTransfor::GetInstance().Init(accessor_class);
+  GlobalAccessorFactory::GetInstance().Init(accessor_class);
 
-  GlobalAccessorTransfor::GetInstance().GetAccessorWrapper()->Configure(
+  GlobalAccessorFactory::GetInstance().GetAccessorWrapper()->Configure(
         config);
   
   InitializeGPUServer(config);
   SetCPUAccessorType(accessor_class);
 }
 #endif
-
-
-
-
 
 }  // end namespace framework
 }  // end namespace paddle

@@ -755,14 +755,14 @@ class AccessorWrapper : public VirtualAccessor {
   GPUAccessor gpu_accessor_;
 };
 
-class GlobalAccessorTransfor {
+class GlobalAccessorFactory {
  public:
-  static GlobalAccessorTransfor& GetInstance() {
-    static GlobalAccessorTransfor ins;
+  static GlobalAccessorFactory& GetInstance() {
+    static GlobalAccessorFactory ins;
     return ins;
   }
 
-  ~GlobalAccessorTransfor() {
+  ~GlobalAccessorFactory() {
       delete accessor_wrapper_ptr_;
   }
 
@@ -773,7 +773,7 @@ class GlobalAccessorTransfor {
     if (accessor_type == "DownpourCtrDymfAccessor") {
       accessor_wrapper_ptr_ = new AccessorWrapper<CommonFeatureValueAccessor>();
     } else {
-      VLOG(0) << "GlobalAccessorTransfor Init not support accessor_type:"
+      VLOG(0) << "GlobalAccessorFactory Init not support accessor_type:"
               << accessor_type;
       accessor_wrapper_ptr_ = new AccessorWrapper<CommonFeatureValueAccessor>();
     }
