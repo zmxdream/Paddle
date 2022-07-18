@@ -23,7 +23,7 @@ limitations under the License. */
 namespace paddle {
 namespace framework {
 
-template <typename FVAccessor>
+template <typename GPUAccessor>
 class Optimizer {
  public:
   Optimizer() {}
@@ -35,13 +35,13 @@ class Optimizer {
                                      curandState& state) = 0;
 };
 
-template <typename FVAccessor>
-class SparseAdagradOptimizer : public Optimizer<FVAccessor> {
+template <typename GPUAccessor>
+class SparseAdagradOptimizer : public Optimizer<GPUAccessor> {
 
 public:
   SparseAdagradOptimizer() {}
-  SparseAdagradOptimizer(FVAccessor& feature_value_accessor): Optimizer<FVAccessor>() {
-    feature_value_accessor_ = feature_value_accessor;
+  SparseAdagradOptimizer(GPUAccessor& gpu_accessor): Optimizer<GPUAccessor>() {
+    gpu_accessor_ = gpu_accessor;
   }
 
   ~SparseAdagradOptimizer() {}
@@ -118,31 +118,31 @@ public:
 
   __device__ void dy_mf_update_value(const OptimizerConfig& optimizer_config, float* ptr, const float* grad, curandState& state) {
 
-    float grad_show = grad[feature_value_accessor_.common_push_value.ShowIndex()];
-    float grad_clk = grad[feature_value_accessor_.common_push_value.ClickIndex()];
+    float grad_show = grad[gpu_accessor_.common_push_value.ShowIndex()];
+    float grad_clk = grad[gpu_accessor_.common_push_value.ClickIndex()];
 
-    ptr[feature_value_accessor_.common_feature_value.SlotIndex()] =
-        grad[feature_value_accessor_.common_push_value.SlotIndex()];
+    ptr[gpu_accessor_.common_feature_value.SlotIndex()] =
+        grad[gpu_accessor_.common_push_value.SlotIndex()];
 
-    ptr[feature_value_accessor_.common_feature_value.ShowIndex()] += grad_show;
-    ptr[feature_value_accessor_.common_feature_value.ClickIndex()] += grad_clk;
+    ptr[gpu_accessor_.common_feature_value.ShowIndex()] += grad_show;
+    ptr[gpu_accessor_.common_feature_value.ClickIndex()] += grad_clk;
 
-    ptr[feature_value_accessor_.common_feature_value.DeltaScoreIndex()] +=
+    ptr[gpu_accessor_.common_feature_value.DeltaScoreIndex()] +=
       optimizer_config.nonclk_coeff * (grad_show - grad_clk) +
                        optimizer_config.clk_coeff * grad_clk;
    
-    float ptr_show = ptr[feature_value_accessor_.common_feature_value.ShowIndex()];
-    float ptr_clk = ptr[feature_value_accessor_.common_feature_value.ClickIndex()];
-    float grad_lr_g = grad[feature_value_accessor_.common_push_value.EmbedGIndex()];
+    float ptr_show = ptr[gpu_accessor_.common_feature_value.ShowIndex()];
+    float ptr_clk = ptr[gpu_accessor_.common_feature_value.ClickIndex()];
+    float grad_lr_g = grad[gpu_accessor_.common_push_value.EmbedGIndex()];
 
-    float ptr_mf_size = ptr[feature_value_accessor_.common_feature_value.MfSizeIndex()];
+    float ptr_mf_size = ptr[gpu_accessor_.common_feature_value.MfSizeIndex()];
 
-    int ptr_mf_dim = (int)(ptr[feature_value_accessor_.common_feature_value.MfDimIndex()]);
+    int ptr_mf_dim = (int)(ptr[gpu_accessor_.common_feature_value.MfDimIndex()]);
     
     update_lr(
         optimizer_config,
-        ptr[feature_value_accessor_.common_feature_value.EmbedWIndex()],
-        ptr[feature_value_accessor_.common_feature_value.EmbedG2SumIndex()],
+        ptr[gpu_accessor_.common_feature_value.EmbedWIndex()],
+        ptr[gpu_accessor_.common_feature_value.EmbedG2SumIndex()],
         grad_lr_g,
         grad_show);
 
@@ -151,11 +151,11 @@ public:
           optimizer_config.nonclk_coeff * (ptr_show - ptr_clk) +
               optimizer_config.clk_coeff * ptr_clk) {
 
-        ptr[feature_value_accessor_.common_feature_value.MfSizeIndex()] =
-          feature_value_accessor_.common_feature_value.MFSize(ptr_mf_dim) / sizeof(float);
-        ptr[feature_value_accessor_.common_feature_value.EmbedxG2SumIndex()] = 0;
+        ptr[gpu_accessor_.common_feature_value.MfSizeIndex()] =
+          gpu_accessor_.common_feature_value.MFSize(ptr_mf_dim) / sizeof(float);
+        ptr[gpu_accessor_.common_feature_value.EmbedxG2SumIndex()] = 0;
         for (int i = 0; i < ptr_mf_dim; ++i) {
-          ptr[feature_value_accessor_.common_feature_value.EmbedxWIndex() + i] =
+          ptr[gpu_accessor_.common_feature_value.EmbedxWIndex() + i] =
             (curand_uniform(&state)) * optimizer_config.mf_initial_range;
         }
       }
@@ -163,15 +163,15 @@ public:
       update_mf(
           optimizer_config,
           ptr_mf_dim,
-          &ptr[feature_value_accessor_.common_feature_value.EmbedxWIndex()],
-          ptr[feature_value_accessor_.common_feature_value.EmbedxG2SumIndex()],
-          &grad[feature_value_accessor_.common_push_value.EmbedxGIndex()],
+          &ptr[gpu_accessor_.common_feature_value.EmbedxWIndex()],
+          ptr[gpu_accessor_.common_feature_value.EmbedxG2SumIndex()],
+          &grad[gpu_accessor_.common_push_value.EmbedxGIndex()],
           grad_show);
     }
   }
 
 private:
-  FVAccessor feature_value_accessor_;
+  GPUAccessor gpu_accessor_;
 };
 
 

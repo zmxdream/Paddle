@@ -113,7 +113,7 @@ class FeatureValueAccessor {
   __host__ __device__  FeatureValueAccessor() {}
   __host__ __device__ ~FeatureValueAccessor() {}
 
-  __host__ __device__ virtual int Configure(std::unordered_map<std::string, float> config) {
+  __host__ __device__ virtual int Configure(std::unordered_map<std::string, float>& config) {
     _config = config;
     Initialize();
     return 0;
@@ -335,7 +335,7 @@ __host__ void BuildFill(float* gpu_val,
   // auto* cpu_accessor = dynamic_cast<::paddle::ps::DownpourCtrDymfAccessor*>(_cpu_accessor);
   auto* cpu_val = reinterpret_cast<::paddle::ps::DownpourFixedFeatureValue*>(_cpu_val);
   float* ptr_val = cpu_val->data();
-  size_t cpu_fv_dim = cpu_val->size();
+  size_t cpu_dim = cpu_val->size();
 
   gpu_val[common_feature_value.DeltaScoreIndex()] =
       ptr_val[::paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::delta_score_index()];
@@ -364,7 +364,7 @@ __host__ void BuildFill(float* gpu_val,
   ptr_val[::paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::mf_dim_index()] = float(mf_dim);
   gpu_val[common_feature_value.MfDimIndex()] = float(mf_dim);
 
-  if (cpu_fv_dim > 8) {
+  if (cpu_dim > 8) {
     gpu_val[common_feature_value.MfSizeIndex()] = 
         common_feature_value.MFSize(mf_dim) / sizeof(float);
 
@@ -620,16 +620,6 @@ class VirtualAccessor {
       ::paddle::ps::ValueAccessor* cpu_accessor,
       int mf_dim) = 0;
 
-  // virtual void Select(float* dest_val, 
-  //                    float* src_val,
-  //                    uint64_t* key,
-  //                    int mf_dim) = 0;
-
-  // virtual void GradientSelect(float* dest_val, 
-  //                            float* src_val,
-  //                            int slot,
-  //                            int mf_dim) = 0;
-
   virtual void CopyForPull(const paddle::platform::Place& place,
                            uint64_t** gpu_keys,
                            const std::vector<float*>& values,
@@ -694,19 +684,6 @@ class AccessorWrapper : public VirtualAccessor {
     gpu_accessor_.DumpFill(gpu_val, cpu_accessor, mf_dim);
   }
 
-  // virtual void Select(float* dest_val, 
-  //                    float* src_val,
-  //                    uint64_t* key,
-  //                    int mf_dim) {
-  //  gpu_accessor_.Select(dest_val, src_val, key, mf_dim);
-  //};
-
-  // virtual void GradientSelect(float* dest_val, 
-  //                            float* src_val,
-  //                            int slot,
-  //                            int mf_dim) {
-  //  gpu_accessor_.GradientSelect(dest_val, src_val, slot, mf_dim);
-  // };
   virtual void CopyForPull(const paddle::platform::Place& place,
                            uint64_t** gpu_keys,
                            const std::vector<float*>& values,

@@ -23,11 +23,11 @@ limitations under the License. */
 namespace paddle {
 namespace framework {
 
-template <typename FVAccessor, template<typename T> class GPUOptimizer>
+template <typename GPUAccessor, template<typename T> class GPUOptimizer>
 class HeterPs : public HeterPsBase {
  public:
   HeterPs() {}
-  HeterPs(size_t capacity, std::shared_ptr<HeterPsResource> resource, FVAccessor& gpu_accessor);
+  HeterPs(size_t capacity, std::shared_ptr<HeterPsResource> resource, GPUAccessor& gpu_accessor);
   virtual ~HeterPs();
   HeterPs(const HeterPs&) = delete;
   HeterPs& operator=(const HeterPs&) = delete;
@@ -52,8 +52,8 @@ class HeterPs : public HeterPsBase {
   void set_embedx_sgd(const OptimizerConfig& optimizer_config) override;
 
  private:
-  std::shared_ptr<HeterComm<FeatureKey, float, float, FVAccessor>> comm_;
-  GPUOptimizer<FVAccessor> opt_;
+  std::shared_ptr<HeterComm<FeatureKey, float, float, GPUAccessor>> comm_;
+  GPUOptimizer<GPUAccessor> opt_;
 };
 
 }  // end namespace framework

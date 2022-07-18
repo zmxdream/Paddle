@@ -24,7 +24,7 @@ limitations under the License. */
 namespace paddle {
 namespace framework {
 
-template <typename FVAccessor>
+template <typename GPUAccessor>
 __global__ void PullCopy(float** dest,
                          const float* src,
                          const int64_t* len,
@@ -33,7 +33,7 @@ __global__ void PullCopy(float** dest,
                          uint64_t** keys,
                          uint64_t max_val_size,
                          int* gpu_dim,
-                         FVAccessor feature_value_accessor) {
+                         GPUAccessor gpu_accessor) {
   
   CUDA_KERNEL_LOOP(i, total_len) {
     int low = 0;
@@ -52,12 +52,12 @@ __global__ void PullCopy(float** dest,
         (float*)((char*)src + uint64_t(i) * uint64_t(max_val_size));
     int mf_dim = gpu_dim[x] - 3;
 
-    feature_value_accessor.Select(
+    gpu_accessor.Select(
         dest[x] + y * (mf_dim + 3), feature_value_ptr, keys[x] + y, mf_dim);
   }
 }
 
-template <typename FVAccessor>
+template <typename GPUAccessor>
 __global__ void PushCopyWithPool(float* dest,
                                  float** src,
                                  int64_t* len,
@@ -67,7 +67,7 @@ __global__ void PushCopyWithPool(float* dest,
                                  int* slot_vector,
                                  int* mf_dim_vector,
                                  size_t grad_value_size,
-                                 FVAccessor feature_value_accessor) {
+                                 GPUAccessor gpu_accessor) {
 
   CUDA_KERNEL_LOOP(i, total_len) {
     int low = 0;
@@ -86,7 +86,7 @@ __global__ void PushCopyWithPool(float* dest,
    
     int mf_dim = mf_dim_vector[x];  // slot_vector holds both slot and
                                     // slot:mf_dim information
-    feature_value_accessor.GradientSelect(cur, src[x] + y * (mf_dim + 3), slot_vector[x], mf_dim, bs);
+    gpu_accessor.GradientSelect(cur, src[x] + y * (mf_dim + 3), slot_vector[x], mf_dim, bs);
   }
 }
 

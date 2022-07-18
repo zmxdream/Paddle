@@ -34,9 +34,6 @@ limitations under the License. */
 namespace paddle {
 namespace framework {
 
-// #define TYPEALIGN(ALIGNVAL, LEN) \
-//   (((uint64_t)(LEN) + ((ALIGNVAL)-1)) & ~((uint64_t)((ALIGNVAL)-1)))
-
 struct CustomGradMerger {
   template <typename T>
   CUB_RUNTIME_FUNCTION __forceinline__ __device__ T
@@ -50,35 +47,35 @@ struct CustomGradMerger {
     return out;
   }
 
-  template <typename FVAccessor>
+  template <typename GPUAccessor>
   __device__ __forceinline__
-  void copy_basic_field(float* output, const float* input, FVAccessor& feature_value_accessor) {
-      feature_value_accessor.PushValueFillBasic(output, input);
+  void copy_basic_field(float* output, const float* input, GPUAccessor& gpu_accessor) {
+      gpu_accessor.PushValueFillBasic(output, input);
   }
 
-  template <typename FVAccessor>
+  template <typename GPUAccessor>
   __device__ __forceinline__
-  void add_basic_field(float* output, const float* input, FVAccessor& feature_value_accessor) {
-      feature_value_accessor.MergePushValueBasic(output, input);
-  }
-
-
-  template <typename FVAccessor>
-  __device__ __forceinline__
-  void copy_embedx_field(float* output, const float* input, size_t embedx_id, FVAccessor& feature_value_accessor) {
-       feature_value_accessor.PushValueFillEmbedx(output, input, embedx_id);
+  void add_basic_field(float* output, const float* input, GPUAccessor& gpu_accessor) {
+      gpu_accessor.MergePushValueBasic(output, input);
   }
 
 
-  template <typename FVAccessor>
+  template <typename GPUAccessor>
   __device__ __forceinline__
-  void add_embedx_field(float* output, const float* input, size_t embedx_id, FVAccessor& feature_value_accessor) {
-       feature_value_accessor.MergePushValueEmbedx(output, input, embedx_id);
+  void copy_embedx_field(float* output, const float* input, size_t embedx_id, GPUAccessor& gpu_accessor) {
+       gpu_accessor.PushValueFillEmbedx(output, input, embedx_id);
+  }
+
+
+  template <typename GPUAccessor>
+  __device__ __forceinline__
+  void add_embedx_field(float* output, const float* input, size_t embedx_id, GPUAccessor& gpu_accessor) {
+       gpu_accessor.MergePushValueEmbedx(output, input, embedx_id);
   }
 
 };
 
-template <typename KeyType, typename ValType, typename GradType, typename FVAccessor>
+template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
 class HeterComm {
  public:
   HeterComm(size_t capacity, std::shared_ptr<HeterPsResource> resource);
@@ -221,12 +218,12 @@ class HeterComm {
   void walk_to_src(int start_index, int gpu_num, int* h_left, int* h_right,
                    char* src_val, size_t val_size);
 
-  void set_gpu_accessor(FVAccessor& accessor) {
-    feature_value_accessor_ = accessor;
+  void set_gpu_accessor(GPUAccessor& gpu_accessor) {
+    gpu_accessor_ = gpu_accessor;
   }
 
  protected:
-  FVAccessor feature_value_accessor_; 
+  GPUAccessor gpu_accessor_; 
   using Table = HashTable<KeyType, ValType>;
   using PtrTable = HashTable<KeyType, ValType*>;
   std::vector<Table*> tables_;

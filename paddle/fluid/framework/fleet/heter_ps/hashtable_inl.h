@@ -78,13 +78,13 @@ __global__ void search_kernel(Table* table,
   }
 }
 
-template <typename Table, typename FVAccessor>
+template <typename Table, typename GPUAccessor>
 __global__ void dy_mf_search_kernel(Table* table,
                                     const typename Table::key_type* const keys,
                                     char* vals,
                                     size_t len,
                                     size_t pull_feature_value_size,
-                                    FVAccessor feature_value_accessor) {
+                                    GPUAccessor gpu_accessor) {
   const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
   if (i < len) {
     auto it = table->find(keys[i]);
@@ -92,7 +92,7 @@ __global__ void dy_mf_search_kernel(Table* table,
       uint64_t offset = i * pull_feature_value_size;
       float* cur = (float*)(vals + offset);
       float* input = it->second;
-      feature_value_accessor.FeatureValueFill(cur, input);
+      gpu_accessor.FeatureValueFill(cur, input);
     } else {
       if (keys[i] != 0) printf("pull miss key: %llu", keys[i]);
     }
@@ -101,11 +101,13 @@ __global__ void dy_mf_search_kernel(Table* table,
 
 /*
 // optimized version
-template <typename Table>
+template <typename Table, typename GPUAccessor>
 __global__ void dy_mf_search_kernel(Table* table,
                                     const typename Table::key_type* const keys,
-                                    char* vals, size_t len,
-                                    size_t pull_feature_value_size) {
+                                    char* vals,
+                                    size_t len,
+                                    size_t pull_feature_value_size,
+                                    GPUAccessor gpu_accessor) {
   const size_t i = blockIdx.x * blockDim.y + threadIdx.y;
   const size_t k = threadIdx.x;
   if (i < len) {
@@ -258,9 +260,9 @@ void HashTable<KeyType, ValType>::get(const KeyType* d_keys, ValType* d_vals,
 }
 
 template <typename KeyType, typename ValType>
-template <typename FVAccessor>
+template <typename GPUAccessor>
 void HashTable<KeyType, ValType>::get(const KeyType* d_keys, char* d_vals,
-                                      size_t len, gpuStream_t stream, FVAccessor& gpu_accessor) {
+                                      size_t len, gpuStream_t stream, GPUAccessor& gpu_accessor) {
   if (len == 0) {
     return;
   }

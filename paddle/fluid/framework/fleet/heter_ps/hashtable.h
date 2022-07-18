@@ -61,8 +61,8 @@ class HashTable {
   void get(const KeyType* d_keys, ValType* d_vals, size_t len,
            gpuStream_t stream);
 
-  template <typename FVAccessor>
-  void get(const KeyType* d_keys, char* d_vals, size_t len, gpuStream_t stream, FVAccessor& gpu_accessor);
+  template <typename GPUAccessor>
+  void get(const KeyType* d_keys, char* d_vals, size_t len, gpuStream_t stream, GPUAccessor& gpu_accessor);
 
   void show();
   void dump_to_cpu(int devid, cudaStream_t stream);
