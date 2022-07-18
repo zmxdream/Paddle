@@ -1020,22 +1020,12 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::pull_sparse(int num,
 
   cudaMemsetAsync(d_left_ptr, -1, total_gpu * sizeof(int), stream);
   cudaMemsetAsync(d_right_ptr, -1, total_gpu * sizeof(int), stream);
-  //
   auto d_idx = memory::Alloc(place, len * sizeof(int));
   int* d_idx_ptr = reinterpret_cast<int*>(d_idx->ptr());
-
-  // size_t val_type_size = 0;
-  // if (!multi_mf_dim_) {
-  //  val_type_size = sizeof(ValType);
-  // } else {
-  //  val_type_size =
-  //      TYPEALIGN(8, sizeof(FeatureValue) + sizeof(float) * (max_mf_dim_ + 1));
-  // }
 
   auto accessor_wrapper_ptr =
       GlobalAccessorTransfor::GetInstance().GetAccessorWrapper();
   size_t val_type_size = accessor_wrapper_ptr->GetFeatureValueSize(max_mf_dim_);
-  VLOG(0) << "pull_sparse len:" << len << "  val_type_size: " << val_type_size;
 
   auto d_shard_keys = memory::Alloc(place, len * sizeof(KeyType));
   KeyType* d_shard_keys_ptr = reinterpret_cast<KeyType*>(d_shard_keys->ptr());
@@ -1059,15 +1049,11 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::pull_sparse(int num,
     if (h_left[i] == -1 || h_right[i] == -1) {
       continue;
     }
-    VLOG(0) << "devid:" << dev_id << "pull sparse before create storage " << i << " shard_len: " << shard_len;
     create_storage(num, i, shard_len * sizeof(KeyType),
                    shard_len * val_type_size);
-    VLOG(0) << "devid:" << dev_id << "pull sparse after create storage " << i << " shard_len: " << shard_len;
   }
 
   walk_to_dest(num, total_gpu, h_left, h_right, d_shard_keys_ptr, NULL);
-
-  VLOG(0) << "pull sparse devid:" << dev_id << "after walk_to_dest";
 
   std::vector<platform::Timer> time_lines;
   time_lines.resize(total_gpu);
