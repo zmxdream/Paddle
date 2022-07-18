@@ -1192,14 +1192,9 @@ void HeterComm<KeyType, ValType, GradType, FVAccessor>::push_sparse(int gpu_num,
   platform::CUDADeviceGuard guard(dev_id);
   auto stream = resource_->local_stream(gpu_num, 0);
 
-  // size_t grad_value_size =
-  //  TYPEALIGN(8, sizeof(FeaturePushValue) + (max_mf_dim_ * sizeof(float)));
-
   auto accessor_wrapper_ptr =
       GlobalAccessorTransfor::GetInstance().GetAccessorWrapper();
   size_t grad_value_size = accessor_wrapper_ptr->GetPushValueSize(max_mf_dim_);
-
-  VLOG(0) << "devid:" << dev_id << " heter comm push sparse grad_value_size: " << grad_value_size << " max_mf_dim_:" << max_mf_dim_; 
 
   // int h_left[total_gpu];   // NOLINT
   // int h_right[total_gpu];  // NOLINT
@@ -1226,25 +1221,13 @@ void HeterComm<KeyType, ValType, GradType, FVAccessor>::push_sparse(int gpu_num,
   float* d_shard_grads_ptr = reinterpret_cast<float*>(d_shard_grads->ptr());
 
   int uniq_len = len;
-  VLOG(0) << "zmx::devid: " << dev_id << " before merge grad uniq_len: " << uniq_len;
   merge_grad(gpu_num, d_keys, d_grads, NULL, len, uniq_len);
 
-  VLOG(0) << "zmx::devid: " << dev_id << " after merge grad uniq_len: " << uniq_len;
-
   int grid_size = (uniq_len - 1) / block_size_ + 1;
-
-  VLOG(0) << "devid:" << dev_id << "before split input to shard";
 
   split_input_to_shard(d_keys, d_idx_ptr, uniq_len, d_left_ptr, d_right_ptr,
                        gpu_num);
 
-  VLOG(0) << "devid:" << dev_id << "after split input to shard";
-
-  // if (!multi_mf_dim_) {
-  //  fill_shard_grads<<<grid_size, block_size_, 0, stream>>>(
-  //      d_shard_keys_ptr, d_keys, d_shard_grads_ptr, d_grads, d_idx_ptr,
-  //      uniq_len);
-  // } else {
     // dim3 block_dims(32, 32);
     // const size_t grid_size = (uniq_len - 1) / 32 + 1; 
     // dim3 grid_dims(grid_size);
@@ -1257,9 +1240,6 @@ void HeterComm<KeyType, ValType, GradType, FVAccessor>::push_sparse(int gpu_num,
     dy_mf_fill_shard_grads<<<grid_size, block_size_, 0, stream>>>(
         d_shard_keys_ptr, d_keys, d_shard_grads_ptr, d_grads, d_idx_ptr,
         uniq_len, grad_value_size, feature_value_accessor_);
-  // }
-
-  VLOG(0) << "devid:" << dev_id << "after dy mf fill shard grads";
 
   cudaMemcpyAsync(h_left, d_left_ptr, total_gpu * sizeof(int),
              cudaMemcpyDeviceToHost, stream);
@@ -1272,27 +1252,12 @@ void HeterComm<KeyType, ValType, GradType, FVAccessor>::push_sparse(int gpu_num,
     if (h_left[i] == -1 || h_right[i] == -1) {
       continue;
     }
-    VLOG(0) << "devid:" << dev_id << "before create storage " << i << " shard_len: " << shard_len << " left:" << h_left[i] << " right:" << h_right[i];
-    // if (!multi_mf_dim_) {
-    //  create_storage(gpu_num, i, shard_len * sizeof(KeyType),
-    //                 shard_len * sizeof(GradType));
-    //} else {
-      create_storage(gpu_num, i, shard_len * sizeof(KeyType),
-                     shard_len * grad_value_size);
-    VLOG(0) << "devid:" << dev_id << "after create storage " << i << " shard_len: " << shard_len << " left:" << h_left[i] << " right:" << h_right[i];
-    //}
+    create_storage(gpu_num, i, shard_len * sizeof(KeyType),
+                   shard_len * grad_value_size);
   }
 
-  // if (!multi_mf_dim_) {
-  //  walk_to_dest(gpu_num, total_gpu, h_left, h_right, d_shard_keys_ptr,
-  //             d_shard_grads_ptr);
-  //} else {
-    walk_to_dest(gpu_num, total_gpu, h_left, h_right, d_shard_keys_ptr,
+  walk_to_dest(gpu_num, total_gpu, h_left, h_right, d_shard_keys_ptr,
                reinterpret_cast<char*>(d_shard_grads_ptr), grad_value_size);
-  //}
-
-  VLOG(0) << "devid:" << dev_id << "after walk to dest";
-
 
   std::vector<platform::Timer> time_lines;
   time_lines.resize(total_gpu);
@@ -1306,20 +1271,10 @@ void HeterComm<KeyType, ValType, GradType, FVAccessor>::push_sparse(int gpu_num,
     cudaStreamSynchronize(node.in_stream);
 
     platform::CUDADeviceGuard guard(resource_->dev_id(i));
-    // if (!multi_mf_dim_) {
-    //  tables_[i]->rwlock_->WRLock();
-    //  tables_[i]->update(reinterpret_cast<KeyType*>(node.key_storage),
-    //                     reinterpret_cast<GradType*>(node.val_storage),
-    //                     h_right[i] - h_left[i] + 1, sgd,
-    //                     resource_->remote_stream(i, gpu_num));
-    //} else {
-    VLOG(0) << "devid:" << dev_id << "before table "<< i << " update";
     ptr_tables_[i]->rwlock_->WRLock();
     ptr_tables_[i]->update(reinterpret_cast<KeyType*>(node.key_storage),
                            node.val_storage, h_right[i] - h_left[i] + 1, sgd,
                            resource_->remote_stream(i, gpu_num));
-    VLOG(0) << "devid:" << dev_id << "after table "<< i << " update";
-    //}
   }
   for (int i = 0; i < total_gpu; ++i) {
     cudaStreamSynchronize(resource_->remote_stream(i, gpu_num));

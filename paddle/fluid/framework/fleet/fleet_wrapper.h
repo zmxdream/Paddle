@@ -22,6 +22,7 @@ limitations under the License. */
 #include <atomic>
 #include <ctime>
 #include <map>
+#include <mutex>
 #include <random>
 #include <string>
 #include <unordered_map>
@@ -334,8 +335,11 @@ class FleetWrapper {
   void Revert();
   // FleetWrapper singleton
   static std::shared_ptr<FleetWrapper> GetInstance() {
-    if (NULL == s_instance_) {
-      s_instance_.reset(new paddle::framework::FleetWrapper());
+    {
+      std::lock_guard<std::mutex> lk(ins_mutex);
+      if (NULL == s_instance_) {
+        s_instance_.reset(new paddle::framework::FleetWrapper());
+      }
     }
     return s_instance_;
   }
@@ -351,6 +355,7 @@ class FleetWrapper {
  private:
   std::string dist_desc_;
   static std::shared_ptr<FleetWrapper> s_instance_;
+  static std::mutex ins_mutex;
 #ifdef PADDLE_WITH_PSLIB
   std::map<uint64_t, std::vector<paddle::ps::Region>> _regions;
 #endif
