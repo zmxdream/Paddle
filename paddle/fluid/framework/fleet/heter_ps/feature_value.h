@@ -605,7 +605,7 @@ __host__ __device__ std::string ParseToString(const float* v, int param_size) {
       left = thread_idx * (len_per_thread + 1);
       right = left + real_len;
     } else {
-      left = remain * (len_per_thread + 1) + (thread_idx -remain) * len_per_thread;
+      left = remain * (len_per_thread + 1) + (thread_idx - remain) * len_per_thread;
       right = left + real_len;
     }
     for(int j = left; j < right; j++) output[j] = input[j];
@@ -619,7 +619,7 @@ __host__ __device__ std::string ParseToString(const float* v, int param_size) {
     if (thread_idx == common_feature_value.CpuPtrIndex()) { // cpu_ptr index == 0
       *(reinterpret_cast<uint64_t*>(output + thread_idx)) = *(reinterpret_cast<uint64_t*>(input + thread_idx)); 
     } else {
-      int len_per_thread = total_dim - 2 / (total_thread - 1); // cpu_ptr occupies 2 floats
+      int len_per_thread = (total_dim - 2) / (total_thread - 1); // cpu_ptr occupies 2 floats
       int remain = (total_dim - 2) % (total_thread - 1);
       int real_len = len_per_thread;
       if ((thread_idx - 1) < remain) real_len++;

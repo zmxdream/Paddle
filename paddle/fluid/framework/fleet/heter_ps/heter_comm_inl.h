@@ -1037,7 +1037,7 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::pull_sparse(int num,
     auto& node = path_[num][i].nodes_.front();
     cudaStreamSynchronize(node.out_stream);
   }
-  dim3 block_dims(32,32);
+  dim3 block_dims(32, 32);
   const size_t grid_size_ = (len - 1) / 32 + 1;
   dim3 grid_dims(grid_size_);
     
