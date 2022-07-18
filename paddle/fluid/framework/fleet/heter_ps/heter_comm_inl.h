@@ -104,7 +104,6 @@ __global__ void dy_mf_fill_shard_grads(KeyType* d_shard_keys,
   }
 }
 
-/*
 // optimized version
 template <>
 __global__ void dy_mf_fill_shard_grads<FeatureKey, int, CommonFeatureValueAccessor>(FeatureKey* d_shard_keys,
@@ -114,38 +113,22 @@ __global__ void dy_mf_fill_shard_grads<FeatureKey, int, CommonFeatureValueAccess
                                                                                     int* idx,
                                                                                     size_t len,
                                                                                     size_t grad_value_size,
-                                                                                    GPUAccessor gpu_accessor) {
+                                                                                    CommonFeatureValueAccessor gpu_accessor) {
   const size_t i = blockIdx.x * blockDim.y + threadIdx.y;
   const size_t k = threadIdx.x;
   if (i < len) {
+
     if (k == 0) {
       d_shard_keys[i] = d_keys[idx[i]];
     }
-    FeaturePushValue* cur = (FeaturePushValue*)((char*)d_shard_grads + i * grad_value_size);
-    FeaturePushValue& input = *(FeaturePushValue*)((char*)d_grads + uint64_t(idx[i]) * grad_value_size);
-    char* cur_p = (char*)cur;
-    char* input_p = (char*)(&input);
-    int len = 5 + input.mf_dim;
-    if (k == 2 || k == 4) *(int*)(cur_p + k * 4) = *(int*)(input_p + k * 4);
-    else if (k < 5) *(float*)(cur_p + k * 4) = *(float*)(input_p + k * 4);
-    else {
-        int len_per_thread = (len - 5) / (blockDim.y - 5);
-        int remain = (len - 5) % (blockDim.y - 5);
-        int real_len = len_per_thread;
-        if ((k - 5) < remain) real_len++;
-        int left = -1, right = -1;
-        if ((k - 5) < remain) {
-          left = 5 + (k - 5) * (len_per_thread + 1);
-          right = left + real_len;
-        } else {
-          left = 5 + remain * (len_per_thread + 1) + (k - 5 - remain) * len_per_thread;
-          right = left + real_len;
-        }
-        for(int j = left; j < right; j++) *(float*)(cur_p + j * 4) = *(float*)(input_p + j * 4);
-    }
+     
+    float* cur = (float*)((char*)d_shard_grads + i * grad_value_size);
+    float* input = (float*)((char*)d_grads + uint64_t(idx[i]) * grad_value_size);
+    
+    gpu_accessor.FillShardGrads(cur, input, blockDim.x, k);
+
   }
 }
-*/
 
 template <typename GPUAccessor>
 __global__ void merge_gradient_basic_kernel(const uint32_t* offset,
@@ -227,7 +210,6 @@ __global__ void dy_mf_fill_dvals(float* d_shard_vals,
   }
 }
 
-/*
 // optimized version
 template <>
 __global__ void dy_mf_fill_dvals<int, CommonFeatureValueAccessor>(float* d_shard_vals,
@@ -235,39 +217,16 @@ __global__ void dy_mf_fill_dvals<int, CommonFeatureValueAccessor>(float* d_shard
                                                                   int* idx,
                                                                   size_t len,
                                                                   size_t val_size,
-                                                                  GPUAccessor gpu_accessor) {
+                                                                  CommonFeatureValueAccessor gpu_accessor) {
   const size_t i = blockIdx.x * blockDim.y + threadIdx.y;
   const size_t k = threadIdx.x;
   if (i < len) {
     uint64_t new_offset = uint64_t(idx[i]) * val_size;
-    FeatureValue* cur = (FeatureValue*)((char*)d_vals + new_offset);
-    FeatureValue& input = *(FeatureValue*)((char*)d_shard_vals + i * val_size);
-    char* cur_p = (char*)cur;
-    char* input_p = (char*)(&input);
-    int len = 9 + input.mf_dim + 1;
-
-    if (k == 3 || k == 6 || k == 7) *(int*)(cur_p + k * 4) = *(int*)(input_p + k * 4);
-    else if (k < 8) *(float*)(cur_p + k * 4) = *(float*)(input_p + k * 4);
-    else if (k == 8) { 
-      *(uint64_t*)(cur_p + k * 4) = *(uint64_t*)(input_p + k * 4);
-    } else {
-        int len_per_thread = (len - 9) / (blockDim.x - 9);
-        int remain = (len - 9) % (blockDim.y - 9);
-        int real_len = len_per_thread;
-        if ((k - 9) < remain) real_len++;
-        int left = -1, right = -1;
-        if ((k - 9) < remain) {
-          left = 9 + (k - 9) * (len_per_thread + 1);
-          right = left + real_len;
-        } else {
-          left = 9 + remain * (len_per_thread + 1) + (k - 9 - remain) * len_per_thread;
-          right = left + real_len;
-        }
-        for(int j = left; j < right; j++) *(float*)(cur_p + (j + 1) * 4) = *(float*)(input_p + (j + 1) * 4);
-    }
+    float* cur = (float*)((char*)d_vals + new_offset);
+    float* input = (float*)((char*)d_shard_vals + i * val_size);
+    gpu_accessor.FillDvals(cur, input, blockDim.x, k);
   }
 }
-*/
 
 template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
 HeterComm<KeyType, ValType, GradType, GPUAccessor>::HeterComm(
@@ -1088,15 +1047,11 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::pull_sparse(int num,
     auto& node = path_[num][i].nodes_.front();
     cudaStreamSynchronize(node.out_stream);
   }
-
-    // dim3 block_dims(32,32);
-    // const size_t grid_size_ = (len - 1) / 32 + 1;
-    // const size_t grid_size_ = (len - 1) / 256 + 1;
-    // dim3 grid_dims(grid_size_);
-    // dim3 block_dims(256);
-    // dim3 grid_dims(grid_size_);
+  dim3 block_dims(32,32);
+  const size_t grid_size_ = (len - 1) / 32 + 1;
+  dim3 grid_dims(grid_size_);
     
-  dy_mf_fill_dvals<<<grid_size, block_size_, 0, stream>>>(
+  dy_mf_fill_dvals<<<grid_dims, block_dims, 0, stream>>>(
         d_shard_vals_ptr, d_vals, d_idx_ptr, len, val_type_size, gpu_accessor_);
 
   cudaStreamSynchronize(stream);
@@ -1161,16 +1116,11 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::push_sparse(int gpu_num
   split_input_to_shard(d_keys, d_idx_ptr, uniq_len, d_left_ptr, d_right_ptr,
                        gpu_num);
 
-    // dim3 block_dims(32, 32);
-    // const size_t grid_size = (uniq_len - 1) / 32 + 1; 
-    // dim3 grid_dims(grid_size);
+  dim3 block_dims(32, 32);
+  const size_t grid_size_ = (uniq_len - 1) / 32 + 1; 
+  dim3 grid_dims(grid_size_);
 
-    // const size_t grid_size_ = (uniq_len - 1) / 256 + 1;
-    // dim3 grid_dims(grid_size_);
-    //dim3 block_dims(256);
-    //dim3 grid_dims(grid_size_);
-
-    dy_mf_fill_shard_grads<<<grid_size, block_size_, 0, stream>>>(
+  dy_mf_fill_shard_grads<<<grid_dims, block_dims, 0, stream>>>(
         d_shard_keys_ptr, d_keys, d_shard_grads_ptr, d_grads, d_idx_ptr,
         uniq_len, grad_value_size, gpu_accessor_);
 

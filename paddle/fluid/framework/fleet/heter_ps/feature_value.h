@@ -591,6 +591,49 @@ __host__ __device__ std::string ParseToString(const float* v, int param_size) {
     return os.str();
   }
 
+  __device__ void FillShardGrads(float* output, float* input, int total_thread, int thread_idx) {
+    int mf_dim = (int)input[common_push_value.MfDimIndex()]; 
+    int total_dim = common_push_value.Dim(mf_dim);
+
+    int len_per_thread = total_dim / total_thread;
+    int remain = total_dim % total_thread;
+    int real_len = len_per_thread;
+    if (thread_idx < remain) real_len++;
+
+    int left = -1, right = -1;
+    if (thread_idx < remain) {
+      left = thread_idx * (len_per_thread + 1);
+      right = left + real_len;
+    } else {
+      left = remain * (len_per_thread + 1) + (thread_idx -remain) * len_per_thread;
+      right = left + real_len;
+    }
+    for(int j = left; j < right; j++) output[j] = input[j];
+  }
+ 
+  __device__ void FillDvals(float* output, float* input, int total_thread, int thread_idx) {
+    int mf_dim = (int)input[common_feature_value.MfDimIndex()];
+    // int mf_size = common_feature_value.MFSize(mf_dim) / sizeof(float);
+    int total_dim = common_feature_value.Dim(mf_dim);
+    // in all accessor, we put cpu_ptr in the first place
+    if (thread_idx == common_feature_value.CpuPtrIndex()) { // cpu_ptr index == 0
+      *(reinterpret_cast<uint64_t*>(output + thread_idx)) = *(reinterpret_cast<uint64_t*>(input + thread_idx)); 
+    } else {
+      int len_per_thread = total_dim - 2 / (total_thread - 1); // cpu_ptr occupies 2 floats
+      int remain = (total_dim - 2) % (total_thread - 1);
+      int real_len = len_per_thread;
+      if ((thread_idx - 1) < remain) real_len++;
+        int left = -1, right = -1;
+        if ((thread_idx - 1) < remain) {
+          left = 2 + (thread_idx - 1) * (len_per_thread + 1);
+          right = left + real_len;
+        } else {
+          left = 2 + remain * (len_per_thread + 1) + (thread_idx - 1 - remain) * len_per_thread;
+          right = left + real_len;
+        }
+        for(int j = left; j < right; j++) output[j] = input[j];
+    }
+  }
  public:
   CommonFeatureValue common_feature_value;
   CommonPushValue common_push_value;
