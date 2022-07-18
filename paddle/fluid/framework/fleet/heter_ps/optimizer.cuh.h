@@ -118,28 +118,12 @@ public:
 
   __device__ void dy_mf_update_value(const OptimizerConfig& optimizer_config, float* ptr, const float* grad, curandState& state) {
 
-    // ptr->slot = grad.slot;
-    // ptr->show += grad.show;
-    // ptr->clk += grad.clk;
-   
-    // int grad_show_index = feature_value_accessor_.common_push_value.ShowIndex();
-    // int grad_clk_index = feature_value_accessor_.common_push_value.ClickIndex();
-
     float grad_show = grad[feature_value_accessor_.common_push_value.ShowIndex()];
     float grad_clk = grad[feature_value_accessor_.common_push_value.ClickIndex()];
 
-    // float grad_show = grad[1];
-    // float grad_clk = grad[2];
-      
-    // int ptr_slot_index = feature_value_accessor_.common_feature_value.SlotIndex();
-    // int ptr_slot = (int)ptr[feature_value_accessor_.common_feature_value.SlotIndex()];
-
-    // ptr[7] = grad[0];
     ptr[feature_value_accessor_.common_feature_value.SlotIndex()] =
         grad[feature_value_accessor_.common_push_value.SlotIndex()];
 
-    // ptr[3] += grad_show;
-    // ptr[4] += grad_clk;
     ptr[feature_value_accessor_.common_feature_value.ShowIndex()] += grad_show;
     ptr[feature_value_accessor_.common_feature_value.ClickIndex()] += grad_clk;
 
@@ -147,34 +131,20 @@ public:
       optimizer_config.nonclk_coeff * (grad_show - grad_clk) +
                        optimizer_config.clk_coeff * grad_clk;
    
-    // float ptr_lr = ptr[feature_value_accessor_.common_feature_value.EmbedWIndex()];
-    // float ptr_lr_g2sum = ptr[feature_value_accessor_.common_feature_value.EmbedG2SumIndex()];
-
-    // float ptr_show = ptr[3];
-    // float ptr_clk = ptr[4];
-
     float ptr_show = ptr[feature_value_accessor_.common_feature_value.ShowIndex()];
     float ptr_clk = ptr[feature_value_accessor_.common_feature_value.ClickIndex()];
     float grad_lr_g = grad[feature_value_accessor_.common_push_value.EmbedGIndex()];
-    // float grad_lr_g = grad[4];
 
     float ptr_mf_size = ptr[feature_value_accessor_.common_feature_value.MfSizeIndex()];
-    // float ptr_mf_size = ptr[9];
 
-    // int mf_dim_index = feature_value_accessor_.common_feature_value.MfDimIndex();
     int ptr_mf_dim = (int)(ptr[feature_value_accessor_.common_feature_value.MfDimIndex()]);
-    // float ptr_mf_dim = ptr[8];
     
-    // int ptr_slot = (int)ptr[feature_value_accessor_.common_feature_value.SlotIndex()];
-
     update_lr(
         optimizer_config,
         ptr[feature_value_accessor_.common_feature_value.EmbedWIndex()],
         ptr[feature_value_accessor_.common_feature_value.EmbedG2SumIndex()],
         grad_lr_g,
         grad_show);
-
-    // ptr->mf_dim = grad.mf_dim;
 
     if (ptr_mf_size == (float)0) {
       if (optimizer_config.mf_create_thresholds <=
@@ -183,19 +153,10 @@ public:
 
         ptr[feature_value_accessor_.common_feature_value.MfSizeIndex()] =
           feature_value_accessor_.common_feature_value.MFSize(ptr_mf_dim) / sizeof(float);
-        // ptr->mf_size = ptr->mf_dim + 1;
-        // ptr->mf[0] = 0;
         ptr[feature_value_accessor_.common_feature_value.EmbedxG2SumIndex()] = 0;
-        // ptr[feature_value_accessor_.common_feature_value.EmbedxWIndex()] = 0;
-        // int tid_x = blockIdx.x * blockDim.x + threadIdx.x;
-        //curandState state;
-        //curand_init(clock64(), tid_x, 0, &state);
         for (int i = 0; i < ptr_mf_dim; ++i) {
-          // ptr[feature_value_accessor_.common_feature_value.EmbedxWIndex() + i + 1] =
           ptr[feature_value_accessor_.common_feature_value.EmbedxWIndex() + i] =
             (curand_uniform(&state)) * optimizer_config.mf_initial_range;
-          // ptr->mf[i + 1] =
-          //    (curand_uniform(&state)) * optimizer_config.mf_initial_range;
         }
       }
     } else {
@@ -206,10 +167,6 @@ public:
           ptr[feature_value_accessor_.common_feature_value.EmbedxG2SumIndex()],
           &grad[feature_value_accessor_.common_push_value.EmbedxGIndex()],
           grad_show);
-          // &(ptr[feature_value_accessor_.common_feature_value.EmbedxWIndex() + 1]),
-          // ptr[feature_value_accessor_.common_feature_value.EmbedxWIndex()],
-          // &(grad[feature_value_accessor_.common_push_value.EmbedxGIndex()]),
-          // grad_show);  // for local test
     }
   }
 
