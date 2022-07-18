@@ -326,27 +326,16 @@ class CommonFeatureValueAccessor : public FeatureValueAccessor {
     return 0;
   }
 
-/*
 // build阶段从cpu_val赋值给gpu_val
 __host__ void BuildFill(float* gpu_val, 
                         void* _cpu_val,
                         ::paddle::ps::ValueAccessor* _cpu_accessor,
                         int mf_dim) {
-
-
-  
-
 #if defined PADDLE_WITH_PSLIB
   // auto* cpu_accessor = dynamic_cast<::paddle::ps::DownpourCtrDymfAccessor*>(_cpu_accessor);
   auto* cpu_val = reinterpret_cast<::paddle::ps::DownpourFixedFeatureValue*>(_cpu_val);
   float* ptr_val = cpu_val->data();
   size_t cpu_fv_dim = cpu_val->size();
-
-  // std::cout << "ptr_val:";
-  // for (int i = 0; i < 8; i++) {
-  //  std::cout << ptr_val[i]<< " ";
-  // }
-  // std::cout << std::endl;
 
   gpu_val[common_feature_value.DeltaScoreIndex()] =
       ptr_val[::paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::delta_score_index()];
@@ -366,7 +355,7 @@ __host__ void BuildFill(float* gpu_val,
   *(reinterpret_cast<uint64_t*>(gpu_val + common_feature_value.CpuPtrIndex())) = (uint64_t)(cpu_val);
 
   // lr_g2sum
-  // for dymf, i = 0
+  // for dymf && adagrad, embed_dim = 1
   for (int i = 0; i < common_feature_value.EmbedDim(); i++) {
     gpu_val[common_feature_value.EmbedG2SumIndex() + i] =
       ptr_val[::paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::embed_g2sum_index() + i];
@@ -385,101 +374,9 @@ __host__ void BuildFill(float* gpu_val,
     }
   } else {
     gpu_val[common_feature_value.MfSizeIndex()] = 0;
-
-    // int mf_dim = *(int*)(&(src_val[common_feature_value.MfDimIndex()]));
     for (int i = 0; i < mf_dim + common_feature_value.EmbedXDim(); i++) {
-      // dest_val[common_feature_value.EmbedxG2SumIndex() + i] = src_val[common_feature_value.EmbedxG2SumIndex() + i];
       gpu_val[common_feature_value.EmbedxG2SumIndex() + i] = 0;
     }
-    // for (int x = common_feature_value.EmbedxG2SumIndex(); 
-    //      x < int(common_feature_value.Size(mf_dim) / sizeof(float)); x++){
-    //  gpu_val[x] = 0;
-    //}
-
-  }
-#endif
-}
-*/
-
-// build阶段从cpu_val赋值给gpu_val
-__host__ void BuildFill(float* gpu_val, 
-                        void* _cpu_val,
-                        ::paddle::ps::ValueAccessor* _cpu_accessor,
-                        int mf_dim) {
-
-
-  
-
-#if defined PADDLE_WITH_PSLIB
-  // auto* cpu_accessor = dynamic_cast<::paddle::ps::DownpourCtrDymfAccessor*>(_cpu_accessor);
-  auto* cpu_val = reinterpret_cast<::paddle::ps::DownpourFixedFeatureValue*>(_cpu_val);
-  float* ptr_val = cpu_val->data();
-  size_t cpu_fv_dim = cpu_val->size();
-
-  // std::cout << "ptr_val:";
-  // for (int i = 0; i < 8; i++) {
-  //  std::cout << ptr_val[i]<< " ";
-  // }
-  // std::cout << std::endl;
-
-  // gpu_val[common_feature_value.DeltaScoreIndex()] =
-  gpu_val[2] = ptr_val[::paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::delta_score_index()];
-
-
-  // gpu_val[common_feature_value.ShowIndex()] = 
-  gpu_val[3] = ptr_val[::paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::show_index()];
-  // gpu_val[common_feature_value.ClickIndex()] =
-  gpu_val[4] = ptr_val[::paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::click_index()];
-
-  // gpu_val[common_feature_value.SlotIndex()] = 
-  gpu_val[7] = ptr_val[::paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::slot_index()];
-
-  // lr
-  // gpu_val[common_feature_value.EmbedWIndex()] = 
-  gpu_val[5] = ptr_val[::paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::embed_w_index()];
-
-
-  // cpu_ptr
-  *(reinterpret_cast<uint64_t*>(gpu_val)) = (uint64_t)(cpu_val);
-
-  // lr_g2sum
-  // for dymf, i = 0
-  // for (int i = 0; i < common_feature_value.EmbedDim(); i++) {
-    gpu_val[6] =
-      ptr_val[::paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::embed_g2sum_index()];
-  // }
-
-  
-  ptr_val[::paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::mf_dim_index()] = float(mf_dim);
-  // gpu_val[common_feature_value.MfDimIndex()] = float(mf_dim);
-  gpu_val[8] = mf_dim;
-  if (cpu_fv_dim > 8) {
-    gpu_val[9] = mf_dim + 1;
-    // gpu_val[common_feature_value.MfSizeIndex()] = 
-    //    common_feature_value.MFSize(mf_dim) / sizeof(float);
-
-    // for (int x = 0; x < int(common_feature_value.MFSize(mf_dim) / sizeof(float));
-    //        x++) {
-    //  gpu_val[common_feature_value.EmbedxG2SumIndex() + x]  = ptr_val[8 + x];
-    //}
-    for(int x = 0; x < mf_dim + 1; x++) {
-      gpu_val[10 + x] = ptr_val[8 + x];
-    }
-
-
-  } else {
-    gpu_val[9] = 0;
-    // int mf_dim = *(int*)(&(src_val[common_feature_value.MfDimIndex()]));
-
-    for (int i = 0; i < mf_dim + 1; i++) {
-      // dest_val[common_feature_value.EmbedxG2SumIndex() + i] = src_val[common_feature_value.EmbedxG2SumIndex() + i];
-      gpu_val[10 + i] = 0;
-    }
-    // for (int x = common_feature_value.EmbedxG2SumIndex(); 
-    //      x < int(common_feature_value.Size(mf_dim) / sizeof(float)); x++){
-    //  gpu_val[x] = 0;
-    //}
-
   }
 #endif
 }
@@ -487,7 +384,6 @@ __host__ void BuildFill(float* gpu_val,
 // dump_to_cpu阶段从gpu_val赋值给cpu_val
 // gpu_val is firstly copied to mem
 // so gpu_val is in mem, not in hbm
-/*
 __host__ void DumpFill(float* gpu_val,
                        ::paddle::ps::ValueAccessor* _cpu_accessor,
                        int mf_dim) {
@@ -523,67 +419,11 @@ __host__ void DumpFill(float* gpu_val,
               x++) {
         cpu_val[x + 8] =
           gpu_val[common_feature_value.EmbedxG2SumIndex() + x];
-        // cpu_val[cpu_accessor->common_feature_value.EmbedxG2SumIndex() + x]  = 
-        //  gpu_val[common_feature_value.EmbedxG2SumIndex() + x];
-    }
-  }
-#endif
-}
-*/
-
-
-__host__ void DumpFill(float* gpu_val,
-                       ::paddle::ps::ValueAccessor* _cpu_accessor,
-                       int mf_dim) {
-
-#if defined PADDLE_WITH_PSLIB
-  
-  if (mf_dim != (int)gpu_val[8]) {
-    std::cout << "zmx::error::in dump fill mf not equal " << mf_dim << " " << (int)gpu_val[8];
-  }
-
-  // auto* cpu_accessor = dynamic_cast<::paddle::ps::DownpourCtrDymfAccessor*>(_cpu_accessor);
-  uint64_t cpu_addr = *(uint64_t*)(gpu_val);
-  auto* downpour_value = (::paddle::ps::DownpourFixedFeatureValue*)cpu_addr;
-  int downpour_value_size = downpour_value->size();
-
-  if ((int)gpu_val[9] > 0 && downpour_value_size == 8) {
-    //int mf_size = common_feature_value.MFSize(mf_dim) / sizeof(float); // mf_size = gpu_val[common_feature_value.MfSizeIndex()];
-    int mf_size = (int)gpu_val[9];
-    downpour_value->resize(downpour_value_size + mf_size);
-  }
-  float* cpu_val = downpour_value->data(); 
-
-  cpu_val[paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::delta_score_index()] =
-      gpu_val[2];
-  cpu_val[paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::show_index()] =
-      gpu_val[3];
-  cpu_val[paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::click_index()] =
-      gpu_val[4];
-  cpu_val[paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::embed_w_index()] =
-      gpu_val[5];
-  cpu_val[paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::slot_index()] =
-      gpu_val[7];
-  // for dymf, i = 0
-  //for (int i = 0; i < common_feature_value.EmbedDim(); i++) {
-
-    cpu_val[paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::embed_g2sum_index()] =
-      gpu_val[6];
-
-  //}
-  if ((int)gpu_val[9] > 0) {
-    
-    for (int x = 0; x < mf_dim + 1;x++) {
-        cpu_val[x + 8] =
-          gpu_val[ 10 + x];
-        // cpu_val[cpu_accessor->common_feature_value.EmbedxG2SumIndex() + x]  = 
-        //  gpu_val[common_feature_value.EmbedxG2SumIndex() + x];
     }
   }
 #endif
 }
 
-/*
 // dy_mf_fill_dvals_kernel, dy_mf_search_kernel 阶段 gpukernel 中从src_val赋值给dest_val
 __device__ void FeatureValueFill(float* dest_val, 
                                  float* src_val) {
@@ -593,7 +433,7 @@ __device__ void FeatureValueFill(float* dest_val,
   dest_val[common_feature_value.ShowIndex()] = src_val[common_feature_value.ShowIndex()];
   dest_val[common_feature_value.ClickIndex()] = src_val[common_feature_value.ClickIndex()];
   dest_val[common_feature_value.EmbedWIndex()] = src_val[common_feature_value.EmbedWIndex()];
-  // for dymf, i = 0
+  // for dymf && adagrad, embed_dim = 1
   for (int i = 0; i < common_feature_value.EmbedDim(); i++) {
     dest_val[common_feature_value.EmbedG2SumIndex() + i] = 
       src_val[common_feature_value.EmbedG2SumIndex() + i];
@@ -601,75 +441,12 @@ __device__ void FeatureValueFill(float* dest_val,
   dest_val[common_feature_value.SlotIndex()] = src_val[common_feature_value.SlotIndex()];
   dest_val[common_feature_value.MfDimIndex()] = src_val[common_feature_value.MfDimIndex()];
   dest_val[common_feature_value.MfSizeIndex()] = src_val[common_feature_value.MfSizeIndex()];
-
   int mf_dim = (int)(src_val[common_feature_value.MfDimIndex()]);
-
-  // printf("feature_value fill mf_dim:%d\n", mf_dim);
   for (int i = 0; i < mf_dim + common_feature_value.EmbedXDim(); i++) {
     dest_val[common_feature_value.EmbedxG2SumIndex() + i] = src_val[common_feature_value.EmbedxG2SumIndex() + i];
   }
-  // for (int x = common_feature_value.EmbedxG2SumIndex();
-  //        x < int(common_feature_value.Size(mf_dim) / sizeof(float)); x++) {
-  //  dest_val[x] = src_val[x];
-  //}
-}
-*/
-
-__device__ void FeatureValueFill(float* dest_val, 
-                                 float* src_val) {
-
-
-  //*(reinterpret_cast<uint64_t*>(dest_val + common_feature_value.CpuPtrIndex())) =
-  //  *(reinterpret_cast<uint64_t*>(src_val + common_feature_value.CpuPtrIndex()));
-  
-  *(reinterpret_cast<uint64_t*>(dest_val)) =
-    *(reinterpret_cast<uint64_t*>(src_val));
-
-  dest_val[2] = src_val[2];
-  dest_val[3] = src_val[3];
-  dest_val[4] = src_val[4];
-  dest_val[5] = src_val[5];
-  
-  dest_val[6] = src_val[6];
-  
-  dest_val[7] = src_val[7];
-  dest_val[8] = src_val[8];
-  dest_val[9] = src_val[9];
-   
-  int mf_dim = (int)src_val[8];
-  
-  for (int i = 0; i < mf_dim + 1; i++) {
-    dest_val[10 + i] = src_val[10 + i];
-  }
-
-  // dest_val[common_feature_value.DeltaScoreIndex()] = src_val[common_feature_value.DeltaScoreIndex()];
-  // dest_val[common_feature_value.ShowIndex()] = src_val[common_feature_value.ShowIndex()];
-  // dest_val[common_feature_value.ClickIndex()] = src_val[common_feature_value.ClickIndex()];
-  // dest_val[common_feature_value.EmbedWIndex()] = src_val[common_feature_value.EmbedWIndex()];
- 
-  // for dymf, i = 0
-  // for (int i = 0; i < common_feature_value.EmbedDim(); i++) {
-  //  dest_val[common_feature_value.EmbedG2SumIndex() + i] = 
-  //    src_val[common_feature_value.EmbedG2SumIndex() + i];
-  // }
-
-  // dest_val[common_feature_value.SlotIndex()] = src_val[common_feature_value.SlotIndex()];
-  // dest_val[common_feature_value.MfDimIndex()] = src_val[common_feature_value.MfDimIndex()];
-  // dest_val[common_feature_value.MfSizeIndex()] = src_val[common_feature_value.MfSizeIndex()];
-
-  // int mf_dim = (int)(src_val[common_feature_value.MfDimIndex()]);
-
-  // printf("feature_value fill mf_dim:%d\n", mf_dim);
-  // for (int i = 0; i < mf_dim + common_feature_value.EmbedXDim(); i++) {
-  //  dest_val[common_feature_value.EmbedxG2SumIndex() + i] = src_val[common_feature_value.EmbedxG2SumIndex() + i];
-  // }
-  // for (int x = common_feature_value.EmbedxG2SumIndex();
-  //        x < int(common_feature_value.Size(mf_dim) / sizeof(float)); x++) {
-  //  dest_val[x] = src_val[x];
-  //}
 }
 
-/*
 // dy_mf_fill_shard_grads_kernel,update_one 阶段 gpukernel 中从src_val赋值给dest_val
 __device__ void PushValueFill(float* dest_val, 
                               const float* src_val) {
@@ -683,31 +460,7 @@ __device__ void PushValueFill(float* dest_val,
     dest_val[common_push_value.EmbedxGIndex() + x] =  src_val[common_push_value.EmbedxGIndex() + x];
   }
 }
-*/
 
-// dy_mf_fill_shard_grads_kernel,update_one 阶段 gpukernel 中从src_val赋值给dest_val
-__device__ void PushValueFill(float* dest_val, 
-                              const float* src_val) {
-
-  dest_val[0] = src_val[0];
-  dest_val[1] = src_val[1];
-  dest_val[2] = src_val[2];
-  dest_val[3] = src_val[3];
-  dest_val[4] = src_val[4];
-  // dest_val[common_push_value.SlotIndex()] = src_val[common_push_value.SlotIndex()];
-  // dest_val[common_push_value.ShowIndex()] = src_val[common_push_value.ShowIndex()];
-  // dest_val[common_push_value.ClickIndex()] = src_val[common_push_value.ClickIndex()];
-  // dest_val[common_push_value.MfDimIndex()] = src_val[common_push_value.MfDimIndex()];
-  // dest_val[common_push_value.EmbedGIndex()] = src_val[common_push_value.EmbedGIndex()];
-  int mf_dim = (int)(dest_val[3]);
-  for (int x = 0; x < mf_dim; x++) {
-    // dest_val[common_push_value.EmbedxGIndex() + x] =  src_val[common_push_value.EmbedxGIndex() + x];
-     dest_val[5 + x] = src_val[5 + x]; 
-  }
-}
-
-
-/*
 // update_basic 阶段 gpukernel 中从src_val赋值给dest_val
 __device__ void PushValueFillBasic(float* dest_val, 
                                    const float* src_val) {
@@ -717,28 +470,16 @@ __device__ void PushValueFillBasic(float* dest_val,
   dest_val[common_push_value.MfDimIndex()] = src_val[common_push_value.MfDimIndex()];
   dest_val[common_push_value.EmbedGIndex()] = src_val[common_push_value.EmbedGIndex()];
 }
-*/
-
-// update_basic 阶段 gpukernel 中从src_val赋值给dest_val
-__device__ void PushValueFillBasic(float* dest_val, 
-                                   const float* src_val) {
-  dest_val[0] = src_val[0];
-  dest_val[1] = src_val[1];
-  dest_val[2] = src_val[2];
-  dest_val[3] = src_val[3];
-  dest_val[4] = src_val[4];
-}
 
 // update_basic 阶段 gpukernel 中从src_val赋值给dest_val
 __device__ void PushValueFillEmbedx(float* dest_val, 
                                     const float* src_val, int embedx_id) {
-  int mf_dim = (int)(dest_val[3]);
+  int mf_dim = (int)(dest_val[common_push_value.MfDimIndex()]);
   if (embedx_id < mf_dim) {
-    dest_val[5 + embedx_id] =  src_val[5 + embedx_id];
+    dest_val[common_push_value.EmbedxGIndex() + embedx_id] =  src_val[common_push_value.EmbedxGIndex() + embedx_id];
   }
 }
 
-/*
 // merge_one 阶段 gpukernel 中 PushValue 从src_val赋值给dest_val
 __device__ void MergePushValue(float* dest_val, 
                                 const float* src_val) {
@@ -750,37 +491,21 @@ __device__ void MergePushValue(float* dest_val,
     dest_val[common_push_value.EmbedxGIndex() + j] += src_val[common_push_value.EmbedxGIndex() + j];
   }
 }
-*/
-
-// merge_one 阶段 gpukernel 中 PushValue 从src_val赋值给dest_val
-__device__ void MergePushValue(float* dest_val, 
-                                const float* src_val) {
-  dest_val[1] +=  src_val[1];
-  dest_val[2] += src_val[2];
-  dest_val[4] += src_val[4];
-  int mf_dim = (int)(dest_val[3]);
-  for (int j = 0; j < mf_dim; j++) {
-    dest_val[5 + j] += src_val[5 + j];
-  }
-}
 
 // merge_embedx 阶段 gpukernel 中 PushValue 从src_val赋值给dest_val
 __device__ void MergePushValueBasic(float* dest_val, 
                                     const float* src_val) {
-  // dest_val[common_push_value.ShowIndex()] +=  src_val[common_push_value.ShowIndex()];
-  // dest_val[common_push_value.ClickIndex()] += src_val[common_push_value.ClickIndex()];
-  // dest_val[common_push_value.EmbedGIndex()] += src_val[common_push_value.EmbedGIndex()];
-  dest_val[1] += src_val[1];
-  dest_val[2] += src_val[2];
-  dest_val[4] += src_val[4];
+  dest_val[common_push_value.ShowIndex()] +=  src_val[common_push_value.ShowIndex()];
+  dest_val[common_push_value.ClickIndex()] += src_val[common_push_value.ClickIndex()];
+  dest_val[common_push_value.EmbedGIndex()] += src_val[common_push_value.EmbedGIndex()];
 }
 
 // merge_embedx 阶段 gpukernel 中 PushValue 从src_val赋值给dest_val
 __device__ void MergePushValueEmbedx(float* dest_val, 
                                      const float* src_val, int embedx_id) {
-    int mf_dim = (int)(dest_val[3]);
+    int mf_dim = (int)(dest_val[common_push_value.MfDimIndex()]);
     if (embedx_id < mf_dim) {
-      dest_val[5 + embedx_id] += src_val[5 + embedx_id];
+      dest_val[common_push_value.EmbedxGIndex() + embedx_id] += src_val[common_push_value.EmbedxGIndex() + embedx_id];
     }
 }
 
@@ -791,35 +516,28 @@ __device__ void Select(float* dest_val,
                        int mf_dim) {
 #if defined PADDLE_WITH_PSLIB
   if (*key == 0) {
-      *(dest_val) = 0;
-      *(dest_val + 1) = 0;
-      *(dest_val + 2) = 0;
-      // *(dest_val + common_pull_value.ShowIndex()) = 0;
-      // *(dest_val + common_pull_value.ClickIndex()) = 0;
-      // *(dest_val + common_pull_value.EmbedWIndex()) = 0;
+      *(dest_val + common_pull_value.ShowIndex()) = 0;
+      *(dest_val + common_pull_value.ClickIndex()) = 0;
+      *(dest_val + common_pull_value.EmbedWIndex()) = 0;
     } else {
-      *(dest_val) = src_val[3];
-      *(dest_val + 1) = src_val[4];
-      *(dest_val + 2) = src_val[5];
-      // *(dest_val + common_pull_value.ShowIndex()) = src_val[common_feature_value.ShowIndex()];
-      // *(dest_val + common_pull_value.ClickIndex()) = src_val[common_feature_value.ClickIndex()];
-      // *(dest_val + common_pull_value.EmbedWIndex()) = src_val[common_feature_value.EmbedWIndex()];
+      *(dest_val + common_pull_value.ShowIndex()) = src_val[common_feature_value.ShowIndex()];
+      *(dest_val + common_pull_value.ClickIndex()) = src_val[common_feature_value.ClickIndex()];
+      *(dest_val + common_pull_value.EmbedWIndex()) = src_val[common_feature_value.EmbedWIndex()];
     }
 
-    if (((int)(src_val[9]) == 0) || (*key == 0)) {
+    if (((int)(src_val[common_feature_value.MfSizeIndex()]) == 0) || (*key == 0)) {
       for (int j = 0; j < mf_dim; j++) {
-        *(dest_val + 3 + j) = 0;
+        *(dest_val + common_pull_value.EmbedxWIndex() + j) = 0;
       }
     } else {
       for (int j = 0; j < mf_dim; j++) {
-        *(dest_val + 3 + j) = 
-            src_val[11 + j];
+        *(dest_val + common_pull_value.EmbedxWIndex() + j) = 
+            src_val[common_feature_value.EmbedxWOffsetIndex(src_val) + j];
       }
     }
 #endif
 }
 
-/*
 __device__ void GradientSelect(float* dest_val, 
                                float* src_val,
                                int slot,
@@ -833,31 +551,6 @@ __device__ void GradientSelect(float* dest_val,
   dest_val[common_push_value.EmbedGIndex()] = *(src_val + 2) * -1. * bs;
   for (int j = 0; j < mf_dim; j++) {
     dest_val[common_push_value.EmbedxGIndex() + j] = *(src_val + 3 + j) * -1. * bs;
-  }
-#endif
-}
-*/
-
-__device__ void GradientSelect(float* dest_val, 
-                               float* src_val,
-                               int slot,
-                               int mf_dim,
-                               int bs) {
-#if defined PADDLE_WITH_PSLIB
-  dest_val[0] = slot;
-  dest_val[3] = mf_dim;
-  dest_val[1] = src_val[0];
-  dest_val[2] = src_val[1];
-  dest_val[4] = src_val[2] * -1. * bs;
-
-  // dest_val[common_push_value.SlotIndex()] = (float)slot;
-  // dest_val[common_push_value.MfDimIndex()] = (float)mf_dim;
-  // dest_val[common_push_value.ShowIndex()] = *src_val;
-  // dest_val[common_push_value.ClickIndex()] = *(src_val + 1);
-  // dest_val[common_push_value.EmbedGIndex()] = *(src_val + 2) * -1. * bs;
-  for (int j = 0; j < mf_dim; j++) {
-    // dest_val[common_push_value.EmbedxGIndex() + j] = *(src_val + 3 + j) * -1. * bs;
-    dest_val[5 + j] = src_val[3 + j] * -1. * bs;
   }
 #endif
 }

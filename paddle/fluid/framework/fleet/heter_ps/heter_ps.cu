@@ -27,27 +27,6 @@ HeterPsBase* HeterPsBase::get_instance(
       GlobalAccessorTransfor::GetInstance().GetAccessorWrapper();
     CommonFeatureValueAccessor* gpu_accessor =
       ((AccessorWrapper<CommonFeatureValueAccessor>*)accessor_wrapper_ptr)->AccessorPtr();
-
-/*  use VLOG(0) instead of std::cout
-    std::cout << "=============HeterPS GPUAccesor FeatureValue INFO=========" << std::endl;
-    std::cout << "optimizer type:" << gpu_accessor->common_feature_value.optimizer_type_ << std::endl;
-    std::cout << "Dim:" << gpu_accessor->common_feature_value.Dim() << std::endl;
-    std::cout << "EmbedDim:" << gpu_accessor->common_feature_value.EmbedDim() << std::endl;
-    std::cout << "EmbedXDim:" << gpu_accessor->common_feature_value.EmbedXDim() << std::endl;
-    std::cout << "EmbedWDim:" << gpu_accessor->common_feature_value.EmbedWDim() << std::endl;
-    std::cout << "CpuPtrIndex:" << gpu_accessor->common_feature_value.CpuPtrIndex() << std::endl;
-    std::cout << "DeltaScoreIndex:" << gpu_accessor->common_feature_value.DeltaScoreIndex() << std::endl;
-    std::cout << "ShowIndex:" << gpu_accessor->common_feature_value.ShowIndex() << std::endl;
-    std::cout << "ClickIndex:" << gpu_accessor->common_feature_value.ClickIndex() << std::endl;
-    std::cout << "EmbedWIndex:" << gpu_accessor->common_feature_value.EmbedWIndex() << std::endl;
-    std::cout << "EmbedG2SumIndex:" << gpu_accessor->common_feature_value.EmbedG2SumIndex() << std::endl;
-    std::cout << "SlotIndex:" << gpu_accessor->common_feature_value.SlotIndex() << std::endl;
-    std::cout << "MfDimIndex:" << gpu_accessor->common_feature_value.MfDimIndex() << std::endl;
-    std::cout << "MfSizeIndex:" << gpu_accessor->common_feature_value.MfSizeIndex() << std::endl;
-    std::cout << "EmbedxG2SumIndex:" << gpu_accessor->common_feature_value.EmbedxG2SumIndex() << std::endl;
-    std::cout << "EmbedxWIndex:" << gpu_accessor->common_feature_value.EmbedxWIndex() << std::endl;
-    std::cout << "=============HeterPS GPUAccesor FeatureValue INFO=========" << std::endl;
-*/
     return new HeterPs<CommonFeatureValueAccessor, SparseAdagradOptimizer>(capacity, resource, *gpu_accessor);
   } else {
     CHECK(0) << " HeterPsBase get_instance Warning: now only support "

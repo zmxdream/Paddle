@@ -42,36 +42,6 @@ public:
   SparseAdagradOptimizer() {}
   SparseAdagradOptimizer(FVAccessor& feature_value_accessor): Optimizer<FVAccessor>() {
     feature_value_accessor_ = feature_value_accessor;
-
-/* use VLOG instead of std::cout 
-    std::cout << "=============Hashtable GPUAccesor FeatureValue INFO=========" << std::endl;
-    std::cout << "optimizer type:" << feature_value_accessor_.common_feature_value.optimizer_type_ << std::endl;
-    std::cout << "Dim:" << feature_value_accessor_.common_feature_value.Dim() << std::endl;
-    std::cout << "EmbedDim:" << feature_value_accessor_.common_feature_value.EmbedDim() << std::endl;
-    std::cout << "EmbedXDim:" << feature_value_accessor_.common_feature_value.EmbedXDim() << std::endl;
-    std::cout << "EmbedWDim:" << feature_value_accessor_.common_feature_value.EmbedWDim() << std::endl;
-    std::cout << "CpuPtrIndex:" << feature_value_accessor_.common_feature_value.CpuPtrIndex() << std::endl;
-    std::cout << "DeltaScoreIndex:" << feature_value_accessor_.common_feature_value.DeltaScoreIndex() << std::endl;
-    std::cout << "ShowIndex:" << feature_value_accessor_.common_feature_value.ShowIndex() << std::endl;
-    std::cout << "ClickIndex:" << feature_value_accessor_.common_feature_value.ClickIndex() << std::endl;
-    std::cout << "EmbedWIndex:" << feature_value_accessor_.common_feature_value.EmbedWIndex() << std::endl;
-    std::cout << "EmbedG2SumIndex:" << feature_value_accessor_.common_feature_value.EmbedG2SumIndex() << std::endl;
-    std::cout << "SlotIndex:" << feature_value_accessor_.common_feature_value.SlotIndex() << std::endl;
-    std::cout << "MfDimIndex:" << feature_value_accessor_.common_feature_value.MfDimIndex() << std::endl;
-    std::cout << "MfSizeIndex:" << feature_value_accessor_.common_feature_value.MfSizeIndex() << std::endl;
-    std::cout << "EmbedxG2SumIndex:" << feature_value_accessor_.common_feature_value.EmbedxG2SumIndex() << std::endl;
-    std::cout << "EmbedxWIndex:" << feature_value_accessor_.common_feature_value.EmbedxWIndex() << std::endl;
-    std::cout << "=============Hashtable GPUAccesor FeatureValue INFO=========" << std::endl;
-    std::cout << "=============Hashtable GPUAccesor PushValue INFO=========" << std::endl;
-    std::cout << "push slotIndex:" << feature_value_accessor_.common_push_value.SlotIndex() << std::endl;
-    std::cout << "push showIndex:" << feature_value_accessor_.common_push_value.ShowIndex() << std::endl;
-    std::cout << "push ClickIndex:" << feature_value_accessor_.common_push_value.ClickIndex() << std::endl;
-    std::cout << "push MfDimIndex:" << feature_value_accessor_.common_push_value.MfDimIndex() << std::endl;
-    std::cout << "push EmbedGIndex:" << feature_value_accessor_.common_push_value.EmbedGIndex() << std::endl;
-    std::cout << "push EmbedxGIndex:" << feature_value_accessor_.common_push_value.EmbedxGIndex() << std::endl;
-    std::cout << "=============Hashtable GPUAccesor PushValue INFO=========" << std::endl;
-*/
-
   }
 
   ~SparseAdagradOptimizer() {}
@@ -155,52 +125,52 @@ public:
     // int grad_show_index = feature_value_accessor_.common_push_value.ShowIndex();
     // int grad_clk_index = feature_value_accessor_.common_push_value.ClickIndex();
 
-    // float grad_show = grad[feature_value_accessor_.common_push_value.ShowIndex()];
-    // float grad_clk = grad[feature_value_accessor_.common_push_value.ClickIndex()];
+    float grad_show = grad[feature_value_accessor_.common_push_value.ShowIndex()];
+    float grad_clk = grad[feature_value_accessor_.common_push_value.ClickIndex()];
 
-    float grad_show = grad[1];
-    float grad_clk = grad[2];
+    // float grad_show = grad[1];
+    // float grad_clk = grad[2];
       
     // int ptr_slot_index = feature_value_accessor_.common_feature_value.SlotIndex();
     // int ptr_slot = (int)ptr[feature_value_accessor_.common_feature_value.SlotIndex()];
 
-    ptr[7] = grad[0];
-    // ptr[feature_value_accessor_.common_feature_value.SlotIndex()] =
-    //    grad[feature_value_accessor_.common_push_value.SlotIndex()];
+    // ptr[7] = grad[0];
+    ptr[feature_value_accessor_.common_feature_value.SlotIndex()] =
+        grad[feature_value_accessor_.common_push_value.SlotIndex()];
 
-    ptr[3] += grad_show;
-    ptr[4] += grad_clk;
-    //ptr[feature_value_accessor_.common_feature_value.ShowIndex()] += grad_show;
-    //ptr[feature_value_accessor_.common_feature_value.ClickIndex()] += grad_clk;
+    // ptr[3] += grad_show;
+    // ptr[4] += grad_clk;
+    ptr[feature_value_accessor_.common_feature_value.ShowIndex()] += grad_show;
+    ptr[feature_value_accessor_.common_feature_value.ClickIndex()] += grad_clk;
 
-    // ptr[feature_value_accessor_.common_feature_value.DeltaScoreIndex()] +=
-    ptr[2] += optimizer_config.nonclk_coeff * (grad_show - grad_clk) +
+    ptr[feature_value_accessor_.common_feature_value.DeltaScoreIndex()] +=
+      optimizer_config.nonclk_coeff * (grad_show - grad_clk) +
                        optimizer_config.clk_coeff * grad_clk;
    
     // float ptr_lr = ptr[feature_value_accessor_.common_feature_value.EmbedWIndex()];
     // float ptr_lr_g2sum = ptr[feature_value_accessor_.common_feature_value.EmbedG2SumIndex()];
 
-    float ptr_show = ptr[3];
-    float ptr_clk = ptr[4];
+    // float ptr_show = ptr[3];
+    // float ptr_clk = ptr[4];
 
-    // float ptr_show = ptr[feature_value_accessor_.common_feature_value.ShowIndex()];
-    // float ptr_clk = ptr[feature_value_accessor_.common_feature_value.ClickIndex()];
-    // float grad_lr_g = grad[feature_value_accessor_.common_push_value.EmbedGIndex()];
-    float grad_lr_g = grad[4];
+    float ptr_show = ptr[feature_value_accessor_.common_feature_value.ShowIndex()];
+    float ptr_clk = ptr[feature_value_accessor_.common_feature_value.ClickIndex()];
+    float grad_lr_g = grad[feature_value_accessor_.common_push_value.EmbedGIndex()];
+    // float grad_lr_g = grad[4];
 
-    // float& ptr_mf_size = ptr[feature_value_accessor_.common_feature_value.MfSizeIndex()];
-    float ptr_mf_size = ptr[9];
+    float ptr_mf_size = ptr[feature_value_accessor_.common_feature_value.MfSizeIndex()];
+    // float ptr_mf_size = ptr[9];
 
     // int mf_dim_index = feature_value_accessor_.common_feature_value.MfDimIndex();
-    // int ptr_mf_dim = (int)(ptr[feature_value_accessor_.common_feature_value.MfDimIndex()]);
-    float ptr_mf_dim = ptr[8];
+    int ptr_mf_dim = (int)(ptr[feature_value_accessor_.common_feature_value.MfDimIndex()]);
+    // float ptr_mf_dim = ptr[8];
     
     // int ptr_slot = (int)ptr[feature_value_accessor_.common_feature_value.SlotIndex()];
 
     update_lr(
         optimizer_config,
-        ptr[5],
-        ptr[6],
+        ptr[feature_value_accessor_.common_feature_value.EmbedWIndex()],
+        ptr[feature_value_accessor_.common_feature_value.EmbedG2SumIndex()],
         grad_lr_g,
         grad_show);
 
@@ -211,18 +181,19 @@ public:
           optimizer_config.nonclk_coeff * (ptr_show - ptr_clk) +
               optimizer_config.clk_coeff * ptr_clk) {
 
-        ptr[9] = ptr_mf_dim + 1;
-        // ptr_mf_size =  feature_value_accessor_.common_feature_value.MFSize(ptr_mf_dim) / sizeof(float);
+        ptr[feature_value_accessor_.common_feature_value.MfSizeIndex()] =
+          feature_value_accessor_.common_feature_value.MFSize(ptr_mf_dim) / sizeof(float);
         // ptr->mf_size = ptr->mf_dim + 1;
         // ptr->mf[0] = 0;
-        ptr[10] = 0;
+        ptr[feature_value_accessor_.common_feature_value.EmbedxG2SumIndex()] = 0;
         // ptr[feature_value_accessor_.common_feature_value.EmbedxWIndex()] = 0;
         // int tid_x = blockIdx.x * blockDim.x + threadIdx.x;
         //curandState state;
         //curand_init(clock64(), tid_x, 0, &state);
         for (int i = 0; i < ptr_mf_dim; ++i) {
           // ptr[feature_value_accessor_.common_feature_value.EmbedxWIndex() + i + 1] =
-          ptr[10 + i + 1] = (curand_uniform(&state)) * optimizer_config.mf_initial_range;
+          ptr[feature_value_accessor_.common_feature_value.EmbedxWIndex() + i] =
+            (curand_uniform(&state)) * optimizer_config.mf_initial_range;
           // ptr->mf[i + 1] =
           //    (curand_uniform(&state)) * optimizer_config.mf_initial_range;
         }
@@ -231,9 +202,9 @@ public:
       update_mf(
           optimizer_config,
           ptr_mf_dim,
-          &ptr[11],
-          ptr[10],
-          &grad[5],
+          &ptr[feature_value_accessor_.common_feature_value.EmbedxWIndex()],
+          ptr[feature_value_accessor_.common_feature_value.EmbedxG2SumIndex()],
+          &grad[feature_value_accessor_.common_push_value.EmbedxGIndex()],
           grad_show);
           // &(ptr[feature_value_accessor_.common_feature_value.EmbedxWIndex() + 1]),
           // ptr[feature_value_accessor_.common_feature_value.EmbedxWIndex()],
