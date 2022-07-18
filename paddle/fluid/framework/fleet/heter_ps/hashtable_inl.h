@@ -206,58 +206,6 @@ private:
   curandState* states_ = nullptr;
 };
 
-// template <typename Table, typename GradType, typename Sgd>
-// __global__ void update_kernel(Table* table,
-//                              const OptimizerConfig& optimizer_config,
-//                              const typename Table::key_type* const keys,
-//                              const GradType* const grads, curandState* p_state, size_t len,
-//                              Sgd sgd) {
-//  const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
-//  if (i < len) {
-//    auto it = table->find(keys[i]);
-//    if (it != table->end()) {
-//      sgd.update_value(optimizer_config, (it.getter())->second, grads[i], p_state[i]);
-//    } else {
-//      printf("push miss key: %llu", keys[i]);
-//    }
-//  }
-// }
-
-// template <typename Table, typename GradType, typename Sgd>
-// __global__ void update_kernel(Table* table,
-//                              const OptimizerConfig& optimizer_config,
-//                              const typename Table::key_type* const keys,
-//                              const GradType* const grads, size_t len,
-//                              Sgd sgd) {
-//  const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
-//  if (i < len) {
-//    auto it = table->find(keys[i]);
-//    if (it != table->end()) {
-//      sgd.update_value(optimizer_config, (it.getter())->second, grads[i]);
-//    } else {
-//      printf("push miss key: %llu", keys[i]);
-//    }
-//  }
-// }
-
-// template <typename Table, typename Sgd>
-// __global__ void dy_mf_update_kernel(Table* table,
-//                                     const OptimizerConfig& optimizer_config,
-//                                    const typename Table::key_type* const keys,
-//                                    const char* const grads, size_t len,
-//                                    Sgd sgd, size_t grad_value_size) {
-//  const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
-//  if (i < len) {
-//    auto it = table->find(keys[i]);
-//    if (it != table->end()) {
-//      FeaturePushValue* cur = (FeaturePushValue*)(grads + i * grad_value_size);
-//      sgd.dy_mf_update_value(optimizer_config, (it.getter())->second, *cur);
-//    } else {
-//      if (keys[i] != 0) printf("push miss key: %llu", keys[i]);
-//    }
-//  }
-// }
-
 template <typename Table, typename Sgd>
 __global__ void dy_mf_update_kernel(Table* table,
                                     const OptimizerConfig& optimizer_config,
