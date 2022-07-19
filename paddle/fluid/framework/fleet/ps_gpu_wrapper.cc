@@ -837,11 +837,8 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
     auto& device_dim_keys = gpu_task->device_dim_keys_[i][j];
     size_t len = device_dim_keys.size();
     int mf_dim = this->index_dim_vec_[j];
-    // size_t feature_value_size =
-    //    TYPEALIGN(8, sizeof(FeatureValue) + ((mf_dim + 1) * sizeof(float)));
     size_t feature_value_size =
         accessor_wrapper_ptr->GetFeatureValueSize(mf_dim);
-    VLOG(0) << "i:" << i << " j:" << j << " featurevalue_size:" << feature_value_size;
     auto& mem_pool = this->mem_pools_[i * this->multi_mf_dim_ + j];
     platform::CUDADeviceGuard guard(resource_->dev_id(i));
     this->hbm_pools_[i * this->multi_mf_dim_ + j] = new HBMMemoryPool(mem_pool);
