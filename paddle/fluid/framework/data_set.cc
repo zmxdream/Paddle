@@ -126,10 +126,7 @@ std::vector<std::string> DatasetImpl<T>::GetSlots() {
   use_slots_.clear();
   for (int i = 0; i < multi_slot_desc.slots_size(); ++i) {
     const auto& slot = multi_slot_desc.slots(i);
-
     use_slots_.push_back(slot.name());
-
-    
   }
   std::cout << "dataset use slots: ";
   for (auto s : use_slots_) {
@@ -1797,7 +1794,6 @@ std::vector<std::string> SlotRecordDataset::GetSlots() {
   use_slots_.clear();
   for (int i = 0; i < multi_slot_desc.slots_size(); ++i) {
     const auto& slot = multi_slot_desc.slots(i);
-    // VLOG(0) << "yxfslotname: " << slot.name();
     if (slot.type() == "uint64" || slot.type() == "uint32") {
       use_slots_.push_back(slot.name());
     }

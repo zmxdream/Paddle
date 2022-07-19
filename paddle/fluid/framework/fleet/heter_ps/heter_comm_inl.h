@@ -318,7 +318,7 @@ HeterComm<KeyType, ValType, GradType>::HeterComm(
     // allocators_.push_back(std::make_shared<cub::CachingDeviceAllocator>(
     //     2, 1, 20, (size_t)-1, false, false));  // NOLINT
     allocators_.push_back(std::make_shared<cub::CachingDeviceAllocator>(
-        8, 1, (unsigned int)-1, (size_t)-1, false, true));
+        8, 1, (unsigned int)-1, (size_t)-1, false, false));
     if (!multi_mf_dim_) {
       auto table = new Table(capacity / load_factor_);
       tables_.push_back(table);
@@ -420,14 +420,14 @@ void HeterComm<KeyType, ValType, GradType>::create_storage(int start_index,
   auto& nodes = path_[start_index][end_index].nodes_;
   for (size_t i = 0; i < nodes.size(); ++i) {
     platform::CUDADeviceGuard guard(resource_->dev_id(nodes[i].gpu_num));
-    allocator->DeviceAllocate(
+    PADDLE_ENFORCE_GPU_SUCCESS(allocator->DeviceAllocate(
         resource_->dev_id(nodes[i].gpu_num),
         (void**)&(nodes[i].key_storage),  // NOLINT
-        keylen, resource_->remote_stream(nodes[i].gpu_num, start_index));
-    allocator->DeviceAllocate(
+        keylen, resource_->remote_stream(nodes[i].gpu_num, start_index)));
+    PADDLE_ENFORCE_GPU_SUCCESS(allocator->DeviceAllocate(
         resource_->dev_id(nodes[i].gpu_num),
         (void**)&(nodes[i].val_storage),  // NOLINT
-        vallen, resource_->remote_stream(nodes[i].gpu_num, start_index));
+        vallen, resource_->remote_stream(nodes[i].gpu_num, start_index)));
 
     nodes[i].key_bytes_len = keylen;
     nodes[i].val_bytes_len = vallen;
@@ -442,10 +442,10 @@ void HeterComm<KeyType, ValType, GradType>::destroy_storage(int start_index,
   for (size_t i = 0; i < nodes.size(); ++i) {
     platform::CUDADeviceGuard guard(resource_->dev_id(nodes[i].gpu_num));
 
-    allocator->DeviceFree(resource_->dev_id(nodes[i].gpu_num),
-                          nodes[i].key_storage);
-    allocator->DeviceFree(resource_->dev_id(nodes[i].gpu_num),
-                          nodes[i].val_storage);
+    PADDLE_ENFORCE_GPU_SUCCESS(allocator->DeviceFree(resource_->dev_id(nodes[i].gpu_num),
+                          nodes[i].key_storage));
+    PADDLE_ENFORCE_GPU_SUCCESS(allocator->DeviceFree(resource_->dev_id(nodes[i].gpu_num),
+                          nodes[i].val_storage));
   }
 }
 
@@ -522,10 +522,6 @@ void HeterComm<KeyType, ValType, GradType>::walk_to_dest(
                     reinterpret_cast<char*>(src_key + h_left[i]),
                     node.key_bytes_len, cudaMemcpyDefault, node.in_stream);
     if (need_copy_val) {
-      // yxf tmp
-      // cudaMemcpyAsync(node.val_storage,
-      //                 src_val + uint64_t(h_left[i]) * uint64_t(80),
-      //                 node.val_bytes_len, cudaMemcpyDefault, node.in_stream);
       cudaMemcpyAsync(node.val_storage,
                       src_val + uint64_t(h_left[i]) * uint64_t(val_size),
                       node.val_bytes_len, cudaMemcpyDefault, node.in_stream);
@@ -535,11 +531,9 @@ void HeterComm<KeyType, ValType, GradType>::walk_to_dest(
     CopyTask& cur_task = que.front();
     que.pop();
     if (cur_task.path->nodes_[cur_task.step].sync) {
-      // VLOG(0) << "yxf:: node cpy syn";
       cudaStreamSynchronize(cur_task.path->nodes_[cur_task.step].in_stream);
     }
     if (cur_task.step != cur_task.path->nodes_.size() - 1) {
-      // VLOG(0) << "yxf:: node cpy s2222";
       int cur_step = cur_task.step;
       CopyTask c(cur_task.path, cur_step + 1);
       que.push(c);
@@ -620,13 +614,6 @@ void HeterComm<KeyType, ValType, GradType>::walk_to_src(
     int cur_step = path_[start_index][i].nodes_.size() - 1;
     auto& node = path_[start_index][i].nodes_[cur_step];
     if (cur_step == 0) {
-      // if (h_left[i] * val_size < 0) {
-      //   VLOG(0) << "yxf:::offset wrong:: " << h_left[i] * val_size;
-      // } 
-      // yxf tmp
-      // cudaMemcpyAsync(src_val + uint64_t(h_left[i]) * 80,
-      //                 node.val_storage, node.val_bytes_len, cudaMemcpyDefault,
-      //                 node.out_stream);
       cudaMemcpyAsync(src_val + uint64_t(h_left[i]) * val_size,
                       node.val_storage, node.val_bytes_len, cudaMemcpyDefault,
                       node.out_stream);
@@ -657,15 +644,6 @@ void HeterComm<KeyType, ValType, GradType>::walk_to_src(
                       cur_task.path->nodes_[cur_step - 1].out_stream);
     } else if (cur_step == 0) {
       int end_index = cur_task.path->nodes_.back().gpu_num;
-      // if (h_left[end_index] * val_size < 0) {
-      //   VLOG(0) << "yxf:::offset wrong11:: " << h_left[end_index] * val_size;
-      // } 
-      // yxf tmp 
-      // cudaMemcpyAsync(src_val + uint64_t(h_left[end_index]) * 80,
-      //                 cur_task.path->nodes_[cur_step].val_storage,
-      //                 cur_task.path->nodes_[cur_step].val_bytes_len,
-      //                 cudaMemcpyDefault,
-      //                 cur_task.path->nodes_[cur_step].out_stream);
       cudaMemcpyAsync(src_val + uint64_t(h_left[end_index]) * val_size,
                       cur_task.path->nodes_[cur_step].val_storage,
                       cur_task.path->nodes_[cur_step].val_bytes_len,
@@ -916,7 +894,7 @@ void HeterComm<KeyType, ValType, GradType>::merge_grad(int gpu_num,
 
   size_t temp_storage_bytes;
 
-  // VLOG(1) << "hetercomm merge_grad: max_mf_dim: " << max_mf_dim_;
+  //VLOG(1) << "hetercomm merge_grad: max_mf_dim: " << max_mf_dim_;
   size_t grad_value_size =
       TYPEALIGN(8, sizeof(FeaturePushValue) + (max_mf_dim_ * sizeof(float)));
 
@@ -1023,7 +1001,7 @@ void HeterComm<KeyType, ValType, GradType>::merge_grad(int gpu_num,
   merge_gradient_basic_kernel<<<grid_size, block_size_, 0, stream>>>(
       d_keys, d_offset, d_fea_num_info_ptr, d_index, (char*)d_grads,
       (char*)d_merge_grads_ptr, uniq_len, grad_value_size, merger_);
-  PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
+  // PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
   // timeline.Pause();
   // mg_time_8[gpu_num] += timeline.ElapsedSec();
   // timeline.Start();
@@ -1186,6 +1164,9 @@ void HeterComm<KeyType, ValType, GradType>::pull_sparse(int num,
   cudaMemcpyAsync(h_right, d_right_ptr, total_gpu * sizeof(int),
              cudaMemcpyDeviceToHost, stream);
   cudaStreamSynchronize(stream);
+  // for (auto k = 0; k < total_gpu; k++) {
+  //   VLOG(0) << "yxfffpull gpunum: " << num << " k: " << k << " left: " << h_left[k] << " right: " << h_right[k]; 
+  // }
 
   if (!direct_access_) {
     for (int i = 0; i < total_gpu; ++i) {
@@ -1311,21 +1292,14 @@ void HeterComm<KeyType, ValType, GradType>::push_sparse(int gpu_num,
 
   cudaMemsetAsync(d_left_ptr, -1, total_gpu * sizeof(int), stream);
   cudaMemsetAsync(d_right_ptr, -1, total_gpu * sizeof(int), stream);
-  //
   auto d_idx = memory::Alloc(place, len * sizeof(int));
   int* d_idx_ptr = reinterpret_cast<int*>(d_idx->ptr());
 
   auto d_shard_keys = memory::Alloc(place, len * sizeof(KeyType));
   KeyType* d_shard_keys_ptr = reinterpret_cast<KeyType*>(d_shard_keys->ptr());
 
-  GradType* d_shard_grads_ptr;
-  if (!multi_mf_dim_) {
-    auto d_shard_grads = memory::Alloc(place, len * sizeof(GradType));
-    d_shard_grads_ptr = reinterpret_cast<GradType*>(d_shard_grads->ptr());
-  } else {
-    auto d_shard_grads = memory::Alloc(place, len * grad_value_size);
-    d_shard_grads_ptr = reinterpret_cast<GradType*>(d_shard_grads->ptr());
-  }
+  auto d_shard_grads = memory::Alloc(place, len * grad_value_size);
+  GradType* d_shard_grads_ptr = reinterpret_cast<GradType*>(d_shard_grads->ptr());
 
   int uniq_len = len;
   merge_grad(gpu_num, d_keys, d_grads, NULL, len, uniq_len);
@@ -1483,7 +1457,7 @@ void HeterComm<KeyType, ValType, GradType>::push_sparse_multi_node(
   // for (int i = 0; i < uniq_len; i++) {
   //   FeaturePushValue* cur =
   //       (FeaturePushValue*)(test_grad_values + i * grad_type_size_);
-  //   if (cur->mf_dim < 0 || cur->mf_dim > 100) {
+  //   if (cur->mf_dim <= 0 || cur->mf_dim > 64) {
       
   //   // VLOG(0) << "yxfpush merge:: i: " << i << " key: " << ((uint64_t*)test_grad_keys)[i] << " cur->slot: " << cur->slot << " mf_dim: " << cur->mf_dim
   //   //         << " show: " << cur->show << " clk: " << cur->clk << " : " << cur->mf_g[0] << " : " << cur->mf_g[1] << " : " << cur->mf_g[2] << " : " << cur->mf_g[3] << " : " << cur->mf_g[4] << " : " << cur->mf_g[5] << " : " << cur->mf_g[6] << " : " << cur->mf_g[7];
@@ -1493,15 +1467,15 @@ void HeterComm<KeyType, ValType, GradType>::push_sparse_multi_node(
   // }
   // free(test_grad_values);
   // free(test_grad_keys);
-  // // VLOG(0) << "yxf::merge len: enddd";
-  // // VLOG(0) << "yxf222";
+  // VLOG(0) << "yxf::merge len: enddd";
+  // VLOG(0) << "yxf222";
 
-  VLOG(0) << "yxf::multinode merge grad done: len: " << len << "uniq len: " << uniq_len << " gpunum: " << gpu_num;
+  // VLOG(0) << "yxf::multinode merge grad done: len: " << len << "uniq len: " << uniq_len << " gpunum: " << gpu_num;
   time_line.Start();
   uniq_len = gather_one_node_grad(gpu_num, d_keys, d_grads, uniq_len);
   time_line.Pause();
   mg_time_10[gpu_num] += time_line.ElapsedSec();
-  VLOG(0) << "yxf::multinode gather_one_node_grad done: uniq len: " << uniq_len << " gpunum: " << gpu_num;
+  // VLOG(0) << "yxf::multinode gather_one_node_grad done: uniq len: " << uniq_len << " gpunum: " << gpu_num;
   
   // test_grad_values =
   //     (char*)malloc(grad_type_size_ * uniq_len);
@@ -1529,7 +1503,7 @@ void HeterComm<KeyType, ValType, GradType>::push_sparse_multi_node(
                                   storage_[gpu_num].local_grads, uniq_len);
   time_line.Pause();
   mg_time_11[gpu_num] += time_line.ElapsedSec();
-  VLOG(0) << "yxf::multinode gather_multi_node_grad done: uniq len: " << uniq_len << " gpunum: " << gpu_num;
+  // VLOG(0) << "yxf::multinode gather_multi_node_grad done: uniq len: " << uniq_len << " gpunum: " << gpu_num;
   
   // test_grad_values =
   //     (char*)malloc(grad_type_size_ * uniq_len);
@@ -1558,7 +1532,63 @@ void HeterComm<KeyType, ValType, GradType>::push_sparse_multi_node(
                    storage_[gpu_num].local_grads, uniq_len, sgd);
   time_line.Pause();
   mg_time_12[gpu_num] += time_line.ElapsedSec();
-  VLOG(0) << "yxf::multinode update_one_table done: uniq len: " << uniq_len << " gpunum: " << gpu_num;
+  // VLOG(0) << "yxf::multinode update_one_table done: uniq len: " << uniq_len << " gpunum: " << gpu_num;
+}
+
+template <typename KeyType, typename ValType, typename GradType>
+int HeterComm<KeyType, ValType, GradType>::gather_one_node_grad_v2(
+    int gpu_num, KeyType* d_keys, GradType* d_grads, int len) {
+  platform::Timer time_line;
+  time_line.Start();
+  int total_gpu = resource_->total_gpu();
+  int dev_id = resource_->dev_id(gpu_num);
+  auto& storage = storage_[gpu_num];
+  platform::CUDAPlace place = platform::CUDAPlace(dev_id);
+  platform::CUDADeviceGuard guard(dev_id);
+  auto stream = resource_->local_stream(gpu_num, 0);
+  size_t grad_value_size =
+      TYPEALIGN(8, sizeof(FeaturePushValue) + (max_mf_dim_ * sizeof(float)));
+  // split keys grad in shard in current gpu 
+
+  auto h_left_alloc = memory::Alloc(phi::GPUPinnedPlace(), sizeof(int) * total_gpu);
+  auto h_right_alloc = memory::Alloc(phi::GPUPinnedPlace(), sizeof(int) * total_gpu);
+  int* h_left = reinterpret_cast<int*>(h_left_alloc->ptr());
+  int* h_right = reinterpret_cast<int*>(h_right_alloc->ptr());
+
+  auto d_left = memory::Alloc(place, total_gpu * sizeof(int));
+  auto d_right = memory::Alloc(place, total_gpu * sizeof(int));
+  int* d_left_ptr = reinterpret_cast<int*>(d_left->ptr());
+  int* d_right_ptr = reinterpret_cast<int*>(d_right->ptr());
+
+  cudaMemsetAsync(d_left_ptr, -1, total_gpu * sizeof(int), stream);
+  cudaMemsetAsync(d_right_ptr, -1, total_gpu * sizeof(int), stream);
+  auto d_idx = memory::Alloc(place, len * sizeof(int));
+  int* d_idx_ptr = reinterpret_cast<int*>(d_idx->ptr());
+
+  auto d_shard_keys = memory::Alloc(place, len * sizeof(KeyType));
+  KeyType* d_shard_keys_ptr = reinterpret_cast<KeyType*>(d_shard_keys->ptr());
+
+  auto d_shard_grads = memory::Alloc(place, len * grad_value_size);
+  GradType* d_shard_grads_ptr = reinterpret_cast<GradType*>(d_shard_grads->ptr());
+
+  size_t grid_size = (len - 1) / block_size_ + 1;
+
+  split_input_to_shard(d_keys, d_idx_ptr, len, d_left_ptr, d_right_ptr,
+                       gpu_num);
+
+
+  dim3 block_dims(32, 32);
+  grid_size = (len - 1) / 32 + 1; 
+  dim3 grid_dims(grid_size);
+  dy_mf_fill_shard_grads<<<grid_dims, block_dims, 0, stream>>>(
+      d_shard_keys_ptr, d_keys, d_shard_grads_ptr, d_grads, d_idx_ptr,
+      len, grad_value_size);
+  
+  // split keys grad in shard in current gpu end 
+
+
+  auto ret = 0;   
+  return ret;
 }
 
 template <typename KeyType, typename ValType, typename GradType>
@@ -1673,17 +1703,18 @@ int HeterComm<KeyType, ValType, GradType>::gather_one_node_grad(
   
   cudaMemcpyAsync(gather_local_grads, (char*)d_grads,
                     h_node_len[gpu_num] * grad_type_size_, cudaMemcpyDefault, stream);
+  PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
   // allgather keys and grads
   PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclGroupStart());
   PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclAllGather(
-      storage.all_keys + max_size * gpu_num, storage.all_keys, max_size, ncclUint64, nccl_inner_comm, stream));
+      gather_local_keys, storage.all_keys, max_size, ncclUint64, nccl_inner_comm, stream));
 
   PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclAllGather(
-     (void*)((char*)storage.all_grads + max_size * gpu_num * grad_type_size_), (void*)(storage.all_grads), max_size * grad_type_size_, ncclUint8,
+     gather_local_grads, (void*)(storage.all_grads), max_size * grad_type_size_, ncclUint8,
       nccl_inner_comm, stream));
   PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclGroupEnd());
-  PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
-  VLOG(0) << "yxffff: end two nccl: gpu: " << gpu_num << " max_size: " << max_size << " size: " << max_size * grad_type_size_;
+  // PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
+  // VLOG(0) << "yxffff: end two nccl: gpu: " << gpu_num << " max_size: " << max_size << " size: " << max_size * grad_type_size_;
   time_line.Pause();
   mg_time_5[gpu_num] += time_line.ElapsedSec();
   time_line.Start();
@@ -1700,20 +1731,52 @@ int HeterComm<KeyType, ValType, GradType>::gather_one_node_grad(
     auto d_idx = memory::Alloc(place, h_node_len[i] * sizeof(int));
     int* d_idx_ptr = reinterpret_cast<int*>(d_idx->ptr());
 
-    cudaMemset(d_left_ptr, -1, total_gpu * sizeof(int));
-    cudaMemset(d_right_ptr, -1, total_gpu * sizeof(int));
+    // cudaMemset(d_left_ptr, -1, total_gpu * sizeof(int));
+    // cudaMemset(d_right_ptr, -1, total_gpu * sizeof(int));
+    // cudaMemsetAsync(d_left_ptr, -1, total_gpu * sizeof(int), stream);
+    // cudaMemsetAsync(d_right_ptr, -1, total_gpu * sizeof(int), stream);
+    // PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));   
 
     split_input_to_shard(storage.all_keys + index, d_idx_ptr, h_node_len[i],
                          d_left_ptr, d_right_ptr, gpu_num);
+                      
     cudaMemcpy(h_left, d_left_ptr, total_gpu * sizeof(int),
                cudaMemcpyDeviceToHost);
     cudaMemcpy(h_right, d_right_ptr, total_gpu * sizeof(int),
                cudaMemcpyDeviceToHost);
+    
     // VLOG(0) << "yxf111 i: " << i << " index: " << index << " h_node_len: " << h_node_len[i] << " right: " << h_right[gpu_num] << " left: " << h_left[gpu_num] << " index: " << index * grad_type_size_ << " merge: " << merge_num * grad_type_size_;
     size_t cur_len = size_t(h_right[gpu_num]) - size_t(h_left[gpu_num]) + 1;
     // int grid_size = (cur_len - 1) / block_size_ + 1;
     GradType* current_all_grads = (GradType*)((char*)(storage.all_grads) + index * grad_type_size_);
     GradType* current_local_grads = (GradType*)((char*)(storage.local_grads) + merge_num * grad_type_size_);
+    
+    // if (h_left[gpu_num] == -1) {
+    //   char* test_grad_values =
+    //       (char*)malloc(grad_type_size_ * h_node_len[i]);
+    //   char* test_grad_keys =
+    //       (char*)malloc(sizeof(KeyType) * h_node_len[i]);
+    //   char* test_idx =
+    //       (char*)malloc(sizeof(int) * h_node_len[i]);
+    //   cudaMemcpy(test_grad_values, current_all_grads,
+    //             grad_type_size_ * h_node_len[i], cudaMemcpyDeviceToHost);
+    //   cudaMemcpy(test_grad_keys, storage.all_keys + index,
+    //             sizeof(KeyType) * h_node_len[i], cudaMemcpyDeviceToHost);
+    //   cudaMemcpy(test_idx, d_idx_ptr,
+    //             sizeof(int) * h_node_len[i], cudaMemcpyDeviceToHost);
+    //   for (int k = 0; k < h_node_len[i]; k++) {
+    //     FeaturePushValue* cur =
+    //         (FeaturePushValue*)(test_grad_values + k * grad_type_size_);
+    //     // if (cur->mf_dim <= 0 || cur->mf_dim > 64) {
+          
+    //     // VLOG(0) << "yxfpush merge:: i: " << i << " key: " << ((uint64_t*)test_grad_keys)[i] << " cur->slot: " << cur->slot << " mf_dim: " << cur->mf_dim
+    //     //         << " show: " << cur->show << " clk: " << cur->clk << " : " << cur->mf_g[0] << " : " << cur->mf_g[1] << " : " << cur->mf_g[2] << " : " << cur->mf_g[3] << " : " << cur->mf_g[4] << " : " << cur->mf_g[5] << " : " << cur->mf_g[6] << " : " << cur->mf_g[7];
+    //     VLOG(0) << "yxf push merge123::i: " << i << " gpunum: " << gpu_num << " k: " << k << " key: " << ((uint64_t*)test_grad_keys)[k] << " idx: " << ((int*)test_idx)[k] << " cur feature: " << *cur;
+    //     // }
+        
+    //   }
+    // }
+    
     dim3 block_dims(32, 32);
     const size_t grid_size = (cur_len - 1) / 32 + 1; 
     dim3 grid_dims(grid_size);
@@ -1723,10 +1786,16 @@ int HeterComm<KeyType, ValType, GradType>::gather_one_node_grad(
         d_idx_ptr + h_left[gpu_num], cur_len, grad_type_size_);
     // PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
     merge_num = merge_num + h_right[gpu_num] - h_left[gpu_num] + 1;
-    // VLOG(0) << "yxf222 i: " << i << " index: " << index << " h_node_len: " << h_node_len[i] << " right: " << h_right[gpu_num] << " left: " << h_left[gpu_num] << " index: " << index * grad_type_size_ << " merge: " << merge_num * grad_type_size_;
+    // VLOG(0) << "yxf222 i: " << i << " gpu_num: " << gpu_num << " index: " << index << " h_node_len: " << h_node_len[i] << " right: " << h_right[gpu_num] << " left: " << h_left[gpu_num] << " index: " << index * grad_type_size_ << " merge: " << merge_num * grad_type_size_;
+    // for (auto k = 0; k < total_gpu; k++) {
+    //   VLOG(0) << "yxf333 i: " << i << " k: " << k << " gpu_num: " << gpu_num << " index: " << index << " h_node_len: " << h_node_len[k] << " right: " << h_right[k] << " left: " << h_left[k];
+    // }
   }
   // VLOG(0) << "yxf gather one node keys done grad_type_size_: " << grad_type_size_;
   int ret = merge_num;
+  time_line.Pause();
+  mg_time_1[gpu_num] += time_line.ElapsedSec();
+  time_line.Start();
   merge_grad(gpu_num, storage.local_keys, storage.local_grads, NULL, merge_num, ret);
   time_line.Pause();
   mg_time_6[gpu_num] += time_line.ElapsedSec();

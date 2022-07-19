@@ -119,6 +119,9 @@ class PSGPUWrapper {
   void CopyKeys(const paddle::platform::Place& place, uint64_t** origin_keys,
                 uint64_t* total_keys, const int64_t* gpu_len, int slot_num,
                 int total_len);
+  void CopyKeys(const paddle::platform::Place& place, uint64_t** origin_keys,
+                uint64_t* total_keys, const int64_t* gpu_len, int slot_num,
+                int total_len, int* gpu_dim);
   void CopyForPull(const paddle::platform::Place& place, uint64_t** gpu_keys,
                    const std::vector<float*>& values,
                    const FeatureValue* total_values_gpu, const int64_t* gpu_len,
@@ -348,10 +351,7 @@ class PSGPUWrapper {
       std::cout << s << " | ";
     }
     std::cout << " end wrapper " <<std::endl;
-    
-
     VLOG(0) << "get slot desc";
-
     slot_offset_vector_.clear();
     for (auto& slot : slot_vector_) {
       for (size_t i = 0; i < slots_vec.size(); ++i) {
@@ -362,7 +362,6 @@ class PSGPUWrapper {
         }
       }
     }
-    std::cout << "yxf1111set: ";
     for (auto s : slot_offset_vector_) {
       std::cout << s << " | ";
     }
@@ -416,6 +415,12 @@ class PSGPUWrapper {
  private:
   static std::shared_ptr<PSGPUWrapper> s_instance_;
   Dataset* dataset_;
+
+  //当load数据完成后，会将其筛入到如下队列，后续异步pull会用到这个队列的数据
+  //因为load 和 异步build是两个线程，所以才需要下面的队列来解耦这个dataset对象
+  std::queue<Dataset*> dataset_pipe_;
+  std::mutex dataset_mutex_;
+
 #ifdef PADDLE_WITH_PSLIB
   paddle::ps::AfsApiWrapper afs_handler_;
 #endif
@@ -454,8 +459,8 @@ class PSGPUWrapper {
   std::vector<std::vector<robin_hood::unordered_set<uint64_t>>> thread_keys_;
   std::vector<std::vector<std::vector<robin_hood::unordered_set<uint64_t>>>>
       thread_dim_keys_;
-  int thread_keys_thread_num_ = 37;
-  int thread_keys_shard_num_ = 37;
+  int thread_keys_thread_num_ = 37 * 4;
+  int thread_keys_shard_num_ = 64;
   uint64_t max_fea_num_per_pass_ = 5000000000;
   int year_;
   int month_;

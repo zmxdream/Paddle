@@ -79,6 +79,8 @@ __global__ void search_kernel(Table* table,
     auto it = table->find(keys[i]);
     if (it != table->end()) {
       vals[i] = it->second;
+    } else {
+      printf("pull miss key: %llu", keys[i]);
     }
   }
 }
@@ -93,18 +95,8 @@ __global__ void dy_mf_search_kernel(Table* table,
   const size_t k = threadIdx.x;
   if (i < len) {
     auto it = table->find(keys[i]);
-
     if (it != table->end()) {
-      // if (i > (INT_MAX / pull_feature_value_size)) {
-      //   printf("yxf:::i: %d, size: %d, res: %d, ures: &lld", i, pull_feature_value_size, i * pull_feature_value_size, uint64_t(i) * pull_feature_value_size);
-      // }
-      
       uint64_t offset = i * pull_feature_value_size;
-      // uint64_t tmp_size = TYPEALIGN(8, sizeof(FeatureValue) + sizeof(float) * (8 + 1));
-      // uint64_t offset = i * tmp_size;
-      
-      // *(FeatureValue*)(vals + offset) =
-      //     *(it->second);
       FeatureValue* cur = (FeatureValue*)(vals + offset);
       FeatureValue& input = *(FeatureValue*)(it->second);
       char* cur_p = (char*)cur;
@@ -217,6 +209,8 @@ __global__ void update_kernel(Table* table,
     auto it = table->find(keys[i]);
     if (it != table->end()) {
       sgd.update_value((it.getter())->second, grads[i], p_state[i]);
+    } else {
+      printf("push miss key: %llu", keys[i]);
     }
   }
 }
@@ -246,13 +240,22 @@ __global__ void dy_mf_update_kernel(Table* table,
     if (it != table->end()) {
       FeaturePushValue* cur = (FeaturePushValue*)(grads + i * grad_value_size);
       sgd.dy_mf_update_value((it.getter())->second, *cur);
-    } 
-    // else {
-    //   if (keys[i] != 0) {
-    //     printf("yxf::push miss key: %"PRIu64"", keys[i]);
-    //   }
-      
-    // }
+    }
+  }
+}
+
+template <typename Table, typename Sgd>
+__global__ void dy_mf_update_kernel(Table* table,
+                                    const typename Table::key_type* const keys,
+                                    const char* const grads, curandState* p_state, size_t len,
+                                    Sgd sgd, size_t grad_value_size) {
+  const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i < len) {
+    auto it = table->find(keys[i]);
+    if (it != table->end()) {
+      FeaturePushValue* cur = (FeaturePushValue*)(grads + i * grad_value_size);
+      sgd.dy_mf_update_value((it.getter())->second, *cur, p_state[i]);
+    }
   }
 }
 
@@ -426,10 +429,12 @@ void HashTable<KeyType, ValType>::update(const KeyType* d_keys,
   if (len == 0) {
     return;
   }
+  auto state = CuRandState::get();
+  auto d_state = state->get(len, stream);
   const int grid_size = (len - 1) / BLOCK_SIZE_ + 1;
-
   dy_mf_update_kernel<<<grid_size, BLOCK_SIZE_, 0, stream>>>(
-      container_, d_keys, d_grads, len, sgd, push_grad_value_size_);
+      container_, d_keys, d_grads, d_state, len, sgd, push_grad_value_size_);
+  CuRandState::push(state, stream);
 }
 
 }  // end namespace framework

@@ -66,14 +66,6 @@ struct CustomGradMerger {
     out.show = a.show + b.show;
     out.clk = a.clk + b.clk;
     out.lr_g = a.lr_g + b.lr_g;
-    //for (int i = 0; i < out->mf_dim; ++i) {
-      //printf("mf_g: %f\n", a.mf_g[0]);
-      // a.mf_g[0] = b.mf_g[0];
-      //((float*)out.mf_g)[i] = ((float*)a.mf_g)[i] + ((float*)b.mf_g)[i]; //
-      // for local test
-      //out->mf_g[i] = a->mf_g[i] + b->mf_g[i];
-    //}
-
     return out;
   }
 
@@ -104,7 +96,7 @@ struct CustomGradMerger {
   template <typename T>
   __device__ __forceinline__
   void copy_embedx_field(T& output, const T& input, size_t embedx_id) {
-       if (embedx_id < output.mf_dim) {
+       if (embedx_id < input.mf_dim) {
          output.mf_g[embedx_id] = input.mf_g[embedx_id];
        }
   }
@@ -113,7 +105,7 @@ struct CustomGradMerger {
   template <typename T>
   __device__ __forceinline__
   void add_embedx_field(T& output, const T& input, size_t embedx_id) {
-       if (embedx_id < output.mf_dim) {
+       if (embedx_id < input.mf_dim) {
          output.mf_g[embedx_id] += input.mf_g[embedx_id];
        }
   }
@@ -159,6 +151,9 @@ class HeterComm {
 
   int gather_one_node_grad(int num, KeyType* d_keys, GradType* d_grads,
                            int len);
+  
+  int gather_one_node_grad_v2(int num, KeyType* d_keys, GradType* d_grads,
+                           int len);
 
   int gather_multi_node_grad(int num, KeyType* d_keys, GradType* d_grads,
                              int len);
@@ -180,7 +175,7 @@ class HeterComm {
     
     multi_mf_dim_ = multi_mf_dim;
     max_mf_dim_ = max_mf_dim;
-    // VLOG(0) << "yxf:heter comm set multi multi_mf_dim_: " << multi_mf_dim_ << " max_mf_dim_: " << max_mf_dim_;
+    VLOG(3) << "heter comm set multi multi_mf_dim_: " << multi_mf_dim_ << " max_mf_dim_: " << max_mf_dim_;
   }
 
   bool need_transfer(int send_id, int receive_id) {
