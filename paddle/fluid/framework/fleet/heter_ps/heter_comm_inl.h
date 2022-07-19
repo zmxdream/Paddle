@@ -245,7 +245,7 @@ HeterComm<KeyType, ValType, GradType, GPUAccessor>::HeterComm(
           accessor_wrapper_ptr->GetFeatureValueSize(max_mf_dim_);
       size_t grad_type_size =
           accessor_wrapper_ptr->GetPushValueSize(max_mf_dim_);
-      VLOG(0) << " HeterComm init, max feature_value_size:" << val_type_size
+      VLOG(3) << " HeterComm init, max feature_value_size:" << val_type_size
               << ", feature_value_push_size:" << grad_type_size;
       auto ptr_table = new PtrTable(capacity / load_factor_);
       ptr_table->set_feature_value_size(val_type_size, grad_type_size);
