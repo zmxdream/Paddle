@@ -800,12 +800,8 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
   auto* accessor_wrapper_ptr =
       GlobalAccessorFactory::GetInstance().GetAccessorWrapper();
 
-  // auto* gpu_accessor = ((AccessorWrapper*)accessor_wrapper_ptr)->AccessorPtr();
   HeterPs_ = HeterPsBase::get_instance(size_max, resource_, accessor_type_, optimizer_type_);
-  // HeterPs_->set_gpu_accessor(gpu_accessor);
-
   HeterPs_->set_nccl_comm_and_size(inner_comms_, inter_comms_, node_size_);
-
   HeterPs_->set_sparse_sgd(optimizer_config_);
   HeterPs_->set_embedx_sgd(optimizer_config_);
 
@@ -1150,13 +1146,12 @@ void PSGPUWrapper::EndPass() {
     }
     // ============ add for multi-thread ================ 
     int mf_dim = this->index_dim_vec_[j];
-    VLOG(3) << "dump pool to cpu table: " << i << "with mf dim: " << mf_dim;
     // size_t feature_value_size =
     //    TYPEALIGN(8, sizeof(FeatureValue) + ((mf_dim + 1) * sizeof(float)));
     size_t feature_value_size =
         accessor_wrapper_ptr->GetFeatureValueSize(mf_dim);
 
-    VLOG(0) << "dump pool to cpu table: " << i << "with mf dim: " << mf_dim
+    VLOG(3) << "dump pool to cpu table: " << i << "with mf dim: " << mf_dim
             << " key_len :" << len
             << " feature_value_size:" << feature_value_size;
     char* test_build_values =
@@ -1309,7 +1304,7 @@ void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
                               const std::vector<int64_t>& slot_lengths,
                               const std::vector<int>& slot_dim, // dimension for each slot
                               const int hidden_size) {
-  VLOG(0) << "Begine Gpu Ps PullSparse";
+  VLOG(3) << "Begine Gpu Ps PullSparse";
   platform::Timer all_timer;
   platform::Timer pull_gpups_timer;
   all_timer.Start();
@@ -1392,10 +1387,10 @@ void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
   all_timer.Pause();
   time_1 += all_timer.ElapsedSec();
   time_2 += pull_gpups_timer.ElapsedSec();
-  VLOG(0) << "GpuPs PullSparse total costs: " << all_timer.ElapsedSec()
+  VLOG(3) << "GpuPs PullSparse total costs: " << all_timer.ElapsedSec()
             << " s, of which pullsparse costs: " << pull_gpups_timer.ElapsedSec()
             << " s";
-  VLOG(0) << "End PullSparse";
+  VLOG(3) << "End PullSparse";
 
 }
 
@@ -1405,7 +1400,7 @@ void PSGPUWrapper::PushSparseGrad(const paddle::platform::Place& place,
                                   const std::vector<const float*>& grad_values,
                                   const std::vector<int64_t>& slot_lengths,
                                   const int hidden_size, const int batch_size) {
-  VLOG(0) << "Begin GPUPS PushSparseGrad";
+  VLOG(3) << "Begin GPUPS PushSparseGrad";
   platform::Timer all_timer;
   platform::Timer push_gpups_timer;
   all_timer.Start();
@@ -1455,10 +1450,10 @@ void PSGPUWrapper::PushSparseGrad(const paddle::platform::Place& place,
   all_timer.Pause();
   time_3 += all_timer.ElapsedSec();
   time_4 += push_gpups_timer.ElapsedSec();
-  VLOG(0) << "PushSparseGrad total cost: " << all_timer.ElapsedSec()
+  VLOG(3) << "PushSparseGrad total cost: " << all_timer.ElapsedSec()
           << " s, of which GPUPS cost: " << push_gpups_timer.ElapsedSec()
           << " s";
-  VLOG(0) << "End PushSparseGrad";
+  VLOG(3) << "End PushSparseGrad";
 }
 
 
