@@ -40,6 +40,7 @@ class HeterPs : public HeterPsBase {
   virtual void set_nccl_comm_and_size(
       const std::vector<ncclComm_t>& inner_comms,
       const std::vector<ncclComm_t>& inter_comms, int comm_size) override;
+  virtual void set_trans_inter_comm(const std::vector<ncclComm_t>& trans_inter_comms);
   virtual void set_multi_mf_dim(int multi_mf_dim, int max_mf_dim) override;
   virtual void end_pass() override;
   virtual int get_index_by_devid(int devid) override;

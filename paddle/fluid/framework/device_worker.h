@@ -31,6 +31,8 @@ limitations under the License. */
 #include "paddle/fluid/distributed/ps/wrapper/fleet.h"
 #endif
 
+#include <map>
+#include "paddle/fluid/framework/barrier.h"
 #include "paddle/fluid/framework/data_feed.h"
 #include "paddle/fluid/framework/executor_gc_helper.h"
 #include "paddle/fluid/framework/heter_util.h"
@@ -203,6 +205,9 @@ class DeviceWorker {
   virtual void SetDeviceContext(platform::DeviceContext* dev_ctx) {
     dev_ctx_ = dev_ctx;
   }
+  virtual void SetThreadNum(int thread_num) {
+    thread_num_ = thread_num;
+  }
   virtual Scope* GetThreadScope() { return thread_scope_; }
   DataFeed* device_reader_ = nullptr;
 
@@ -231,6 +236,7 @@ class DeviceWorker {
   int dump_interval_ = 10000;
   ChannelWriter<std::string> writer_;
   platform::DeviceContext* dev_ctx_ = nullptr;
+  int thread_num_;
 };
 
 class CPUWorkerBase : public DeviceWorker {
@@ -276,6 +282,7 @@ class HogwildWorker : public CPUWorkerBase {
   HogwildWorkerParameter param_;
   std::vector<std::string> skip_ops_;
   std::map<std::string, int> stat_var_name_map_;
+  static std::atomic<uint64_t> worker_num_stat_;
 };
 
 class DownpourWorker : public HogwildWorker {
@@ -634,7 +641,7 @@ class PSGPUWorker : public HogwildWorker {
   uint64_t total_inst_;
 
   // async infershape
-  int task_threads_num_ {6};
+  int task_threads_num_ {1};
   int scope_num_ {task_threads_num_ + 1};
   std::atomic<int> thread_count_ {0};
   std::atomic<bool> stop_token_ {false};
@@ -748,7 +755,6 @@ class HeterSectionWorker : public DeviceWorker {
   const platform::Place& place() const { return place_; }
 
   void SetDeviceIndex(int tid) override { thread_id_ = tid; }
-  void SetThreadNum(int thread_num) { thread_num_ = thread_num; }
   void SetMicrobatchNum(int num) { num_microbatches_ = num; }
   void SetPipelineStageNum(int num) { num_pipeline_stages_ = num; }
   void SetPipelineStage(int stage) { pipeline_stage_ = stage; }
@@ -790,7 +796,6 @@ class HeterSectionWorker : public DeviceWorker {
  protected:
   int trainer_id_;
   int trainers_;
-  int thread_num_;
   int thread_id_;
   int num_microbatches_;
   int num_pipeline_stages_;

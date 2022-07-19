@@ -690,6 +690,44 @@ PADDLE_DEFINE_EXPORTED_bool(
     "It controls whether to apply IR pass to program when using Fleet APIs");
 
 /**
+ * Distributed related FLAG
+ * Name: FLAGS_graph_load_in_parallel
+ * Since Version: 2.2.0
+ * Value Range: bool, default=false
+ * Example:
+ * Note: Control whether load graph node and edge with multi threads parallely
+ *       If it is not set, load graph data with one thread
+ */
+PADDLE_DEFINE_EXPORTED_bool(
+    graph_load_in_parallel, false,
+    "It controls whether load graph node and edge with mutli threads parallely.");
+
+/**
+ * Distributed related FLAG
+ * Name: FLAGS_graph_get_neighbor_id
+ * Since Version: 2.2.0
+ * Value Range: bool, default=false
+ * Example:
+ * Note: Control get all neighbor id when running sub part graph
+ *       If it is not set, do not need get neighbor id when run all part graph
+ */
+PADDLE_DEFINE_EXPORTED_bool(
+    graph_get_neighbor_id, false,
+    "It controls get all neighbor id when running sub part graph.");
+
+/**
+ * Distributed related FLAG
+ * Name: enable_exit_when_partial_worker
+ * Since Version: 2.2.0
+ * Value Range: bool, default=false
+ * Example:
+ * Note: Control  whether exit trainer when an worker has no ins.
+ *       If it is not set, trainer will exit until all worker finish train.
+ */
+PADDLE_DEFINE_EXPORTED_bool(
+    enable_exit_when_partial_worker, false,
+    "It controls whether exit trainer when an worker has no ins.");
+/**
  * KP kernel related FLAG
  * Name: FLAGS_run_kp_kernel
  * Since Version: 2.3.0

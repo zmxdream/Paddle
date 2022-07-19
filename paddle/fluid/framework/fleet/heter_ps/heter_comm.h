@@ -15,6 +15,7 @@ limitations under the License. */
 #pragma once
 #include <thread>
 #include <vector>
+#include "paddle/fluid/framework/barrier.h"
 #include "cub/cub.cuh"
 #include "cub/util_allocator.cuh"
 #include "hashtable.h"       // NOLINT
@@ -33,6 +34,8 @@ limitations under the License. */
 
 namespace paddle {
 namespace framework {
+
+Barrier h_barrier;
 
 #define TYPEALIGN(ALIGNVAL, LEN) \
   (((uint64_t)(LEN) + ((ALIGNVAL)-1)) & ~((uint64_t)((ALIGNVAL)-1)))
@@ -124,6 +127,7 @@ class HeterComm {
                             int* left, int* right, int gpu_num);
   void split_input_by_mfdim(
     GradType* d_grads, int* d_idx_ptr, size_t len, int* left, int* right, int gpu_num);
+  void reorder_input_by_mfdim(KeyType* d_keys, GradType* d_grads, size_t len, int* lens, int gpu_num, size_t& reorder_grad_len);
   void merge_grad(int gpu_num, KeyType* d_keys, GradType* d_grads, size_t len,
                   int& uniq_len);  // NOLINT
   void merge_grad(int gpu_num, KeyType* d_keys, GradType* d_grads, float* mf,
@@ -160,6 +164,12 @@ class HeterComm {
 
   int gather_multi_node_grad_v2(
     int gpu_num, KeyType* d_keys, GradType* d_grads, int len);
+  int gather_multi_node_grad_v3(
+    int gpu_num, KeyType* d_keys, GradType* d_grads, int len);
+  int gather_multi_node_grad_v4(
+    int gpu_num, KeyType* d_keys, GradType* d_grads, int len);
+  int gather_multi_node_grad_v5(
+    int gpu_num, KeyType* d_keys, GradType* d_grads, int len);
 
   int log2i(int x);
 
@@ -169,6 +179,10 @@ class HeterComm {
     nccl_inner_comms_ = inner_comms;
     nccl_inter_comms_ = inter_comms;
     node_size_ = comm_size;
+  }
+
+  void set_trans_inter_comm(const std::vector<ncclComm_t>& trans_inter_comms) {
+    nccl_trans_inter_comms_ = trans_inter_comms;
   }
   
   void set_multi_mf_dim(int multi_mf_dim, int max_mf_dim) {
@@ -248,6 +262,66 @@ class HeterComm {
       }
     }
 
+    void alloc_for_inter_copy(size_t size, bool force = false) {
+      // VLOG(0) << "yxf LocalStorage222 alloc grad size: " << size << " local mem size: " << local_keys_mem->size();
+      if (force || size * sizeof(KeyType) > local_keys_mem->size()) {
+        local_keys_mem.reset();
+        local_grads_mem.reset();
+        local_keys_mem = memory::Alloc(place_, size * sizeof(KeyType));
+        VLOG(0) << "yxf LocalStorage111 alloc grad size: " << size * grad_type_size_;
+        local_grads_mem = memory::Alloc(place_, size * grad_type_size_);
+        local_keys = reinterpret_cast<KeyType*>(local_keys_mem->ptr());
+        local_grads = reinterpret_cast<GradType*>(local_grads_mem->ptr());
+      }
+    }
+
+    void alloc_for_multi_node_nccl(size_t size, bool force = false) {
+      if (force || size > all_keys_mem->size()) {
+        all_keys_mem.reset();
+        all_grads_mem.reset();
+        all_keys_mem = memory::Alloc(place_, size * sizeof(KeyType));
+        // VLOG(0) << "yxf LocalStorage111 alloc grad size: " << grad_type_size_;
+        all_grads_mem = memory::Alloc(place_, size * grad_type_size_);
+        all_keys = reinterpret_cast<KeyType*>(all_keys_mem->ptr());
+        all_grads = reinterpret_cast<GradType*>(all_grads_mem->ptr());
+      }
+    }
+    void alloc_for_data_transfer(size_t size, bool force = false) {
+      if (force || size > all_keys_mem->size()) {
+        all_keys_mem.reset();
+        all_grads_mem.reset();
+        all_keys_mem = memory::Alloc(place_, size * sizeof(KeyType));
+        // VLOG(0) << "yxf LocalStorage111 alloc grad size: " << grad_type_size_;
+        all_grads_mem = memory::Alloc(place_, size * grad_type_size_);
+        all_keys = reinterpret_cast<KeyType*>(all_keys_mem->ptr());
+        all_grads = reinterpret_cast<GradType*>(all_grads_mem->ptr());
+      }
+    }
+    void alloc_for_data_transfer_nccl(size_t size, bool force = false) {
+      if (force || size > local_keys_mem->size()) {
+        local_keys_mem.reset();
+        local_grads_mem.reset();
+        local_keys_mem = memory::Alloc(place_, size * sizeof(KeyType));
+        // VLOG(0) << "yxf LocalStorage111 alloc grad size: " << grad_type_size_;
+        local_grads_mem = memory::Alloc(place_, size * grad_type_size_);
+        local_keys = reinterpret_cast<KeyType*>(local_keys_mem->ptr());
+        local_grads = reinterpret_cast<GradType*>(local_grads_mem->ptr());
+      }
+    }
+
+    void alloc_in_transfer(size_t size, bool force = false) {
+      VLOG(0) << "yxf::alloc in trans: size: " << size << " mem size: " << trans_all_keys_mem->size();
+      if (force || size > trans_all_keys_mem->size()) {
+        trans_all_keys_mem.reset();
+        trans_all_grads_mem.reset();
+        trans_all_keys_mem = memory::Alloc(place_, size * sizeof(KeyType));
+        // VLOG(0) << "yxf LocalStorage111 alloc grad size: " << grad_type_size_;
+        trans_all_grads_mem = memory::Alloc(place_, size * grad_type_size_);
+        trans_all_keys = reinterpret_cast<KeyType*>(trans_all_keys_mem->ptr());
+        trans_all_grads = reinterpret_cast<GradType*>(trans_all_grads_mem->ptr());
+      }
+    }
+
     platform::CUDAPlace place_;
     std::shared_ptr<memory::Allocation> all_keys_mem;
     std::shared_ptr<memory::Allocation> all_grads_mem;
@@ -258,7 +332,22 @@ class HeterComm {
     std::shared_ptr<memory::Allocation> local_grads_mem;
     KeyType* local_keys;
     GradType* local_grads;
+
+    std::shared_ptr<memory::Allocation> trans_all_keys_mem;
+    std::shared_ptr<memory::Allocation> trans_all_grads_mem;
+    KeyType* trans_all_keys;
+    GradType* trans_all_grads;
+
     size_t grad_type_size_;
+
+    // nccl shard info
+    int* h_local_left;
+    int* h_local_right;
+    int* h_merge_offset;
+    int* h_merge_len;
+    KeyType* tmp_local_keys;
+    char* tmp_local_grads;
+    size_t gather_one_node_len;
   
   };
 
@@ -296,6 +385,7 @@ class HeterComm {
   int node_rank_{-1};
   std::vector<ncclComm_t> nccl_inner_comms_;
   std::vector<ncclComm_t> nccl_inter_comms_;
+  std::vector<ncclComm_t> nccl_trans_inter_comms_;
   std::vector<double> mg_time_1;
   std::vector<double> mg_time_2;
   std::vector<double> mg_time_3;
@@ -317,7 +407,10 @@ class HeterComm {
   int max_mf_dim_ = 8;
   size_t val_type_size_;
   size_t grad_type_size_;
-};
+  std::unordered_map<int,std::shared_ptr<memory::Allocation>> trans_keys;
+  std::unordered_map<int, std::shared_ptr<memory::Allocation>> trans_grads;
+  std::vector<int> trans_ids = {2, 3, 4, 5};
+ };
 
 }  // end namespace framework
 }  // end namespace paddle

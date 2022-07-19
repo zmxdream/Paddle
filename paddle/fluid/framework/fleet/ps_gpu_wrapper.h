@@ -98,6 +98,8 @@ class PSGPUWrapper {
     for (size_t i = 0; i < pull_thread_pool_.size(); i++) {
       pull_thread_pool_[i].reset(new ::ThreadPool(1));
     }
+    mg_time_0 = std::vector<double>(8, 0.0);
+    mg_time_1 = std::vector<double>(8, 0.0);
   }
 
   void PullSparse(const paddle::platform::Place& place, const int table_id,
@@ -219,6 +221,33 @@ class PSGPUWrapper {
                                               inter_ncclids_[i], gloo->Rank());
         }
         node_size_ = gloo->Size();
+
+        // for trans inter comm
+        gloo->Barrier();
+        trans_inter_comms_.resize(dev_size);
+        trans_inter_ncclids_.resize(dev_size);
+        if (gloo->Rank() == 0) {
+          for (int i = 0; i < dev_size; ++i) {
+            platform::dynload::ncclGetUniqueId(&(trans_inter_ncclids_[i]));
+          }
+        }
+
+        PADDLE_ENFORCE_EQ(
+            gloo->IsInitialized(), true,
+            platform::errors::PreconditionNotMet(
+                "You must initialize the gloo environment first to use it."));
+        // gloo::BroadcastOptions opts(gloo->GetContext());
+        opts.setOutput(&(trans_inter_ncclids_[0]), dev_size);
+        opts.setRoot(0);
+        gloo::broadcast(opts);
+
+        for (int i = 0; i < dev_size; ++i) {
+          platform::CUDADeviceGuard guard(resource_->dev_id(i));
+          platform::dynload::ncclCommInitRank(&(trans_inter_comms_[i]), gloo->Size(),
+                                              trans_inter_ncclids_[i], gloo->Rank());
+        }
+
+        // for trans inter comm end 
 #else
         PADDLE_THROW(
             platform::errors::Unavailable("heter ps need compile with GLOO"));
@@ -446,13 +475,17 @@ class PSGPUWrapper {
   double time_2 = 0.0;
   double time_3 = 0.0;
   double time_4 = 0.0;
+  std::vector<double> mg_time_0;
+  std::vector<double> mg_time_1;
 
   int multi_node_{0};
   int node_size_;
   uint64_t table_id_;
   std::vector<ncclComm_t> inner_comms_;
   std::vector<ncclComm_t> inter_comms_;
+  std::vector<ncclComm_t> trans_inter_comms_;
   std::vector<ncclUniqueId> inter_ncclids_;
+  std::vector<ncclUniqueId> trans_inter_ncclids_;
   std::vector<int> heter_devices_;
   std::unordered_set<std::string> gpu_ps_config_keys_;
   HeterObjectPool<HeterContext> gpu_task_pool_;
