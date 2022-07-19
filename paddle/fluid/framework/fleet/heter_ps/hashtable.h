@@ -81,7 +81,7 @@ class HashTable {
                               size_t push_grad_value_size) {
     pull_feature_value_size_ = pull_feature_value_size;
     push_grad_value_size_ = push_grad_value_size;
-    VLOG(0) << "hashtable set pull value size: " << pull_feature_value_size_
+    VLOG(3) << "hashtable set pull value size: " << pull_feature_value_size_
             << " push value size: " << push_grad_value_size_;
   }
 
