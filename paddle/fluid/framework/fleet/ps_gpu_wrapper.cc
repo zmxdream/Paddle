@@ -1318,17 +1318,11 @@ void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
       std::accumulate(slot_lengths.begin(), slot_lengths.end(), 0UL);
 
   size_t feature_value_size = 0;
-  // if (!multi_mf_dim_) {
-  //  feature_value_size = sizeof(FeatureValue);
-  //} else {
-  //  feature_value_size = TYPEALIGN(
-  //      8, sizeof(FeatureValue) + sizeof(float) * (index_dim_vec_.back() + 1));
-  //}
   auto accessor_wrapper_ptr =
       GlobalAccessorFactory::GetInstance().GetAccessorWrapper();
   feature_value_size = accessor_wrapper_ptr->GetFeatureValueSize(max_mf_dim_);
 
-  VLOG(0) << "PullSparse, total_length:" << total_length << " featurevalue size:" << feature_value_size;
+  VLOG(3) << "PullSparse, total_length:" << total_length << " featurevalue size:" << feature_value_size;
 
   auto buf = memory::Alloc(place, total_length * feature_value_size);
   float* total_values_gpu = reinterpret_cast<float*>(buf->ptr());
@@ -1367,25 +1361,15 @@ void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
                    static_cast<int>(slot_lengths.size()),
                    static_cast<int>(total_length));
 
-    VLOG(0) << "Begin call PullSparseGPU in GPUPS, dev: " << devid_2_index
+    VLOG(3) << "Begin call PullSparseGPU in GPUPS, dev: " << devid_2_index
             << " len: " << total_length;
     
     pull_gpups_timer.Start();
     HeterPs_->pull_sparse(devid_2_index, total_keys, total_values_gpu,
                           total_length);
     
-    VLOG(0) << "Begin Copy result to tensor, total_length[" << total_length
+    VLOG(3) << "Begin Copy result to tensor, total_length[" << total_length
             << "]";
-
-    // if (!multi_mf_dim_) {
-    //  this->CopyForPull(place, gpu_keys, values, total_values_gpu, gpu_len,
-    //                  static_cast<int>(slot_lengths.size()), hidden_size,
-    //                  total_length);
-    //} else {
-    //  this->CopyForPull(place, gpu_keys, values, total_values_gpu, gpu_len,
-    //                  static_cast<int>(slot_lengths.size()), hidden_size,
-    //                  total_length, gpu_dim);
-    //}
 
     accessor_wrapper_ptr->CopyForPull(place,
                                       gpu_keys,
@@ -1432,12 +1416,8 @@ void PSGPUWrapper::PushSparseGrad(const paddle::platform::Place& place,
       GlobalAccessorFactory::GetInstance().GetAccessorWrapper();
   size_t grad_value_size = accessor_wrapper_ptr->GetPushValueSize(max_mf_dim_);
 
-  // size_t grad_value_size =
-  //    TYPEALIGN(8, sizeof(FeaturePushValue) + (max_mf_dim_ * sizeof(float)));
-
-
   auto buf = memory::Alloc(place, total_length * grad_value_size);
-  VLOG(0) << "Push Sparse Max mf dimention: " << max_mf_dim_ << " grad_value_size: " << grad_value_size;
+  VLOG(3) << "Push Sparse Max mf dimention: " << max_mf_dim_ << " grad_value_size: " << grad_value_size;
 
   float* total_grad_values_gpu =
       reinterpret_cast<float*>(buf->ptr());
@@ -1452,14 +1432,6 @@ void PSGPUWrapper::PushSparseGrad(const paddle::platform::Place& place,
     uint64_t* total_keys =
         reinterpret_cast<uint64_t*>(cached_total_keys_tensor.data<int64_t>());
     VLOG(3) << "Begin copy grad tensor to gpups struct";
-
-    // if (!multi_mf_dim_) {
-    //  this->CopyForPush(place, grad_values, total_grad_values_gpu, slot_lengths,
-    //                    hidden_size, total_length, batch_size);
-    // } else {
-    //  this->CopyForPush(place, grad_values, total_grad_values_gpu, slot_lengths,
-    //                    total_length, batch_size, grad_value_size);
-    // }
     accessor_wrapper_ptr->CopyForPush(place,
                                       grad_values,
                                       total_grad_values_gpu,
@@ -1470,7 +1442,7 @@ void PSGPUWrapper::PushSparseGrad(const paddle::platform::Place& place,
                                       slot_vector_,
                                       slot_mf_dim_vector_);
 
-    VLOG(0) << "Begin call PushSparseGPU in GPUPS, dev: " << devid_2_index
+    VLOG(3) << "Begin call PushSparseGPU in GPUPS, dev: " << devid_2_index
             << " len: " << total_length;
     push_gpups_timer.Start();
     HeterPs_->push_sparse(devid_2_index, total_keys, total_grad_values_gpu,
