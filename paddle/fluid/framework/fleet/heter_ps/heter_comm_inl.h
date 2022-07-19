@@ -226,12 +226,12 @@ __global__ void dy_mf_fill_dvals<int, CommonFeatureValueAccessor>(float* d_shard
 
 template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
 HeterComm<KeyType, ValType, GradType, GPUAccessor>::HeterComm(
-    size_t capacity, std::shared_ptr<HeterPsResource> resource) {
+    size_t capacity, std::shared_ptr<HeterPsResource> resource, GPUAccessor& gpu_accessor) {
   VLOG(1) << "Construct new HeterComm";
   resource_ = resource;
   storage_.resize(resource_->total_gpu());
   multi_mf_dim_ = resource->multi_mf();
-
+  gpu_accessor_ = gpu_accessor;
   for (int i = 0; i < resource_->total_gpu(); ++i) {
     platform::CUDADeviceGuard guard(resource_->dev_id(i));
     // allocators_.push_back(std::make_shared<cub::CachingDeviceAllocator>(

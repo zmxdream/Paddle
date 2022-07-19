@@ -201,8 +201,6 @@ class CommonFeatureValueAccessor : public FeatureValueAccessor {
         } else if (optimizer_type_ == 4) { //shared_adam
           tmp_embedx_sgd_dim = 4;
         }
-
-        // printf("zmx::debug embedxWoffset:%d\n",EmbedxG2SumIndex() + tmp_embedx_sgd_dim);
         return EmbedxG2SumIndex() + tmp_embedx_sgd_dim;
       } else {
         // no mf

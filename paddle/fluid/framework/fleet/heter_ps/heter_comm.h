@@ -78,7 +78,7 @@ struct CustomGradMerger {
 template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
 class HeterComm {
  public:
-  HeterComm(size_t capacity, std::shared_ptr<HeterPsResource> resource);
+  HeterComm(size_t capacity, std::shared_ptr<HeterPsResource> resource, GPUAccessor& gpu_accessor);
   virtual ~HeterComm();
   HeterComm(const HeterComm&) = delete;
   HeterComm& operator=(const HeterComm&) = delete;
@@ -217,10 +217,6 @@ class HeterComm {
                    ValType* src_val);
   void walk_to_src(int start_index, int gpu_num, int* h_left, int* h_right,
                    char* src_val, size_t val_size);
-
-  void set_gpu_accessor(GPUAccessor& gpu_accessor) {
-    gpu_accessor_ = gpu_accessor;
-  }
 
  protected:
   GPUAccessor gpu_accessor_; 

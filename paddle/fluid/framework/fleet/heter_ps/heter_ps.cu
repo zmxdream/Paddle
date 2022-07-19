@@ -22,7 +22,7 @@ namespace framework {
 
 HeterPsBase* HeterPsBase::get_instance(
     size_t capacity, std::shared_ptr<HeterPsResource> resource, std::string accessor_type, int optimizer_type) {
-  if (accessor_type == "DownpourCtrDymfAccessor" && optimizer_type == 1) {
+  if (accessor_type == "DownpourCtrDymfAccessor" && optimizer_type == 1) { // optimizer_type == 1 means adagrad
     auto* accessor_wrapper_ptr =
       GlobalAccessorFactory::GetInstance().GetAccessorWrapper();
     CommonFeatureValueAccessor* gpu_accessor =
@@ -39,8 +39,7 @@ template <typename GPUAccessor, template<typename T> class GPUOptimizer>
 HeterPs<GPUAccessor, GPUOptimizer>::HeterPs(size_t capacity, std::shared_ptr<HeterPsResource> resource, GPUAccessor& gpu_accessor) {
   comm_ =
       std::make_shared<HeterComm<FeatureKey, float, float, GPUAccessor>>(
-          capacity, resource);
-  comm_->set_gpu_accessor(gpu_accessor); // 后续去掉这个接口，放入heterComm构造函数
+          capacity, resource, gpu_accessor);
   opt_ = GPUOptimizer<GPUAccessor>(gpu_accessor);
 }
 
