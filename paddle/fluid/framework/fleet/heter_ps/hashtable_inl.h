@@ -78,49 +78,50 @@ __global__ void search_kernel(Table* table,
   }
 }
 
-// optimized version
-template <typename Table>
+template <class Table, typename GPUAccessor>
 __global__ void dy_mf_search_kernel(Table* table,
                                     const typename Table::key_type* const keys,
-                                    char* vals, size_t len,
-                                    size_t pull_feature_value_size) {
+                                    char* vals,
+                                    size_t len,
+                                    size_t pull_feature_value_size,
+                                    GPUAccessor gpu_accessor) {
+  const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i < len) {
+    auto it = table->find(keys[i]);
+    if (it != table->end()) {
+      uint64_t offset = i * pull_feature_value_size;
+      float* cur = (float*)(vals + offset);
+      float* input = it->second;
+      gpu_accessor.FeatureValueFill(cur, input);
+    } else {
+      if (keys[i] != 0) printf("pull miss key: %llu", keys[i]);
+    }
+  }
+}
+
+// optimized version
+template <>
+__global__ void dy_mf_search_kernel<TableContainer<FeatureKey, float*>, CommonFeatureValueAccessor>(TableContainer<FeatureKey, float*>* table,
+                                                                                                    const typename TableContainer<FeatureKey, float*>::key_type* const keys,
+                                                                                                    char* vals,
+                                                                                                    size_t len,
+                                                                                                    size_t pull_feature_value_size,
+                                                                                                    CommonFeatureValueAccessor gpu_accessor) {
   const size_t i = blockIdx.x * blockDim.y + threadIdx.y;
   const size_t k = threadIdx.x;
   if (i < len) {
     auto it = table->find(keys[i]);
     if (it != table->end()) {
       uint64_t offset = i * pull_feature_value_size;
-      FeatureValue* cur = (FeatureValue*)(vals + offset);
-      FeatureValue& input = *(FeatureValue*)(it->second);
-      char* cur_p = (char*)cur;
-      char* input_p = (char*)(&input);
-      int len = 9 + input.mf_dim + 1;
-      if (k == 3 || k == 6 || k == 7) *(int*)(cur_p + k * 4) = *(int*)(input_p + k * 4);
-      else if (k < 8) *(float*)(cur_p + k * 4) = *(float*)(input_p + k * 4);
-      else if (k == 8) { 
-        *(uint64_t*)(cur_p + k * 4) = *(uint64_t*)(input_p + k * 4);
-      }
-      else {
-        int len_per_thread = (len - 9) / (blockDim.x - 9);
-        int remain = (len - 9) % (blockDim.x - 9);
-        int real_len = len_per_thread;
-        if ((k - 9) < remain) real_len++;
-        int left = -1, right = -1;
-        if ((k - 9) < remain) {
-          left = 9 + (k - 9) * (len_per_thread + 1);
-          right = left + real_len;
-        } else {
-          left = 9 + remain * (len_per_thread + 1) + (k - 9 - remain) * len_per_thread;
-          right = left + real_len;
-        }
-        for(int j = left; j < right; j++) *(float*)(cur_p + (j + 1) * 4) = *(float*)(input_p + (j + 1) * 4);
-      }
+      float* cur = (float*)(vals + offset);
+      float* input = it->second;
+      gpu_accessor.FillDvals(cur, input, blockDim.x, k);
     } else {
       if (keys[i] != 0 && k == 0) printf("pull miss key: %llu",keys[i]);
       if (keys[i] == 0 && k == 0) {
         uint64_t offset = i * pull_feature_value_size;
-        FeatureValue* cur = (FeatureValue*)(vals + offset);
-        cur->mf_dim = 0;
+        float* cur = (float*)(vals + offset);
+        gpu_accessor.common_feature_value.MfDim(cur) = 0;
       }
     }
   }
@@ -188,57 +189,9 @@ private:
   curandState* states_ = nullptr;
 };
 
-template <typename Table, typename GradType, typename Sgd>
-__global__ void update_kernel(Table* table,
-                              const typename Table::key_type* const keys,
-                              const GradType* const grads, curandState* p_state, size_t len,
-                              Sgd sgd) {
-  const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
-  if (i < len) {
-    auto it = table->find(keys[i]);
-    if (it != table->end()) {
-      sgd.update_value((it.getter())->second, grads[i], p_state[i]);
-    } else {
-      printf("push miss key: %llu", keys[i]);
-    }
-  }
-}
-
-template <typename Table, typename GradType, typename Sgd>
-__global__ void update_kernel(Table* table,
-                              const typename Table::key_type* const keys,
-                              const GradType* const grads, size_t len,
-                              Sgd sgd) {
-  const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
-  if (i < len) {
-    auto it = table->find(keys[i]);
-    if (it != table->end()) {
-      sgd.update_value((it.getter())->second, grads[i]);
-    } else {
-      printf("push miss key: %llu", keys[i]);
-    }
-  }
-}
-
 template <typename Table, typename Sgd>
 __global__ void dy_mf_update_kernel(Table* table,
-                                    const typename Table::key_type* const keys,
-                                    const char* const grads, size_t len,
-                                    Sgd sgd, size_t grad_value_size) {
-  const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
-  if (i < len) {
-    auto it = table->find(keys[i]);
-    if (it != table->end()) {
-      FeaturePushValue* cur = (FeaturePushValue*)(grads + i * grad_value_size);
-      sgd.dy_mf_update_value((it.getter())->second, *cur);
-    } else {
-      if (keys[i] != 0) printf("push miss key: %llu", keys[i]);
-    }
-  }
-}
-
-template <typename Table, typename Sgd>
-__global__ void dy_mf_update_kernel(Table* table,
+                                    const OptimizerConfig& optimizer_config,
                                     const typename Table::key_type* const keys,
                                     const char* const grads, curandState* p_state, size_t len,
                                     Sgd sgd, size_t grad_value_size) {
@@ -246,8 +199,8 @@ __global__ void dy_mf_update_kernel(Table* table,
   if (i < len) {
     auto it = table->find(keys[i]);
     if (it != table->end()) {
-      FeaturePushValue* cur = (FeaturePushValue*)(grads + i * grad_value_size);
-      sgd.dy_mf_update_value((it.getter())->second, *cur, p_state[i]);
+      float* cur = (float*)(grads + i * grad_value_size);
+      sgd.dy_mf_update_value(optimizer_config, (it.getter())->second, cur, p_state[i]);
     } else {
       if(keys[i] != 0) printf("push miss key: %llu", keys[i]);
     }
@@ -257,12 +210,18 @@ __global__ void dy_mf_update_kernel(Table* table,
 template <typename KeyType, typename ValType>
 HashTable<KeyType, ValType>::HashTable(size_t capacity) {
   container_ = new TableContainer<KeyType, ValType>(capacity);
+  cudaMalloc((void**)&device_optimizer_config_, sizeof(OptimizerConfig));
+  cudaMemcpy((void*)device_optimizer_config_,
+             &host_optimizer_config_,
+             sizeof(OptimizerConfig),
+             cudaMemcpyHostToDevice);
   rwlock_.reset(new phi::RWLock);
 }
 
 template <typename KeyType, typename ValType>
 HashTable<KeyType, ValType>::~HashTable() {
   delete container_;
+  cudaFree(device_optimizer_config_);
 }
 
 template <typename KeyType, typename ValType>
@@ -282,8 +241,9 @@ void HashTable<KeyType, ValType>::get(const KeyType* d_keys, ValType* d_vals,
 }
 
 template <typename KeyType, typename ValType>
+template <typename GPUAccessor>
 void HashTable<KeyType, ValType>::get(const KeyType* d_keys, char* d_vals,
-                                      size_t len, gpuStream_t stream) {
+                                      size_t len, gpuStream_t stream, GPUAccessor& gpu_accessor) {
   if (len == 0) {
     return;
   }
@@ -293,7 +253,7 @@ void HashTable<KeyType, ValType>::get(const KeyType* d_keys, char* d_vals,
   dim3 grid_dims(grid_size);
 
   dy_mf_search_kernel<<<grid_dims, block_dims, 0, stream>>>(
-      container_, d_keys, d_vals, len, pull_feature_value_size_);
+      container_, d_keys, d_vals, len, pull_feature_value_size_, gpu_accessor);
 }
 
 template <typename KeyType, typename ValType>
@@ -327,6 +287,7 @@ void HashTable<KeyType, ValType>::insert(const KeyType* d_keys, size_t len,
 
 template <typename KeyType, typename ValType>
 void HashTable<KeyType, ValType>::dump_to_cpu(int devid, cudaStream_t stream) {
+/*
   container_->prefetch(cudaCpuDeviceId, stream);
   std::vector<std::thread> threads;
   size_t num = container_->size();
@@ -399,28 +360,29 @@ void HashTable<KeyType, ValType>::dump_to_cpu(int devid, cudaStream_t stream) {
   }
 
   // container_->prefetch(devid, stream);
+*/
 }
 
-template <typename KeyType, typename ValType>
-template <typename GradType, typename Sgd>
-void HashTable<KeyType, ValType>::update(const KeyType* d_keys,
-                                         const GradType* d_grads, size_t len,
-                                         Sgd sgd, gpuStream_t stream) {
-  if (len == 0) {
-    return;
-  }
-  auto state = CuRandState::get();
-  auto d_state = state->get(len, stream);
-  const int grid_size = (len - 1) / BLOCK_SIZE_ + 1;
-  update_kernel<<<grid_size, BLOCK_SIZE_, 0, stream>>>(container_, d_keys, d_grads, d_state, len, sgd);
-  CuRandState::push(state, stream);
-}
+// template <typename KeyType, typename ValType>
+// template <typename GradType, typename Sgd>
+// void HashTable<KeyType, ValType>::update(const KeyType* d_keys,
+//                                         const GradType* d_grads, size_t len,
+//                                         Sgd sgd, gpuStream_t stream) {
+//  if (len == 0) {
+//    return;
+//  }
+//  auto state = CuRandState::get();
+//  auto d_state = state->get(len, stream);
+//  const int grid_size = (len - 1) / BLOCK_SIZE_ + 1;
+//  update_kernel<<<grid_size, BLOCK_SIZE_, 0, stream>>>(container_, *device_optimizer_config_, d_keys, d_grads, d_state, len, sgd);
+//  CuRandState::push(state, stream);
+// }
 
 template <typename KeyType, typename ValType>
 template <typename Sgd>
 void HashTable<KeyType, ValType>::update(const KeyType* d_keys,
                                          const char* d_grads, size_t len,
-                                         Sgd sgd, gpuStream_t stream) {
+                                         Sgd& sgd, gpuStream_t stream) {
   if (len == 0) {
     return;
   }
@@ -428,8 +390,28 @@ void HashTable<KeyType, ValType>::update(const KeyType* d_keys,
   auto d_state = state->get(len, stream);
   const int grid_size = (len - 1) / BLOCK_SIZE_ + 1;
   dy_mf_update_kernel<<<grid_size, BLOCK_SIZE_, 0, stream>>>(
-      container_, d_keys, d_grads, d_state, len, sgd, push_grad_value_size_);
+      container_, *device_optimizer_config_, d_keys, d_grads, d_state, len, sgd, push_grad_value_size_);
   CuRandState::push(state, stream);
+}
+
+template <typename KeyType, typename ValType>
+void HashTable<KeyType, ValType>::set_sparse_sgd(
+    const OptimizerConfig& optimizer_config) {
+  host_optimizer_config_.set_sparse_sgd(optimizer_config);
+  cudaMemcpy((void*)device_optimizer_config_,
+             &host_optimizer_config_,
+             sizeof(OptimizerConfig),
+             cudaMemcpyHostToDevice);
+}
+
+template <typename KeyType, typename ValType>
+void HashTable<KeyType, ValType>::set_embedx_sgd(
+    const OptimizerConfig& optimizer_config) {
+  host_optimizer_config_.set_embedx_sgd(optimizer_config);
+  cudaMemcpy((void*)device_optimizer_config_,
+             &host_optimizer_config_,
+             sizeof(OptimizerConfig),
+             cudaMemcpyHostToDevice);
 }
 
 }  // end namespace framework
