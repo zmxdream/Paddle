@@ -37,6 +37,7 @@ namespace framework {
 const uint32_t MAX_FEASIGN_NUM = 1024 * 100 * 100;
 std::shared_ptr<FleetWrapper> FleetWrapper::s_instance_ = NULL;
 bool FleetWrapper::is_initialized_ = false;
+std::mutex FleetWrapper::ins_mutex;
 
 #ifdef PADDLE_WITH_PSLIB
 std::shared_ptr<paddle::distributed::PSlib> FleetWrapper::pslib_ptr_ = NULL;
@@ -75,12 +76,25 @@ void FleetWrapper::InitWorker(const std::string& dist_desc,
     pslib_ptr_->init_worker(dist_desc,
                             const_cast<uint64_t*>(host_sign_list.data()),
                             node_num, index);
+    dist_desc_ = dist_desc;
     is_initialized_ = true;
   } else {
     VLOG(3) << "Worker can be initialized only once";
   }
 #endif
 }
+
+std::string FleetWrapper::GetDistDesc() {
+  CHECK(is_initialized_ == true) << "fleetwrapper should be initialized first!!!";
+  return dist_desc_;
+}
+
+#ifdef PADDLE_WITH_PSLIB
+void FleetWrapper::GetCPUAccessor(::paddle::ps::ValueAccessor*& cpu_accessor) {
+  auto* cpu_accessor_ = pslib_ptr_->_worker_ptr->table_accessor(0);
+  cpu_accessor = cpu_accessor_;
+}
+#endif
 
 void FleetWrapper::StopServer() {
 #ifdef PADDLE_WITH_PSLIB

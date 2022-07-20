@@ -65,6 +65,7 @@ __global__ void calc_shard_index(KeyType* d_keys, size_t len, T* shard_index,
   }
 }
 
+/*
 template <typename GradType, typename T>
 __global__ void calc_mfdim_index(GradType* d_grads, size_t len, T* mfdim,
                                  int total_gpu, size_t grad_value_size) {
@@ -72,6 +73,29 @@ __global__ void calc_mfdim_index(GradType* d_grads, size_t len, T* mfdim,
   if (i < len) {
     FeaturePushValue* cur = (FeaturePushValue*)((char*)d_grads + i * grad_value_size);
     if (cur->mf_dim == 8) {
+      mfdim[i] = 0;
+    } else {
+      mfdim[i] = 1;
+    }
+    // mfdim[i] = cur->mf_dim;
+  }
+}
+*/
+
+
+template <typename T, typename GPUAccessor>
+__global__ void calc_mfdim_index(float* d_grads,
+                                 size_t len,
+                                 T* mfdim,
+                                 int total_gpu,
+                                 size_t grad_value_size,
+                                 GPUAccessor gpu_accessor) {
+  const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i < len) {
+    // FeaturePushValue* cur = (FeaturePushValue*)((char*)d_grads + i * grad_value_size);
+    float* cur = (float*)((char*)d_grads + i * grad_value_size);
+    int mf_dim = cur[gpu_accessor->get_MfDim_index()];
+    if (mf_dim == 8) {
       mfdim[i] = 0;
     } else {
       mfdim[i] = 1;
@@ -100,6 +124,7 @@ __global__ void fill_shard_grads(KeyType* d_shard_keys, KeyType* d_keys,
   }
 }
 
+// check
 template <typename GradType>
 __global__ void dy_mf_fill_mfdim_grads(GradType* d_shard_grads,
                                        GradType* d_grads, int* idx, size_t len,
@@ -111,32 +136,43 @@ __global__ void dy_mf_fill_mfdim_grads(GradType* d_shard_grads,
   }
 }
 
-template <typename KeyType, typename GradType, typename T>
-__global__ void dy_mf_fill_shard_grads(KeyType* d_shard_keys, KeyType* d_keys,
-                                       GradType* d_shard_grads,
-                                       GradType* d_grads, T* idx, size_t len,
-                                       size_t grad_value_size) {
+template <typename KeyType, typename T, typename GPUAccessor>
+__global__ void dy_mf_fill_shard_grads(KeyType* d_shard_keys,
+                                       KeyType* d_keys,
+                                       float* d_shard_grads,
+                                       float* d_grads,
+                                       T* idx,
+                                       size_t len,
+                                       size_t grad_value_size,
+                                       GPUAccessor gpu_accessor) {
   const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
   if (i < len) {
     d_shard_keys[i] = d_keys[idx[i]];
-    *(GradType*)((char*)d_shard_grads + i * grad_value_size) =
-        *(GradType*)((char*)d_grads + uint64_t(idx[i]) * grad_value_size);
+    float* cur = (float*)((char*)d_shard_grads + i * grad_value_size);
+    float* shard_val =
+        (float*)((char*)d_grads + uint64_t(idx[i]) * grad_value_size);
+    gpu_accessor.PushValueFill(cur, shard_val);
   }
 }
 
-
 // optimized version
 template <>
-__global__ void dy_mf_fill_shard_grads<FeatureKey, FeaturePushValue, int>(FeatureKey* d_shard_keys, FeatureKey* d_keys,
-                                       FeaturePushValue* d_shard_grads,
-                                       FeaturePushValue* d_grads, int* idx, size_t len,
-                                       size_t grad_value_size) {
+__global__ void dy_mf_fill_shard_grads<FeatureKey, int, CommonFeatureValueAccessor>(FeatureKey* d_shard_keys,
+                                                                                    FeatureKey* d_keys,
+                                                                                    float* d_shard_grads,
+                                                                                    float* d_grads,
+                                                                                    int* idx,
+                                                                                    size_t len,
+                                                                                    size_t grad_value_size,
+                                                                                    CommonFeatureValueAccessor gpu_accessor) {
   const size_t i = blockIdx.x * blockDim.y + threadIdx.y;
   const size_t k = threadIdx.x;
+
   if (i < len) {
     if (k == 0) {
       d_shard_keys[i] = d_keys[idx[i]];
     }
+/*
     FeaturePushValue* cur = (FeaturePushValue*)((char*)d_shard_grads + i * grad_value_size);
     FeaturePushValue& input = *(FeaturePushValue*)((char*)d_grads + uint64_t(idx[i]) * grad_value_size);
     char* cur_p = (char*)cur;
@@ -166,16 +202,28 @@ __global__ void dy_mf_fill_shard_grads<FeatureKey, FeaturePushValue, int>(Featur
     }
   }
 }
+*/
+    float* cur = (float*)((char*)d_shard_grads + i * grad_value_size);
+    float* input = (float*)((char*)d_grads + uint64_t(idx[i]) * grad_value_size);
+    gpu_accessor.FillShardGrads(cur, input, blockDim.x, k);
+  }
+}
 
-__global__ void merge_gradient_basic_kernel(const uint64_t* keys, const uint32_t* offset,
-                                      const uint32_t* fea_num,
-                                      const uint32_t* index, const char* input,
-                                      char* output, int n,
-                                      size_t grad_value_size,
-                                      CustomGradMerger& merger) {
+// merge gradient
+template <typename GPUAccessor>
+__global__ void merge_gradient_basic_kernel(const uint64_t* keys,
+                                            const uint32_t* offset,
+                                            const uint32_t* fea_num,
+                                            const uint32_t* index,
+                                            const char* input,
+                                            char* output,
+                                            int n,
+                                            size_t grad_value_size,
+                                            CustomGradMerger& merger,
+                                            GPUAccessor gpu_accessor) {
   const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
-  
   if (i < n) {
+/*
     if (keys[i] != 0) {
       uint32_t start = offset[i];
       uint32_t num = fea_num[i];
@@ -197,27 +245,58 @@ __global__ void merge_gradient_basic_kernel(const uint64_t* keys, const uint32_t
       lhs.clk = 0;
       lhs.slot = -1;
       lhs.lr_g = 0;
+      // 
       lhs.mf_dim = 64;
       for (int j = 0; j < 64; ++j) {
         lhs.mf_g[j] = 0;
       }
+*/
+    if (keys[i] != 0) {
+      uint32_t start = offset[i];
+      uint32_t num = fea_num[i];
+      int ori_index = index[start];
+      float* lhs = (float*)(output + i * grad_value_size);
+      float* rhs = (float*)(input + size_t(ori_index) * grad_value_size);
+      merger.copy_basic_field(lhs, rhs, gpu_accessor);
+      for (int j = 1; j < num; ++j) {
+        ori_index = index[start + j];
+        rhs = (float*)(input + size_t(ori_index) * grad_value_size);
+        merger.add_basic_field(lhs, rhs, gpu_accessor);
+      }
+    } else if (keys[i] == 0) {
+      uint32_t start = offset[i];
+      int ori_index = index[start];
+      float* lhs = (float*)(output + i * grad_value_size);
+      float* rhs = (float*)(input + size_t(ori_index) * grad_value_size);
+      merger.init_field(lhs, rhs, gpu_accessor);
     }
-    
   }
 }
 
-__global__ void merge_gradient_embedx_kernel(const uint64_t* keys, const uint32_t* offset,
-                                       const uint32_t* fea_num,
-                                       const uint32_t* index, const char* input,
-                                       char* output, int n,
-                                       size_t grad_dim,
-                                       size_t grad_value_size,
-                                       CustomGradMerger& merger) {
+// __global__ void merge_gradient_embedx_kernel(const uint64_t* keys, const uint32_t* offset,
+//                                       const uint32_t* fea_num,
+//                                       const uint32_t* index, const char* input,
+//                                       char* output, int n,
+//                                       size_t grad_dim,
+//                                       size_t grad_value_size,
+//                                       CustomGradMerger& merger) {
+template <typename GPUAccessor>
+__global__ void merge_gradient_embedx_kernel(const uint64_t* keys,
+                                             const uint32_t* offset,
+                                             const uint32_t* fea_num,
+                                             const uint32_t* index,
+                                             const char* input,
+                                             char* output,
+                                             int n,
+                                             size_t grad_dim,
+                                             size_t grad_value_size,
+                                             CustomGradMerger& merger,
+                                             GPUAccessor gpu_accessor) {
   const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
-
   if (i < n) {
     size_t value_idx = i / grad_dim;
     if (keys[value_idx] > 0) {
+/*
       size_t field_idx = i % grad_dim;
 
       uint32_t start = offset[value_idx];
@@ -234,8 +313,20 @@ __global__ void merge_gradient_embedx_kernel(const uint64_t* keys, const uint32_
         FeaturePushValue& rhs = *(FeaturePushValue*)(input + size_t(ori_index) * grad_value_size);
         merger.add_embedx_field(lhs, rhs, field_idx);
       }
+*/
+      size_t field_idx = i % grad_dim;
+      uint32_t start = offset[value_idx];
+      uint32_t num = fea_num[value_idx];
+      int ori_index = index[start];
+      float* rhs = (float*)(input + size_t(ori_index) * grad_value_size);
+      float* lhs = (float*)(output + value_idx * grad_value_size);
+      merger.copy_embedx_field(lhs, rhs, field_idx, gpu_accessor);
+      for (int j = 1; j < num; ++j) {
+        int ori_index = index[start + j];
+        float* rhs = (float*)(input + size_t(ori_index) * grad_value_size);
+        merger.add_embedx_field(lhs, rhs, field_idx, gpu_accessor);
+      }
     }
-    
   }
 }
 
@@ -248,25 +339,35 @@ __global__ void fill_dvals(ValType* d_shard_vals, ValType* d_vals, T* idx,
   }
 }
 
-template <typename ValType, typename T>
-__global__ void dy_mf_fill_dvals(ValType* d_shard_vals, ValType* d_vals, T* idx,
-                                 size_t len, size_t val_size) {
+template <typename T, typename GPUAccessor>
+__global__ void dy_mf_fill_dvals(float* d_shard_vals,
+                                 float* d_vals,
+                                 T* idx,
+                                 size_t len,
+                                 size_t val_size,
+                                 GPUAccessor gpu_accessor) {
   const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
   if (i < len) {
     uint64_t new_offset = uint64_t(idx[i]) * val_size;
-    *(ValType*)((char*)d_vals + new_offset) =
-        *(ValType*)((char*)d_shard_vals + i * val_size);
+    float* cur = (float*)((char*)d_vals + new_offset);
+    float* shard_val = (float*)((char*)d_shard_vals + uint64_t(i) * val_size);
+    gpu_accessor.FeatureValueFill(cur, shard_val);
   }
 }
 
 // optimized version
 template <>
-__global__ void dy_mf_fill_dvals<FeatureValue, int>(FeatureValue* d_shard_vals, FeatureValue* d_vals, int* idx,
-                                 size_t len, size_t val_size) {
+__global__ void dy_mf_fill_dvals<int, CommonFeatureValueAccessor>(float* d_shard_vals,
+                                                                  float* d_vals,
+                                                                  int* idx,
+                                                                  size_t len,
+                                                                  size_t val_size,
+                                                                  CommonFeatureValueAccessor gpu_accessor) {
   const size_t i = blockIdx.x * blockDim.y + threadIdx.y;
   const size_t k = threadIdx.x;
   if (i < len) {
     uint64_t new_offset = uint64_t(idx[i]) * val_size;
+/*
     FeatureValue* cur = (FeatureValue*)((char*)d_vals + new_offset);
     FeatureValue& input = *(FeatureValue*)((char*)d_shard_vals + i * val_size);
     char* cur_p = (char*)cur;
@@ -301,13 +402,16 @@ __global__ void dy_mf_fill_dvals<FeatureValue, int>(FeatureValue* d_shard_vals, 
     }
 
     }
-    
+*/  
+    float* cur = (float*)((char*)d_vals + new_offset);
+    float* input = (float*)((char*)d_shard_vals + i * val_size);
+    gpu_accessor.FillDvals(cur, input, blockDim.x, k);
   }
 }
 
-template <typename KeyType, typename ValType, typename GradType>
-HeterComm<KeyType, ValType, GradType>::HeterComm(
-    size_t capacity, std::shared_ptr<HeterPsResource> resource) {
+template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
+HeterComm<KeyType, ValType, GradType, GPUAccessor>::HeterComm(
+    size_t capacity, std::shared_ptr<HeterPsResource> resource, GPUAccessor& gpu_accessor) {
   VLOG(1) << "Construct new HeterComm";
   resource_ = resource;
   node_rank_ = resource_->node_rank();
@@ -315,29 +419,25 @@ HeterComm<KeyType, ValType, GradType>::HeterComm(
   h_barrier.reset(resource->total_gpu());
   
   multi_mf_dim_ = resource->multi_mf();
+  gpu_accessor_ = gpu_accessor;
   for (int i = 0; i < resource_->total_gpu(); ++i) {
     platform::CUDADeviceGuard guard(resource_->dev_id(i));
     // allocators_.push_back(std::make_shared<cub::CachingDeviceAllocator>(
     //     2, 1, 20, (size_t)-1, false, false));  // NOLINT
     allocators_.push_back(std::make_shared<cub::CachingDeviceAllocator>(
         8, 1, (unsigned int)-1, (size_t)-1, false, false));
-    if (!multi_mf_dim_) {
-      auto table = new Table(capacity / load_factor_);
-      tables_.push_back(table);
-    } else {
-      // VLOG(0) << "yxf:: using ptrtable";
       max_mf_dim_ = resource->max_mf_dim();
-      val_type_size_ =
-      TYPEALIGN(8, sizeof(FeatureValue) + sizeof(float) * (max_mf_dim_ + 1));
-      // VLOG(0) << "yxf:: using ptrtable val size: " << val_type_size << " max mf dim: " << max_mf_dim_;
-      grad_type_size_ =
-      TYPEALIGN(8, sizeof(FeaturePushValue) + (max_mf_dim_ * sizeof(float)));
-      // VLOG(0) << "yxf:: using ptrtable grad size: " << grad_type_size << " max mf dim: " << max_mf_dim_;
+      auto accessor_wrapper_ptr =
+          GlobalAccessorFactory::GetInstance().GetAccessorWrapper();
+      size_t val_type_size =
+          accessor_wrapper_ptr->GetFeatureValueSize(max_mf_dim_);
+      size_t grad_type_size =
+          accessor_wrapper_ptr->GetPushValueSize(max_mf_dim_);
+      VLOG(3) << " HeterComm init, max feature_value_size:" << val_type_size
+              << ", feature_value_push_size:" << grad_type_size;
       auto ptr_table = new PtrTable(capacity / load_factor_);
       ptr_table->set_feature_value_size(val_type_size_, grad_type_size_);
       ptr_tables_.push_back(ptr_table);
-
-    }
     if (multi_node_) {
       storage_[i].init(feanum_, resource_->dev_id(i), grad_type_size_);
     }
@@ -369,8 +469,8 @@ HeterComm<KeyType, ValType, GradType>::HeterComm(
   init_path();
 }
 
-template <typename KeyType, typename ValType, typename GradType>
-void HeterComm<KeyType, ValType, GradType>::init_path() {
+template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
+void HeterComm<KeyType, ValType, GradType, GPUAccessor>::init_path() {
   int total_gpu = resource_->total_gpu();
   path_.resize(total_gpu);
 
@@ -422,11 +522,11 @@ void HeterComm<KeyType, ValType, GradType>::init_path() {
   }
 }
 
-template <typename KeyType, typename ValType, typename GradType>
-void HeterComm<KeyType, ValType, GradType>::create_storage(int start_index,
-                                                           int end_index,
-                                                           size_t keylen,
-                                                           size_t vallen) {
+template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
+void HeterComm<KeyType, ValType, GradType, GPUAccessor>::create_storage(int start_index,
+                                                                       int end_index,
+                                                                       size_t keylen,
+                                                                       size_t vallen) {
   auto& allocator = allocators_[start_index];
   auto& nodes = path_[start_index][end_index].nodes_;
   for (size_t i = 0; i < nodes.size(); ++i) {
@@ -445,9 +545,9 @@ void HeterComm<KeyType, ValType, GradType>::create_storage(int start_index,
   }
 }
 
-template <typename KeyType, typename ValType, typename GradType>
-void HeterComm<KeyType, ValType, GradType>::destroy_storage(int start_index,
-                                                            int end_index) {
+template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
+void HeterComm<KeyType, ValType, GradType, GPUAccessor>::destroy_storage(int start_index,
+                                                                        int end_index) {
   auto& allocator = allocators_[start_index];
   auto& nodes = path_[start_index][end_index].nodes_;
   for (size_t i = 0; i < nodes.size(); ++i) {
@@ -460,8 +560,8 @@ void HeterComm<KeyType, ValType, GradType>::destroy_storage(int start_index,
   }
 }
 
-template <typename KeyType, typename ValType, typename GradType>
-void HeterComm<KeyType, ValType, GradType>::walk_to_dest(
+template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
+void HeterComm<KeyType, ValType, GradType, GPUAccessor>::walk_to_dest(
     int start_index, int gpu_num, int* h_left, int* h_right, KeyType* src_key,
     GradType* src_val) {
   int need_copy_val = 0;
@@ -512,8 +612,8 @@ void HeterComm<KeyType, ValType, GradType>::walk_to_dest(
   }
 }
 
-template <typename KeyType, typename ValType, typename GradType>
-void HeterComm<KeyType, ValType, GradType>::walk_to_dest(
+template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
+void HeterComm<KeyType, ValType, GradType, GPUAccessor>::walk_to_dest(
     int start_index, int gpu_num, int* h_left, int* h_right, KeyType* src_key,
     char* src_val, size_t val_size) {
   int need_copy_val = 0;
@@ -564,8 +664,8 @@ void HeterComm<KeyType, ValType, GradType>::walk_to_dest(
   }
 }
 
-template <typename KeyType, typename ValType, typename GradType>
-void HeterComm<KeyType, ValType, GradType>::walk_to_src(
+template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
+void HeterComm<KeyType, ValType, GradType, GPUAccessor>::walk_to_src(
     int start_index, int gpu_num, int* h_left, int* h_right, ValType* src_val) {
   std::queue<CopyTask> que;
   for (int i = 0; i < gpu_num; i++) {
@@ -614,8 +714,8 @@ void HeterComm<KeyType, ValType, GradType>::walk_to_src(
   }
 }
 
-template <typename KeyType, typename ValType, typename GradType>
-void HeterComm<KeyType, ValType, GradType>::walk_to_src(
+template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
+void HeterComm<KeyType, ValType, GradType, GPUAccessor>::walk_to_src(
     int start_index, int gpu_num, int* h_left, int* h_right, char* src_val, size_t val_size) {
   std::queue<CopyTask> que;
   for (int i = 0; i < gpu_num; i++) {
@@ -664,8 +764,8 @@ void HeterComm<KeyType, ValType, GradType>::walk_to_src(
   }
 }
 
-template <typename KeyType, typename ValType, typename GradType>
-HeterComm<KeyType, ValType, GradType>::~HeterComm() {
+template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
+HeterComm<KeyType, ValType, GradType, GPUAccessor>::~HeterComm() {
   if (!multi_mf_dim_) {
     for (auto& table : tables_) {
       delete table;
@@ -716,8 +816,8 @@ HeterComm<KeyType, ValType, GradType>::~HeterComm() {
    }
 }
 
-template <typename KeyType, typename ValType, typename GradType>
-void HeterComm<KeyType, ValType, GradType>::show_one_table(int gpu_num) {
+template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
+void HeterComm<KeyType, ValType, GradType, GPUAccessor>::show_one_table(int gpu_num) {
   if (!multi_mf_dim_) {
     tables_[gpu_num]->show();
   } else {
@@ -725,8 +825,8 @@ void HeterComm<KeyType, ValType, GradType>::show_one_table(int gpu_num) {
   }
 }
 
-template <typename KeyType, typename ValType, typename GradType>
-int HeterComm<KeyType, ValType, GradType>::log2i(int x) {
+template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
+int HeterComm<KeyType, ValType, GradType, GPUAccessor>::log2i(int x) {
   unsigned res = 0;
   while (x >>= 1) {
     ++res;
@@ -734,17 +834,44 @@ int HeterComm<KeyType, ValType, GradType>::log2i(int x) {
   return res;
 }
 
-template <typename KeyType, typename ValType, typename GradType>
-int HeterComm<KeyType, ValType, GradType>::get_index_by_devid(int devid) {
+template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
+int HeterComm<KeyType, ValType, GradType, GPUAccessor>::get_index_by_devid(int devid) {
   return resource_->get_index_by_devid(devid);
 }
 
-template <typename KeyType, typename ValType, typename GradType>
-void HeterComm<KeyType, ValType, GradType>::build_ps(int num, KeyType* h_keys,
-                                                     ValType* h_vals,
-                                                     size_t len,
-                                                     size_t chunk_size,
-                                                     int stream_num) {
+template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
+void HeterComm<KeyType, ValType, GradType, GPUAccessor>::set_sparse_sgd(
+    const OptimizerConfig& optimizer_config) {
+  for (int i = 0; i < resource_->total_gpu(); ++i) {
+    platform::CUDADeviceGuard guard(resource_->dev_id(i));
+    if (!multi_mf_dim_) {
+      tables_[i]->set_sparse_sgd(optimizer_config);
+    } else {
+      ptr_tables_[i]->set_sparse_sgd(optimizer_config);
+    }
+  }
+}
+
+template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
+void HeterComm<KeyType, ValType, GradType, GPUAccessor>::set_embedx_sgd(
+    const OptimizerConfig& optimizer_config) {
+  for (int i = 0; i < resource_->total_gpu(); ++i) {
+    platform::CUDADeviceGuard guard(resource_->dev_id(i));
+    if (!multi_mf_dim_) {
+      tables_[i]->set_embedx_sgd(optimizer_config);
+    } else {
+      ptr_tables_[i]->set_embedx_sgd(optimizer_config);
+    }
+  }
+}
+
+/*
+template <typename KeyType, typename ValType, typename GradType, typename FVAccessor>
+void HeterComm<KeyType, ValType, GradType, FVAccessor>::build_ps(int num, KeyType* h_keys,
+                                                                 ValType* h_vals,
+                                                                 size_t len,
+                                                                 size_t chunk_size,
+                                                                 int stream_num) {
   if (len <= 0) {
     return;
   }
@@ -791,14 +918,16 @@ void HeterComm<KeyType, ValType, GradType>::build_ps(int num, KeyType* h_keys,
     PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamDestroy(streams[i]));
   }
 }
+*/
 
-template <typename KeyType, typename ValType, typename GradType>
-void HeterComm<KeyType, ValType, GradType>::build_ps(int num, KeyType* h_keys,
-                                                     char* pool,
-                                                     size_t len,
-                                                     size_t feature_value_size,
-                                                     size_t chunk_size,
-                                                     int stream_num) {
+template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
+void HeterComm<KeyType, ValType, GradType, GPUAccessor>::build_ps(int num,
+                                                                 KeyType* h_keys,
+                                                                 char* pool,
+                                                                 size_t len,
+                                                                 size_t feature_value_size,
+                                                                 size_t chunk_size,
+                                                                 int stream_num) {
   if (len <= 0) {
     return;
   }
@@ -838,9 +967,9 @@ void HeterComm<KeyType, ValType, GradType>::build_ps(int num, KeyType* h_keys,
     PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamDestroy(streams[i]));
   }
 }
-
-template <typename KeyType, typename ValType, typename GradType>
-void HeterComm<KeyType, ValType, GradType>::merge_grad(
+/*
+template <typename KeyType, typename ValType, typename GradType, typename FVAccessor>
+void HeterComm<KeyType, ValType, GradType, FVAccessor>::merge_grad(
     int gpu_num, KeyType* d_keys, GradType* d_grads, size_t len,
     int& uniq_len) {  // NOLINT
   int dev_id = resource_->dev_id(gpu_num);
@@ -889,13 +1018,14 @@ void HeterComm<KeyType, ValType, GradType>::merge_grad(
                   cudaMemcpyDeviceToHost, stream);
   PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
 }
+*/
 
-template <typename KeyType, typename ValType, typename GradType>
-void HeterComm<KeyType, ValType, GradType>::merge_grad(int gpu_num,
-                                                       KeyType* d_keys,
-                                                       GradType* d_grads,
-                                                       float* mf, size_t len,
-                                                       int& uniq_len) {
+template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
+void HeterComm<KeyType, ValType, GradType, GPUAccessor>::merge_grad(int gpu_num,
+                                                                   KeyType* d_keys,
+                                                                   GradType* d_grads,
+                                                                   float* mf, size_t len,
+                                                                   int& uniq_len) {
   platform::Timer timeline;
   timeline.Start();
   int dev_id = resource_->dev_id(gpu_num);
@@ -904,27 +1034,31 @@ void HeterComm<KeyType, ValType, GradType>::merge_grad(int gpu_num,
   auto stream = resource_->local_stream(gpu_num, 0);
 
   size_t temp_storage_bytes;
-
-  //VLOG(1) << "hetercomm merge_grad: max_mf_dim: " << max_mf_dim_;
-  size_t grad_value_size =
-      TYPEALIGN(8, sizeof(FeaturePushValue) + (max_mf_dim_ * sizeof(float)));
+  auto accessor_wrapper_ptr =
+      GlobalAccessorFactory::GetInstance().GetAccessorWrapper();
+  size_t grad_value_size = accessor_wrapper_ptr->GetPushValueSize(max_mf_dim_);
 
   auto d_merge_keys = memory::Alloc(place, len * sizeof(KeyType));
   KeyType* d_merge_keys_ptr = reinterpret_cast<KeyType*>(d_merge_keys->ptr());
 
   auto d_merge_grads = memory::Alloc(place, len * grad_value_size);
-  GradType* d_merge_grads_ptr =
-      reinterpret_cast<GradType*>(d_merge_grads->ptr());
+  float* d_merge_grads_ptr =
+      reinterpret_cast<float*>(d_merge_grads->ptr());
 
   auto d_fea_num_info =
       memory::Alloc(place, sizeof(uint32_t) * (len * 3 + 1));
+
   uint32_t* d_fea_num_info_ptr =
       reinterpret_cast<uint32_t*>(d_fea_num_info->ptr());
+
   uint32_t* d_index = (uint32_t*)&d_fea_num_info_ptr[len];
   uint32_t* d_idx = (uint32_t*)&d_index[len];
+
   int* d_merged_size = (int*)&d_idx[len];
+
   int grid_size = (len - 1) / block_size_ + 1;
   fill_idx<<<grid_size, block_size_, 0, stream>>>(d_idx, len);
+
   PADDLE_ENFORCE_GPU_SUCCESS(cub::DeviceRadixSort::SortPairs(
       NULL, temp_storage_bytes, d_keys, d_merge_keys_ptr, d_idx, d_index, len,
       0, 8 * sizeof(KeyType), stream));
@@ -935,6 +1069,7 @@ void HeterComm<KeyType, ValType, GradType>::merge_grad(int gpu_num,
       d_temp_storage->ptr(), temp_storage_bytes, d_keys, d_merge_keys_ptr,
       d_idx, d_index, len, 0, 8 * sizeof(KeyType), stream));
   PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
+
   // timeline.Pause();
   // mg_time_4[gpu_num] += timeline.ElapsedSec();
   // timeline.Start();
@@ -952,7 +1087,9 @@ void HeterComm<KeyType, ValType, GradType>::merge_grad(int gpu_num,
     VLOG(0) << "yxfpush22222:: i: " << i << " key: " << ((uint64_t*)test_grad_values_1)[i] << " cur index: " << ((uint32_t*)test_grad_keys_1)[i];
   }
   */
+  timeline.Pause();
 
+  timeline.Start();
   temp_storage_bytes = 0;
   PADDLE_ENFORCE_GPU_SUCCESS(cub::DeviceRunLengthEncode::Encode(
       NULL, temp_storage_bytes, d_merge_keys_ptr, d_keys, d_fea_num_info_ptr,
@@ -967,6 +1104,7 @@ void HeterComm<KeyType, ValType, GradType>::merge_grad(int gpu_num,
 
   cudaMemcpyAsync((void*)&uniq_len, d_merged_size, sizeof(int),
                   cudaMemcpyDeviceToHost, stream);
+
   PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
   // if (test_batch == 0) {
   //   char* test_count =
@@ -995,6 +1133,7 @@ void HeterComm<KeyType, ValType, GradType>::merge_grad(int gpu_num,
   PADDLE_ENFORCE_GPU_SUCCESS(cub::DeviceScan::ExclusiveSum(
       NULL, temp_storage_bytes, d_fea_num_info_ptr, d_offset, uniq_len,
       stream));
+
   if (d_temp_storage->size() < temp_storage_bytes) {
     d_temp_storage = NULL;
     d_temp_storage = memory::Alloc(place, temp_storage_bytes);
@@ -1002,47 +1141,45 @@ void HeterComm<KeyType, ValType, GradType>::merge_grad(int gpu_num,
   PADDLE_ENFORCE_GPU_SUCCESS(cub::DeviceScan::ExclusiveSum(
       d_temp_storage->ptr(), temp_storage_bytes, d_fea_num_info_ptr, d_offset,
       uniq_len, stream));
+
   PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
   // timeline.Pause();
   // mg_time_6[gpu_num] += timeline.ElapsedSec();
   // timeline.Start();
 
   // tmp try to delete 0 when merge grad
+  timeline.Pause();
+  timeline.Start();
   grid_size = (uniq_len - 1) / block_size_ + 1;
+
   merge_gradient_basic_kernel<<<grid_size, block_size_, 0, stream>>>(
       d_keys, d_offset, d_fea_num_info_ptr, d_index, (char*)d_grads,
-      (char*)d_merge_grads_ptr, uniq_len, grad_value_size, merger_);
-  // PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
-  // timeline.Pause();
-  // mg_time_8[gpu_num] += timeline.ElapsedSec();
-  // timeline.Start();
+      (char*)d_merge_grads_ptr, uniq_len, grad_value_size, merger_, gpu_accessor_);
 
   const size_t grad_dim = max_mf_dim_;
   if (grad_dim > 0) {
     int grid_size2 = (uniq_len * grad_dim - 1) / block_size_ + 1;
     merge_gradient_embedx_kernel<<<grid_size2, block_size_, 0, stream>>>(
-            d_keys, d_offset, d_fea_num_info_ptr, d_index, (char*)d_grads, (char*)d_merge_grads_ptr, uniq_len * grad_dim, grad_dim, grad_value_size, merger_);
+            d_keys, d_offset, d_fea_num_info_ptr, d_index, (char*)d_grads, (char*)d_merge_grads_ptr, uniq_len * grad_dim, grad_dim, grad_value_size, merger_, gpu_accessor_);
   }
-
 
   PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
   //VLOG(0) << "yxf333";
   // timeline.Pause();
   // mg_time_7[gpu_num] += timeline.ElapsedSec();
   // timeline.Start();
+  timeline.Pause();
 
+  timeline.Start();
   PADDLE_ENFORCE_GPU_SUCCESS(
       cudaMemcpyAsync(d_grads, d_merge_grads_ptr, grad_value_size * uniq_len,
                       cudaMemcpyDeviceToDevice, stream));
   PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
-  //VLOG(0) << "yxf444";
-  // timeline.Pause();
-  // mg_time_1[gpu_num] += timeline.ElapsedSec();
-  // timeline.Start();
+  timeline.Pause();
 }
 
-template <typename KeyType, typename ValType, typename GradType>
-void HeterComm<KeyType, ValType, GradType>::reorder_input_by_mfdim(KeyType* d_keys, GradType* d_grads, size_t len, int* lens, int gpu_num, size_t& reorder_grad_len) {
+template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
+void HeterComm<KeyType, ValType, GradType, GPUAccessor>::reorder_input_by_mfdim(KeyType* d_keys, GradType* d_grads, size_t len, int* lens, int gpu_num, size_t& reorder_grad_len) {
   int total_gpu = resource_->total_gpu();
   int dev_id = resource_->dev_id(gpu_num);
   platform::CUDAPlace place = platform::CUDAPlace(dev_id);
@@ -1065,11 +1202,20 @@ void HeterComm<KeyType, ValType, GradType>::reorder_input_by_mfdim(KeyType* d_ke
   cudaMemcpyAsync(h_right, d_right_ptr, multi_mf_dim_ * sizeof(int),
              cudaMemcpyDeviceToHost, stream);
   cudaStreamSynchronize(stream);
+
   // VLOG(0) << "yxffff00";
+  // size_t dim8_grad_value_size =
+  //    TYPEALIGN(8, sizeof(FeaturePushValue) + (8 * sizeof(float)));
+  //size_t dim64_grad_value_size =
+  //    TYPEALIGN(8, sizeof(FeaturePushValue) + (64 * sizeof(float)));
+
+  auto accessor_wrapper_ptr =
+      GlobalAccessorFactory::GetInstance().GetAccessorWrapper();
   size_t dim8_grad_value_size =
-      TYPEALIGN(8, sizeof(FeaturePushValue) + (8 * sizeof(float)));
+      accessor_wrapper_ptr->GetPushValueSize(8);
   size_t dim64_grad_value_size =
-      TYPEALIGN(8, sizeof(FeaturePushValue) + (64 * sizeof(float)));
+      accessor_wrapper_ptr->GetPushValueSize(64);
+
   size_t dim8_len = h_right[0] - h_left[0] + 1;
   size_t dim64_len = h_right[1] - h_left[1] + 1;
   auto d_reorder_grads_mem = memory::Alloc(place, dim8_len * dim8_grad_value_size + dim64_len * dim64_grad_value_size);
@@ -1092,8 +1238,8 @@ void HeterComm<KeyType, ValType, GradType>::reorder_input_by_mfdim(KeyType* d_ke
   return;
 }
 
-template <typename KeyType, typename ValType, typename GradType>
-void HeterComm<KeyType, ValType, GradType>::split_input_by_mfdim(
+template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
+void HeterComm<KeyType, ValType, GradType, GPUAccessor>::split_input_by_mfdim(
     GradType* d_grads, int* d_idx_ptr, size_t len, int* left, int* right,
     int gpu_num) {
   int total_gpu = resource_->total_gpu();
@@ -1131,10 +1277,11 @@ void HeterComm<KeyType, ValType, GradType>::split_input_by_mfdim(
   cudaStreamSynchronize(stream);
 }
 
-template <typename KeyType, typename ValType, typename GradType>
-void HeterComm<KeyType, ValType, GradType>::split_input_to_shard(
+template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
+void HeterComm<KeyType, ValType, GradType, GPUAccessor>::split_input_to_shard(
     KeyType* d_keys, int* d_idx_ptr, size_t len, int* left, int* right,
     int gpu_num) {
+
   int total_gpu = resource_->total_gpu();
   int dev_id = resource_->dev_id(gpu_num);
   platform::CUDAPlace place = platform::CUDAPlace(dev_id);
@@ -1152,11 +1299,13 @@ void HeterComm<KeyType, ValType, GradType>::split_input_to_shard(
 
   int grid_size = (len - 1) / block_size_ + 1;
   fill_idx<<<grid_size, block_size_, 0, stream>>>(d_idx_tmp_ptr, len);
+
   calc_shard_index<<<grid_size, block_size_, 0, stream>>>(
       d_keys, len, d_shard_index_tmp_ptr, total_gpu);
 
   size_t temp_storage_bytes;
   const int num_bits = 1 + log2i(total_gpu);
+
   PADDLE_ENFORCE_GPU_SUCCESS(cub::DeviceRadixSort::SortPairs(
       NULL, temp_storage_bytes, d_shard_index_tmp_ptr, d_shard_index_ptr,
       d_idx_tmp_ptr, d_idx_ptr, len, 0, num_bits, stream));
@@ -1165,16 +1314,17 @@ void HeterComm<KeyType, ValType, GradType>::split_input_to_shard(
   PADDLE_ENFORCE_GPU_SUCCESS(cub::DeviceRadixSort::SortPairs(
       d_temp_storage->ptr(), temp_storage_bytes, d_shard_index_tmp_ptr,
       d_shard_index_ptr, d_idx_tmp_ptr, d_idx_ptr, len, 0, num_bits, stream));
+
   calc_shard_offset<<<grid_size, block_size_, 0, stream>>>(d_shard_index_ptr,
                                                            left, right, len);
   cudaStreamSynchronize(stream);
 }
 
-template <typename KeyType, typename ValType, typename GradType>
-void HeterComm<KeyType, ValType, GradType>::pull_sparse(int num,
-                                                        KeyType* d_keys,
-                                                        ValType* d_vals,
-                                                        size_t len) {
+template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
+void HeterComm<KeyType, ValType, GradType, GPUAccessor>::pull_sparse(int num,
+                                                                    KeyType* d_keys,
+                                                                    ValType* d_vals,
+                                                                    size_t len) {
   if (len == 0) {
     return;
   }
@@ -1199,23 +1349,17 @@ void HeterComm<KeyType, ValType, GradType>::pull_sparse(int num,
 
   cudaMemsetAsync(d_left_ptr, -1, total_gpu * sizeof(int), stream);
   cudaMemsetAsync(d_right_ptr, -1, total_gpu * sizeof(int), stream);
-  //
   auto d_idx = memory::Alloc(place, len * sizeof(int));
   int* d_idx_ptr = reinterpret_cast<int*>(d_idx->ptr());
 
-  size_t val_type_size = 0;
-  if (!multi_mf_dim_) {
-    val_type_size = sizeof(ValType);
-  } else {
-    val_type_size =
-        TYPEALIGN(8, sizeof(FeatureValue) + sizeof(float) * (max_mf_dim_ + 1));
-  }
+  auto accessor_wrapper_ptr =
+      GlobalAccessorFactory::GetInstance().GetAccessorWrapper();
+  size_t val_type_size = accessor_wrapper_ptr->GetFeatureValueSize(max_mf_dim_);
 
   auto d_shard_keys = memory::Alloc(place, len * sizeof(KeyType));
   KeyType* d_shard_keys_ptr = reinterpret_cast<KeyType*>(d_shard_keys->ptr());
-  // auto d_shard_vals = memory::Alloc(place, len * sizeof(ValType));
   auto d_shard_vals = memory::Alloc(place, len * val_type_size);
-  ValType* d_shard_vals_ptr = reinterpret_cast<ValType*>(d_shard_vals->ptr());
+  float* d_shard_vals_ptr = reinterpret_cast<float*>(d_shard_vals->ptr());
 
   split_input_to_shard(d_keys, d_idx_ptr, len, d_left_ptr, d_right_ptr, num);
   fill_shard_key<<<grid_size, block_size_, 0, stream>>>(d_shard_keys_ptr,
@@ -1255,7 +1399,7 @@ void HeterComm<KeyType, ValType, GradType>::pull_sparse(int num,
       cudaStreamSynchronize(node.in_stream);
     }
     platform::CUDADeviceGuard guard(resource_->dev_id(i));
-    
+/* 
     // VLOG(0) << "yxf:: start table get in device: " << num << " remote device: " << i;
     ptr_tables_[i]->rwlock_->RDLock();
     // VLOG(0) << "after lock yxf:: start table get in device: " << num << " remote device: " << i;
@@ -1269,18 +1413,35 @@ void HeterComm<KeyType, ValType, GradType>::pull_sparse(int num,
           reinterpret_cast<char*>(d_shard_vals_ptr) + h_left[i] * val_type_size,
           h_right[i] - h_left[i] + 1, resource_->remote_stream(i, num));
     }
-    
+*/
+
+    ptr_tables_[i]->rwlock_->RDLock();
+    if (!direct_access_) {
+    ptr_tables_[i]->get(reinterpret_cast<KeyType*>(node.key_storage),
+                        node.val_storage, h_right[i] - h_left[i] + 1,
+                        resource_->remote_stream(i, num),
+                        gpu_accessor_);
+    } else {
+
+      // ptr_tables_[i]->get(
+      //    d_shard_keys_ptr + h_left[i],
+      //    reinterpret_cast<char*>(d_shard_vals_ptr) + h_left[i] * val_type_size,
+      //    h_right[i] - h_left[i] + 1, resource_->remote_stream(i, num));
+      // check
+      ptr_tables_[i]->get(
+          d_shard_keys_ptr + h_left[i],
+          reinterpret_cast<char*>(d_shard_vals_ptr) + h_left[i] * val_type_size,
+          h_right[i] - h_left[i] + 1, resource_->remote_stream(i, num), gpu_accessor_);
+
+    }
+
   }
   for (int i = 0; i < total_gpu; ++i) {
     cudaStreamSynchronize(resource_->remote_stream(i, num));
     if (h_left[i] == -1) {
       continue;
     }
-    if (!multi_mf_dim_) {
-      tables_[i]->rwlock_->UNLock();
-    } else {
-      ptr_tables_[i]->rwlock_->UNLock();
-    }
+    ptr_tables_[i]->rwlock_->UNLock();
     time_lines[i].Pause();
     mg_time_2[i] += time_lines[i].ElapsedSec();
   }
@@ -1288,6 +1449,7 @@ void HeterComm<KeyType, ValType, GradType>::pull_sparse(int num,
   if (!direct_access_) {
     walk_to_src(num, total_gpu, h_left, h_right, reinterpret_cast<char*>(d_shard_vals_ptr), val_type_size);
     
+  // walk_to_src(num, total_gpu, h_left, h_right, reinterpret_cast<char*>(d_shard_vals_ptr), val_type_size);
 
     for (int i = 0; i < total_gpu; ++i) {
       auto& node = path_[num][i].nodes_.front();
@@ -1295,9 +1457,16 @@ void HeterComm<KeyType, ValType, GradType>::pull_sparse(int num,
     }
   }
 
+  dim3 block_dims(32, 32);
+  const size_t grid_size_ = (len - 1) / 32 + 1;
+  dim3 grid_dims(grid_size_);
+    
+  dy_mf_fill_dvals<<<grid_dims, block_dims, 0, stream>>>(
+        d_shard_vals_ptr, d_vals, d_idx_ptr, len, val_type_size, gpu_accessor_);
+
   // VLOG(0) << "yxf::finish walk to src: " << num;
 
-
+/*
   dim3 block_dims(32,32);
   const size_t grid_size_ = (len - 1) / 32 + 1;
   dim3 grid_dims(grid_size_);
@@ -1307,6 +1476,8 @@ void HeterComm<KeyType, ValType, GradType>::pull_sparse(int num,
       d_shard_vals_ptr, d_vals, d_idx_ptr, len, val_type_size);
   // dy_mf_fill_dvals<<<grid_size, block_size_, 0, stream>>>(
   //     d_shard_vals_ptr, d_vals, d_idx_ptr, len, val_type_size);
+*/
+
   cudaStreamSynchronize(stream);
   // VLOG(0) << "yxf::finish walk to fill: " << num;
   if (!direct_access_) {
@@ -1318,15 +1489,16 @@ void HeterComm<KeyType, ValType, GradType>::pull_sparse(int num,
       // VLOG(0) << "yxf::end get device: " << num << "from device: " << i;
     }
   }
+
 }
 
-template <typename KeyType, typename ValType, typename GradType>
+template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
 template <typename Sgd>
-void HeterComm<KeyType, ValType, GradType>::push_sparse(int gpu_num,
-                                                        KeyType* d_keys,
-                                                        GradType* d_grads,
-                                                        size_t len,
-                                                        Sgd& sgd) {  // NOLINT
+void HeterComm<KeyType, ValType, GradType, GPUAccessor>::push_sparse(int gpu_num,
+                                                                    KeyType* d_keys,
+                                                                    GradType* d_grads,
+                                                                    size_t len,
+                                                                    Sgd& sgd) {  // NOLINT
   if (len == 0) {
     return;
   }
@@ -1337,8 +1509,11 @@ void HeterComm<KeyType, ValType, GradType>::push_sparse(int gpu_num,
   platform::CUDADeviceGuard guard(dev_id);
   auto stream = resource_->local_stream(gpu_num, 0);
 
-  size_t grad_value_size =
-      TYPEALIGN(8, sizeof(FeaturePushValue) + (max_mf_dim_ * sizeof(float)));
+  // size_t grad_value_size =
+  //    TYPEALIGN(8, sizeof(FeaturePushValue) + (max_mf_dim_ * sizeof(float)));
+  auto accessor_wrapper_ptr =
+      GlobalAccessorFactory::GetInstance().GetAccessorWrapper();
+  size_t grad_value_size = accessor_wrapper_ptr->GetPushValueSize(max_mf_dim_);
 
   // int h_left[total_gpu];   // NOLINT
   // int h_right[total_gpu];  // NOLINT
@@ -1354,6 +1529,7 @@ void HeterComm<KeyType, ValType, GradType>::push_sparse(int gpu_num,
 
   cudaMemsetAsync(d_left_ptr, -1, total_gpu * sizeof(int), stream);
   cudaMemsetAsync(d_right_ptr, -1, total_gpu * sizeof(int), stream);
+
   auto d_idx = memory::Alloc(place, len * sizeof(int));
   int* d_idx_ptr = reinterpret_cast<int*>(d_idx->ptr());
 
@@ -1361,7 +1537,7 @@ void HeterComm<KeyType, ValType, GradType>::push_sparse(int gpu_num,
   KeyType* d_shard_keys_ptr = reinterpret_cast<KeyType*>(d_shard_keys->ptr());
 
   auto d_shard_grads = memory::Alloc(place, len * grad_value_size);
-  GradType* d_shard_grads_ptr = reinterpret_cast<GradType*>(d_shard_grads->ptr());
+  float* d_shard_grads_ptr = reinterpret_cast<float*>(d_shard_grads->ptr());
 
   int uniq_len = len;
   merge_grad(gpu_num, d_keys, d_grads, NULL, len, uniq_len);
@@ -1371,19 +1547,13 @@ void HeterComm<KeyType, ValType, GradType>::push_sparse(int gpu_num,
   split_input_to_shard(d_keys, d_idx_ptr, uniq_len, d_left_ptr, d_right_ptr,
                        gpu_num);
 
-  if (!multi_mf_dim_) {
-    fill_shard_grads<<<grid_size, block_size_, 0, stream>>>(
-        d_shard_keys_ptr, d_keys, d_shard_grads_ptr, d_grads, d_idx_ptr,
-        uniq_len);
-  } else {
-    dim3 block_dims(32, 32);
-    const size_t grid_size = (uniq_len - 1) / 32 + 1; 
-    dim3 grid_dims(grid_size);
-    dy_mf_fill_shard_grads<<<grid_dims, block_dims, 0, stream>>>(
-        d_shard_keys_ptr, d_keys, d_shard_grads_ptr, d_grads, d_idx_ptr,
-        uniq_len, grad_value_size);
-  }
+  dim3 block_dims(32, 32);
+  const size_t grid_size_ = (uniq_len - 1) / 32 + 1; 
+  dim3 grid_dims(grid_size_);
 
+  dy_mf_fill_shard_grads<<<grid_dims, block_dims, 0, stream>>>(
+        d_shard_keys_ptr, d_keys, d_shard_grads_ptr, d_grads, d_idx_ptr,
+        uniq_len, grad_value_size, gpu_accessor_);
 
   cudaMemcpyAsync(h_left, d_left_ptr, total_gpu * sizeof(int),
              cudaMemcpyDeviceToHost, stream);
@@ -1396,22 +1566,12 @@ void HeterComm<KeyType, ValType, GradType>::push_sparse(int gpu_num,
     if (h_left[i] == -1 || h_right[i] == -1) {
       continue;
     }
-    if (!multi_mf_dim_) {
-      create_storage(gpu_num, i, shard_len * sizeof(KeyType),
-                     shard_len * sizeof(GradType));
-    } else {
-      create_storage(gpu_num, i, shard_len * sizeof(KeyType),
-                     shard_len * grad_value_size);
-    }
+    create_storage(gpu_num, i, shard_len * sizeof(KeyType),
+                   shard_len * grad_value_size);
   }
 
-  if (!multi_mf_dim_) {
-    walk_to_dest(gpu_num, total_gpu, h_left, h_right, d_shard_keys_ptr,
-               d_shard_grads_ptr);
-  } else {
-    walk_to_dest(gpu_num, total_gpu, h_left, h_right, d_shard_keys_ptr,
+  walk_to_dest(gpu_num, total_gpu, h_left, h_right, d_shard_keys_ptr,
                reinterpret_cast<char*>(d_shard_grads_ptr), grad_value_size);
-  }
 
   std::vector<platform::Timer> time_lines;
   time_lines.resize(total_gpu);
@@ -1425,34 +1585,11 @@ void HeterComm<KeyType, ValType, GradType>::push_sparse(int gpu_num,
     cudaStreamSynchronize(node.in_stream);
 
     platform::CUDADeviceGuard guard(resource_->dev_id(i));
-    if (!multi_mf_dim_) {
-      tables_[i]->rwlock_->WRLock();
-      tables_[i]->update(reinterpret_cast<KeyType*>(node.key_storage),
-                         reinterpret_cast<GradType*>(node.val_storage),
-                         h_right[i] - h_left[i] + 1, sgd,
-                         resource_->remote_stream(i, gpu_num));
-    } else {
-      /*
-      char* test_grad_values =
-          (char*)malloc(grad_value_size * (h_right[i] - h_left[i] + 1));
-      char* test_grad_keys =
-          (char*)malloc(sizeof(KeyType) * (h_right[i] - h_left[i] + 1));
-      cudaMemcpy(test_grad_values, node.val_storage,
-                grad_value_size * (h_right[i] - h_left[i] + 1), cudaMemcpyDeviceToHost);
-      cudaMemcpy(test_grad_keys, node.key_storage,
-                sizeof(KeyType) * (h_right[i] - h_left[i] + 1), cudaMemcpyDeviceToHost);
-      for (int i = 0; i < 10; i++) {
-        FeaturePushValue* cur =
-            (FeaturePushValue*)(test_grad_values + i * grad_value_size);
-        VLOG(0) << "yxfpush:: i: " << i << " key: " << ((uint64_t*)test_grad_keys)[i] << " cur->slot: " << cur->slot
-                << " show: " << cur->show << " mf_g: " << cur->mf_g;
-      }
-      */
-      ptr_tables_[i]->rwlock_->WRLock();
-      ptr_tables_[i]->update(reinterpret_cast<KeyType*>(node.key_storage),
-                             node.val_storage, h_right[i] - h_left[i] + 1, sgd,
-                             resource_->remote_stream(i, gpu_num));
-    }
+
+    ptr_tables_[i]->rwlock_->WRLock();
+    ptr_tables_[i]->update(reinterpret_cast<KeyType*>(node.key_storage),
+                           node.val_storage, h_right[i] - h_left[i] + 1, sgd,
+                           resource_->remote_stream(i, gpu_num));
   }
   for (int i = 0; i < total_gpu; ++i) {
     cudaStreamSynchronize(resource_->remote_stream(i, gpu_num));
@@ -1474,9 +1611,9 @@ void HeterComm<KeyType, ValType, GradType>::push_sparse(int gpu_num,
   }
 }
 
-template <typename KeyType, typename ValType, typename GradType>
+template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
 template <typename Sgd>
-void HeterComm<KeyType, ValType, GradType>::update_one_table(
+void HeterComm<KeyType, ValType, GradType, GPUAccessor>::update_one_table(
     int gpu_num, KeyType* d_keys, GradType* d_grads, size_t len,
     Sgd& sgd) {  // NOLINT
   if (len == 0) {
@@ -1492,9 +1629,9 @@ void HeterComm<KeyType, ValType, GradType>::update_one_table(
   cudaStreamSynchronize(resource_->remote_stream(gpu_num, gpu_num));
 }
 
-template <typename KeyType, typename ValType, typename GradType>
+template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
 template <typename Sgd>
-void HeterComm<KeyType, ValType, GradType>::push_sparse_multi_node(
+void HeterComm<KeyType, ValType, GradType, GPUAccessor>::push_sparse_multi_node(
     int gpu_num, KeyType* d_keys, GradType* d_grads, size_t len,
     Sgd& sgd) {  // NOLINT
   if (len == 0) {
@@ -1603,9 +1740,10 @@ void HeterComm<KeyType, ValType, GradType>::push_sparse_multi_node(
   // VLOG(0) << "yxf::multinode update_one_table done: uniq len: " << uniq_len << " gpunum: " << gpu_num;
 }
 
-template <typename KeyType, typename ValType, typename GradType>
-int HeterComm<KeyType, ValType, GradType>::gather_one_node_grad_v2(
+template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
+int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_one_node_grad_v2(
     int gpu_num, KeyType* d_keys, GradType* d_grads, int len) {
+
   platform::Timer time_line;
   time_line.Start();
   int total_gpu = resource_->total_gpu();
@@ -1614,8 +1752,14 @@ int HeterComm<KeyType, ValType, GradType>::gather_one_node_grad_v2(
   platform::CUDAPlace place = platform::CUDAPlace(dev_id);
   platform::CUDADeviceGuard guard(dev_id);
   auto stream = resource_->local_stream(gpu_num, 0);
+
+  // size_t grad_value_size =
+  //    TYPEALIGN(8, sizeof(FeaturePushValue) + (max_mf_dim_ * sizeof(float)));
+  auto accessor_wrapper_ptr =
+      GlobalAccessorFactory::GetInstance().GetAccessorWrapper();
   size_t grad_value_size =
-      TYPEALIGN(8, sizeof(FeaturePushValue) + (max_mf_dim_ * sizeof(float)));
+      accessor_wrapper_ptr->GetPushValueSize(max_mf_dim_);
+
   // split keys grad in shard in current gpu 
 
   auto h_left_alloc = memory::Alloc(phi::GPUPinnedPlace(), sizeof(int) * total_gpu);
@@ -1648,12 +1792,15 @@ int HeterComm<KeyType, ValType, GradType>::gather_one_node_grad_v2(
              cudaMemcpyDeviceToHost, stream);
   cudaMemcpyAsync(h_right, d_right_ptr, total_gpu * sizeof(int),
              cudaMemcpyDeviceToHost, stream);
+
+  // check
   dim3 block_dims(32, 32);
   grid_size = (len - 1) / 32 + 1; 
   dim3 grid_dims(grid_size);
   dy_mf_fill_shard_grads<<<grid_dims, block_dims, 0, stream>>>(
       d_shard_keys_ptr, d_keys, d_shard_grads_ptr, d_grads, d_idx_ptr,
-      len, grad_value_size);
+      len, grad_value_size, gpu_accessor_);
+
   PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
   // split keys grad in shard in current gpu end 
   storage.h_local_left = h_left;
@@ -1744,8 +1891,8 @@ int HeterComm<KeyType, ValType, GradType>::gather_one_node_grad_v2(
   // return trans_total_len > 0 ? trans_total_len : ret;
 }
 
-template <typename KeyType, typename ValType, typename GradType>
-int HeterComm<KeyType, ValType, GradType>::gather_multi_node_grad_v3(
+template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
+int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_multi_node_grad_v3(
     int gpu_num, KeyType* d_keys, GradType* d_grads, int len) {
   platform::Timer time_line;
   time_line.Start();
@@ -1812,8 +1959,8 @@ int HeterComm<KeyType, ValType, GradType>::gather_multi_node_grad_v3(
   return 0;
 }
 
-template <typename KeyType, typename ValType, typename GradType>
-int HeterComm<KeyType, ValType, GradType>::gather_one_node_grad(
+template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
+int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_one_node_grad(
     int gpu_num, KeyType* d_keys, GradType* d_grads, int len) {
   platform::Timer time_line;
   time_line.Start();
@@ -1997,8 +2144,8 @@ int HeterComm<KeyType, ValType, GradType>::gather_one_node_grad(
   return ret;
 }
 
-template <typename KeyType, typename ValType, typename GradType>
-int HeterComm<KeyType, ValType, GradType>::gather_multi_node_grad_v4(
+template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
+int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_multi_node_grad_v4(
     int gpu_num, KeyType* d_keys, GradType* d_grads, int len) {
   platform::Timer time_line;
   time_line.Start();
@@ -2127,8 +2274,8 @@ int HeterComm<KeyType, ValType, GradType>::gather_multi_node_grad_v4(
   return ret;
 }
 
-template <typename KeyType, typename ValType, typename GradType>
-int HeterComm<KeyType, ValType, GradType>::gather_multi_node_grad_v5(
+template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
+int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_multi_node_grad_v5(
     int gpu_num, KeyType* d_keys, GradType* d_grads, int len) {
   platform::Timer time_line;
   time_line.Start();
@@ -2221,8 +2368,8 @@ int HeterComm<KeyType, ValType, GradType>::gather_multi_node_grad_v5(
   return 0;
 }
 
-template <typename KeyType, typename ValType, typename GradType>
-int HeterComm<KeyType, ValType, GradType>::gather_multi_node_grad(
+template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
+int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_multi_node_grad(
     int gpu_num, KeyType* d_keys, GradType* d_grads, int len) {
   platform::Timer time_line;
   time_line.Start();
@@ -2334,8 +2481,8 @@ int HeterComm<KeyType, ValType, GradType>::gather_multi_node_grad(
   return ret;
 }
 
-template <typename KeyType, typename ValType, typename GradType>
-int HeterComm<KeyType, ValType, GradType>::gather_multi_node_grad_v2(
+template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
+int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_multi_node_grad_v2(
     int gpu_num, KeyType* d_keys, GradType* d_grads, int len) {
   int dev_id = resource_->dev_id(gpu_num);
   auto& storage = storage_[gpu_num];
@@ -2367,10 +2514,20 @@ int HeterComm<KeyType, ValType, GradType>::gather_multi_node_grad_v2(
   cudaMemcpyAsync(h_right, d_right_ptr, multi_mf_dim_ * sizeof(int),
              cudaMemcpyDeviceToHost, stream);
   cudaStreamSynchronize(stream);
+
+
+  auto accessor_wrapper_ptr =
+      GlobalAccessorFactory::GetInstance().GetAccessorWrapper();
   size_t dim8_grad_value_size =
-      TYPEALIGN(8, sizeof(FeaturePushValue) + (8 * sizeof(float)));
+      accessor_wrapper_ptr->GetPushValueSize(8);
   size_t dim64_grad_value_size =
-      TYPEALIGN(8, sizeof(FeaturePushValue) + (64 * sizeof(float)));
+      accessor_wrapper_ptr->GetPushValueSize(64);
+
+  // size_t dim8_grad_value_size =
+  //    TYPEALIGN(8, sizeof(FeaturePushValue) + (8 * sizeof(float)));
+  // size_t dim64_grad_value_size =
+  //    TYPEALIGN(8, sizeof(FeaturePushValue) + (64 * sizeof(float)));
+
   size_t dim8_len = h_right[0] - h_left[0] + 1;
   auto d_dim8_grads = memory::Alloc(place, dim8_len * dim8_grad_value_size);
   GradType* d_dim8_grads_ptr = reinterpret_cast<GradType*>(d_dim8_grads->ptr());
@@ -2441,8 +2598,8 @@ int HeterComm<KeyType, ValType, GradType>::gather_multi_node_grad_v2(
   return 0;
 }
 
-template <typename KeyType, typename ValType, typename GradType>
-void HeterComm<KeyType, ValType, GradType>::end_pass() {
+template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
+void HeterComm<KeyType, ValType, GradType, GPUAccessor>::end_pass() {
   int total_gpu = resource_->total_gpu();
   std::vector<std::thread> threads;
 
@@ -2473,4 +2630,5 @@ void HeterComm<KeyType, ValType, GradType>::end_pass() {
 
 }  // end namespace framework
 }  // end namespace paddle
+
 #endif

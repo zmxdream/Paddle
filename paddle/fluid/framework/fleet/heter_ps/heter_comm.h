@@ -37,8 +37,8 @@ namespace framework {
 
 Barrier h_barrier;
 
-#define TYPEALIGN(ALIGNVAL, LEN) \
-  (((uint64_t)(LEN) + ((ALIGNVAL)-1)) & ~((uint64_t)((ALIGNVAL)-1)))
+// #define TYPEALIGN(ALIGNVAL, LEN) \
+//   (((uint64_t)(LEN) + ((ALIGNVAL)-1)) & ~((uint64_t)((ALIGNVAL)-1)))
 
 struct CustomGradMerger {
   // template <typename T>
@@ -72,62 +72,56 @@ struct CustomGradMerger {
     return out;
   }
 
-  template <typename T>
+  template <typename GPUAccessor>
   __device__ __forceinline__
-  void copy_basic_field(T& output, const T& input) {
-      output.slot    = input.slot;
-      output.show    = input.show;
-      output.clk     = input.clk;
-      output.mf_dim = input.mf_dim;
-      output.lr_g = input.lr_g;
-      // for(int i = 0; i < output.mf_dim ; ++i) {
-      //   output.mf_g[i] = input.mf_g[i];
-      //}
+  void init_field(float* output, const float* input, GPUAccessor& gpu_accessor) {
+      gpu_accessor.PushValueFill(output, input);
   }
-  template <typename T>
+
+  template <typename GPUAccessor>
   __device__ __forceinline__
-  void add_basic_field(T& output, const T& input) {
-      output.show    += input.show;
-      output.clk     += input.clk;
-      output.lr_g += input.lr_g;
-      // for(int i = 0; i < input.mf_dim; ++i) {
-      //   output.mf_g[i] += input.mf_g[i];
-      // }
+  void copy_basic_field(float* output, const float* input, GPUAccessor& gpu_accessor) {
+      gpu_accessor.PushValueFillBasic(output, input);
+  }
+
+  template <typename GPUAccessor>
+  __device__ __forceinline__
+  void add_basic_field(float* output, const float* input, GPUAccessor& gpu_accessor) {
+      gpu_accessor.MergePushValueBasic(output, input);
   }
 
 
-  template <typename T>
+  template <typename GPUAccessor>
   __device__ __forceinline__
-  void copy_embedx_field(T& output, const T& input, size_t embedx_id) {
-       if (embedx_id < input.mf_dim) {
-         output.mf_g[embedx_id] = input.mf_g[embedx_id];
-       }
+  void copy_embedx_field(float* output, const float* input, size_t embedx_id, GPUAccessor& gpu_accessor) {
+       gpu_accessor.PushValueFillEmbedx(output, input, embedx_id);
   }
 
 
-  template <typename T>
+  template <typename GPUAccessor>
   __device__ __forceinline__
-  void add_embedx_field(T& output, const T& input, size_t embedx_id) {
-       if (embedx_id < input.mf_dim) {
-         output.mf_g[embedx_id] += input.mf_g[embedx_id];
-       }
+  void add_embedx_field(float* output, const float* input, size_t embedx_id, GPUAccessor& gpu_accessor) {
+       gpu_accessor.MergePushValueEmbedx(output, input, embedx_id);
   }
 
 };
 
-template <typename KeyType, typename ValType, typename GradType>
+template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
 class HeterComm {
  public:
-  HeterComm(size_t capacity, std::shared_ptr<HeterPsResource> resource);
+  HeterComm(size_t capacity, std::shared_ptr<HeterPsResource> resource, GPUAccessor& gpu_accessor);
   virtual ~HeterComm();
   HeterComm(const HeterComm&) = delete;
   HeterComm& operator=(const HeterComm&) = delete;
 
   void split_input_to_shard(KeyType* d_keys, int* d_idx_ptr, size_t len,
                             int* left, int* right, int gpu_num);
+
   void split_input_by_mfdim(
     GradType* d_grads, int* d_idx_ptr, size_t len, int* left, int* right, int gpu_num);
+
   void reorder_input_by_mfdim(KeyType* d_keys, GradType* d_grads, size_t len, int* lens, int gpu_num, size_t& reorder_grad_len);
+
   void merge_grad(int gpu_num, KeyType* d_keys, GradType* d_grads, size_t len,
                   int& uniq_len);  // NOLINT
   void merge_grad(int gpu_num, KeyType* d_keys, GradType* d_grads, float* mf,
@@ -170,6 +164,10 @@ class HeterComm {
     int gpu_num, KeyType* d_keys, GradType* d_grads, int len);
   int gather_multi_node_grad_v5(
     int gpu_num, KeyType* d_keys, GradType* d_grads, int len);
+
+
+  void set_sparse_sgd(const OptimizerConfig& optimizer_config);
+  void set_embedx_sgd(const OptimizerConfig& optimizer_config);
 
   int log2i(int x);
 
@@ -365,6 +363,7 @@ class HeterComm {
                    char* src_val, size_t val_size);
 
  protected:
+  GPUAccessor gpu_accessor_; 
   using Table = HashTable<KeyType, ValType>;
   using PtrTable = HashTable<KeyType, ValType*>;
   std::vector<Table*> tables_;
