@@ -21,6 +21,7 @@ limitations under the License. */
 #include <ctime>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <random>
 #include <string>
 #include <unordered_map>
@@ -296,8 +297,11 @@ class PSGPUWrapper {
 
   // PSGPUWrapper singleton
   static std::shared_ptr<PSGPUWrapper> GetInstance() {
-    if (NULL == s_instance_) {
-      s_instance_.reset(new paddle::framework::PSGPUWrapper());
+    {
+      std::lock_guard<std::mutex> lk(ins_mutex);
+      if (NULL == s_instance_) {
+        s_instance_.reset(new paddle::framework::PSGPUWrapper());
+      }
     }
     return s_instance_;
   }
@@ -410,6 +414,7 @@ class PSGPUWrapper {
 #endif
 
   static std::shared_ptr<PSGPUWrapper> s_instance_;
+  static std::mutex ins_mutex;
   Dataset* dataset_;
 
   //当load数据完成后，会将其筛入到如下队列，后续异步pull会用到这个队列的数据
