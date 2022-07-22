@@ -108,6 +108,7 @@ struct FeaturePushValue {
 };
 */
 
+/*
 class FeatureValueAccessor {
  public:
   __host__ __device__  FeatureValueAccessor() {}
@@ -123,11 +124,12 @@ class FeatureValueAccessor {
  protected:
   std::unordered_map<std::string, float> _config;
 };
+*/
 
 // adagrad: embed_sgd_dim=1, embedx_sgd_dim=1,embedx_dim=n
 // adam std:  embed_sgd_dim=4, embedx_sgd_dim=n*2+2,embedx_dim=n
 // adam shared:  embed_sgd_dim=4, embedx_sgd_dim=4,embedx_dim=n
-class CommonFeatureValueAccessor : public FeatureValueAccessor {
+class CommonFeatureValueAccessor {
  public:
   struct CommonFeatureValue {
 
@@ -298,7 +300,7 @@ class CommonFeatureValueAccessor : public FeatureValueAccessor {
   __host__ __device__ CommonFeatureValueAccessor() {}
   __host__ __device__ ~CommonFeatureValueAccessor() {}
 
-  __host__ __device__ virtual int Initialize() {
+  __host__ int Initialize() {
 
     // TODO(zhangminxu): support adam/shared_adam
     int optimizer_type = (_config.find("optimizer_type") == _config.end())
@@ -320,6 +322,10 @@ class CommonFeatureValueAccessor : public FeatureValueAccessor {
     }
     common_feature_value.optimizer_type_ = optimizer_type;
     common_feature_value.embedx_dim = sparse_embedx_dim;
+
+    VLOG(0) << "Initialize optimizer type: " << common_feature_value.optimizer_type_
+            << " embed_sgd_dim: " << common_feature_value.embed_sgd_dim
+            << " embedx_sgd_dim: " << common_feature_value.embedx_sgd_dim;
 
     return 0;
   }
@@ -632,7 +638,14 @@ __host__ __device__ std::string ParseToString(const float* v, int param_size) {
         for(int j = left; j < right; j++) output[j] = input[j];
     }
   }
+
+  __host__ int Configure(std::unordered_map<std::string, float>& config) {
+    _config = config;
+    Initialize();
+    return 0;
+  }
  public:
+  std::unordered_map<std::string, float> _config;
   CommonFeatureValue common_feature_value;
   CommonPushValue common_push_value;
   CommonPullValue common_pull_value;
