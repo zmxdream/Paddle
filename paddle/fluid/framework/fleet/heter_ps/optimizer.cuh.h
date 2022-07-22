@@ -24,23 +24,11 @@ namespace paddle {
 namespace framework {
 
 template <typename GPUAccessor>
-class Optimizer {
- public:
-  Optimizer() {}
-  ~Optimizer() {}
-
-  virtual __device__ void dy_mf_update_value(const OptimizerConfig& optimizer_config,
-                                     float* ptr,
-                                     const float* grad,
-                                     curandState& state) = 0;
-};
-
-template <typename GPUAccessor>
-class SparseAdagradOptimizer : public Optimizer<GPUAccessor> {
+class SparseAdagradOptimizer {
 
 public:
   SparseAdagradOptimizer() {}
-  SparseAdagradOptimizer(GPUAccessor& gpu_accessor): Optimizer<GPUAccessor>() {
+  SparseAdagradOptimizer(GPUAccessor& gpu_accessor) {
     gpu_accessor_ = gpu_accessor;
   }
 

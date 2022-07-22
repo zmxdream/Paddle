@@ -693,12 +693,13 @@ void PSGPUWrapper::BuildPull(std::shared_ptr<HeterContext> gpu_task) {
     task_futures.clear();
     VLOG(0) << "GpuPs build hbmps done";
   }
-  std::vector<std::vector<int>> prefix_sum;
-  prefix_sum.resize(device_num);
-  for (int i = 0; i < device_num; i++) {
-    prefix_sum[i].resize(thread_keys_shard_num_ + 1);
-    prefix_sum[i][0] = 0;
-  }
+
+  // std::vector<std::vector<int>> prefix_sum;
+  // prefix_sum.resize(device_num);
+  // for (int i = 0; i < device_num; i++) {
+  //  prefix_sum[i].resize(thread_keys_shard_num_ + 1);
+  //  prefix_sum[i][0] = 0;
+  // }
 
   /*
   auto calc_prefix_func = [this, &prefix_sum, &device_keys, &device_vals,

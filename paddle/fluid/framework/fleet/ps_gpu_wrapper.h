@@ -92,16 +92,6 @@ class PSGPUWrapper {
   PSGPUWrapper() {
     HeterPs_ = NULL;
     sleep_seconds_before_fail_exit_ = 300;
-    hbm_thread_pool_.resize(thread_keys_shard_num_);
-    for (size_t i = 0; i < hbm_thread_pool_.size(); i++) {
-      hbm_thread_pool_[i].reset(new ::ThreadPool(1));
-    }
-    pull_thread_pool_.resize(thread_keys_shard_num_);
-    for (size_t i = 0; i < pull_thread_pool_.size(); i++) {
-      pull_thread_pool_[i].reset(new ::ThreadPool(1));
-    }
-    mg_time_0 = std::vector<double>(8, 0.0);
-    mg_time_1 = std::vector<double>(8, 0.0);
   }
 
   void PullSparse(const paddle::platform::Place& place, const int table_id,
@@ -269,6 +259,17 @@ class PSGPUWrapper {
                                : config["sparse_shard_num"];
     thread_keys_shard_num_ = sparse_shard_num;
     VLOG(0) << "GPUPS set sparse shard num: " << thread_keys_shard_num_;
+
+    hbm_thread_pool_.resize(thread_keys_shard_num_);
+    for (size_t i = 0; i < hbm_thread_pool_.size(); i++) {
+      hbm_thread_pool_[i].reset(new ::ThreadPool(1));
+    }
+    pull_thread_pool_.resize(thread_keys_shard_num_);
+    for (size_t i = 0; i < pull_thread_pool_.size(); i++) {
+      pull_thread_pool_[i].reset(new ::ThreadPool(1));
+    }
+    VLOG(0) << "set hbm_thread_pool size: " << hbm_thread_pool_.size()
+            << " set pull_thread_pool size: " << pull_thread_pool_.size(); 
 
     float nonclk_coeff = (config.find("nonclk_coeff") == config.end())
                              ? 1.0
