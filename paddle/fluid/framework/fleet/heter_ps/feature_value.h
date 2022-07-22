@@ -330,24 +330,24 @@ __host__ void BuildFill(float* gpu_val,
                         ::paddle::ps::ValueAccessor* _cpu_accessor,
                         int mf_dim) {
 #if defined PADDLE_WITH_PSLIB
-  // auto* cpu_accessor = dynamic_cast<::paddle::ps::DownpourCtrDymfAccessor*>(_cpu_accessor);
+  auto* cpu_accessor = dynamic_cast<::paddle::ps::DownpourCtrDymfAccessor*>(_cpu_accessor);
   auto* cpu_val = reinterpret_cast<::paddle::ps::DownpourFixedFeatureValue*>(_cpu_val);
   float* ptr_val = cpu_val->data();
   size_t cpu_dim = cpu_val->size();
 
   gpu_val[common_feature_value.DeltaScoreIndex()] =
-      ptr_val[::paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::delta_score_index()];
+      ptr_val[cpu_accessor->get_delta_score_index()];
   gpu_val[common_feature_value.ShowIndex()] = 
-      ptr_val[::paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::show_index()];
+      ptr_val[cpu_accessor->get_show_index()];
   gpu_val[common_feature_value.ClickIndex()] =
-      ptr_val[::paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::click_index()];
+      ptr_val[cpu_accessor->get_click_index()];
 
   gpu_val[common_feature_value.SlotIndex()] = 
-      ptr_val[::paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::slot_index()];
+      ptr_val[cpu_accessor->get_slot_index()];
 
   // lr
   gpu_val[common_feature_value.EmbedWIndex()] = 
-      ptr_val[::paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::embed_w_index()];
+      ptr_val[cpu_accessor->get_embed_w_index()];
 
   // cpu_ptr
   *(reinterpret_cast<uint64_t*>(gpu_val + common_feature_value.CpuPtrIndex())) = (uint64_t)(cpu_val);
@@ -356,10 +356,10 @@ __host__ void BuildFill(float* gpu_val,
   // for dymf && adagrad, embed_dim = 1
   for (int i = 0; i < common_feature_value.EmbedDim(); i++) {
     gpu_val[common_feature_value.EmbedG2SumIndex() + i] =
-      ptr_val[::paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::embed_g2sum_index() + i];
+      ptr_val[cpu_accessor->get_embed_g2sum_index() + i];
   }
 
-  ptr_val[::paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::mf_dim_index()] = float(mf_dim);
+  ptr_val[cpu_accessor->get_mf_dim_index()] = float(mf_dim);
   gpu_val[common_feature_value.MfDimIndex()] = float(mf_dim);
 
   if (cpu_dim > 8) {
@@ -386,7 +386,7 @@ __host__ void DumpFill(float* gpu_val,
                        ::paddle::ps::ValueAccessor* _cpu_accessor,
                        int mf_dim) {
 #if defined PADDLE_WITH_PSLIB
-  // auto* cpu_accessor = dynamic_cast<::paddle::ps::DownpourCtrDymfAccessor*>(_cpu_accessor);
+  auto* cpu_accessor = dynamic_cast<::paddle::ps::DownpourCtrDymfAccessor*>(_cpu_accessor);
   uint64_t cpu_addr = *(uint64_t*)(gpu_val + common_feature_value.CpuPtrIndex());
   auto* downpour_value = (::paddle::ps::DownpourFixedFeatureValue*)cpu_addr;
   int downpour_value_size = downpour_value->size();
@@ -396,19 +396,19 @@ __host__ void DumpFill(float* gpu_val,
   }
   float* cpu_val = downpour_value->data(); 
 
-  cpu_val[paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::delta_score_index()] =
+  cpu_val[cpu_accessor->get_delta_score_index()] =
       gpu_val[common_feature_value.DeltaScoreIndex()];
-  cpu_val[paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::show_index()] =
+  cpu_val[cpu_accessor->get_show_index()] =
       gpu_val[common_feature_value.ShowIndex()];
-  cpu_val[paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::click_index()] =
+  cpu_val[cpu_accessor->get_click_index()] =
       gpu_val[common_feature_value.ClickIndex()];
-  cpu_val[paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::embed_w_index()] =
+  cpu_val[cpu_accessor->get_embed_w_index()] =
       gpu_val[common_feature_value.EmbedWIndex()];
-  cpu_val[paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::slot_index()] =
+  cpu_val[cpu_accessor->get_slot_index()] =
       gpu_val[common_feature_value.SlotIndex()];
   // for dymf, i = 0
   for (int i = 0; i < common_feature_value.EmbedDim(); i++) {
-    cpu_val[paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::embed_g2sum_index() + i] =
+    cpu_val[cpu_accessor->get_embed_g2sum_index() + i] =
       gpu_val[common_feature_value.EmbedG2SumIndex() + i];
   }
   if ((int)gpu_val[common_feature_value.MfSizeIndex()] > 0) {

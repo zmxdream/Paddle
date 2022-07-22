@@ -250,6 +250,7 @@ class HeterContext {
       t.join();
     }
   }
+  uint16_t pass_id_;
 };
 
 }  // end namespace framework
