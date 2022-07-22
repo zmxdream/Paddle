@@ -21,6 +21,7 @@ limitations under the License. */
 #include <ctime>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <random>
 #include <string>
 #include <unordered_map>
@@ -91,14 +92,6 @@ class PSGPUWrapper {
   PSGPUWrapper() {
     HeterPs_ = NULL;
     sleep_seconds_before_fail_exit_ = 300;
-    hbm_thread_pool_.resize(thread_keys_shard_num_);
-    for (size_t i = 0; i < hbm_thread_pool_.size(); i++) {
-      hbm_thread_pool_[i].reset(new ::ThreadPool(1));
-    }
-    pull_thread_pool_.resize(thread_keys_shard_num_);
-    for (size_t i = 0; i < pull_thread_pool_.size(); i++) {
-      pull_thread_pool_[i].reset(new ::ThreadPool(1));
-    }
   }
 
   void PullSparse(const paddle::platform::Place& place, const int table_id,
@@ -237,6 +230,17 @@ class PSGPUWrapper {
     thread_keys_shard_num_ = sparse_shard_num;
     VLOG(0) << "GPUPS set sparse shard num: " << thread_keys_shard_num_;
 
+    hbm_thread_pool_.resize(thread_keys_shard_num_);
+    for (size_t i = 0; i < hbm_thread_pool_.size(); i++) {
+      hbm_thread_pool_[i].reset(new ::ThreadPool(1));
+    }
+    pull_thread_pool_.resize(thread_keys_shard_num_);
+    for (size_t i = 0; i < pull_thread_pool_.size(); i++) {
+      pull_thread_pool_[i].reset(new ::ThreadPool(1));
+    }
+    VLOG(0) << "set hbm_thread_pool size: " << hbm_thread_pool_.size()
+            << " set pull_thread_pool size: " << pull_thread_pool_.size(); 
+
     float nonclk_coeff = (config.find("nonclk_coeff") == config.end())
                              ? 1.0
                              : config["nonclk_coeff"];
@@ -296,8 +300,11 @@ class PSGPUWrapper {
 
   // PSGPUWrapper singleton
   static std::shared_ptr<PSGPUWrapper> GetInstance() {
-    if (NULL == s_instance_) {
-      s_instance_.reset(new paddle::framework::PSGPUWrapper());
+    {
+      std::lock_guard<std::mutex> lk(ins_mutex);
+      if (NULL == s_instance_) {
+        s_instance_.reset(new paddle::framework::PSGPUWrapper());
+      }
     }
     return s_instance_;
   }
@@ -410,6 +417,7 @@ class PSGPUWrapper {
 #endif
 
   static std::shared_ptr<PSGPUWrapper> s_instance_;
+  static std::mutex ins_mutex;
   Dataset* dataset_;
 
   //当load数据完成后，会将其筛入到如下队列，后续异步pull会用到这个队列的数据

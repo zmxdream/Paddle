@@ -88,6 +88,7 @@ int AfsWrapper::mv(const std::string& old_path, const std::string& dest_path) {
 
 std::shared_ptr<PSGPUWrapper> PSGPUWrapper::s_instance_ = NULL;
 bool PSGPUWrapper::is_initialized_ = false;
+std::mutex PSGPUWrapper::ins_mutex;
 #ifdef PADDLE_WITH_PSLIB
 void PSGPUWrapper::InitAfsApi(const std::string& fs_name,
                               const std::string& fs_user,
@@ -629,12 +630,13 @@ void PSGPUWrapper::BuildPull(std::shared_ptr<HeterContext> gpu_task) {
     task_futures.clear();
     VLOG(0) << "GpuPs build hbmps done";
   }
-  std::vector<std::vector<int>> prefix_sum;
-  prefix_sum.resize(device_num);
-  for (int i = 0; i < device_num; i++) {
-    prefix_sum[i].resize(thread_keys_shard_num_ + 1);
-    prefix_sum[i][0] = 0;
-  }
+
+  // std::vector<std::vector<int>> prefix_sum;
+  // prefix_sum.resize(device_num);
+  // for (int i = 0; i < device_num; i++) {
+  //  prefix_sum[i].resize(thread_keys_shard_num_ + 1);
+  //  prefix_sum[i][0] = 0;
+  // }
 
   /*
   auto calc_prefix_func = [this, &prefix_sum, &device_keys, &device_vals,
