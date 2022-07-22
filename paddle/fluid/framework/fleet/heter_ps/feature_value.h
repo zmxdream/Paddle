@@ -300,7 +300,7 @@ class CommonFeatureValueAccessor {
   __host__ __device__ CommonFeatureValueAccessor() {}
   __host__ __device__ ~CommonFeatureValueAccessor() {}
 
-  __host__ virtual int Initialize() {
+  __host__ int Initialize() {
 
     // TODO(zhangminxu): support adam/shared_adam
     int optimizer_type = (_config.find("optimizer_type") == _config.end())
@@ -322,6 +322,10 @@ class CommonFeatureValueAccessor {
     }
     common_feature_value.optimizer_type_ = optimizer_type;
     common_feature_value.embedx_dim = sparse_embedx_dim;
+
+    VLOG(0) << "Initialize optimizer type: " << common_feature_value.optimizer_type_
+            << " embed_sgd_dim: " << common_feature_value.embed_sgd_dim
+            << " embedx_sgd_dim: " << common_feature_value.embedx_sgd_dim;
 
     return 0;
   }
