@@ -341,6 +341,16 @@ __host__ void BuildFill(float* gpu_val,
   float* ptr_val = cpu_val->data();
   size_t cpu_dim = cpu_val->size();
 
+  
+  // VLOG(0) << "in BuildFill, cpu_dim: " << cpu_dim; 
+  // VLOG(0) << " delta_score_index: " <<  cpu_accessor->get_delta_score_index()
+  //        << " show_index: " << cpu_accessor->get_show_index()
+  //        << " click_index: " << cpu_accessor->get_click_index()
+  //        << " slot_index: " << cpu_accessor->get_slot_index()
+  //        << " embedw_index: " << cpu_accessor->get_embed_w_index()
+  //        << " embed_g2sum_index: " << cpu_accessor->get_embed_g2sum_index()
+  //        << " mf_dim_index: " << cpu_accessor->get_mf_dim_index(); 
+
   gpu_val[common_feature_value.DeltaScoreIndex()] =
       ptr_val[cpu_accessor->get_delta_score_index()];
   gpu_val[common_feature_value.ShowIndex()] = 
@@ -382,6 +392,7 @@ __host__ void BuildFill(float* gpu_val,
       gpu_val[common_feature_value.EmbedxG2SumIndex() + i] = 0;
     }
   }
+
 #endif
 }
 
@@ -402,6 +413,15 @@ __host__ void DumpFill(float* gpu_val,
   }
   float* cpu_val = downpour_value->data(); 
 
+  // VLOG(0) << "in DumpFill"; 
+  // VLOG(0) << "delta_score_index: " <<  cpu_accessor->get_delta_score_index()
+  //        << "show_index: " << cpu_accessor->get_show_index()
+  //        << "click_index: " << cpu_accessor->get_click_index()
+  //        << "slot_index: " << cpu_accessor->get_slot_index()
+  //        << "embedw_index: " << cpu_accessor->get_embed_w_index()
+  //        << "embed_g2sum_index: " << cpu_accessor->get_embed_g2sum_index()
+  //        << "mf_dim_index: " << cpu_accessor->get_mf_dim_index(); 
+
   cpu_val[cpu_accessor->get_delta_score_index()] =
       gpu_val[common_feature_value.DeltaScoreIndex()];
   cpu_val[cpu_accessor->get_show_index()] =
@@ -412,7 +432,12 @@ __host__ void DumpFill(float* gpu_val,
       gpu_val[common_feature_value.EmbedWIndex()];
   cpu_val[cpu_accessor->get_slot_index()] =
       gpu_val[common_feature_value.SlotIndex()];
-  // for dymf, i = 0
+
+
+
+
+
+  // for dymf && adagrad, embed_dim = 1
   for (int i = 0; i < common_feature_value.EmbedDim(); i++) {
     cpu_val[cpu_accessor->get_embed_g2sum_index() + i] =
       gpu_val[common_feature_value.EmbedG2SumIndex() + i];
