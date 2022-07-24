@@ -888,16 +888,12 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
       accessor_wrapper_ptr->BuildFill(val, device_dim_ptrs[k], cpu_accessor_, mf_dim);
     }
   };
-
-
     threads.resize(device_num * multi_mf_dim_);
     for (int i = 0; i < device_num; i++) {
       for (int j = 0; j < multi_mf_dim_; j++) {
         threads[i + j * device_num] = std::thread(build_dymf_mem_pool, i, j);
       }
     }
-
-
     for (std::thread& t : threads) {
       t.join();
     }
