@@ -168,9 +168,9 @@ class CommonFeatureValueAccessor {
     // 根据mf_dim计算的总长度
     __host__ __device__ int Dim(int mf_dim) {
       int tmp_embedx_sgd_dim = 1;
-      if (optimizer_type_ == 3) {//adam
+      if (mf_optimizer_type_ == 3) {//adam
         tmp_embedx_sgd_dim = mf_dim * 2 + 2;
-      } else if (optimizer_type_ == 4) { //shared_adam
+      } else if (mf_optimizer_type_ == 4) { //shared_adam
         tmp_embedx_sgd_dim = 4;
       }
       return 9 + embed_sgd_dim + tmp_embedx_sgd_dim + mf_dim;
@@ -184,9 +184,9 @@ class CommonFeatureValueAccessor {
     // 根据mf_dim 计算的 mf_size byte数
     __host__ __device__ int MFSize(int mf_dim) {
       int tmp_embedx_sgd_dim = 1;
-      if (optimizer_type_ == 3) { //adam
+      if (mf_optimizer_type_ == 3) { //adam
         tmp_embedx_sgd_dim = mf_dim * 2 + 2;
-      } else if (optimizer_type_ == 4) { //shared_adam
+      } else if (mf_optimizer_type_ == 4) { //shared_adam
         tmp_embedx_sgd_dim = 4;
       }
       return (tmp_embedx_sgd_dim + mf_dim) * sizeof(float);
@@ -198,9 +198,9 @@ class CommonFeatureValueAccessor {
       // has mf 
       int tmp_embedx_sgd_dim = 1;
       if ((int)MfSize(val) > 0) {
-        if (optimizer_type_ == 3) {//adam
+        if (mf_optimizer_type_ == 3) {//adam
           tmp_embedx_sgd_dim = int(MfDim(val)) * 2 + 2;
-        } else if (optimizer_type_ == 4) { //shared_adam
+        } else if (mf_optimizer_type_ == 4) { //shared_adam
           tmp_embedx_sgd_dim = 4;
         }
         return EmbedxG2SumIndex() + tmp_embedx_sgd_dim;
@@ -225,8 +225,8 @@ class CommonFeatureValueAccessor {
     int embed_sgd_dim;
     int embedx_dim;
     int embedx_sgd_dim;
-    int optimizer_type_ = 1; // default optimizer is adagrad
-    int mf_optimizer_type_ = 1; // default optimizer is adagrad
+    int optimizer_type_ = 1; // default embed optimizer is adagrad
+    int mf_optimizer_type_ = 1; // default embedx optimizer is adagrad
   };
 
   struct CommonPushValue {
@@ -314,6 +314,9 @@ class CommonFeatureValueAccessor {
                                 ? 8
                                 : int(_config["mf_embedx_dim"]);
 
+    // NOTE(zhangminxu): gpups' sparse table optimizer type,
+    // now only support embed&embedx 's sparse optimizer is the same
+    // we will set embedx_sgd_dim according to mf_optimizer_type later
     if (optimizer_type == 3) { //adam
       common_feature_value.embed_sgd_dim = 4;
       common_feature_value.embedx_sgd_dim = sparse_embedx_dim * 2 + 2;
