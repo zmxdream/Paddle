@@ -1367,6 +1367,7 @@ void add_sparse_optimizer(
     const std::string& prefix = "") {
   auto optimizer_name = sgd_param.name();
   if (optimizer_name == "naive") {
+    config[prefix + "optimizer_type"] = 0;
     config[prefix + "learning_rate"] = sgd_param.naive().learning_rate();
     config[prefix + "initial_range"] = sgd_param.naive().initial_range();
     if (sgd_param.naive().weight_bounds_size() == 2) {
@@ -1374,6 +1375,7 @@ void add_sparse_optimizer(
       config[prefix + "max_bound"] = sgd_param.naive().weight_bounds()[1];
     }
   } else if (optimizer_name == "adagrad") {
+    config[prefix + "optimizer_type"] = 1;
     config[prefix + "learning_rate"] = sgd_param.adagrad().learning_rate();
     config[prefix + "initial_range"] = sgd_param.adagrad().initial_range();
     config[prefix + "initial_g2sum"] = sgd_param.adagrad().initial_g2sum();
@@ -1382,6 +1384,7 @@ void add_sparse_optimizer(
       config[prefix + "max_bound"] = sgd_param.adagrad().weight_bounds()[1];
     }
   } else if (optimizer_name == "std_adagrad") {
+    config[prefix + "optimizer_type"] = 2;
     config[prefix + "learning_rate"] = sgd_param.adagrad().learning_rate();
     config[prefix + "initial_range"] = sgd_param.adagrad().initial_range();
     config[prefix + "initial_g2sum"] = sgd_param.adagrad().initial_g2sum();
@@ -1390,6 +1393,7 @@ void add_sparse_optimizer(
       config[prefix + "max_bound"] = sgd_param.adagrad().weight_bounds()[1];
     }
   } else if (optimizer_name == "adam") {
+    config[prefix + "optimizer_type"] = 3;
     config[prefix + "learning_rate"] = sgd_param.adam().learning_rate();
     config[prefix + "initial_range"] = sgd_param.adam().initial_range();
     if (sgd_param.adam().weight_bounds_size() == 2) {

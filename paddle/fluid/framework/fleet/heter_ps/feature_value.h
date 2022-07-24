@@ -226,6 +226,7 @@ class CommonFeatureValueAccessor {
     int embedx_dim;
     int embedx_sgd_dim;
     int optimizer_type_ = 1; // default optimizer is adagrad
+    int mf_optimizer_type_ = 1; // default optimizer is adagrad
   };
 
   struct CommonPushValue {
@@ -301,11 +302,14 @@ class CommonFeatureValueAccessor {
   __host__ __device__ ~CommonFeatureValueAccessor() {}
 
   __host__ int Initialize() {
-
-    // TODO(zhangminxu): support adam/shared_adam
+    // NOTE(zhangminxu): gpups' sparse table optimizer type,
+    // now only support embed&embedx 's sparse optimizer is the same
     int optimizer_type = (_config.find("optimizer_type") == _config.end())
                                  ? 1
                                  : int(_config["optimizer_type"]);
+    int mf_optimizer_type = (_config.find("mf_optimizer_type") == _config.end())
+                                 ? 1
+                                 : int(_config["mf_optimizer_type"]);
     int sparse_embedx_dim = (_config.find("mf_embedx_dim") == _config.end())
                                 ? 8
                                 : int(_config["mf_embedx_dim"]);
@@ -321,9 +325,11 @@ class CommonFeatureValueAccessor {
       common_feature_value.embedx_sgd_dim = 1;
     }
     common_feature_value.optimizer_type_ = optimizer_type;
+    common_feature_value.mf_optimizer_type_ = mf_optimizer_type;
     common_feature_value.embedx_dim = sparse_embedx_dim;
 
     VLOG(0) << "Initialize optimizer type: " << common_feature_value.optimizer_type_
+            << " mf_optimizer_type: " << common_feature_value.mf_optimizer_type_
             << " embed_sgd_dim: " << common_feature_value.embed_sgd_dim
             << " embedx_sgd_dim: " << common_feature_value.embedx_sgd_dim;
 
