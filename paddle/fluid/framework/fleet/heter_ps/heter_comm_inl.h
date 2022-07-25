@@ -308,6 +308,7 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::init_path() {
       }
     }
   }
+  VLOG(0) << "HeterComm init_path done";
 }
 
 template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>

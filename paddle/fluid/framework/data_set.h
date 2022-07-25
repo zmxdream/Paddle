@@ -161,6 +161,9 @@ class Dataset {
 
   virtual std::vector<std::string> GetSlots() = 0;
 
+  virtual void SetPassId(uint32_t pass_id) = 0;
+  virtual uint32_t GetPassID() = 0;
+
  protected:
   virtual int ReceiveFromClient(int msg_type, int client_id,
                                 const std::string& msg) = 0;
@@ -248,7 +251,15 @@ class DatasetImpl : public Dataset {
                                        bool discard_remaining_ins = false);
   virtual void DynamicAdjustReadersNum(int thread_num);
   virtual void SetFleetSendSleepSeconds(int seconds);
-  virtual std::vector<std::string> GetSlots(); 
+  virtual std::vector<std::string> GetSlots();
+
+  virtual void SetPassId(uint32_t pass_id) {
+    pass_id_ = pass_id;
+  }
+  virtual uint32_t GetPassID() {
+    return pass_id_;
+  }
+ 
   /* for enable_heterps_
   virtual void EnableHeterps(bool enable_heterps) {
     enable_heterps_ = enable_heterps;
@@ -275,6 +286,7 @@ class DatasetImpl : public Dataset {
     // TODO(yaoxuefeng) for SlotRecordDataset
     return -1;
   }
+  uint32_t pass_id_ = 0;
   std::vector<std::shared_ptr<paddle::framework::DataFeed>> readers_;
   std::vector<std::shared_ptr<paddle::framework::DataFeed>> preload_readers_;
   paddle::framework::Channel<T> input_channel_;

@@ -22,6 +22,9 @@ namespace framework {
 
 HeterPsBase* HeterPsBase::get_instance(
     size_t capacity, std::shared_ptr<HeterPsResource> resource, std::string accessor_type, int optimizer_type) {
+    // NOTE(zhangminxu): gpups' sparse table optimizer type,
+    // now only support embed&embedx 's sparse optimizer is the same
+    // we will support using diff optimizer for embed&embedx
   if (accessor_type == "DownpourCtrDymfAccessor" && optimizer_type == 1) { // optimizer_type == 1 means adagrad
     auto* accessor_wrapper_ptr =
       GlobalAccessorFactory::GetInstance().GetAccessorWrapper();
