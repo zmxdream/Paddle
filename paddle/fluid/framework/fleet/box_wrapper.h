@@ -425,7 +425,6 @@ class BoxWrapper {
   void EndPass(bool need_save_delta);
   void SetTestMode(bool is_test) const;
 
-  template <typename FEATURE_VALUE_GPU_TYPE>
   void PullSparseCase(const paddle::platform::Place& place,
                       const std::vector<const uint64_t*>& keys,
                       const std::vector<float*>& values,
@@ -433,7 +432,6 @@ class BoxWrapper {
                       const int hidden_size, const int expand_embed_dim,
                       const int skip_offset, bool expand_only);
 
-  template <typename FEATURE_VALUE_GPU_TYPE>
   void PullSparseCaseGPU(const paddle::platform::Place& place,
                          const std::vector<const uint64_t*>& keys,
                          const std::vector<float*>& values,
@@ -441,7 +439,6 @@ class BoxWrapper {
                          const int hidden_size, const int expand_embed_dim,
                          const int skip_offset, bool expand_only);
 
-  template <typename FEATURE_VALUE_GPU_TYPE>
   void PullSparseCaseCPU(const paddle::platform::Place& place,
                          const std::vector<const uint64_t*>& keys,
                          const std::vector<float*>& values,
@@ -456,7 +453,6 @@ class BoxWrapper {
                   const int hidden_size, const int expand_embed_dim,
                   const int skip_offset, bool expand_only);
 
-  template <typename FeaturePushValueGpuType>
   void PushSparseGradCase(const paddle::platform::Place& place,
                           const std::vector<const uint64_t*>& keys,
                           const std::vector<const float*>& grad_values,
@@ -464,7 +460,6 @@ class BoxWrapper {
                           const int hidden_size, const int expand_embed_dim,
                           const int batch_size, const int skip_offset,
                           bool expand_only);
-  template <typename FeaturePushValueGpuType>
   void PushSparseGradCaseGPU(const paddle::platform::Place& place,
                              const std::vector<const uint64_t*>& keys,
                              const std::vector<const float*>& grad_values,
@@ -473,7 +468,6 @@ class BoxWrapper {
                              const int batch_size, const int skip_offset,
                              bool expand_only);
 
-  template <typename FeaturePushValueGpuType>
   void PushSparseGradCaseCPU(const paddle::platform::Place& place,
                              const std::vector<const uint64_t*>& keys,
                              const std::vector<const float*>& grad_values,
@@ -592,10 +586,16 @@ class BoxWrapper {
       } else if (s_instance_->feature_type_ ==
                  static_cast<int>(boxps::FEATURE_CONV)) {
         s_instance_->cvm_offset_ = 4;
+      } else if (s_instance_->feature_type_ ==
+                 static_cast<int>(boxps::FEATURE_TRADEW)) {
+        // embed_w + n * tradew
+        s_instance_->cvm_offset_ = expand_embed_dim + 3;
       } else {
         s_instance_->cvm_offset_ = 3;
       }
       s_instance_->gpu_num_ = platform::GetCUDADeviceCount();
+      // get feature offset info
+      s_instance_->GetFeatureOffsetInfo();
 
       if (boxps::MPICluster::Ins().size() > 1) {
         data_shuffle_.reset(boxps::PaddleShuffler::New());
@@ -723,6 +723,11 @@ class BoxWrapper {
     }
     return device_id;
   }
+  // get feature offset info
+  void GetFeatureOffsetInfo(void) {
+    feature_pull_size_ = boxps_ptr_->GetFeaturePullSize(pull_info_);
+    feature_push_size_ = boxps_ptr_->GetFeaturePushSize(push_info_);
+  }
 
  private:
   static cudaStream_t stream_list_[MAX_GPU_NUM];
@@ -741,6 +746,11 @@ class BoxWrapper {
   int feature_type_ = 0;
   float pull_embedx_scale_ = 1.0;
   int cvm_offset_ = 3;
+  // Need to refactor wrapper.cu
+  size_t feature_pull_size_ = 0;
+  size_t feature_push_size_ = 0;
+  boxps::FeaturePullOffset pull_info_;
+  boxps::FeaturePushOffset push_info_;
 
   // Metric Related
   int phase_ = 1;
@@ -1166,5 +1176,3 @@ class BoxHelper {
 
 }  // end namespace framework
 }  // end namespace paddle
-
-#include "paddle/fluid/framework/fleet/box_wrapper_impl.h"

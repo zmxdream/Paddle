@@ -77,6 +77,7 @@ __all__ = [
     'fused_seqpool_cvm',
     'fused_seqpool_cvm_with_conv',
     'fused_seqpool_cvm_with_diff_thres',
+    'fused_seqpool_cvm_tradew',
     'cross_norm_layer_hadamard',
     'fused_seqpool_cvm_with_pcoc',
     'scaled_fc',
@@ -1855,6 +1856,64 @@ def fused_seqpool_cvm_with_pcoc(input,
             "clk_coeff": clk_coeff,
             "threshold": threshold,
             "quant_ratio": quant_ratio
+        })
+
+    return outs
+
+
+def fused_seqpool_cvm_tradew(input,
+                             pool_type,
+                             cvm,
+                             pad_value=0.0,
+                             use_cvm=True,
+                             cvm_offset=2,
+                             trade_id=-1,
+                             trade_num=2):
+    """
+     **Notes: The Op only receives List of LoDTensor as input, only support SUM pooling now.
+    :attr:`input`.
+    Args:
+        input(Variable|list of Variable): Input is List of LoDTensor.
+        pool_type(str): pooling type, only support SUM pooling now.
+        cvm(Variable): cvm Variable.
+        pad_value(float): padding value of sequence pool.
+        use_cvm(bool): use cvm or not.
+    Returns:
+        Variable|list of Variable: The tensor variable storing sequence pool and cvm
+        of input.
+    """
+    helper = LayerHelper('fused_seqpool_cvm_tradew', **locals())
+
+    if pool_type.upper() != 'SUM':
+        raise ValueError(
+            "fused_seqpool_cvm only support SUM pooling now, and your type is: "
+            + pool_type)
+
+    check_type(input, 'input', list, 'fused_seqpool_cvm_tradew')
+    if isinstance(input, list):
+        for _input in input:
+            check_variable_and_dtype(_input, 'input', ['float32'],
+                                     'fused_seqpool_cvm_tradew')
+
+    dtype = helper.input_dtype()
+    inputs = helper.multiple_input()
+    outs = [
+        helper.create_variable_for_type_inference(dtype)
+        for i in range(len(inputs))
+    ]
+
+    helper.append_op(
+        type="fused_seqpool_cvm_tradew",
+        inputs={"X": inputs,
+                "CVM": cvm},
+        outputs={"Out": outs},
+        attrs={
+            "pooltype": pool_type.upper(),
+            "pad_value": pad_value,
+            "use_cvm": use_cvm,
+            "cvm_offset": cvm_offset,
+            "trade_id": trade_id,
+            "trade_num": trade_num
         })
 
     return outs
