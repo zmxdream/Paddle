@@ -22,12 +22,21 @@ namespace framework {
 
 HeterPsBase* HeterPsBase::get_instance(
     size_t capacity, std::shared_ptr<HeterPsResource> resource, std::string accessor_type, int optimizer_type) {
-  if (accessor_type == "DownpourCtrDymfAccessor" && optimizer_type == 1) { // optimizer_type == 1 means adagrad
+    // NOTE(zhangminxu): gpups' sparse table optimizer type,
+    // now only support embed&embedx 's sparse optimizer is the same
+    // we will support using diff optimizer for embed & embedx
     auto* accessor_wrapper_ptr =
       GlobalAccessorFactory::GetInstance().GetAccessorWrapper();
+  if (accessor_type == "DownpourCtrDymfAccessor" && optimizer_type == 1) { // optimizer_type == 1 means adagrad
+    // auto* accessor_wrapper_ptr =
+    //  GlobalAccessorFactory::GetInstance().GetAccessorWrapper();
     CommonFeatureValueAccessor* gpu_accessor =
       ((AccessorWrapper<CommonFeatureValueAccessor>*)accessor_wrapper_ptr)->AccessorPtr();
     return new HeterPs<CommonFeatureValueAccessor, SparseAdagradOptimizer>(capacity, resource, *gpu_accessor);
+  } else if (accessor_type == "DownpourCtrDymfAccessor" && optimizer_type == 2) { // std_adagrad
+    CommonFeatureValueAccessor* gpu_accessor =
+      ((AccessorWrapper<CommonFeatureValueAccessor>*)accessor_wrapper_ptr)->AccessorPtr();
+    return new HeterPs<CommonFeatureValueAccessor, StdAdagradOptimizer>(capacity, resource, *gpu_accessor);
   } else {
     CHECK(0) << " HeterPsBase get_instance Warning: now only support "
                "DownpourCtrDymfAccessor && SparseAdagradOptimizer, but get accessor_type:"

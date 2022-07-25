@@ -240,6 +240,12 @@ class PSGPUWrapper {
 #ifdef PADDLE_WITH_PSLIB
       auto fleet_ptr = FleetWrapper::GetInstance();
       std::string dist_desc = fleet_ptr->GetDistDesc();
+      fleet_ptr->GetCPUAccessor(cpu_accessor_);
+      PADDLE_ENFORCE_EQ(
+          cpu_accessor_ != nullptr, true,
+          platform::errors::PreconditionNotMet(
+              "You must initialize the cpu accessor first to use it."));
+      VLOG(0) << "PSGPUWrapper initialize cpu accessor";
       InitializeGPUServer(dist_desc);
 #endif
     }
@@ -443,7 +449,7 @@ class PSGPUWrapper {
  private:
 
 #ifdef PADDLE_WITH_PSLIB
-  ::paddle::ps::ValueAccessor* cpu_accessor_;
+  ::paddle::ps::ValueAccessor* cpu_accessor_ = nullptr;
 #endif
 
   static std::shared_ptr<PSGPUWrapper> s_instance_;

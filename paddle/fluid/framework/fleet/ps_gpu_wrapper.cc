@@ -102,6 +102,7 @@ void PSGPUWrapper::InitAfsApi(const std::string& fs_name,
   use_afs_api_ = 1;
 }
 #endif
+
 void PSGPUWrapper::PreBuildTask(std::shared_ptr<HeterContext> gpu_task) {
   VLOG(3) << "PSGPUWrapper::BuildGPUPSTask begin";
   platform::Timer timeline;
@@ -363,7 +364,7 @@ void PSGPUWrapper::BuildPull(std::shared_ptr<HeterContext> gpu_task) {
 #endif
 
   timeline.Start();
-  auto ptl_func = [this, &local_keys, &local_ptr, &fleet_ptr](int i) {
+  auto ptl_func = [this, &local_keys, &local_ptr, &fleet_ptr, &gpu_task](int i) {
     size_t key_size = local_keys[i].size();
     int32_t status = -1;
 #ifdef PADDLE_WITH_PSLIB
@@ -374,7 +375,7 @@ void PSGPUWrapper::BuildPull(std::shared_ptr<HeterContext> gpu_task) {
     while (true) {
       auto tt = fleet_ptr->pslib_ptr_->_worker_ptr->pull_sparse_ptr(i,
           reinterpret_cast<char**>(local_ptr[i].data()), this->table_id_,
-          local_keys[i].data(), key_size);
+          local_keys[i].data(), key_size, gpu_task->pass_id_);
       bool flag = true;
 
       tt.wait();
@@ -444,7 +445,7 @@ void PSGPUWrapper::BuildPull(std::shared_ptr<HeterContext> gpu_task) {
   };
 
   auto ptl_dynamic_mf_func = [this, &local_dim_keys, &local_dim_ptr,
-                              &fleet_ptr](int i, int j) {
+                              &fleet_ptr, &gpu_task](int i, int j) {
 #ifdef PADDLE_WITH_PSLIB
     size_t key_size = local_dim_keys[i][j].size();
     int32_t status = -1;
@@ -452,11 +453,11 @@ void PSGPUWrapper::BuildPull(std::shared_ptr<HeterContext> gpu_task) {
     while (true) {
       // auto tt = fleet_ptr->pslib_ptr_->_worker_ptr->pull_sparse_ptr(i,
       //     reinterpret_cast<char**>(local_dim_ptr[i][j].data()), this->table_id_,
-      //     local_dim_keys[i][j].data(), key_size);
+      //     local_dim_keys[i][j].data(), key_size, gpu_task->pass_id_);
       VLOG(0) << "yxf add pull sparse i: " << i << " mf_dim: " << this->index_dim_vec_[j];
       auto tt = fleet_ptr->pslib_ptr_->_worker_ptr->add_pull_sparse_task(i,
           reinterpret_cast<char**>(local_dim_ptr[i][j].data()), this->table_id_,
-          local_dim_keys[i][j].data(), key_size, this->index_dim_vec_[j]);
+          local_dim_keys[i][j].data(), key_size, gpu_task->pass_id_, this->index_dim_vec_[j]);
       bool flag = true;
 
       tt.wait();
@@ -892,7 +893,6 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
   //};
 
   // multi-thread process
-
   auto build_dymf_mem_pool = [this, &gpu_task, &accessor_wrapper_ptr](int i, int j) {
     this->HeterPs_->set_multi_mf_dim(multi_mf_dim_, max_mf_dim_);
     int mf_dim = this->index_dim_vec_[j];
@@ -1083,7 +1083,8 @@ void PSGPUWrapper::LoadIntoMemory(bool is_shuffle) {
   InitSlotInfo();
   std::shared_ptr<HeterContext> gpu_task = gpu_task_pool_.Get();
   gpu_task->Reset();
- 
+  gpu_task->pass_id_ = (uint16_t)(dataset_->GetPassID()); 
+
   dataset_mutex_.lock();
   dataset_pipe_.push(dataset_);
   dataset_mutex_.unlock();
@@ -1560,6 +1561,7 @@ void add_sparse_optimizer(
     const std::string& prefix = "") {
   auto optimizer_name = sgd_param.name();
   if (optimizer_name == "naive") {
+    config[prefix + "optimizer_type"] = 0;
     config[prefix + "learning_rate"] = sgd_param.naive().learning_rate();
     config[prefix + "initial_range"] = sgd_param.naive().initial_range();
     if (sgd_param.naive().weight_bounds_size() == 2) {
@@ -1567,6 +1569,7 @@ void add_sparse_optimizer(
       config[prefix + "max_bound"] = sgd_param.naive().weight_bounds()[1];
     }
   } else if (optimizer_name == "adagrad") {
+    config[prefix + "optimizer_type"] = 1;
     config[prefix + "learning_rate"] = sgd_param.adagrad().learning_rate();
     config[prefix + "initial_range"] = sgd_param.adagrad().initial_range();
     config[prefix + "initial_g2sum"] = sgd_param.adagrad().initial_g2sum();
@@ -1575,6 +1578,7 @@ void add_sparse_optimizer(
       config[prefix + "max_bound"] = sgd_param.adagrad().weight_bounds()[1];
     }
   } else if (optimizer_name == "std_adagrad") {
+    config[prefix + "optimizer_type"] = 2;
     config[prefix + "learning_rate"] = sgd_param.adagrad().learning_rate();
     config[prefix + "initial_range"] = sgd_param.adagrad().initial_range();
     config[prefix + "initial_g2sum"] = sgd_param.adagrad().initial_g2sum();
@@ -1583,6 +1587,7 @@ void add_sparse_optimizer(
       config[prefix + "max_bound"] = sgd_param.adagrad().weight_bounds()[1];
     }
   } else if (optimizer_name == "adam") {
+    config[prefix + "optimizer_type"] = 3;
     config[prefix + "learning_rate"] = sgd_param.adam().learning_rate();
     config[prefix + "initial_range"] = sgd_param.adam().initial_range();
     if (sgd_param.adam().weight_bounds_size() == 2) {
@@ -1608,7 +1613,7 @@ void PSGPUWrapper::InitializeGPUServer(const std::string& fleet_desc) {
   std::unordered_map<std::string, float> config;
   if (accessor_class == "DownpourFeatureValueAccessor" ||
       accessor_class == "DownpourCtrAccessor" ||
-      accessor_class == "DownpourCtrDoubleAccessor" || accessor_class == "DownpourCtrDymfAccessor") {
+      accessor_class == "DownpourCtrDoubleAccessor") {
 
     config["nonclk_coeff"] = sparse_table_accessor_parameter.nonclk_coeff();
     config["clk_coeff"] = sparse_table_accessor_parameter.click_coeff();
@@ -1691,7 +1696,8 @@ void PSGPUWrapper::InitializeGPUServer(const std::string& fleet_desc) {
       }
     }
   } else if (accessor_class == "DownpourUnitAccessor" ||
-             accessor_class == "DownpourDoubleUnitAccessor") {
+             accessor_class == "DownpourDoubleUnitAccessor" ||
+             accessor_class == "DownpourCtrDymfAccessor") {
     config["nonclk_coeff"] = sparse_table_accessor_parameter.nonclk_coeff();
     config["clk_coeff"] = sparse_table_accessor_parameter.click_coeff();
     config["mf_create_thresholds"] = sparse_table_accessor.embedx_threshold();
@@ -1699,6 +1705,7 @@ void PSGPUWrapper::InitializeGPUServer(const std::string& fleet_desc) {
     add_sparse_optimizer(config, sparse_table_accessor.embed_sgd_param());
     add_sparse_optimizer(
         config, sparse_table_accessor.embedx_sgd_param(), "mf_");
+    config["mf_embedx_dim"] = sparse_table_accessor.embedx_dim(); // default = 8
   }
   config["sparse_shard_num"] = sparse_table.shard_num();
 

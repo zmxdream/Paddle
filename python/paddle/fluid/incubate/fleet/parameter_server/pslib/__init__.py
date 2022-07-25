@@ -99,8 +99,10 @@ class PSLib(Fleet):
                     self._heter_ptr.set_xpu_list(
                         self._role_maker._xpu_endpoints)
                     self._heter_ptr.create_client2xpu_connection()
+
             # barrier_all for init_worker
             self._role_maker._barrier_all()
+
             # prepare for client to client communication
             if self._role_maker.is_worker():
                 info = self._fleet_ptr.get_clients_info()
@@ -113,6 +115,7 @@ class PSLib(Fleet):
                     self._client2client_connect_timeout_ms,
                     self._client2client_max_retry)
                 self._fleet_ptr.create_client2client_connection()
+
             # barrier for init model
             self._role_maker._barrier_worker()
             if self._role_maker.is_first_worker():
@@ -120,15 +123,18 @@ class PSLib(Fleet):
                 for tp in self._dist_desc.trainer_param:
                     for i in tp.dense_table:
                         tables.append(i)
+
                 for prog, scope in zip(self._main_programs, self._scopes):
                     prog_id = str(id(prog))
                     prog_conf = self._opt_info['program_configs'][prog_id]
                     prog_tables = {}
+
                     for key in prog_conf:
                         if "dense" not in key:
                             continue
                         for table_id in prog_conf[key]:
                             prog_tables[int(table_id)] = 0
+
                     for table in tables:
                         if int(table.table_id) not in prog_tables:
                             continue
@@ -146,6 +152,7 @@ class PSLib(Fleet):
                                                        var_name_list)
             # barrier for init model done
             self._role_maker._barrier_worker()
+
         else:
             raise NameError(
                 "You should run DistributedOptimizer.minimize() first")
@@ -314,7 +321,7 @@ class PSLib(Fleet):
         """
         self._fleet_ptr.save_model(dirname, 0)
 
-    def print_table_stat(self, table_id):
+    def print_table_stat(self, table_id, pass_id, threshold):
         """
         print stat info of table_id,
         format: tableid, feasign size, mf size
@@ -326,7 +333,7 @@ class PSLib(Fleet):
         """
         self._role_maker._barrier_worker()
         if self._role_maker.is_first_worker():
-            self._fleet_ptr.print_table_stat(table_id)
+            self._fleet_ptr.print_table_stat(table_id, pass_id, threshold)
         self._role_maker._barrier_worker()
 
     def set_file_num_one_shard(self, table_id, file_num):
@@ -637,6 +644,57 @@ class PSLib(Fleet):
             self._fleet_ptr.load_model_one_table(table_id, model_path, mode)
         self._role_maker._barrier_worker()
 
+
+    def multi_load_one_table(self, table_id, model_path, **kwargs):
+        """
+        load pslib model for one table or load params from paddle model(multi-machine)
+        Args:
+            table_id(int): load table id
+            model_path(str): load model path, can be local or hdfs/afs path
+            kwargs(dict): user defined params, currently support following:
+                only for load pslib model for one table:
+                    mode(int): load model mode. 0 is for load whole model, 1 is
+                               for load delta model (load diff), default is 0.
+                only for load params from paddle model:
+                    scope(Scope): Scope object
+                    model_proto_file(str): path of program desc proto binary
+                                           file, can be local or hdfs/afs file
+                    var_names(list): var name list
+                    load_combine(bool): load from a file or split param files
+                                        default False.
+        Examples:
+            .. code-block:: python
+              # load pslib model for one table
+              fleet.load_one_table(0, "hdfs:/my_fleet_model/20190714/0/")
+              fleet.load_one_table(1, "hdfs:/xx/xxx", mode = 0)
+              # load params from paddle model
+              fleet.load_one_table(2, "hdfs:/my_paddle_model/",
+                                   scope = my_scope,
+                                   model_proto_file = "./my_program.bin",
+                                   load_combine = False)
+              # below is how to save proto binary file
+              with open("my_program.bin", "wb") as fout:
+                  my_program = fluid.default_main_program()
+                  fout.write(my_program.desc.serialize_to_string())
+        """
+        self._role_maker._barrier_worker()
+        mode = kwargs.get("mode", 0)
+        scope = kwargs.get("scope", None)
+        model_proto_file = kwargs.get("model_proto_file", None)
+        var_names = kwargs.get("var_names", None)
+        load_combine = kwargs.get("load_combine", False)
+        self._role_maker._barrier_worker()
+        ## check
+        if scope is not None and model_proto_file is not None:
+            self._load_one_table_from_paddle_model(scope, table_id, model_path,
+                                                   model_proto_file, var_names,
+                                                   load_combine)
+        #elif self._role_maker.is_first_worker():
+        self._fleet_ptr.load_model_one_table(table_id, model_path, mode)
+        self._role_maker._barrier_worker()
+
+
+
     def _load_one_table_from_paddle_model(self,
                                           scope,
                                           table_id,
@@ -793,8 +851,8 @@ class PSLib(Fleet):
         set_date, eg, 20210918
         """
         self._role_maker._barrier_worker()
-        if self._role_maker.is_first_worker():
-            self._fleet_ptr.set_date(table_id, str(date))
+        #if self._role_maker.is_first_worker():
+        self._fleet_ptr.set_date(table_id, str(date))
         self._role_maker._barrier_worker()
 
     def _set_opt_info(self, opt_info):

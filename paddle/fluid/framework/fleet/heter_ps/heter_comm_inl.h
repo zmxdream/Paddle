@@ -520,6 +520,7 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::init_path() {
       }
     }
   }
+  VLOG(0) << "HeterComm init_path done";
 }
 
 template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
@@ -1753,6 +1754,8 @@ int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_one_node_grad_v2(
   platform::CUDADeviceGuard guard(dev_id);
   auto stream = resource_->local_stream(gpu_num, 0);
 
+  VLOG(0) << "in gather one node grad v2";
+
   // size_t grad_value_size =
   //    TYPEALIGN(8, sizeof(FeaturePushValue) + (max_mf_dim_ * sizeof(float)));
   auto accessor_wrapper_ptr =
@@ -1760,6 +1763,8 @@ int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_one_node_grad_v2(
   size_t grad_value_size =
       accessor_wrapper_ptr->GetPushValueSize(max_mf_dim_);
 
+
+  VLOG(0) << "before alloc memory";
   // split keys grad in shard in current gpu 
 
   auto h_left_alloc = memory::Alloc(phi::GPUPinnedPlace(), sizeof(int) * total_gpu);
@@ -1783,10 +1788,13 @@ int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_one_node_grad_v2(
   auto d_shard_grads = memory::Alloc(place, len * grad_value_size);
   GradType* d_shard_grads_ptr = reinterpret_cast<GradType*>(d_shard_grads->ptr());
 
+  VLOG(0) << "after alloc memory";
   size_t grid_size = (len - 1) / block_size_ + 1;
 
   split_input_to_shard(d_keys, d_idx_ptr, len, d_left_ptr, d_right_ptr,
                        gpu_num);
+
+  VLOG(0) << "after split input to shard";
 
   cudaMemcpyAsync(h_left, d_left_ptr, total_gpu * sizeof(int),
              cudaMemcpyDeviceToHost, stream);
@@ -1801,16 +1809,21 @@ int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_one_node_grad_v2(
       d_shard_keys_ptr, d_keys, d_shard_grads_ptr, d_grads, d_idx_ptr,
       len, grad_value_size, gpu_accessor_);
 
+  VLOG(0) << "after dymf fill shard grads";
+
   PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
   // split keys grad in shard in current gpu end 
   storage.h_local_left = h_left;
   storage.h_local_right = h_right;
   storage.tmp_local_keys = d_shard_keys_ptr;
   storage.tmp_local_grads = (char*)d_shard_grads_ptr;
+
   int h_merge_offset[total_gpu];
   int h_merge_len[total_gpu];
+
   int cur_offset = 0;
   size_t inter_len = 0;
+
   time_line.Pause();
   mg_time_14[gpu_num] += time_line.ElapsedSec();
   time_line.Start();
@@ -1820,6 +1833,7 @@ int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_one_node_grad_v2(
   time_line.Pause();
   mg_time_1[gpu_num] += time_line.ElapsedSec();
   time_line.Start();
+
   for (int i = 0; i < total_gpu; ++i) {
     auto& cur_storage = storage_[i];
     h_merge_offset[i] = cur_offset;
@@ -1827,31 +1841,46 @@ int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_one_node_grad_v2(
     cur_offset += h_merge_len[i];
     inter_len += h_merge_len[i];
   }
+  VLOG(0) << "after merge" << inter_len;
+
+
   storage.alloc_for_inter_copy(inter_len);
+  
+  VLOG(0) << "after alloc_for_inter_copy" << inter_len;
+
   for (int i = 0; i < total_gpu; i++) {
+
+
     auto& cur_storage = storage_[i];
+
     cudaMemcpyAsync(storage.local_keys + h_merge_offset[i],
                       cur_storage.tmp_local_keys + cur_storage.h_local_left[gpu_num],
                       h_merge_len[i] * sizeof(uint64_t),
                       cudaMemcpyDefault,
                       resource_->remote_stream(gpu_num, i));
+
     cudaMemcpyAsync((char*)(storage.local_grads) + h_merge_offset[i] * grad_value_size,
                       (char*)(cur_storage.tmp_local_grads)+ cur_storage.h_local_left[gpu_num] * grad_value_size,
                       h_merge_len[i] * grad_value_size,
                       cudaMemcpyDefault,
                       resource_->remote_stream(gpu_num, i));
   }
+
   for (int i = 0; i < total_gpu; i++) {
     cudaStreamSynchronize(resource_->remote_stream(gpu_num, i));
   }
+  VLOG(0) << "after memory copy async";
+
   time_line.Pause();
   mg_time_4[gpu_num] += time_line.ElapsedSec();
+
   time_line.Start();
   int ret = inter_len;
   merge_grad(gpu_num, storage.local_keys, storage.local_grads, NULL, inter_len, ret);
   time_line.Pause();
   mg_time_6[gpu_num] += time_line.ElapsedSec();
   h_barrier.wait();
+  VLOG(0) << "before wait";
   return ret;
   // storage.gather_one_node_len = ret;
 
