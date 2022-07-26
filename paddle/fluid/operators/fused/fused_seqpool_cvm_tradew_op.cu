@@ -304,11 +304,12 @@ __global__ void FusedSeqpoolCVMTradeWGradKernel(
     int y = key % batch_size;     // ins id
 
     if (offset < cvm_offset) {
-      T &val = *(cvm_values[x] + y * cvm_offset + offset);
+      //      T &val = *(cvm_values[x] + y * cvm_offset + offset);
       auto &start = *(lods_values[x] + y);
       auto &end = *(lods_values[x] + y + 1);
       for (auto k = start; k < end; ++k) {
-        *(in_grads_values[x] + k * hidden_num + offset) = val;
+        // trade not need set show click grad
+        *(in_grads_values[x] + k * hidden_num + offset) = 0.0;
       }
     } else if (offset < cvm_offset + trade_num) {
       auto &start = *(lods_values[x] + y);
