@@ -590,6 +590,10 @@ class BoxWrapper {
                  static_cast<int>(boxps::FEATURE_TRADEW)) {
         // embed_w + n * tradew
         s_instance_->cvm_offset_ = expand_embed_dim + 3;
+      } else if (s_instance_->feature_type_ ==
+                 static_cast<int>(boxps::FEATURE_CREDIT)) {
+        // show/clk/conv/credit/embed
+        s_instance_->cvm_offset_ = 5;
       } else {
         s_instance_->cvm_offset_ = 3;
       }
