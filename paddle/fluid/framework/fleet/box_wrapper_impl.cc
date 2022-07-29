@@ -148,9 +148,8 @@ void BoxWrapper::CopyForPullCPU(const paddle::platform::Place& place,
                                 const int skip_offset, bool expand_only,
                                 const uint32_t* restore_idx) {
   const int cvm_offset = cvm_offset_ - skip_offset;
-  const size_t pull_size_float = feature_pull_size_ / sizeof(float);
   float* pull_values_gpu = reinterpret_cast<float*>(total_values_gpu);
-  FeaturePullCopyData(pull_info_, pull_size_float, slot_keys, slot_values,
+  FeaturePullCopyData(pull_info_, pull_float_num_, slot_keys, slot_values,
                       pull_values_gpu, hidden_size, embedx_dim_, total_length,
                       total_dims, slot_lens, slot_num, key2slot,
                       pull_embedx_scale_, cvm_offset, restore_idx, skip_offset);
@@ -219,9 +218,8 @@ void BoxWrapper::CopyForPushCPU(
     const uint32_t* sort_idx, const uint32_t* sort_offset,
     const uint32_t* sort_lens) {
   const int cvm_offset = cvm_offset_ - skip_offset;
-  const size_t push_float_num = feature_push_size_ / sizeof(float);
   float* push_grad_values = reinterpret_cast<float*>(total_grad_values_gpu);
-  PushMergeCopyData(push_info_, push_float_num, push_grad_values,
+  PushMergeCopyData(push_info_, push_float_num_, push_grad_values,
                     slot_grad_values, hidden_size, embedx_dim_, total_length,
                     batch_size, slot_vector_.data(), total_dims, slot_lens,
                     slot_num, key2slot, cvm_offset, sort_idx, sort_offset,

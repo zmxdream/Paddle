@@ -1000,11 +1000,10 @@ void BoxWrapper::CopyForPull(
                         BOOST_GET_CONST(platform::CUDAPlace, place)))
                     ->stream();
   const int cvm_offset = cvm_offset_ - skip_offset;
-  const size_t pull_size_float = feature_pull_size_ / sizeof(float);
   if (pull_info_.is_quant) {
     EmbedxQuantOp op;
     if (expand_embed_dim > 0 && pull_info_.expand_size > 0) {  // nncross
-      FeaturePullCopyNNCross(op, pull_offset, pull_size_float, stream, gpu_keys,
+      FeaturePullCopyNNCross(op, pull_offset, pull_float_num_, stream, gpu_keys,
                              gpu_values, total_values_gpu, hidden_size,
                              embedx_dim_, expand_embed_dim_, total_length,
                              total_dims, slot_lens, slot_num, key2slot,
@@ -1014,13 +1013,13 @@ void BoxWrapper::CopyForPull(
                expand_embed_dim == cvm_offset + expand_embed_dim_ &&
                hidden_size == cvm_offset + embedx_dim_) {  // var
       FeaturePullCopyVariable(
-          op, pull_offset, pull_size_float, stream, gpu_keys, gpu_values,
+          op, pull_offset, pull_float_num_, stream, gpu_keys, gpu_values,
           total_values_gpu, hidden_size, embedx_dim_, expand_embed_dim_,
           total_length, total_dims, slot_lens, slot_num, key2slot,
           pull_embedx_scale_, cvm_offset, gpu_restore_idx, skip_offset);
     } else {
       // normal and adam
-      FeaturePullCopy(op, pull_offset, pull_size_float, stream, gpu_keys,
+      FeaturePullCopy(op, pull_offset, pull_float_num_, stream, gpu_keys,
                       gpu_values, total_values_gpu, hidden_size, embedx_dim_,
                       total_length, total_dims, slot_lens, slot_num, key2slot,
                       pull_embedx_scale_, cvm_offset, gpu_restore_idx,
@@ -1029,7 +1028,7 @@ void BoxWrapper::CopyForPull(
   } else {
     EmbedxNormalOp op;
     if (expand_embed_dim > 0 && pull_info_.expand_size > 0) {  // nncross
-      FeaturePullCopyNNCross(op, pull_offset, pull_size_float, stream, gpu_keys,
+      FeaturePullCopyNNCross(op, pull_offset, pull_float_num_, stream, gpu_keys,
                              gpu_values, total_values_gpu, hidden_size,
                              embedx_dim_, expand_embed_dim_, total_length,
                              total_dims, slot_lens, slot_num, key2slot,
@@ -1039,13 +1038,13 @@ void BoxWrapper::CopyForPull(
                expand_embed_dim == cvm_offset + expand_embed_dim_ &&
                hidden_size == cvm_offset + embedx_dim_) {  // var
       FeaturePullCopyVariable(
-          op, pull_offset, pull_size_float, stream, gpu_keys, gpu_values,
+          op, pull_offset, pull_float_num_, stream, gpu_keys, gpu_values,
           total_values_gpu, hidden_size, embedx_dim_, expand_embed_dim_,
           total_length, total_dims, slot_lens, slot_num, key2slot,
           pull_embedx_scale_, cvm_offset, gpu_restore_idx, skip_offset);
     } else {
       // normal and adam
-      FeaturePullCopy(op, pull_offset, pull_size_float, stream, gpu_keys,
+      FeaturePullCopy(op, pull_offset, pull_float_num_, stream, gpu_keys,
                       gpu_values, total_values_gpu, hidden_size, embedx_dim_,
                       total_length, total_dims, slot_lens, slot_num, key2slot,
                       pull_embedx_scale_, cvm_offset, gpu_restore_idx,
@@ -1069,7 +1068,7 @@ void BoxWrapper::CopyKeys(const paddle::platform::Place& place,
 }
 
 inline void FeaturePushCopy(
-    const boxps::FeaturePushOffset* info, const size_t push_float_num,
+    const boxps::FeaturePushOffset* info, const size_t& push_float_num,
     cudaStream_t stream, const int64_t& total_length,
     const int64_t& dedup_length, void* dest, float** grad_values,
     const int hidden_size, const int embedx_dim, const int batch_size,
@@ -1111,7 +1110,7 @@ inline void FeaturePushCopy(
   }
 }
 inline void FeaturePushCopyNNCross(
-    const boxps::FeaturePushOffset* info, const size_t push_float_num,
+    const boxps::FeaturePushOffset* info, const size_t& push_float_num,
     cudaStream_t stream, const int64_t& total_length,
     const int64_t& dedup_length, void* dest, float** grad_values,
     const int hidden_size, const int embedx_dim, const int expand_dim,
@@ -1178,7 +1177,7 @@ inline void FeaturePushCopyNNCross(
   }
 }
 inline void FeaturePushCopyVariable(
-    const boxps::FeaturePushOffset* info, const size_t push_float_num,
+    const boxps::FeaturePushOffset* info, const size_t& push_float_num,
     cudaStream_t stream, const int64_t& total_length,
     const int64_t& dedup_length, void* dest, float** grad_values,
     const int hidden_size, const int embedx_dim, const int expand_dim,
@@ -1229,10 +1228,9 @@ void BoxWrapper::CopyForPush(
                         BOOST_GET_CONST(platform::CUDAPlace, place)))
                     ->stream();
   const int cvm_offset = cvm_offset_ - skip_offset;
-  const size_t push_float_num = feature_push_size_ / sizeof(float);
   if (expand_embed_dim > 0 && pull_info_.expand_size > 0) {  // nncross
     FeaturePushCopyNNCross(
-        push_offset, push_float_num, stream, total_length, dedup_length,
+        push_offset, push_float_num_, stream, total_length, dedup_length,
         total_grad_values_gpu, grad_values, hidden_size, embedx_dim_,
         expand_embed_dim_, batch_size, d_slot_vector, total_dims, slot_lens,
         slot_num, key2slot, cvm_offset, gpu_sort_idx, gpu_sort_offset,
@@ -1242,13 +1240,13 @@ void BoxWrapper::CopyForPush(
              expand_embed_dim == cvm_offset + expand_embed_dim_ &&
              hidden_size == cvm_offset + embedx_dim_) {  // var
     FeaturePushCopyVariable(
-        push_offset, push_float_num, stream, total_length, dedup_length,
+        push_offset, push_float_num_, stream, total_length, dedup_length,
         total_grad_values_gpu, grad_values, hidden_size, embedx_dim_,
         expand_embed_dim_, batch_size, d_slot_vector, total_dims, slot_lens,
         slot_num, key2slot, cvm_offset, gpu_sort_idx, gpu_sort_offset,
         gpu_sort_lens, gpu_restore_idx, skip_offset);
   } else {
-    FeaturePushCopy(push_offset, push_float_num, stream, total_length,
+    FeaturePushCopy(push_offset, push_float_num_, stream, total_length,
                     dedup_length, total_grad_values_gpu, grad_values,
                     hidden_size, embedx_dim_, batch_size, d_slot_vector,
                     total_dims, slot_lens, slot_num, key2slot, cvm_offset,

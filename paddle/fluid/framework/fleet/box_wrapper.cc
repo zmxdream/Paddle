@@ -1175,13 +1175,13 @@ void BoxWrapper::PrintSyncTimer(int device, double train_span) {
 void BoxWrapper::GetFeatureOffsetInfo(void) {
   feature_pull_size_ = boxps_ptr_->GetFeaturePullSize(pull_info_);
   feature_push_size_ = boxps_ptr_->GetFeaturePushSize(push_info_);
+  pull_float_num_ = feature_pull_size_ / sizeof(float);
+  push_float_num_ = feature_push_size_ / sizeof(float);
   // set cvm offset
   cvm_offset_ = pull_info_.embedx_size - pull_info_.show;
-  // pull push cvm offset check
-  PADDLE_ENFORCE_EQ(cvm_offset_, push_info_.embedx_g - push_info_.show,
-                    platform::errors::PreconditionNotMet(
-                        "set pull push cvm offset error in boxps."));
-  LOG(WARNING) << "feature pull info [quant=" << pull_info_.is_quant
+  LOG(WARNING) << "feature pull info byte=" << feature_pull_size_
+               << ", float num=" << pull_float_num_
+               << "[quant=" << pull_info_.is_quant
                << ", slot=" << pull_info_.slot << ", show=" << pull_info_.show
                << ", clk=" << pull_info_.clk
                << ", embed_num=" << pull_info_.embed_num
@@ -1190,12 +1190,26 @@ void BoxWrapper::GetFeatureOffsetInfo(void) {
                << ", embedx=" << pull_info_.embedx
                << ", expand_size=" << pull_info_.expand_size
                << ", expand=" << pull_info_.expand
-               << "], push info [slot=" << push_info_.slot
-               << ", show=" << push_info_.show << ", clk=" << push_info_.clk
+               << "], push info byte=" << feature_push_size_
+               << ", float num=" << push_float_num_
+               << "[slot=" << push_info_.slot << ", show=" << push_info_.show
+               << ", clk=" << push_info_.clk
                << ", embed_num=" << push_info_.embed_num
                << ", embed_g=" << push_info_.embed_g
                << ", embedx_g=" << push_info_.embedx_g
-               << ", expand_g=" << push_info_.expand_g << "]";
+               << ", expand_g=" << push_info_.expand_g
+               << "], cvm_offset=" << cvm_offset_;
+
+  // pull push cvm offset check
+  PADDLE_ENFORCE_EQ(cvm_offset_, push_info_.embedx_g - push_info_.show,
+                    platform::errors::PreconditionNotMet(
+                        "set pull push cvm offset error in boxps."));
+  PADDLE_ENFORCE_EQ(feature_pull_size_ % sizeof(float), 0,
+                    platform::errors::PreconditionNotMet(
+                        "feature pull size must sizeof(float) number."));
+  PADDLE_ENFORCE_EQ(feature_push_size_ % sizeof(float), 0,
+                    platform::errors::PreconditionNotMet(
+                        "feature push size must sizeof(float) number."));
 }
 
 //============================== other =====================================

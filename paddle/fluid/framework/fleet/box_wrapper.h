@@ -740,6 +740,8 @@ class BoxWrapper {
   size_t feature_push_size_ = 0;
   boxps::FeaturePullOffset pull_info_;
   boxps::FeaturePushOffset push_info_;
+  size_t pull_float_num_ = 0;
+  size_t push_float_num_ = 0;
 
   // Metric Related
   int phase_ = 1;
