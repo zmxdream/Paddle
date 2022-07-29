@@ -21,7 +21,6 @@ DECLARE_bool(enable_pullpush_dedup_keys);
 namespace paddle {
 namespace framework {
 
-template <typename FEATURE_VALUE_GPU_TYPE>
 void BoxWrapper::PullSparseCaseGPU(const paddle::platform::Place& place,
                                    const std::vector<const uint64_t*>& keys,
                                    const std::vector<float*>& values,
@@ -113,10 +112,9 @@ void BoxWrapper::PullSparseCaseGPU(const paddle::platform::Place& place,
                           "dedup keys need more than zero failed in BoxPS."));
     dev.dedup_key_length = dedup_size;
 
-    int64_t total_bytes = dedup_size * sizeof(FEATURE_VALUE_GPU_TYPE);
-    FEATURE_VALUE_GPU_TYPE* total_values_gpu =
-        dev.pull_push_tensor.mutable_data<FEATURE_VALUE_GPU_TYPE>(total_bytes,
-                                                                  place);
+    int64_t total_bytes = dedup_size * feature_pull_size_;
+    void* total_values_gpu =
+        dev.pull_push_tensor.mutable_data<void>(total_bytes, place);
 
     pull_boxps_timer.Resume();
 
@@ -137,10 +135,9 @@ void BoxWrapper::PullSparseCaseGPU(const paddle::platform::Place& place,
                       total_length, total_dims, skip_offset, expand_only,
                       d_restore_idx);
   } else {
-    int64_t total_bytes = total_length * sizeof(FEATURE_VALUE_GPU_TYPE);
-    FEATURE_VALUE_GPU_TYPE* total_values_gpu =
-        dev.pull_push_tensor.mutable_data<FEATURE_VALUE_GPU_TYPE>(total_bytes,
-                                                                  place);
+    int64_t total_bytes = total_length * feature_pull_size_;
+    void* total_values_gpu =
+        dev.pull_push_tensor.mutable_data<void>(total_bytes, place);
 
     pull_boxps_timer.Resume();
 
@@ -163,7 +160,6 @@ void BoxWrapper::PullSparseCaseGPU(const paddle::platform::Place& place,
   all_timer.Pause();
 }
 
-template <typename FEATURE_VALUE_GPU_TYPE>
 void BoxWrapper::PullSparseCaseCPU(const paddle::platform::Place& place,
                                    const std::vector<const uint64_t*>& keys,
                                    const std::vector<float*>& values,
@@ -227,10 +223,9 @@ void BoxWrapper::PullSparseCaseCPU(const paddle::platform::Place& place,
                         "dedup keys need more than zero failed in BoxPS."));
   dev.dedup_key_length = dedup_size;
 
-  int64_t total_bytes = dedup_size * sizeof(FEATURE_VALUE_GPU_TYPE);
-  FEATURE_VALUE_GPU_TYPE* total_values_gpu =
-      dev.pull_push_tensor.mutable_data<FEATURE_VALUE_GPU_TYPE>(total_bytes,
-                                                                place);
+  int64_t total_bytes = dedup_size * feature_pull_size_;
+  void* total_values_gpu =
+      dev.pull_push_tensor.mutable_data<void>(total_bytes, place);
 
   pull_boxps_timer.Resume();
 
@@ -249,7 +244,6 @@ void BoxWrapper::PullSparseCaseCPU(const paddle::platform::Place& place,
   all_timer.Pause();
 }
 
-template <typename FEATURE_VALUE_GPU_TYPE>
 void BoxWrapper::PullSparseCase(const paddle::platform::Place& place,
                                 const std::vector<const uint64_t*>& keys,
                                 const std::vector<float*>& values,
@@ -258,17 +252,14 @@ void BoxWrapper::PullSparseCase(const paddle::platform::Place& place,
                                 const int expand_embed_dim,
                                 const int skip_offset, bool expand_only) {
   if (!platform::is_gpu_place(place)) {
-    PullSparseCaseCPU<FEATURE_VALUE_GPU_TYPE>(place, keys, values, slot_lengths,
-                                              hidden_size, expand_embed_dim,
-                                              skip_offset, expand_only);
+    PullSparseCaseCPU(place, keys, values, slot_lengths, hidden_size,
+                      expand_embed_dim, skip_offset, expand_only);
   } else {
-    PullSparseCaseGPU<FEATURE_VALUE_GPU_TYPE>(place, keys, values, slot_lengths,
-                                              hidden_size, expand_embed_dim,
-                                              skip_offset, expand_only);
+    PullSparseCaseGPU(place, keys, values, slot_lengths, hidden_size,
+                      expand_embed_dim, skip_offset, expand_only);
   }
 }
 
-template <typename FeaturePushValueGpuType>
 void BoxWrapper::PushSparseGradCaseGPU(
     const paddle::platform::Place& place,
     const std::vector<const uint64_t*>& keys,
@@ -319,10 +310,9 @@ void BoxWrapper::PushSparseGradCaseGPU(
     uint64_t* d_merged_keys = &total_keys[total_length];
 
     int64_t dedup_size = dev.dedup_key_length;
-    int64_t total_bytes = dedup_size * sizeof(FeaturePushValueGpuType);
-    FeaturePushValueGpuType* total_grad_values_gpu =
-        dev.pull_push_tensor.mutable_data<FeaturePushValueGpuType>(total_bytes,
-                                                                   place);
+    int64_t total_bytes = dedup_size * feature_push_size_;
+    void* total_grad_values_gpu =
+        dev.pull_push_tensor.mutable_data<void>(total_bytes, place);
     this->CopyForPush(place, gpu_values, total_grad_values_gpu, d_slot_vector,
                       slot_lens, slot_num, hidden_size, expand_embed_dim,
                       dedup_size, batch_size, total_dims, key2slot, skip_offset,
@@ -336,10 +326,9 @@ void BoxWrapper::PushSparseGradCaseGPU(
                                   "PushSparseGPU failed in BoxPS."));
     push_boxps_timer.Pause();
   } else {
-    int64_t total_bytes = total_length * sizeof(FeaturePushValueGpuType);
-    FeaturePushValueGpuType* total_grad_values_gpu =
-        dev.pull_push_tensor.mutable_data<FeaturePushValueGpuType>(total_bytes,
-                                                                   place);
+    int64_t total_bytes = total_length * feature_push_size_;
+    void* total_grad_values_gpu =
+        dev.pull_push_tensor.mutable_data<void>(total_bytes, place);
     this->CopyForPush(place, gpu_values, total_grad_values_gpu, d_slot_vector,
                       slot_lens, slot_num, hidden_size, expand_embed_dim,
                       total_length, batch_size, total_dims, key2slot,
@@ -356,7 +345,6 @@ void BoxWrapper::PushSparseGradCaseGPU(
   all_timer.Pause();
 }
 
-template <typename FeaturePushValueGpuType>
 void BoxWrapper::PushSparseGradCaseCPU(
     const paddle::platform::Place& place,
     const std::vector<const uint64_t*>& keys,
@@ -391,10 +379,9 @@ void BoxWrapper::PushSparseGradCaseCPU(
   uint64_t* d_merged_keys = &total_keys[total_length];
 
   int64_t dedup_size = dev.dedup_key_length;
-  int64_t total_bytes = dedup_size * sizeof(FeaturePushValueGpuType);
-  FeaturePushValueGpuType* total_grad_values_gpu =
-      dev.pull_push_tensor.mutable_data<FeaturePushValueGpuType>(total_bytes,
-                                                                 place);
+  int64_t total_bytes = dedup_size * feature_push_size_;
+  void* total_grad_values_gpu =
+      dev.pull_push_tensor.mutable_data<void>(total_bytes, place);
   this->CopyForPushCPU(place, grad_values, total_grad_values_gpu,
                        slot_vector_.data(), slot_lens, slot_num, hidden_size,
                        expand_embed_dim, dedup_size, batch_size, total_dims,
@@ -412,7 +399,6 @@ void BoxWrapper::PushSparseGradCaseCPU(
   all_timer.Pause();
 }
 
-template <typename FeaturePushValueGpuType>
 void BoxWrapper::PushSparseGradCase(
     const paddle::platform::Place& place,
     const std::vector<const uint64_t*>& keys,
@@ -421,13 +407,13 @@ void BoxWrapper::PushSparseGradCase(
     const int expand_embed_dim, const int batch_size, const int skip_offset,
     bool expand_only) {
   if (!platform::is_gpu_place(place)) {
-    PushSparseGradCaseCPU<FeaturePushValueGpuType>(
-        place, keys, grad_values, slot_lengths, hidden_size, expand_embed_dim,
-        batch_size, skip_offset, expand_only);
+    PushSparseGradCaseCPU(place, keys, grad_values, slot_lengths, hidden_size,
+                          expand_embed_dim, batch_size, skip_offset,
+                          expand_only);
   } else {
-    PushSparseGradCaseGPU<FeaturePushValueGpuType>(
-        place, keys, grad_values, slot_lengths, hidden_size, expand_embed_dim,
-        batch_size, skip_offset, expand_only);
+    PushSparseGradCaseGPU(place, keys, grad_values, slot_lengths, hidden_size,
+                          expand_embed_dim, batch_size, skip_offset,
+                          expand_only);
   }
 }
 
