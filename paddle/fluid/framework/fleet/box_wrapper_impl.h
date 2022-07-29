@@ -52,6 +52,16 @@ void BoxWrapper::PullSparseCaseGPU(const paddle::platform::Place& place,
       BOOST_GET_CONST(platform::CUDAPlace, place));
   auto stream = dynamic_cast<platform::CUDADeviceContext*>(ctx)->stream();
 
+  boxps::FeaturePullOffset* pull_offset = nullptr;
+  if (dev.pull_offset.memory_size() == 0) {
+    pull_offset = dev.pull_offset.mutable_data<boxps::FeaturePullOffset>(
+        sizeof(boxps::FeaturePullOffset), place);
+    cudaMemcpyAsync(pull_offset, &pull_info_, sizeof(boxps::FeaturePullOffset),
+                    cudaMemcpyHostToDevice, stream);
+  } else {
+    pull_offset = dev.pull_offset.data<boxps::FeaturePullOffset>();
+  }
+
   uint64_t* total_keys = nullptr;
   int* key2slot = nullptr;
   if (FLAGS_enable_pullpush_dedup_keys) {
@@ -130,10 +140,10 @@ void BoxWrapper::PullSparseCaseGPU(const paddle::platform::Place& place,
     cudaMemcpyAsync(gpu_values, values.data(), values.size() * sizeof(float*),
                     cudaMemcpyHostToDevice, stream);
 
-    this->CopyForPull(place, gpu_keys, gpu_values, total_values_gpu, slot_lens,
-                      slot_num, key2slot, hidden_size, expand_embed_dim,
-                      total_length, total_dims, skip_offset, expand_only,
-                      d_restore_idx);
+    this->CopyForPull(place, gpu_keys, gpu_values, total_values_gpu,
+                      pull_offset, slot_lens, slot_num, key2slot, hidden_size,
+                      expand_embed_dim, total_length, total_dims, skip_offset,
+                      expand_only, d_restore_idx);
   } else {
     int64_t total_bytes = total_length * feature_pull_size_;
     void* total_values_gpu =
@@ -153,9 +163,10 @@ void BoxWrapper::PullSparseCaseGPU(const paddle::platform::Place& place,
     cudaMemcpyAsync(gpu_values, values.data(), values.size() * sizeof(float*),
                     cudaMemcpyHostToDevice, stream);
 
-    this->CopyForPull(place, gpu_keys, gpu_values, total_values_gpu, slot_lens,
-                      slot_num, key2slot, hidden_size, expand_embed_dim,
-                      total_length, total_dims, skip_offset, expand_only);
+    this->CopyForPull(place, gpu_keys, gpu_values, total_values_gpu,
+                      pull_offset, slot_lens, slot_num, key2slot, hidden_size,
+                      expand_embed_dim, total_length, total_dims, skip_offset,
+                      expand_only);
   }
   all_timer.Pause();
 }
@@ -289,6 +300,16 @@ void BoxWrapper::PushSparseGradCaseGPU(
                     slot_num * sizeof(int), cudaMemcpyHostToDevice, stream);
   }
 
+  boxps::FeaturePushOffset* push_offset = nullptr;
+  if (dev.push_offset.memory_size() == 0) {
+    push_offset = dev.push_offset.mutable_data<boxps::FeaturePushOffset>(
+        sizeof(boxps::FeaturePushOffset), place);
+    cudaMemcpyAsync(push_offset, &push_info_, sizeof(boxps::FeaturePushOffset),
+                    cudaMemcpyHostToDevice, stream);
+  } else {
+    push_offset = dev.push_offset.data<boxps::FeaturePushOffset>();
+  }
+
   const int64_t* slot_lens =
       reinterpret_cast<int64_t*>(dev.slot_lens.data<int64_t>());
   const int* d_slot_vector = dev.d_slot_vector.data<int>();
@@ -301,6 +322,8 @@ void BoxWrapper::PushSparseGradCaseGPU(
   int64_t total_length = dev.total_key_length;
   // dedup keys pull
   if (FLAGS_enable_pullpush_dedup_keys) {
+    const uint32_t* d_restore_idx =
+        reinterpret_cast<const uint32_t*>(&key2slot[total_length]);
     const uint32_t* d_sorted_idx =
         reinterpret_cast<const uint32_t*>(&key2slot[total_length * 2]);
     const uint32_t* d_offset =
@@ -313,10 +336,11 @@ void BoxWrapper::PushSparseGradCaseGPU(
     int64_t total_bytes = dedup_size * feature_push_size_;
     void* total_grad_values_gpu =
         dev.pull_push_tensor.mutable_data<void>(total_bytes, place);
-    this->CopyForPush(place, gpu_values, total_grad_values_gpu, d_slot_vector,
-                      slot_lens, slot_num, hidden_size, expand_embed_dim,
-                      dedup_size, batch_size, total_dims, key2slot, skip_offset,
-                      expand_only, d_sorted_idx, d_offset, d_merged_cnts);
+    this->CopyForPush(place, gpu_values, total_grad_values_gpu, push_offset,
+                      total_length, dedup_size, d_slot_vector, slot_lens,
+                      slot_num, hidden_size, expand_embed_dim, batch_size,
+                      total_dims, key2slot, skip_offset, expand_only,
+                      d_sorted_idx, d_offset, d_merged_cnts, d_restore_idx);
 
     push_boxps_timer.Resume();
     int ret = boxps_ptr_->PushSparseGPU(
@@ -329,10 +353,10 @@ void BoxWrapper::PushSparseGradCaseGPU(
     int64_t total_bytes = total_length * feature_push_size_;
     void* total_grad_values_gpu =
         dev.pull_push_tensor.mutable_data<void>(total_bytes, place);
-    this->CopyForPush(place, gpu_values, total_grad_values_gpu, d_slot_vector,
-                      slot_lens, slot_num, hidden_size, expand_embed_dim,
-                      total_length, batch_size, total_dims, key2slot,
-                      skip_offset, expand_only);
+    this->CopyForPush(place, gpu_values, total_grad_values_gpu, push_offset,
+                      total_length, 0, d_slot_vector, slot_lens, slot_num,
+                      hidden_size, expand_embed_dim, batch_size, total_dims,
+                      key2slot, skip_offset, expand_only);
 
     push_boxps_timer.Resume();
     int ret = boxps_ptr_->PushSparseGPU(
