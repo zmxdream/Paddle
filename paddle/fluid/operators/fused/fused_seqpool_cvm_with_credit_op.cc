@@ -21,13 +21,20 @@ class FusedSeqpoolCVMOpWithCredit : public framework::OperatorWithKernel {
  public:
   using framework::OperatorWithKernel::OperatorWithKernel;
   void InferShape(framework::InferShapeContext* ctx) const override {
-    PADDLE_ENFORCE_GE(ctx->Inputs("X").size(), 1UL, "Inputs(X) of FusedSeqpoolCVMOpWithCredit should not be empty.");
-    PADDLE_ENFORCE_GE(ctx->Outputs("Out").size(), 1UL, "Outputs(Out) of FusedSeqpoolCVMOpWithCredit should not be empty.");
+    PADDLE_ENFORCE_GE(
+        ctx->Inputs("X").size(), 1UL,
+        "Inputs(X) of FusedSeqpoolCVMOpWithCredit should not be empty.");
+    PADDLE_ENFORCE_GE(
+        ctx->Outputs("Out").size(), 1UL,
+        "Outputs(Out) of FusedSeqpoolCVMOpWithCredit should not be empty.");
 
     auto cvm_dims = ctx->GetInputDim("CVM");
-    PADDLE_ENFORCE_EQ(cvm_dims.size(), 2UL, platform::errors::InvalidArgument("Input(CVM)'s rank should be 2."));
+    PADDLE_ENFORCE_EQ(
+        cvm_dims.size(), 2UL,
+        platform::errors::InvalidArgument("Input(CVM)'s rank should be 2."));
     PADDLE_ENFORCE_EQ(cvm_dims[1], 4UL,
-        platform::errors::InvalidArgument("The 2nd dimension of Input(CVM) should be 4."));
+                      platform::errors::InvalidArgument(
+                          "The 2nd dimension of Input(CVM) should be 4."));
 
     auto ins_dims = ctx->GetInputsDim("X");
     const int cvm_offset = ctx->Attrs().Get<int>("cvm_offset");
@@ -85,7 +92,8 @@ class FusedSeqpoolCVMOpWithCredit : public framework::OperatorWithKernel {
   }
 };
 
-class FusedSeqpoolCVMOpWithCreditMaker : public framework::OpProtoAndCheckerMaker {
+class FusedSeqpoolCVMOpWithCreditMaker
+    : public framework::OpProtoAndCheckerMaker {
  public:
   void Make() override {
     AddInput("X",
@@ -144,7 +152,7 @@ class FusedSeqpoolCVMGradOpWithCredit : public framework::OperatorWithKernel {
       if (use_cvm) {
         auto o_dim = og_dims[i][og_dims[i].size() - 1];
         if (show_filter) {
-            o_dim += 1;
+          o_dim += 1;
         }
         PADDLE_ENFORCE_EQ(
             o_dim, x_dims[i][og_dims[i].size() - 1],
@@ -182,7 +190,8 @@ class FusedSeqpoolCVMGradOpWithCredit : public framework::OperatorWithKernel {
 };
 
 template <typename T>
-class FusedSeqpoolCVMGradOpWithCreditMaker : public framework::SingleGradOpMaker<T> {
+class FusedSeqpoolCVMGradOpWithCreditMaker
+    : public framework::SingleGradOpMaker<T> {
  public:
   using framework::SingleGradOpMaker<T>::SingleGradOpMaker;
 
@@ -208,11 +217,13 @@ class FusedSeqpoolCVMGradOpWithCreditMaker : public framework::SingleGradOpMaker
 namespace ops = paddle::operators;
 namespace plat = paddle::platform;
 
-REGISTER_OPERATOR(fused_seqpool_cvm_with_credit, ops::FusedSeqpoolCVMOpWithCredit,
-                  ops::FusedSeqpoolCVMOpWithCreditMaker,
-                  ops::FusedSeqpoolCVMGradOpWithCreditMaker<paddle::framework::OpDesc>,
-                  ops::FusedSeqpoolCVMGradOpWithCreditMaker<paddle::imperative::OpBase>);
-REGISTER_OPERATOR(fused_seqpool_cvm_with_credit_grad, ops::FusedSeqpoolCVMGradOpWithCredit)
+REGISTER_OPERATOR(
+    fused_seqpool_cvm_with_credit, ops::FusedSeqpoolCVMOpWithCredit,
+    ops::FusedSeqpoolCVMOpWithCreditMaker,
+    ops::FusedSeqpoolCVMGradOpWithCreditMaker<paddle::framework::OpDesc>,
+    ops::FusedSeqpoolCVMGradOpWithCreditMaker<paddle::imperative::OpBase>);
+REGISTER_OPERATOR(fused_seqpool_cvm_with_credit_grad,
+                  ops::FusedSeqpoolCVMGradOpWithCredit)
 
 REGISTER_OP_CPU_KERNEL(fused_seqpool_cvm_with_credit,
                        ops::FusedSeqpoolCVMOpWithCreditCPUKernel<float>)

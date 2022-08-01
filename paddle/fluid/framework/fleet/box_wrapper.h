@@ -372,6 +372,9 @@ class BoxWrapper {
     LoDTensor keys2slot;
     LoDTensor qvalue;
 
+    DCacheBuffer pull_offset;
+    DCacheBuffer push_offset;
+
     platform::Timer all_pull_timer;
     platform::Timer boxps_pull_timer;
     platform::Timer all_push_timer;
@@ -403,6 +406,8 @@ class BoxWrapper {
       total += d_slot_vector.memory_size();
       total += keys2slot.memory_size();
       total += qvalue.memory_size();
+      total += pull_offset.memory_size();
+      total += push_offset.memory_size();
       return total / 1024.0 / 1024.0;
     }
   };
@@ -486,6 +491,7 @@ class BoxWrapper {
 
   void CopyForPull(const paddle::platform::Place& place, uint64_t** gpu_keys,
                    float** gpu_values, void* total_values_gpu,
+                   boxps::FeaturePullOffset* pull_offset,
                    const int64_t* slot_lens, const int slot_num,
                    const int* key2slot, const int hidden_size,
                    const int expand_embed_dim, const int64_t total_length,
@@ -502,15 +508,18 @@ class BoxWrapper {
                       const uint32_t* gpu_restore_idx = nullptr);
 
   void CopyForPush(const paddle::platform::Place& place, float** grad_values,
-                   void* total_grad_values_gpu, const int* slots,
-                   const int64_t* slot_lens, const int slot_num,
-                   const int hidden_size, const int expand_embed_dim,
-                   const int64_t total_length, const int batch_size,
+                   void* total_grad_values_gpu,
+                   boxps::FeaturePushOffset* push_offset,
+                   const int64_t total_length, const int64_t dedup_length,
+                   const int* slots, const int64_t* slot_lens,
+                   const int slot_num, const int hidden_size,
+                   const int expand_embed_dim, const int batch_size,
                    const int* total_dims, const int* key2slot,
                    const int skip_offset, bool expand_only,
                    const uint32_t* gpu_sort_idx = nullptr,
                    const uint32_t* gpu_sort_offset = nullptr,
-                   const uint32_t* gpu_sort_lens = nullptr);
+                   const uint32_t* gpu_sort_lens = nullptr,
+                   const uint32_t* gpu_restore_idx = nullptr);
 
   void CopyForPushCPU(const paddle::platform::Place& place,
                       const std::vector<const float*>& grad_values,
@@ -576,27 +585,6 @@ class BoxWrapper {
       s_instance_->expand_embed_dim_ = expand_embed_dim;
       s_instance_->feature_type_ = feature_type;
       s_instance_->pull_embedx_scale_ = pull_embedx_scale;
-      // ToDo: feature gpu value param set diffent value
-      if (s_instance_->feature_type_ ==
-          static_cast<int>(boxps::FEATURE_SHARE_EMBEDDING)) {
-        s_instance_->cvm_offset_ = expand_embed_dim + 2;
-      } else if (s_instance_->feature_type_ ==
-                 static_cast<int>(boxps::FEATURE_PCOC)) {
-        s_instance_->cvm_offset_ = 8;
-      } else if (s_instance_->feature_type_ ==
-                 static_cast<int>(boxps::FEATURE_CONV)) {
-        s_instance_->cvm_offset_ = 4;
-      } else if (s_instance_->feature_type_ ==
-                 static_cast<int>(boxps::FEATURE_TRADEW)) {
-        // embed_w + n * tradew
-        s_instance_->cvm_offset_ = expand_embed_dim + 3;
-      } else if (s_instance_->feature_type_ ==
-                 static_cast<int>(boxps::FEATURE_CREDIT)) {
-        // show/clk/conv/credit/embed
-        s_instance_->cvm_offset_ = 5;
-      } else {
-        s_instance_->cvm_offset_ = 3;
-      }
       s_instance_->gpu_num_ = platform::GetCUDADeviceCount();
       // get feature offset info
       s_instance_->GetFeatureOffsetInfo();
@@ -728,10 +716,7 @@ class BoxWrapper {
     return device_id;
   }
   // get feature offset info
-  void GetFeatureOffsetInfo(void) {
-    feature_pull_size_ = boxps_ptr_->GetFeaturePullSize(pull_info_);
-    feature_push_size_ = boxps_ptr_->GetFeaturePushSize(push_info_);
-  }
+  void GetFeatureOffsetInfo(void);
 
  private:
   static cudaStream_t stream_list_[MAX_GPU_NUM];
@@ -755,6 +740,8 @@ class BoxWrapper {
   size_t feature_push_size_ = 0;
   boxps::FeaturePullOffset pull_info_;
   boxps::FeaturePushOffset push_info_;
+  size_t pull_float_num_ = 0;
+  size_t push_float_num_ = 0;
 
   // Metric Related
   int phase_ = 1;
