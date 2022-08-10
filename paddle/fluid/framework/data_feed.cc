@@ -2417,6 +2417,10 @@ void SlotPaddleBoxDataFeed::PutToFeedPvVec(const SlotPvInstance* pvs, int num) {
 
 // expand values
 void SlotPaddleBoxDataFeed::ExpandSlotRecord(SlotRecord* rec) {
+  if (float_total_dims_size_ == 0 && float_use_slot_size_ == 0) {
+    return;
+  }
+
   SlotRecord& ins = (*rec);
   if (ins->slot_float_feasigns_.slot_offsets.empty()) {
     return;
@@ -2425,7 +2429,6 @@ void SlotPaddleBoxDataFeed::ExpandSlotRecord(SlotRecord* rec) {
   if (float_total_dims_size_ == total_value_size) {
     return;
   }
-
   int float_slot_num =
       static_cast<int>(float_total_dims_without_inductives_.size());
   CHECK(float_slot_num == float_use_slot_size_);
@@ -3901,7 +3904,7 @@ void MiniBatchGpuPack::pack_all_data(const SlotRecord* ins_vec, int num) {
 
   if (enable_pv_) {
     for (int i = 0; i < num; ++i) {
-      auto r = ins_vec[i];
+      auto& r = ins_vec[i];
       uint64_total_num += r->slot_uint64_feasigns_.slot_values.size();
       buf_.h_uint64_lens[i + 1] = uint64_total_num;
       float_total_num += r->slot_float_feasigns_.slot_values.size();
@@ -3912,14 +3915,18 @@ void MiniBatchGpuPack::pack_all_data(const SlotRecord* ins_vec, int num) {
     }
   } else {
     for (int i = 0; i < num; ++i) {
-      auto r = ins_vec[i];
+      auto& r = ins_vec[i];
       uint64_total_num += r->slot_uint64_feasigns_.slot_values.size();
       buf_.h_uint64_lens[i + 1] = uint64_total_num;
       float_total_num += r->slot_float_feasigns_.slot_values.size();
       buf_.h_float_lens[i + 1] = float_total_num;
     }
   }
-
+  VLOG(3) << "begin copy keys, ins_num=" << num
+          << ", uint64_cols=" << used_uint64_num_
+          << ", total=" << uint64_total_num
+          << ", float_cols=" << used_float_num_
+          << ", total=" << float_total_num;
   int uint64_cols = (used_uint64_num_ + 1);
   buf_.h_uint64_offset.resize(uint64_cols * num);
   buf_.h_uint64_keys.resize(uint64_total_num);
@@ -3932,7 +3939,7 @@ void MiniBatchGpuPack::pack_all_data(const SlotRecord* ins_vec, int num) {
   uint64_total_num = 0;
   float_total_num = 0;
   for (int i = 0; i < num; ++i) {
-    auto r = ins_vec[i];
+    auto& r = ins_vec[i];
     auto& uint64_feasigns = r->slot_uint64_feasigns_;
     fea_num = uint64_feasigns.slot_values.size();
     if (fea_num > 0) {
@@ -3946,6 +3953,7 @@ void MiniBatchGpuPack::pack_all_data(const SlotRecord* ins_vec, int num) {
 
     auto& float_feasigns = r->slot_float_feasigns_;
     fea_num = float_feasigns.slot_values.size();
+    PADDLE_ENFORCE(fea_num > 0, "float error fea num is zero");
     memcpy(&buf_.h_float_keys[float_total_num],
            float_feasigns.slot_values.data(), fea_num * sizeof(float));
     float_total_num += fea_num;
@@ -4045,6 +4053,7 @@ void MiniBatchGpuPack::pack_float_data(const SlotRecord* ins_vec, int num) {
     auto r = ins_vec[i];
     auto& float_feasigns = r->slot_float_feasigns_;
     fea_num = float_feasigns.slot_values.size();
+    PADDLE_ENFORCE(fea_num > 0, "float error fea num is zero");
     memcpy(&buf_.h_float_keys[float_total_num],
            float_feasigns.slot_values.data(), fea_num * sizeof(float));
     float_total_num += fea_num;
