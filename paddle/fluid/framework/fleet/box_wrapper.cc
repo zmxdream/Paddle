@@ -85,6 +85,28 @@ void BasicAucCalculator::add_unlock_data(double pred, int label,
   _table[label][pos] += sample_scale;
 }
 
+void BasicAucCalculator::add_unlock_data_with_float_label(double pred, double label) {
+  PADDLE_ENFORCE_GE(pred, 0.0, platform::errors::PreconditionNotMet(
+                                   "pred should be greater than 0"));
+  PADDLE_ENFORCE_LE(pred, 1.0, platform::errors::PreconditionNotMet(
+                                   "pred should be lower than 1"));
+
+  int pos = std::min(static_cast<int>(pred * _table_size), _table_size - 1);
+  PADDLE_ENFORCE_GE(
+      pos, 0,
+      platform::errors::PreconditionNotMet(
+          "pos must be equal or greater than 0, but its value is: %d", pos));
+  PADDLE_ENFORCE_LT(
+      pos, _table_size,
+      platform::errors::PreconditionNotMet(
+          "pos must be less than table_size, but its value is: %d", pos));
+  _local_abserr += fabs(pred - label);
+  _local_sqrerr += (pred - label) * (pred - label);
+  _local_pred += pred;
+  _table[0][pos] += 1 - label;
+  _table[1][pos] += label;
+}
+
 void BasicAucCalculator::add_data(const float* d_pred, const int64_t* d_label,
                                   int batch_size,
                                   const paddle::platform::Place& place) {
@@ -152,6 +174,37 @@ void BasicAucCalculator::add_mask_data(const float* d_pred,
     for (int i = 0; i < batch_size; ++i) {
       if (h_mask[i]) {
         add_unlock_data(h_pred[i], h_label[i]);
+      }
+    }
+  }
+}
+
+// add float mask data
+void BasicAucCalculator::add_float_mask_data(const float* d_pred,
+                                             const float* d_label,
+                                             const int64_t* d_mask, int batch_size,
+                                             const paddle::platform::Place& place) {
+  if (_mode_collect_in_gpu) {
+    cuda_add_float_mask_data(place, d_label, d_pred, d_mask, batch_size);
+  } else {
+    thread_local std::vector<float> h_pred;
+    thread_local std::vector<float> h_label;
+    thread_local std::vector<int64_t> h_mask;
+    h_pred.resize(batch_size);
+    h_label.resize(batch_size);
+    h_mask.resize(batch_size);
+
+    cudaMemcpy(h_pred.data(), d_pred, sizeof(float) * batch_size,
+               cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_label.data(), d_label, sizeof(float) * batch_size,
+               cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_mask.data(), d_mask, sizeof(int64_t) * batch_size,
+               cudaMemcpyDeviceToHost);
+
+    std::lock_guard<std::mutex> lock(_table_mutex);
+    for (int i = 0; i < batch_size; ++i) {
+      if (h_mask[i]) {
+        add_unlock_data_with_float_label(h_pred[i], h_label[i]);
       }
     }
   }
@@ -964,6 +1017,45 @@ class MultiMaskMetricMsg : public MetricMsg {
   std::string cmatch_rank_varname_;
 };
 
+class FloatMaskMetricMsg : public MetricMsg {
+ public:
+  FloatMaskMetricMsg(const std::string& label_varname,
+                const std::string& pred_varname, int metric_phase,
+                const std::string& mask_varname, int bucket_size = 1000000,
+                bool mode_collect_in_gpu = false, int max_batch_size = 0) {
+    label_varname_ = label_varname;
+    pred_varname_ = pred_varname;
+    mask_varname_ = mask_varname;
+    metric_phase_ = metric_phase;
+    calculator = new BasicAucCalculator(mode_collect_in_gpu);
+    calculator->init(bucket_size, max_batch_size);
+  }
+  virtual ~FloatMaskMetricMsg() {}
+  void add_data(const Scope* exe_scope,
+                const paddle::platform::Place& place) override {
+    int label_len = 0;
+    const float* label_data = NULL;
+    get_data<float>(exe_scope, label_varname_, &label_data, &label_len);
+
+    int pred_len = 0;
+    const float* pred_data = NULL;
+    get_data<float>(exe_scope, pred_varname_, &pred_data, &pred_len);
+
+    int mask_len = 0;
+    const int64_t* mask_data = NULL;
+    get_data<int64_t>(exe_scope, mask_varname_, &mask_data, &mask_len);
+    PADDLE_ENFORCE_EQ(label_len, mask_len,
+                      platform::errors::PreconditionNotMet(
+                          "the predict data length should be consistent with "
+                          "the label data length"));
+    auto cal = GetCalculator();
+    cal->add_float_mask_data(pred_data, label_data, mask_data, label_len, place);
+  }
+
+ protected:
+  std::string mask_varname_;
+};
+
 class CmatchRankMaskMetricMsg : public MetricMsg {
  public:
   CmatchRankMaskMetricMsg(const std::string& label_varname,
@@ -1122,10 +1214,15 @@ void BoxWrapper::InitMetric(const std::string& method, const std::string& name,
         name, new CmatchRankMaskMetricMsg(
                   label_varname, pred_varname, metric_phase, cmatch_rank_group,
                   cmatch_rank_varname, ignore_rank, mask_varname, bucket_size));
+  } else if (method == "FloatMaskAucCalculator") {
+    metric_lists_.emplace(
+        name, new FloatMaskMetricMsg(label_varname, pred_varname, metric_phase,
+                                     mask_varname, bucket_size, mode_collect_in_gpu,
+                                     max_batch_size));
   } else {
     PADDLE_THROW(platform::errors::Unimplemented(
         "PaddleBox only support AucCalculator, MultiTaskAucCalculator, "
-        "CmatchRankAucCalculator, MaskAucCalculator and "
+        "CmatchRankAucCalculator, MaskAucCalculator, FloatMaskAucCalculator and "
         "CmatchRankMaskAucCalculator"));
   }
   metric_name_list_.emplace_back(name);
