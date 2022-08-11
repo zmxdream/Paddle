@@ -1140,7 +1140,7 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::push_sparse(int gpu_num
     ptr_tables_[i]->rwlock_->WRLock();
     ptr_tables_[i]->update(reinterpret_cast<KeyType*>(node.key_storage),
                            node.val_storage, h_right[i] - h_left[i] + 1, sgd,
-                           resource_->remote_stream(i, gpu_num));
+                           resource_->remote_stream(i, gpu_num), i);
   }
   for (int i = 0; i < total_gpu; ++i) {
     cudaStreamSynchronize(resource_->remote_stream(i, gpu_num));

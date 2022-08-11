@@ -136,6 +136,10 @@ __global__ void  curand_init_kernel(curandState* p_value, int len) {
 
 class CuRandState {
 public:
+  struct CallBackInfo {
+    std::shared_ptr<CuRandState>* obj;
+    int dev_id;
+  };
   CuRandState() = default;
   CuRandState(const CuRandState&) = delete;
   CuRandState(CuRandState&&) = delete;
@@ -165,24 +169,28 @@ public:
     return states_;
   }
 
-  static HeterObjectPool<CuRandState>& pool() {
-    static HeterObjectPool<CuRandState> p;
-    return p;
+  static HeterObjectPool<CuRandState>& pool(int dev_id) {
+    static HeterObjectPool<CuRandState> p[100];
+    return p[dev_id];
   }
 
-  static std::shared_ptr<CuRandState> get() {
-    return pool().Get();
+  static std::shared_ptr<CuRandState> get(int dev_id) {
+    return pool(dev_id).Get();
   }
 
-  static void CUDART_CB pushback_cu_rand_state(void *data) {
-    auto state = static_cast<std::shared_ptr<CuRandState>*>(data);
-    pool().Push(std::move(*state));
+  static void CUDART_CB pushback_cu_rand_state(void* data) {
+    auto state = static_cast<CallBackInfo*>(data);
+    pool(state->dev_id).Push(std::move(*(state->obj)));
+    delete state->obj;
     delete state;
   }
 
-  static void push(std::shared_ptr<CuRandState> state, gpuStream_t stream) {
+  static void push(std::shared_ptr<CuRandState> state, gpuStream_t stream, int dev_id) {
+    CallBackInfo* obj = new CallBackInfo();
+    obj->dev_id = dev_id;
+    obj->obj = new std::shared_ptr<CuRandState>(std::move(state));
     CHECK(cudaLaunchHostFunc(stream, pushback_cu_rand_state,
-      new std::shared_ptr<CuRandState>(std::move(state))) == cudaSuccess); 
+                             obj) == cudaSuccess);
   }
 private:
   size_t size_ = 0;
@@ -382,16 +390,16 @@ template <typename KeyType, typename ValType>
 template <typename Sgd>
 void HashTable<KeyType, ValType>::update(const KeyType* d_keys,
                                          const char* d_grads, size_t len,
-                                         Sgd& sgd, gpuStream_t stream) {
+                                         Sgd& sgd, gpuStream_t stream, int dev_id) {
   if (len == 0) {
     return;
   }
-  auto state = CuRandState::get();
+  auto state = CuRandState::get(dev_id);
   auto d_state = state->get(len, stream);
   const int grid_size = (len - 1) / BLOCK_SIZE_ + 1;
   dy_mf_update_kernel<<<grid_size, BLOCK_SIZE_, 0, stream>>>(
       container_, *device_optimizer_config_, d_keys, d_grads, d_state, len, sgd, push_grad_value_size_);
-  CuRandState::push(state, stream);
+  CuRandState::push(state, stream, dev_id);
 }
 
 template <typename KeyType, typename ValType>
