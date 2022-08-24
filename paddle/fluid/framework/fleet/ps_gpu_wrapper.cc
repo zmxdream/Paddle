@@ -627,7 +627,7 @@ void PSGPUWrapper::BuildPull(std::shared_ptr<HeterContext> gpu_task) {
     }
 
     auto fill_func = [] (std::mutex* mutex, std::vector<FeatureKey>& keys, 
-                          std::vector<paddle::ps::DownpourFixedFeatureValue*> values, 
+                          std::vector<paddle::ps::DownpourFixedFeatureValue*>& values, 
                           std::vector<std::pair<FeatureKey, paddle::ps::DownpourFixedFeatureValue*>>& src_kv,
                           uint32_t keys_sum) -> void {
       mutex->lock();
