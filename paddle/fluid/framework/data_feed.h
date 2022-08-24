@@ -125,6 +125,10 @@ struct SlotValues {
       slot_offsets.shrink_to_fit();
     }
   }
+  void shrink() {
+    slot_values.shrink_to_fit();
+    slot_offsets.shrink_to_fit();
+  }
 };
 union FeatureFeasign {
   uint64_t uint64_feasign_;
@@ -183,6 +187,10 @@ struct SlotRecordObject {
   void clear(bool shrink) {
     slot_uint64_feasigns_.clear(shrink);
     slot_float_feasigns_.clear(shrink);
+  }
+  void shrink() {
+    slot_uint64_feasigns_.shrink();
+    slot_float_feasigns_.shrink();
   }
 };
 using SlotRecord = SlotRecordObject*;
@@ -301,13 +309,9 @@ class SlotObjPool {
       }
     } while (true);
 
-
     count_ += n;
     for (int i = size; i < n; ++i) {
       output[i] = make_slotrecord();
-    }
-    for (int i = 0; i < n; ++i) {
-      output[i]->clear(true);
     }
   }
   void put(std::vector<SlotRecord>* input) {
