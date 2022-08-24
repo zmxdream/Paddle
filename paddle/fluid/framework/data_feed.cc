@@ -2106,6 +2106,9 @@ void SlotRecordInMemoryDataFeed::LoadIntoMemoryByFile(void) {
   auto pull_record_func = [this](std::vector<SlotRecord>& record_vec,
                                  int max_fetch_num, int offset) {
     if (offset > 0) {
+      for (int i = 0; i < offset; i++) {
+        record_vec[i]->shrink();
+      }
       input_channel_->WriteMove(offset, &record_vec[0]);
       if (max_fetch_num > 0) {
         SlotRecordPool().get(&record_vec[0], offset);

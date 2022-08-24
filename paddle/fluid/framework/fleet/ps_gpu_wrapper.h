@@ -250,6 +250,10 @@ class PSGPUWrapper {
     for (size_t i = 0; i < pull_thread_pool_.size(); i++) {
       pull_thread_pool_[i].reset(new ::ThreadPool(1));
     }
+    uniq_thread_pool_.resize(thread_keys_shard_num_);
+    for (size_t i = 0; i < uniq_thread_pool_.size(); i++) {
+      uniq_thread_pool_[i].reset(new ::ThreadPool(1));
+    }
     VLOG(0) << "set hbm_thread_pool size: " << hbm_thread_pool_.size()
             << " set pull_thread_pool size: " << pull_thread_pool_.size(); 
 
@@ -520,6 +524,7 @@ class PSGPUWrapper {
   bool running_ = false;
   std::vector<std::shared_ptr<ThreadPool>> hbm_thread_pool_;
   std::vector<std::shared_ptr<ThreadPool>> pull_thread_pool_;
+  std::vector<std::shared_ptr<ThreadPool>> uniq_thread_pool_;
   OptimizerConfig optimizer_config_;
  protected:
   static bool is_initialized_;
