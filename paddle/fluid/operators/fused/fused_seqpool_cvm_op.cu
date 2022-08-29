@@ -131,13 +131,29 @@ void FusedSeqpoolCVM(const framework::ExecutionContext
                            output_data.size() * sizeof(T *),
                            hipMemcpyHostToDevice, stream);
 #else
+  const auto& scope = ctx.scope();
+  auto& child_scope = scope.NewScope();
+  static uint64_t var_index = 0;
+  var_index++;
+  std::string var_name_1 = "FusedSeqpoolCVM_KERNEL_";
+  var_name_1.append(std::to_string((uint64_t)(&scope))).append("_").append(std::to_string(var_index));
+  auto var_1 = child_scope.Var(var_name_1);
+  paddle::framework::GpuPinnedVector* pinned_inputs = var_1->GetMutable<paddle::framework::GpuPinnedVector>();
   T **gpu_input_values = reinterpret_cast<T **>(temp_ptr->ptr());
-  platform::GpuMemcpyAsync(gpu_input_values, input_data.data(),
+  pinned_inputs->cpu_to_pinedcpu((void*)input_data.data(), input_data.size() * sizeof(T *));
+  platform::GpuMemcpyAsync(gpu_input_values, pinned_inputs->get_cpu_ptr<char*>(),
                            input_data.size() * sizeof(T *),
                            cudaMemcpyHostToDevice, stream);
+
+  var_index++;
+  std::string var_name_2 = "FusedSeqpoolCVM_KERNEL_";
+  var_name_2.append(std::to_string((uint64_t)(&scope))).append("_").append(std::to_string(var_index));
+  auto var_2 = child_scope.Var(var_name_2);
+  paddle::framework::GpuPinnedVector* pinned_outputs = var_2->GetMutable<paddle::framework::GpuPinnedVector>();
   T **gpu_output_values =
       reinterpret_cast<T **>(&gpu_input_values[input_data.size()]);
-  platform::GpuMemcpyAsync(gpu_output_values, output_data.data(),
+  pinned_outputs->cpu_to_pinedcpu((void*)output_data.data(), output_data.size() * sizeof(T *));
+  platform::GpuMemcpyAsync(gpu_output_values, pinned_outputs->get_cpu_ptr<char*>(),
                            output_data.size() * sizeof(T *),
                            cudaMemcpyHostToDevice, stream);
 #endif
@@ -266,20 +282,41 @@ void FusedSeqpoolCVMGrad(const framework::ExecutionContext &ctx,
                            cvm_data.size() * sizeof(T *), hipMemcpyHostToDevice,
                            stream);
 #else
+  const auto& scope = ctx.scope();
+  auto& child_scope = scope.NewScope();
+  static uint64_t var_index = 0;
+  var_index++;
+  std::string var_name_1 = "FusedSeqpoolCVMGrad_";
+  var_name_1.append(std::to_string((uint64_t)(&scope))).append("_").append(std::to_string(var_index));
+  auto var_1 = child_scope.Var(var_name_1);
+  paddle::framework::GpuPinnedVector* pinned_tmp_1 = var_1->GetMutable<paddle::framework::GpuPinnedVector>();
   T **gpu_out_grads_values = reinterpret_cast<T **>(temp_ptr->ptr());
-  platform::GpuMemcpyAsync(gpu_out_grads_values, out_grads_data.data(),
+  pinned_tmp_1->cpu_to_pinedcpu((void*)out_grads_data.data(), out_grads_data.size() * sizeof(T *));
+  platform::GpuMemcpyAsync(gpu_out_grads_values, pinned_tmp_1->get_cpu_ptr<char*>(),
                            out_grads_data.size() * sizeof(T *),
                            cudaMemcpyHostToDevice, stream);
 
+  var_index++;
+  std::string var_name_2 = "FusedSeqpoolCVMGrad_";
+  var_name_2.append(std::to_string((uint64_t)(&scope))).append("_").append(std::to_string(var_index));
+  auto var_2 = child_scope.Var(var_name_2);
+  paddle::framework::GpuPinnedVector* pinned_tmp_2 = var_2->GetMutable<paddle::framework::GpuPinnedVector>();
   T **gpu_in_grads_values =
       reinterpret_cast<T **>(&gpu_out_grads_values[out_grads_data.size()]);
-  platform::GpuMemcpyAsync(gpu_in_grads_values, in_grads_data.data(),
+  pinned_tmp_2->cpu_to_pinedcpu((void*)in_grads_data.data(), in_grads_data.size() * sizeof(T *));
+  platform::GpuMemcpyAsync(gpu_in_grads_values, pinned_tmp_2->get_cpu_ptr<char*>(),
                            in_grads_data.size() * sizeof(T *),
                            cudaMemcpyHostToDevice, stream);
 
+  var_index++;
+  std::string var_name_3 = "FusedSeqpoolCVMGrad_";
+  var_name_3.append(std::to_string((uint64_t)(&scope))).append("_").append(std::to_string(var_index));
+  auto var_3 = child_scope.Var(var_name_3);
+  paddle::framework::GpuPinnedVector* pinned_tmp_3 = var_3->GetMutable<paddle::framework::GpuPinnedVector>();
   T **gpu_cvm_values =
       reinterpret_cast<T **>(&gpu_in_grads_values[in_grads_data.size()]);
-  platform::GpuMemcpyAsync(gpu_cvm_values, cvm_data.data(),
+  pinned_tmp_3->cpu_to_pinedcpu((void*)cvm_data.data(), cvm_data.size() * sizeof(T *));
+  platform::GpuMemcpyAsync(gpu_cvm_values, pinned_tmp_3->get_cpu_ptr<char*>(),
                            cvm_data.size() * sizeof(T *),
                            cudaMemcpyHostToDevice, stream);
 #endif
@@ -319,41 +356,26 @@ class FusedSeqpoolCVMCUDAKernel : public framework::OpKernel<T> {
 
     int embedding_size = inputs[0]->numel() / inputs[0]->dims()[0];
     int batch_size = inputs[0]->lod().size() ? inputs[0]->lod()[0].size() - 1 : inputs[0]->dims()[0];
-    std::vector<size_t> mix_lods;
-    mix_lods.reserve(slot_size * (batch_size + 1));
+    
+    const size_t* mix_lods_data = nullptr;
+
+    //逻辑转移到了infer-shape里面去了
+    uint64_t tmp_var_key = 0;
     for (size_t i = 0; i < slot_size; ++i) {
       const auto *input = inputs[i];
-      if (input->lod().size() != 0) {
-        auto lod = input->lod();
-        PADDLE_ENFORCE_EQ(lod.size(), 1,
-                          platform::errors::PreconditionNotMet(
-                              "The lod size of all input should be 1, "
-                              "please cheack"));
-        PADDLE_ENFORCE_EQ(lod[0].size(), batch_size + 1,
-                          platform::errors::PreconditionNotMet(
-                              "The lod[0] size of all input should be batch_size + 1, "
-                              "please cheack"));
-        mix_lods.insert(mix_lods.end(), lod[0].begin(), lod[0].end());
-      } else {
-        mix_lods.push_back(0);
-        for (int i = 0; i < input->dims()[0]; i++) {
-          mix_lods.push_back(i + 1);
-        }
-      }
-      int cur_batch_size =
-          input->lod().size() ? input->lod()[0].size() - 1 : input->dims()[0];
-      PADDLE_ENFORCE_EQ(batch_size, cur_batch_size,
-                        platform::errors::PreconditionNotMet(
-                            "The batch size of all input should be same, "
-                            "please cheack, last batchsize is %d, current "
-                            "batchsize is %d",
-                            batch_size, cur_batch_size));
+      tmp_var_key += (uint64_t)input;
     }
-    PADDLE_ENFORCE_EQ(mix_lods.size(), slot_size * (batch_size + 1),
+    std::string var_name = "FusedSeqpoolCVMOp_";
+    var_name.append(std::to_string(tmp_var_key));
+    const auto& scope = ctx.scope();
+    auto tmp_var_vec = scope.FindVarFromChild(var_name);
+    PADDLE_ENFORCE_EQ(tmp_var_vec.size(), 1,
                       platform::errors::PreconditionNotMet(
                           "please cheack"));
-    paddle::framework::MixVector<size_t> mix_lods_v(&mix_lods);
-    auto mix_lods_data = mix_lods_v.CUDAData(ctx.GetPlace());
+    auto pin_ptr = tmp_var_vec[0]->GetMutable<paddle::framework::GpuPinnedVector>();
+    pin_ptr->pinedcpu_to_gpu(ctx.template device_context<platform::CUDADeviceContext>().stream(), ctx.GetPlace());
+    mix_lods_data = pin_ptr->get_gpu_ptr<size_t>();
+
     for (size_t i = 0; i < slot_size; ++i) {
       const auto *input = inputs[i];
       input_data[i] = reinterpret_cast<const T *>(input->data<T>());
@@ -393,40 +415,24 @@ class FusedSeqpoolCVMGradCUDAKernel : public framework::OpKernel<T> {
 
     int embedding_size = in_grads[0]->numel() / in_grads[0]->dims()[0];
     int batch_size = in_grads[0]->lod().size() ? in_grads[0]->lod()[0].size() - 1 : in_grads[0]->dims()[0];
-    std::vector<size_t> mix_lods;
-    mix_lods.reserve(slot_size * (batch_size + 1));
+
+    const size_t* mix_lods_data = nullptr;
+    //逻辑转移到了infer-shape里面去了
+    uint64_t tmp_var_key = 0;
     for (size_t i = 0; i < slot_size; ++i) {
       auto *in_grad = in_grads[i];
-      if (in_grad->lod().size() != 0) {
-        auto lod = in_grad->lod();
-        PADDLE_ENFORCE_EQ(lod.size(), 1,
-                          platform::errors::PreconditionNotMet(
-                              "The lod size of all in_grad should be 1, "
-                              "please cheack"));
-        PADDLE_ENFORCE_EQ(lod[0].size(), batch_size + 1,
-                          platform::errors::PreconditionNotMet(
-                              "The lod[0] size of all in_grad should be batch_size + 1, "
-                              "please cheack"));
-        mix_lods.insert(mix_lods.end(), lod[0].begin(), lod[0].end());
-      } else {
-        mix_lods.push_back(0);
-        for (int i = 0; i < in_grad->dims()[0]; i++) {
-          mix_lods.push_back(i + 1);
-        }
-      }
-      int cur_batch_size = in_grad->lod().size() ? in_grad->lod()[0].size() - 1 : in_grad->dims()[0];
-      PADDLE_ENFORCE_EQ(batch_size, cur_batch_size,
-                        platform::errors::PreconditionNotMet(
-                            "The batch size of all in_grad should be same, "
-                            "please cheack, last batchsize is %d, current "
-                            "batchsize is %d",
-                            batch_size, cur_batch_size));
+      tmp_var_key += (uint64_t)in_grad;
     }
-    PADDLE_ENFORCE_EQ(mix_lods.size(), slot_size * (batch_size + 1),
+    std::string var_name = "FusedSeqpoolCVMGradOp_";
+    var_name.append(std::to_string(tmp_var_key));
+    const auto& scope = ctx.scope();
+    auto tmp_var_vec = scope.FindVarFromChild(var_name);
+    PADDLE_ENFORCE_EQ(tmp_var_vec.size(), 1,
                       platform::errors::PreconditionNotMet(
                           "please cheack"));
-    paddle::framework::MixVector<size_t> mix_lods_v(&mix_lods);
-    auto mix_lods_data = mix_lods_v.CUDAData(ctx.GetPlace());
+    auto pin_ptr = tmp_var_vec[0]->GetMutable<paddle::framework::GpuPinnedVector>();
+    pin_ptr->pinedcpu_to_gpu(ctx.template device_context<platform::CUDADeviceContext>().stream(), ctx.GetPlace());
+    mix_lods_data = pin_ptr->get_gpu_ptr<size_t>();
 
     for (size_t i = 0; i < slot_size; ++i) {
       auto *in_grad = in_grads[i];
