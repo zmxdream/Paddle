@@ -949,6 +949,10 @@ bool RuntimeInferShapeContext::IsRunMKLDNNKernel() const {
   }
 }
 
+Scope* RuntimeInferShapeContext::GetScopePtr() const {
+    return const_cast<Scope*>(scope_);
+}
+
 // TODO(paddle-dev): Can this be template?
 std::vector<InferShapeVarPtr> RuntimeInferShapeContext::GetInputVarPtrs(
     const std::string& name) const {
@@ -1224,13 +1228,13 @@ void OperatorWithKernel::InferShape(InferShapeContext* ctx) const {
 void OperatorWithKernel::RuntimeInferShape(const Scope& scope,
                                            const platform::Place& place,
                                            const RuntimeContext& ctx) const {
-  RuntimeInferShapeContext infer_shape_ctx(*this, ctx);
+  RuntimeInferShapeContext infer_shape_ctx(*this, ctx, scope);
   this->Info().infer_shape_(&infer_shape_ctx);
 }
 
 void OperatorWithKernel::RuntimeInferShape(const Scope& scope) const {
   RuntimeContext ctx(Inputs(), Outputs(), scope);
-  RuntimeInferShapeContext infer_shape_ctx(*this, ctx);
+  RuntimeInferShapeContext infer_shape_ctx(*this, ctx, scope);
   this->Info().infer_shape_(&infer_shape_ctx);
 }
 
@@ -1442,7 +1446,7 @@ void OperatorWithKernel::RunImpl(const Scope& scope,
     platform::RecordEvent record_event("infer_shape",
                                        platform::TracerEventType::OperatorInner,
                                        1, platform::EventRole::kInnerOp);
-    RuntimeInferShapeContext infer_shape_ctx(*this, *runtime_ctx);
+    RuntimeInferShapeContext infer_shape_ctx(*this, *runtime_ctx, exec_scope);
     this->Info().infer_shape_(&infer_shape_ctx);
   }
 

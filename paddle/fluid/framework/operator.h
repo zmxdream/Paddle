@@ -137,7 +137,6 @@ class RuntimeContext {
   RuntimeContext(const VariableValueMap& invars,
                  const VariableValueMap& outvars)
       : inputs(invars), outputs(outvars) {}
-
   VariableValueMap inputs;
   VariableValueMap outputs;
 };
@@ -715,8 +714,8 @@ class OperatorWithKernel : public OperatorBase {
 
 class RuntimeInferShapeContext : public InferShapeContext {
  public:
-  RuntimeInferShapeContext(const OperatorBase& op, const RuntimeContext& ctx)
-      : op_(op), ctx_(ctx) {}
+  RuntimeInferShapeContext(const OperatorBase& op, const RuntimeContext& ctx, const Scope& scope)
+      : op_(op), ctx_(ctx), scope_(&scope) {}
 
   bool HasInput(const std::string &name) const override;
   bool HasOutput(const std::string &name) const override;
@@ -760,6 +759,8 @@ class RuntimeInferShapeContext : public InferShapeContext {
 
   bool IsRunMKLDNNKernel() const override;
 
+  Scope* GetScopePtr() const override;
+
   std::vector<InferShapeVarPtr> GetInputVarPtrs(
       const std::string &name) const override;
   std::vector<InferShapeVarPtr> GetOutputVarPtrs(
@@ -789,6 +790,7 @@ private:
   const std::vector<Variable*>& OutputVars(const std::string& name) const;
   const OperatorBase& op_;
   const RuntimeContext& ctx_;
+  const Scope* scope_;
 };
 
 extern bool OpSupportGPU(const std::string& op_type);

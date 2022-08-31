@@ -59,6 +59,41 @@ void PSGPUWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
     for (auto& op : ops_) {
       op->SetIsRuntimeInferShape(true);
     }
+
+    // reusing memory
+    auto input_names = device_reader_->GetInputVarNames();
+    std::set<std::string> input_names_set(input_names.begin(), input_names.end());
+    for (auto& scope : thread_scope_vec_) {
+      std::vector<Variable*> need_reuse;
+      for (auto& var : block.AllVars()) {
+        std::string name = var->Name();
+        if (!var->Persistable()) {
+          if (input_names_set.find(var->Name()) != input_names_set.end()) {
+            continue;
+          }
+          auto* ptr = scope->FindLocalVar(var->Name());
+          PADDLE_ENFORCE_NE(ptr, nullptr,
+                phi::errors::NotFound("The var %s is not found.", var->Name()));
+          need_reuse.push_back(ptr);
+        }
+      }
+      need_reuse_var_vec_[scope] = std::move(need_reuse);
+    }
+    {
+      need_reuse_var_.clear();
+      for (auto& var : block.AllVars()) {
+        std::string name = var->Name();
+        if (!var->Persistable()) {
+          if (input_names_set.find(var->Name()) != input_names_set.end()) {
+            continue;
+          }
+          auto* ptr = thread_scope_->FindLocalVar(var->Name());
+          PADDLE_ENFORCE_NE(ptr, nullptr,
+                phi::errors::NotFound("The var %s is not found.", var->Name()));
+          need_reuse_var_.push_back(ptr);
+        }
+      }
+    }
   }
 }
 
@@ -263,7 +298,7 @@ int PSGPUWorker::OpRunAndShapeCheck(OperatorBase& op,
       auto& after_dims = check_data.after_dims;
       auto& after_lods = check_data.after_lods;
       RuntimeContext ctx(op.Inputs(), op.Outputs(), scope);
-      RuntimeInferShapeContext infer_shape_ctx(op, ctx);
+      RuntimeInferShapeContext infer_shape_ctx(op, ctx, scope);
       auto outnames = op.Outputs();
       for (auto& var_name_item : outnames) {
         pre_dims.push_back(infer_shape_ctx.GetOutputsDim(var_name_item.first));
@@ -437,6 +472,18 @@ void PSGPUWorker::TrainFiles() {
           std::chrono::microseconds(200));
       }
       thread_scope = cur_task.scope;
+      // tensor share buffer
+      std::vector<Variable*>& cur_scope_vars = need_reuse_var_vec_[thread_scope];
+      PADDLE_ENFORCE_EQ(cur_scope_vars.size(), need_reuse_var_.size(),
+                        platform::errors::Fatal(
+                              "reuse vars size must be same."));
+      for (size_t i = 0; i < need_reuse_var_.size(); i++) {
+        Variable* child = cur_scope_vars[i];
+        Variable* parent = need_reuse_var_[i];
+        if (child->IsType<LoDTensor>()) {
+          child->GetMutable<LoDTensor>()->ShareBufferWith(*(parent->GetMutable<LoDTensor>()));
+        }
+      }
     }
 
     if (cur_batch <= 0) {
@@ -449,9 +496,11 @@ void PSGPUWorker::TrainFiles() {
     // 这个是干啥的
     //
     if (shape_check_flag_.load()) {
-      VLOG(0) << "Begin OpRunAndShapeCheck... "
+      VLOG(0) << "Begin OpRunAndShapeCheck, "
             << shape_check_count_.load();
-      if (shape_check_count_.fetch_sub(1) <= 0) {
+      if (scope_num_ == 1 || shape_check_count_.fetch_sub(1) <= 0) {
+        VLOG(0) << "End OpRunAndShapeCheck."
+            << shape_check_count_.load();
         shape_check_flag_ = false;
       }
     }
@@ -618,6 +667,17 @@ void PSGPUWorker::TrainFiles() {
     ++batch_cnt;
 
     if (scope_num_ != 1) {
+      std::vector<Variable*>& cur_scope_vars = need_reuse_var_vec_[thread_scope];
+      PADDLE_ENFORCE_EQ(cur_scope_vars.size(), need_reuse_var_.size(),
+                        platform::errors::Fatal(
+                              "reuse vars size must be same."));
+      for (size_t i = 0; i < need_reuse_var_.size(); i++) {
+        Variable* child = cur_scope_vars[i];
+        Variable* parent = need_reuse_var_[i];
+        if (child->IsType<LoDTensor>()) {
+          parent->GetMutable<LoDTensor>()->ShareBufferWith(*(child->GetMutable<LoDTensor>()));
+        }
+      }
       device_reader_->get_pack(cur_task.pack);
       free_task_queue_.Push(cur_task);
     }

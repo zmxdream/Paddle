@@ -2161,6 +2161,9 @@ void SlotRecordInMemoryDataFeed::LoadIntoMemoryByFile(void) {
                                  int max_fetch_num, int offset) {
 
     if (offset > 0) {
+      for (int i = 0; i < offset; i++) {
+        record_vec[i]->shrink();
+      }
       input_channel_->WriteMove(offset, &record_vec[0]);
       if (max_fetch_num > 0) {
         SlotRecordPool().get(&record_vec[0], offset);
@@ -2910,7 +2913,9 @@ void resize_gpu_slot_offsets(const size_t slot_total_bytes) {
         // std::vector<LoDTensor>& float_tensor_vec(void) { return float_tensor_vec_; }
         // float_tensor_vec_.resize(use_slot_size_)
         // 可是这total_instance不是0吗...
-        h_tensor_ptrs[j] = pack->float_tensor_vec()[float_zero_slot_index].mutable_data<float>({total_instance, 1}, this->place_);
+        // h_tensor_ptrs[j] = pack->float_tensor_vec()[float_zero_slot_index].mutable_data<float>({total_instance, 1}, this->place_);
+        h_tensor_ptrs[j] = pack->float_tensor_vec()[float_zero_slot_index].mutable_data<float>({total_instance, 1},
+                            this->place_);
         float_zero_slot_index++;
 
       }
@@ -2920,7 +2925,8 @@ void resize_gpu_slot_offsets(const size_t slot_total_bytes) {
         h_tensor_ptrs[j] = uint64_tensor.data<int64_t>() + uint64_offset;
         uint64_offset += total_instance;
       } else {
-        h_tensor_ptrs[j] = pack->uint64_tensor_vec()[uint64_zero_slot_index].mutable_data<int64_t>({total_instance, 1}, this->place_);
+        h_tensor_ptrs[j] = pack->uint64_tensor_vec()[uint64_zero_slot_index].mutable_data<int64_t>({total_instance, 1},
+                            this->place_);
         uint64_zero_slot_index++;
       }
     }
@@ -3077,13 +3083,15 @@ MiniBatchGpuPack* SlotRecordInMemoryDataFeed::get_pack(MiniBatchGpuPack* last_pa
 
 
 MiniBatchGpuPack::MiniBatchGpuPack(const paddle::platform::Place& place,
-                                   const std::vector<UsedSlotInfo>& infos) {
+                                   const std::vector<UsedSlotInfo>& infos,
+                                   phi::StreamId stream_id) {
   place_ = place;
 
   // 搞了个stream
   // 
   stream_holder_.reset(new platform::stream::CUDAStream(place));
   stream_ = stream_holder_->raw_stream();
+  alloc_stream_id_ = stream_id;
 
   ins_num_ = 0;
   pv_num_ = 0;
@@ -3110,7 +3118,7 @@ MiniBatchGpuPack::MiniBatchGpuPack(const paddle::platform::Place& place,
   // 把cpu上的slot信息拷贝到gpu上
   copy_host2device(&gpu_slots_, gpu_used_slots_.data(), gpu_used_slots_.size());
 
-  slot_buf_ptr_ = memory::AllocShared(place_, used_slot_size_ * sizeof(void*));
+  slot_buf_ptr_ = memory::AllocShared(place_, used_slot_size_ * sizeof(void*), phi_stream());
 
   int device_id = place_.GetDeviceId();
   VLOG(3) << "begin get batch pack device id: " << device_id;
