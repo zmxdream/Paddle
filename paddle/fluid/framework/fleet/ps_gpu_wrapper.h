@@ -252,6 +252,8 @@ class PSGPUWrapper {
                              : config["nonclk_coeff"];
     float clk_coeff =
         (config.find("clk_coeff") == config.end()) ? 1.0 : config["clk_coeff"];
+
+    // lr config settings
     float min_bound = (config.find("min_bound") == config.end())
                           ? -10000.0
                           : config["min_bound"];
@@ -293,6 +295,13 @@ class PSGPUWrapper {
     this->SetEmbedxSGD(mf_create_thresholds, mf_learning_rate,
                         mf_initial_g2sum, mf_initial_range, mf_min_bound,
                          mf_max_bound);
+
+    VLOG(0) << "GPUOptimizer Config:\n" << "lr: min_bound:" << min_bound
+            << " max_bound:" << max_bound << " learning_rate:" << learning_rate
+            << " initial_g2sum:" << initial_g2sum << " initial_range:" << initial_range
+            << "\nmf: min_bound:" << mf_min_bound << " max_bound:" << max_bound
+            << " learning_rate:" << mf_learning_rate << " initial_g2sum:" << mf_initial_g2sum
+            << " initial_range:" << mf_initial_range << " create_thresholds:" << mf_create_thresholds;
        
   }
 
@@ -339,6 +348,18 @@ class PSGPUWrapper {
     auto slots_vec = dataset->GetSlots();
     auto multi_slot_desc = dataset_->GetDataFeedDesc().multi_slot_desc();
     std::vector<std::string> slots_vec_test;
+/*
+    std::cout << "debug slot size:" << multi_slot_desc.slots_size() << std::endl;
+    for (int i = 0; i < (int)multi_slot_desc.slots_size(); i++) {
+      std::cout << multi_slot_desc.slots(i).name() << std::endl;
+    }
+    std::cout << "multi slot desc end" << std::endl;
+    std::cout << "debug slots_vec size:" << slots_vec.size() << std::endl;
+    for (int i = 0; i < (int)slots_vec.size(); i++) {
+        std::cout << slots_vec[i] << "|";
+    }
+    std::cout << "slots vec end" << std::endl;
+*/
     for (int i = 0; i < multi_slot_desc.slots_size(); ++i) {
       const auto& slot = multi_slot_desc.slots(i);
       if (slot.type() == "uint64" || slot.type() == "uint32") {
@@ -360,10 +381,12 @@ class PSGPUWrapper {
         }
       }
     }
+
     for (auto s : slot_offset_vector_) {
       std::cout << s << " | ";
     }
     std::cout << " end " <<std::endl;
+
     for (size_t i = 0; i < slot_mf_dim_vector_.size(); i++) {
       slot_dim_map_[slot_vector_[i]] = slot_mf_dim_vector_[i];
     }

@@ -163,6 +163,7 @@ class Dataset {
 
   virtual void SetPassId(uint32_t pass_id) = 0;
   virtual uint32_t GetPassID() = 0;
+  virtual void SetMultiTaskNum(int multi_task_num = 1) = 0;
 
  protected:
   virtual int ReceiveFromClient(int msg_type, int client_id,
@@ -259,7 +260,10 @@ class DatasetImpl : public Dataset {
   virtual uint32_t GetPassID() {
     return pass_id_;
   }
- 
+  
+  virtual void SetMultiTaskNum(int multi_task_num = 1) {
+    multi_task_num_ = multi_task_num;
+  }
   /* for enable_heterps_
   virtual void EnableHeterps(bool enable_heterps) {
     enable_heterps_ = enable_heterps;
@@ -336,6 +340,11 @@ class DatasetImpl : public Dataset {
   int64_t global_index_ = 0;
   std::vector<std::shared_ptr<ThreadPool>> consume_task_pool_;
   std::vector<T> input_records_;  // only for paddleboxdatafeed
+
+  // for multi-task
+  std::vector<T> pre_input_records_;
+  int multi_task_num_ = 1;
+
   std::vector<std::string> use_slots_;
   bool enable_heterps_ = false;
 };

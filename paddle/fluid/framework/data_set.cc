@@ -271,6 +271,7 @@ static void compute_left_batch_num(const int ins_num, const int thread_num,
 static void compute_batch_num(const int64_t ins_num, const int batch_size,
                               const int thread_num,
                               std::vector<std::pair<int, int>>* offset) {
+
   int thread_batch_num = batch_size * thread_num;
   // less data
   if (static_cast<int64_t>(thread_batch_num) > ins_num) {
@@ -279,8 +280,10 @@ static void compute_batch_num(const int64_t ins_num, const int batch_size,
   }
 
   int cur_pos = 0;
+
   int offset_num = static_cast<int>(ins_num / thread_batch_num) * thread_num;
   int left_ins_num = static_cast<int>(ins_num % thread_batch_num);
+
   if (left_ins_num > 0 && left_ins_num < thread_num) {
     offset_num = offset_num - thread_num;
     left_ins_num = left_ins_num + thread_batch_num;
@@ -299,23 +302,33 @@ static void compute_batch_num(const int64_t ins_num, const int batch_size,
       compute_left_batch_num(left_ins_num, thread_num, offset, cur_pos);
     }
   }
+
+
+
 }
 
 static int compute_thread_batch_nccl(
     const int thr_num, const int64_t total_instance_num,
     const int minibatch_size, std::vector<std::pair<int, int>>* nccl_offsets) {
+
   int thread_avg_batch_num = 0;
+
   if (total_instance_num < static_cast<int64_t>(thr_num)) {
     LOG(WARNING) << "compute_thread_batch_nccl total ins num:["
                  << total_instance_num << "], less thread num:[" << thr_num
                  << "]";
+
     return thread_avg_batch_num;
   }
 
   auto& offset = (*nccl_offsets);
+
   // split data avg by thread num
   compute_batch_num(total_instance_num, minibatch_size, thr_num, &offset);
+
   thread_avg_batch_num = static_cast<int>(offset.size() / thr_num);
+
+
 #ifdef PADDLE_WITH_GLOO
   auto gloo_wrapper = paddle::framework::GlooWrapper::GetInstance();
   if (!gloo_wrapper->IsInitialized()) {
@@ -432,6 +445,10 @@ void DatasetImpl<T>::LoadIntoMemory() {
   VLOG(3) << "DatasetImpl<T>::LoadIntoMemory() begin";
   platform::Timer timeline;
   timeline.Start();
+
+  // begin load into memory
+  readers_[0]->BeginLoadIntoMemory();
+
   std::vector<std::thread> load_threads;
   for (int64_t i = 0; i < thread_num_; ++i) {
     load_threads.push_back(std::thread(
@@ -440,12 +457,15 @@ void DatasetImpl<T>::LoadIntoMemory() {
   for (std::thread& t : load_threads) {
     t.join();
   }
+  // end load into memory
+  readers_[0]->EndLoadIntoMemory();
+   
   input_channel_->Close();
   int64_t in_chan_size = input_channel_->Size();
   input_channel_->SetBlockSize(in_chan_size / thread_num_ + 1);
 
   timeline.Pause();
-  VLOG(3) << "DatasetImpl<T>::LoadIntoMemory() end"
+  VLOG(0) << "DatasetImpl<T>::LoadIntoMemory() end"
           << ", memory data size=" << input_channel_->Size()
           << ", cost time=" << timeline.ElapsedSec() << " seconds";
 }
@@ -903,6 +923,7 @@ void DatasetImpl<T>::SetFleetSendSleepSeconds(int seconds) {
 
 template <typename T>
 void DatasetImpl<T>::CreateReaders() {
+
   VLOG(3) << "Calling CreateReaders()";
   VLOG(3) << "thread num in Dataset: " << thread_num_;
   VLOG(3) << "Filelist size in Dataset: " << filelist_.size();
@@ -1736,37 +1757,153 @@ void SlotRecordDataset::DynamicAdjustChannelNum(int channel_num,
 
   VLOG(3) << "adjust channel num done";
 }
+// copied from abacus
+// Get time in seconds.
+inline double current_realtime() {
+    struct timespec tp;
+    clock_gettime(CLOCK_REALTIME, &tp);
+    return tp.tv_sec + tp.tv_nsec * 1e-9;
+}
+
+inline std::default_random_engine& local_random_engine() {
+    struct engine_wrapper_t {
+        std::default_random_engine engine;
+        engine_wrapper_t() {
+            static std::atomic<unsigned long> x(0);
+            std::seed_seq sseq = {x++, x++, x++, (unsigned long)(current_realtime() * 1000)};
+            engine.seed(sseq);
+        }
+    };
+    thread_local engine_wrapper_t r;
+    return r.engine;
+}
 
 void SlotRecordDataset::PrepareTrain() {
 #ifdef PADDLE_WITH_GLOO
   if (enable_heterps_) {
-    if (input_records_.size() == 0 && input_channel_ != nullptr &&
+
+    if (pre_input_records_.size() == 0 && input_channel_ != nullptr &&
         input_channel_->Size() != 0) {
-      input_channel_->ReadAll(input_records_);
+
+      // channel shuffle 
+
+      input_channel_->ReadAll(pre_input_records_);
       VLOG(3) << "read from channel to records with records size: "
-              << input_records_.size();
+              << pre_input_records_.size();
+
     }
-    VLOG(3) << "input records size: " << input_records_.size();
-    int64_t total_ins_num = input_records_.size();
-    std::vector<std::pair<int, int>> offset;
+    VLOG(0) << "pre_input records size: " << pre_input_records_.size();
+
     int default_batch_size =
         reinterpret_cast<SlotRecordInMemoryDataFeed*>(readers_[0].get())
             ->GetDefaultBatchSize();
+
+    // ============ multi-task adapter=================
+    // read from pre_input_records_ to input_records
+    
+    std::shuffle(pre_input_records_.begin(), pre_input_records_.end(), local_random_engine());
+ 
+    if (multi_task_num_ <=1 ) {
+      VLOG(3) << "multi_task_num = 1";
+      // CHECK(input_records_.size() == 0) << "input_records size must be zero";
+      if (!pre_input_records_.empty()) {
+        input_records_.insert(input_records_.end(), pre_input_records_.begin(), pre_input_records_.end());
+        pre_input_records_.clear();
+      }
+
+    } else {
+ 
+        // 把每个task的样本分开
+        std::vector<std::vector<size_t>> task_recs(multi_task_num_, std::vector<size_t>());
+        // 记录每个task的样本数量
+        std::vector<size_t> task_recs_count(multi_task_num_, 0);
+       
+        std::vector<std::pair<size_t, size_t>> minibatch_index;  // pair: queue, minibatch_index_in_queue
+
+        // minibatch building
+        for (size_t i = 0; i < pre_input_records_.size(); ++i) {
+            // task id = 1, queue = 0
+            // task_id = 2, queue = 1
+            int task_id =
+                reinterpret_cast<SlotRecordInMemoryDataFeed*>(readers_[0].get())
+                    ->GetRecordTaskId(data_feed_desc_, pre_input_records_[i]);
+
+            size_t queue = (size_t)task_id - 1;
+            CHECK(queue < (size_t)multi_task_num_);
+
+            // 样本id
+            task_recs[queue].push_back(i);
+            task_recs_count[queue] += 1;
+
+            // 该task获得一个完整minibatch数据，就将该minibatch加入候选队列
+            // 最后每个task剩余的不足minibatch的数据即抛弃
+            // 第二个参数是第几个minibatch
+            if (task_recs_count[queue] % default_batch_size == 0) {
+                minibatch_index.push_back(std::make_pair(queue,
+                        (size_t)(task_recs_count[queue] / default_batch_size - 1)));
+            }
+
+        }
+        
+        if (!pre_input_records_.empty()) {
+ 
+          std::shuffle(minibatch_index.begin(), minibatch_index.end(), local_random_engine());
+
+          // INFO LOG
+          VLOG(0) << "minibatch_size: " << default_batch_size;
+          VLOG(0) << "minibatch_index_size: " << minibatch_index.size();
+
+          for (size_t i = 0; i < task_recs_count.size(); ++i) {
+            VLOG(0) << "task" << i + 1 << " recs count: " << task_recs_count[i];
+          }
+          // minibatch concating
+          // 就是让一个minibatch的都是一个任务的
+          for (size_t i = 0; i < minibatch_index.size(); ++i) {
+            size_t queue = minibatch_index[i].first;
+            size_t index = minibatch_index[i].second;
+
+            for (size_t j = index * default_batch_size; j < (index + 1) * default_batch_size; ++j) {
+                input_records_.push_back(std::move(pre_input_records_[task_recs[queue][j]]));
+            }
+          }
+          pre_input_records_.clear();
+        }    
+    }
+
+    VLOG(0) << "input records size: " << input_records_.size();
+
+    int64_t total_ins_num = input_records_.size();
+
+    // ================================================
+
+    std::vector<std::pair<int, int>> offset;
+
+    // int default_batch_size =
+    //    reinterpret_cast<SlotRecordInMemoryDataFeed*>(readers_[0].get())
+    //        ->GetDefaultBatchSize();
+
     VLOG(3) << "thread_num: " << thread_num_
             << " memory size: " << total_ins_num
             << " default batch_size: " << default_batch_size;
+
     compute_thread_batch_nccl(thread_num_, total_ins_num, default_batch_size,
                               &offset);
+
     VLOG(3) << "offset size: " << offset.size();
+
     for (int i = 0; i < thread_num_; i++) {
       reinterpret_cast<SlotRecordInMemoryDataFeed*>(readers_[i].get())
           ->SetRecord(&input_records_[0]);
     }
+
     for (size_t i = 0; i < offset.size(); i++) {
       reinterpret_cast<SlotRecordInMemoryDataFeed*>(
           readers_[i % thread_num_].get())
           ->AddBatchOffset(offset[i]);
     }
+
+
+
   }
 #else
   PADDLE_THROW(platform::errors::Unavailable(

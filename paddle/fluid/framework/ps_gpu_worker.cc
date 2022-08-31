@@ -55,6 +55,7 @@ void PSGPUWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
         }
       }
     }
+    // 设置为Runtime infer shape flag
     for (auto& op : ops_) {
       op->SetIsRuntimeInferShape(true);
     }
@@ -66,6 +67,7 @@ void PSGPUWorker::BindingDataFeedMemory() {
     this->HogwildWorker::BindingDataFeedMemory();
   } else {
     for (auto& scope : thread_scope_vec_) {
+      // data feed 设置每个scope的feed_vec...不过不都是空的吗
       device_reader_->AssignFeedVar(*scope);
     }
   }
@@ -320,6 +322,7 @@ int PSGPUWorker::OpRunAndShapeCheck(OperatorBase& op,
 
 
 void PSGPUWorker::TrainFiles() {
+
   VLOG(0) << "Begin to train files";
   platform::SetNumThreads(1);
   platform::Timer timeline;
@@ -331,25 +334,40 @@ void PSGPUWorker::TrainFiles() {
   device_reader_->Start();
   int cur_batch;
   int batch_cnt = 0;
-
   int graph_batch_size = 0;
-
   platform::SetDeviceId(place_.GetDeviceId());
+
 
   // async infershape
   pack_is_end_.store(false);
+
+  // scope_num_ != 1是什么情况
   if (scope_num_ != 1) {
+
+    //每个scope一个task 
     for (size_t i = 0; i < thread_scope_vec_.size(); i++) {
       TaskData task;
       task.scope = thread_scope_vec_[i];
       free_task_queue_.Push(task);
     }
+
+    // async infershape
+    //int task_threads_num_ {6};
+    //int scope_num_ {task_threads_num_ + 1};
+    // 
     thread_count_.store(task_threads_num_);
     task_threads_.reserve(task_threads_num_);
+
+    // 开启多个线程
     for (int i = 0; i < task_threads_num_; i++) {
+
       task_threads_.emplace_back(std::thread([this]() -> void {
+
         while (true) {
+
+          // 拿到一个pack
           auto pack = device_reader_->get_pack(nullptr);
+
           if (pack == nullptr) {
             int thread_num = thread_count_.fetch_sub(1);
             if (thread_num == 1) {
@@ -357,10 +375,12 @@ void PSGPUWorker::TrainFiles() {
             }
             return;
           }
+
           auto task = free_task_queue_.Pop();
           task.pack = pack;
           task.ins_num = pack->ins_num();
           device_reader_->PackToScope(task.pack, task.scope);
+
           for (size_t i = 0; i < ops_.size(); i++) {
             auto& op = ops_[i];
             bool need_skip = false;
@@ -374,23 +394,37 @@ void PSGPUWorker::TrainFiles() {
               op->RuntimeInferShape(*task.scope);
             }
           }
+
           using_task_queue_.Push(task);
+
         }
+
+
       }));
+
     }
+
   }
 
   while (true) {
+
     auto thread_scope = thread_scope_;
+
     TaskData cur_task;
+
     if (scope_num_ == 1) {
+
       cur_batch = device_reader_->Next();
+
     } else {
+
       while (true) {
         if (using_task_queue_.Size() != 0) {
+
           cur_task = using_task_queue_.Pop();
           cur_batch = cur_task.ins_num;
           break;
+
         }
         bool is_end = pack_is_end_.load();
         if (is_end) {
@@ -411,6 +445,9 @@ void PSGPUWorker::TrainFiles() {
 
     total_ins_num += cur_batch;
 
+
+    // 这个是干啥的
+    //
     if (shape_check_flag_.load()) {
       VLOG(0) << "Begin OpRunAndShapeCheck... "
             << shape_check_count_.load();
@@ -430,7 +467,71 @@ void PSGPUWorker::TrainFiles() {
           }
         }
         if (!need_skip) {
+/*
+       std::vector<std::string> check_nan_var_names {"fc_news_u1.tmp_0", "fc_news_u1.tmp_1", "_generated_var_6", "_generated_var_0"};
+
+    for (std::string& var_name : check_nan_var_names) {
+      Variable* var = thread_scope->FindVar(var_name);
+      if (var == nullptr) {
+        continue;
+      }
+      LoDTensor* tensor = var->GetMutable<LoDTensor>();
+      if (tensor == nullptr || !tensor->IsInitialized()) {
+        continue;
+      }
+      if (framework::TensorContainsInf(*tensor) ||
+          framework::TensorContainsNAN(*tensor)) {
+        static std::mutex mutex;
+        {
+          std::lock_guard<std::mutex> lock(mutex);
+          VLOG(0) << "worker " << thread_id_ << ": " << var_name
+                  << " cantains inf or nan";
+          auto all_vars = thread_scope->LocalVarNames();
+          std::stringstream ss;
+          ss << "====== worker " << thread_id_ << "======\n";
+          for (auto& local_var : all_vars) {
+            platform::PrintVar(thread_scope, local_var, local_var, &ss);
+            ss << "\n";
+          }
+          std::cout << ss.str() << std::endl;
+          VLOG(0) << "worker " << thread_id_ << "print nan var done....";
+        }
+        sleep(600);
+        exit(-1);
+      }
+    }
+*/
+
+//           VLOG(0) << "debug run op:" << op->Type(); 
+/*
+          if (op->Type() == "weighted_random_sample") {
+
+              // check the output of data_norm
+              // Variable* var = thread_scope->FindVar("_generated_var_6");
+              Variable* var = thread_scope->FindVar("fc_news_u1.tmp_1");
+              if (var == nullptr) {
+                  continue;
+              }
+
+              LoDTensor* tensor = var->GetMutable<LoDTensor>();
+              if (tensor == nullptr || !tensor->IsInitialized()) {
+                 continue;
+              }
+
+              float* tensor_data = tensor->data<float>();
+              const size_t total_len = tensor->dims()[0] * tensor->dims()[1];
+              float  tmp_data[total_len];
+              cudaMemcpy(tmp_data, tensor_data, total_len * sizeof(float), cudaMemcpyDeviceToHost);
+              for (int i = 0; i < tensor->dims()[0]; i++) {
+                  for (int j = 0; j < tensor->dims()[1]; j++) { 
+                    std::cout << tmp_data[i * tensor->dims()[1] + j] << " ";
+                  }
+                  std::cout << std::endl;
+              }
+          }
+*/
           OpRunAndShapeCheck(*op, *thread_scope, place_);
+
         }
       }
       graph_batch_size = cur_batch;
