@@ -151,9 +151,9 @@ void _calc_feature_match(
 // Eigen::MatrixXf sample_weight_mat(ori_ins_num, ori_ins_num);
 // _calc_sample_weight(vec_sim_mat, feature_match_mat, sample_weight_mat);
 void _calc_sample_weight(
-        const float vec_sim_max,
-        const float vec_sim_base,
-        const float fea_match_base, 
+        const double vec_sim_max,
+        const double vec_sim_base,
+        const double fea_match_base, 
         const Eigen::MatrixXf& vec_sim_mat,
         const std::vector<Eigen::MatrixXf>& feature_match_mat,
         Eigen::MatrixXf& sample_weight_mat) {
@@ -249,9 +249,9 @@ void _do_weighted_rematch(
 // random_val: [ins_num * 4, 1], 前面前面ins_num行，每行的值为ins的id, 后面每行都是0
 // _weighted_rematch(self_in_val, other_in_val, random_val);
 void _weighted_rematch(
-        const float vec_sim_max,
-        const float vec_sim_base,
-        const float fea_match_base, 
+        const double vec_sim_max,
+        const double vec_sim_base,
+        const double fea_match_base, 
         const Eigen::MatrixXf& self_in_val,
         const Eigen::MatrixXf& other_in_val,
         const Eigen::MatrixXf& weighted_sample_feature,
@@ -364,9 +364,9 @@ class WeightedRandomSampleOpCPUKernel : public framework::OpKernel<T> {
     bool do_random = ctx.Attr<bool>("do_random");
     bool use_global_random_rematch = ctx.Attr<bool>("do_random");
     int random_rematch_ratio = ctx.Attr<int>("random_rematch_ratio");
-    float vec_sim_max = ctx.Attr<float>("vec_sim_max");
-    float vec_sim_base = ctx.Attr<float>("vec_sim_base");
-    float fea_match_base = ctx.Attr<float>("fea_match_base");
+    double vec_sim_max = ctx.Attr<float>("vec_sim_max");
+    double vec_sim_base = ctx.Attr<float>("vec_sim_base");
+    double fea_match_base = ctx.Attr<float>("fea_match_base");
     std::string weight_formula = ctx.Attr<std::string>("weight_formula");
     bool need_initialize = ctx.Attr<bool>("need_initialize");
 

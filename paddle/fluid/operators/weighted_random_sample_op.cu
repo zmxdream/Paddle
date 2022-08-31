@@ -368,9 +368,9 @@ template <typename T>
 __global__ void CalcSampleWeight(
         const int ins_num,
         const int fea_num,
-        const float vec_sim_max,
-        const float vec_sim_base,
-        const float fea_match_base, 
+        const double vec_sim_max,
+        const double vec_sim_base,
+        const double fea_match_base, 
         const T* vec_sim_mat,
         const T* feature_match_mat,
         T* sample_weight_mat) {
@@ -379,7 +379,7 @@ __global__ void CalcSampleWeight(
         int i = z / ins_num;
         int j = z % ins_num;
         // double cosine = vec_sim_mat[z];
-        float cosine = vec_sim_mat[z];
+        double cosine = vec_sim_mat[z];
         if (i == j) {
             sample_weight_mat[z] = 0.0;
             continue;
@@ -405,9 +405,9 @@ __global__ void CalcSampleWeight(
 template <typename T>
 __global__ void DoWeightedRematch(const int ins_num,
         const T* sample_weight_mat,
-        T* cdf_mat) {
+        double* cdf_mat) {
     CUDA_KERNEL_LOOP(i, ins_num) {
-        T* cdf = cdf_mat + i * ins_num;
+        double* cdf = cdf_mat + i * ins_num;
         const T* sample_weight_start = sample_weight_mat + i * ins_num;
         cdf[0] = sample_weight_start[0];
         for (int k = 1; k < ins_num; k++) cdf[k] = cdf[k - 1] + sample_weight_start[k];
@@ -469,10 +469,9 @@ __global__ void DoWeightedRematch(const int ins_num,
 
 }
 
-template <typename T>
 __global__ void FillRandomVal(const int sample_num,
                          const int ins_num,
-                         const T* cdf_data,
+                         const double* cdf_data,
                          int64_t* random_val) {
     CUDA_KERNEL_LOOP(z, ins_num * sample_num) {  
       const int i = z / sample_num;
@@ -482,8 +481,8 @@ __global__ void FillRandomVal(const int sample_num,
       int tid_x = blockIdx.x * blockDim.x + threadIdx.x;
       curandState state;
       curand_init(clock64(), tid_x, 0, &state);
-      double rand_num = curand_uniform(&state);
-      const T* cdf = cdf_data + i * ins_num;
+      double rand_num = curand_uniform_double(&state);
+      const double* cdf = cdf_data + i * ins_num;
       for (int k = 0; k < ins_num; ++k) {
         if (cdf[k] > rand_num) {
           pos = k;
@@ -677,9 +676,9 @@ void WeightedRematch(const framework::ExecutionContext& ctx,
         const int ori_ins_num,
         const int col_num,
         const int ext_ins_num,
-        const float vec_sim_max,
-        const float vec_sim_base,
-        const float fea_match_base, 
+        const double vec_sim_max,
+        const double vec_sim_base,
+        const double fea_match_base, 
         const T* self_in_val,
         const T* other_in_val,
         const T* weighted_sample_feature,
@@ -711,8 +710,8 @@ void WeightedRematch(const framework::ExecutionContext& ctx,
     auto sample_weight_mat_v = memory::Alloc(ctx.GetPlace(), ori_ins_num * ori_ins_num * sizeof(T));
     T* sample_weight_data = reinterpret_cast<T*>(sample_weight_mat_v->ptr());
 
-    auto cdf_mat_v = memory::Alloc(ctx.GetPlace(), ori_ins_num * ori_ins_num * sizeof(T));
-    T* cdf_data = reinterpret_cast<T*>(cdf_mat_v->ptr());
+    auto cdf_mat_v = memory::Alloc(ctx.GetPlace(), ori_ins_num * ori_ins_num * sizeof(double));
+    double* cdf_data = reinterpret_cast<double*>(cdf_mat_v->ptr());
 
 
 
@@ -768,9 +767,9 @@ class WeightedRandomSampleOpGPUKernel : public framework::OpKernel<T> {
     bool do_random = ctx.Attr<bool>("do_random");
     bool use_global_random_rematch = ctx.Attr<bool>("do_random");
     int random_rematch_ratio = ctx.Attr<int>("random_rematch_ratio");
-    float vec_sim_max = ctx.Attr<float>("vec_sim_max");
-    float vec_sim_base = ctx.Attr<float>("vec_sim_base");
-    float fea_match_base = ctx.Attr<float>("fea_match_base");
+    double vec_sim_max = ctx.Attr<float>("vec_sim_max");
+    double vec_sim_base = ctx.Attr<float>("vec_sim_base");
+    double fea_match_base = ctx.Attr<float>("fea_match_base");
     std::string weight_formula = ctx.Attr<std::string>("weight_formula");
     bool need_initialize = ctx.Attr<bool>("need_initialize");
 
