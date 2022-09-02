@@ -1801,8 +1801,11 @@ void SlotRecordDataset::PrepareTrain() {
     // ============ multi-task adapter=================
     // read from pre_input_records_ to input_records
     
-    std::shuffle(pre_input_records_.begin(), pre_input_records_.end(), local_random_engine());
- 
+    if (pre_input_records_.size() > 0) { 
+
+        std::shuffle(pre_input_records_.begin(), pre_input_records_.end(), local_random_engine());
+    }
+
     if (multi_task_num_ <=1 ) {
       VLOG(3) << "multi_task_num = 1";
       // CHECK(input_records_.size() == 0) << "input_records size must be zero";
@@ -1810,62 +1813,148 @@ void SlotRecordDataset::PrepareTrain() {
         input_records_.insert(input_records_.end(), pre_input_records_.begin(), pre_input_records_.end());
         pre_input_records_.clear();
       }
-
     } else {
  
         // 把每个task的样本分开
+        // std::vector<::paddle::framework::BlockingQueue<size_t>> task_recs(multi_task_num_, ::paddle::framework::BlockingQueue<size_t>());
         std::vector<std::vector<size_t>> task_recs(multi_task_num_, std::vector<size_t>());
         // 记录每个task的样本数量
-        std::vector<size_t> task_recs_count(multi_task_num_, 0);
-       
-        std::vector<std::pair<size_t, size_t>> minibatch_index;  // pair: queue, minibatch_index_in_queue
+        // std::vector<size_t> task_recs_count(multi_task_num_, 0);
+
+        std::vector<std::shared_ptr<std::atomic<uint32_t>>> task_recs_count;
+        task_recs_count.resize(multi_task_num_);
+        for (size_t i = 0; i < task_recs_count.size(); i++) {
+          task_recs_count[i].reset(new std::atomic<uint32_t>());
+          task_recs_count[i]->store(0);
+        }
+
+         std::vector<int> task_id_vec(pre_input_records_.size(), 0);
+         int* task_id_data = task_id_vec.data();
+
+         std::vector<int> task_index_vec(pre_input_records_.size(), 0);
+         int* task_index_data = task_index_vec.data();
+         
+
+        // std::vector<std::pair<size_t, size_t>> minibatch_index;  // pair: queue, minibatch_index_in_queue
 
         // minibatch building
-        for (size_t i = 0; i < pre_input_records_.size(); ++i) {
+        // ============== multi-thread optimize ===============
+        const int pre_build_thread_num = 50;
+        std::vector<std::thread> build_threads;
+
+        auto prebuild_thread = [this, &task_recs_count, &task_id_data, &task_index_data, pre_build_thread_num](int thread_id) {
+          for (size_t i = thread_id; i < pre_input_records_.size(); i += pre_build_thread_num) {
             // task id = 1, queue = 0
             // task_id = 2, queue = 1
             int task_id =
                 reinterpret_cast<SlotRecordInMemoryDataFeed*>(readers_[0].get())
                     ->GetRecordTaskId(data_feed_desc_, pre_input_records_[i]);
-
             size_t queue = (size_t)task_id - 1;
+            task_id_data[i] = queue;
             CHECK(queue < (size_t)multi_task_num_);
-
             // 样本id
-            task_recs[queue].push_back(i);
-            task_recs_count[queue] += 1;
-
+            // atomic operator 
+            // task_recs[queue].Push(i);
+            int task_index = task_recs_count[queue]->fetch_add(1);
+            task_index_data[i] = task_index;
             // 该task获得一个完整minibatch数据，就将该minibatch加入候选队列
             // 最后每个task剩余的不足minibatch的数据即抛弃
             // 第二个参数是第几个minibatch
-            if (task_recs_count[queue] % default_batch_size == 0) {
-                minibatch_index.push_back(std::make_pair(queue,
-                        (size_t)(task_recs_count[queue] / default_batch_size - 1)));
-            }
-
+            // if (ins_num % default_batch_size == 0) {
+            //    minibatch_index.push_back(std::make_pair(queue,
+            //            (size_t)(ins_num / default_batch_size - 1)));
+            //}
+          }
+        };
+        build_threads.resize(pre_build_thread_num);
+        for (int t = 0; t < pre_build_thread_num; t++) {
+          build_threads[t] = std::thread(prebuild_thread, t);
         }
+        for(std::thread& t: build_threads) {
+          t.join();
+        }
+        build_threads.clear();
+
+        for(size_t i = 0; i < task_recs_count.size(); i++) {
+          task_recs[i].resize(task_recs_count[i]->load());
+        }
+
+        const size_t build_thread_num = 50;
+        auto build_thread = [this, &task_recs, &task_id_vec, &task_index_vec, build_thread_num](int thread_id) {
+          for (size_t i = thread_id; i < pre_input_records_.size(); i += build_thread_num) {
+             int queue = task_id_vec[i];
+             int index = task_index_vec[i];
+             task_recs[queue][index] = i;
+          }
+        };
+
+        build_threads.resize(build_thread_num);
+        for (size_t t = 0; t < build_thread_num; t++) {
+          build_threads[t] = std::thread(build_thread, t);
+        }
+        for(std::thread& t: build_threads) {
+          t.join();
+        }
+        build_threads.clear();
+
+        size_t minibatch_num = 0;
+        for (size_t i = 0; i < task_recs.size(); i++) {
+            minibatch_num += task_recs[i].size() / default_batch_size;
+        }
+
+        // ============== multi-thread optimize ===============
         
         if (!pre_input_records_.empty()) {
  
-          std::shuffle(minibatch_index.begin(), minibatch_index.end(), local_random_engine());
+          // std::shuffle(minibatch_index.begin(), minibatch_index.end(), local_random_engine());
 
           // INFO LOG
           VLOG(0) << "minibatch_size: " << default_batch_size;
-          VLOG(0) << "minibatch_index_size: " << minibatch_index.size();
+          VLOG(0) << "minibatch_index_size: " << minibatch_num;
+
+          input_records_.resize(minibatch_num * default_batch_size);
 
           for (size_t i = 0; i < task_recs_count.size(); ++i) {
-            VLOG(0) << "task" << i + 1 << " recs count: " << task_recs_count[i];
+            VLOG(0) << "task" << i + 1 << " recs count: " << task_recs_count[i]->load();
           }
+
+          // ========== multi-thread optimize =========
+
+          const size_t move_thread_num = 30;
+          build_threads.resize(task_recs.size() * move_thread_num);
+       
+          auto move_thread = [this, &task_recs, default_batch_size, move_thread_num](size_t queue, size_t thread_id, size_t batch_offset) {
+            size_t minibatch_num = task_recs[queue].size() / default_batch_size;
+            for (size_t index = thread_id; index < minibatch_num; index += move_thread_num) {
+              for (size_t j = index * default_batch_size; j < (index + 1) * default_batch_size; ++j) {
+                input_records_[batch_offset * default_batch_size + j] = std::move(pre_input_records_[task_recs[queue][j]]);
+              }
+            }
+          };
+
+          size_t batch_offset = 0;
+          for (size_t i = 0; i < task_recs.size(); i++) { 
+            for (size_t j = 0; j < move_thread_num; j++) {
+              build_threads[i * move_thread_num + j] = std::thread(move_thread, i, j, batch_offset);
+            }
+            batch_offset += task_recs[i].size() / default_batch_size;
+          }
+          for(std::thread& t: build_threads) {
+            t.join();
+          }
+          build_threads.clear();
+
           // minibatch concating
           // 就是让一个minibatch的都是一个任务的
-          for (size_t i = 0; i < minibatch_index.size(); ++i) {
-            size_t queue = minibatch_index[i].first;
-            size_t index = minibatch_index[i].second;
+          // for (size_t i = 0; i < minibatch_index.size(); ++i) {
+          //  size_t queue = minibatch_index[i].first;
+          //  size_t index = minibatch_index[i].second;
+          //  for (size_t j = index * default_batch_size; j < (index + 1) * default_batch_size; ++j) {
+          //      input_records_.push_back(std::move(pre_input_records_[task_recs[queue][j]]));
+          //  }
+          //}
 
-            for (size_t j = index * default_batch_size; j < (index + 1) * default_batch_size; ++j) {
-                input_records_.push_back(std::move(pre_input_records_[task_recs[queue][j]]));
-            }
-          }
+          // ============ multi-thread optimize =======
           pre_input_records_.clear();
         }    
     }
@@ -1877,10 +1966,6 @@ void SlotRecordDataset::PrepareTrain() {
     // ================================================
 
     std::vector<std::pair<int, int>> offset;
-
-    // int default_batch_size =
-    //    reinterpret_cast<SlotRecordInMemoryDataFeed*>(readers_[0].get())
-    //        ->GetDefaultBatchSize();
 
     VLOG(3) << "thread_num: " << thread_num_
             << " memory size: " << total_ins_num
