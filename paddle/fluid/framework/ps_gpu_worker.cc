@@ -517,7 +517,7 @@ void PSGPUWorker::TrainFiles() {
         }
         if (!need_skip) {
 /*
-       std::vector<std::string> check_nan_var_names {"fc_news_u1.tmp_0", "fc_news_u1.tmp_1", "_generated_var_6", "_generated_var_0"};
+       std::vector<std::string> check_nan_var_names {"_generated_var_6", "fc_news_u1.tmp_0", "fc_news_u1.tmp_1", "fc_news_u2.tmp_0", "fc_news_u2.tmp_1", "fc_news_u1_update.tmp_0", "fc_news_u1_update.tmp_1", "fc_news_u2_update.tmp_0", "fc_news_u2_update.tmp_1", "_generated_var_1", "_generated_var_0"};
 
     for (std::string& var_name : check_nan_var_names) {
       Variable* var = thread_scope->FindVar(var_name);
@@ -551,34 +551,6 @@ void PSGPUWorker::TrainFiles() {
     }
 */
 
-//           VLOG(0) << "debug run op:" << op->Type(); 
-/*
-          if (op->Type() == "weighted_random_sample") {
-
-              // check the output of data_norm
-              // Variable* var = thread_scope->FindVar("_generated_var_6");
-              Variable* var = thread_scope->FindVar("fc_news_u1.tmp_1");
-              if (var == nullptr) {
-                  continue;
-              }
-
-              LoDTensor* tensor = var->GetMutable<LoDTensor>();
-              if (tensor == nullptr || !tensor->IsInitialized()) {
-                 continue;
-              }
-
-              float* tensor_data = tensor->data<float>();
-              const size_t total_len = tensor->dims()[0] * tensor->dims()[1];
-              float  tmp_data[total_len];
-              cudaMemcpy(tmp_data, tensor_data, total_len * sizeof(float), cudaMemcpyDeviceToHost);
-              for (int i = 0; i < tensor->dims()[0]; i++) {
-                  for (int j = 0; j < tensor->dims()[1]; j++) { 
-                    std::cout << tmp_data[i * tensor->dims()[1] + j] << " ";
-                  }
-                  std::cout << std::endl;
-              }
-          }
-*/
           OpRunAndShapeCheck(*op, *thread_scope, place_);
 
         }

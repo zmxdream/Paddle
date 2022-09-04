@@ -310,6 +310,7 @@ __global__ void CopyKernel3(T* random_val, T* random_label_target_val, const int
     }
 }
 
+/*
 template <typename T>
 __global__ void CalcVectorSimilarityKernel(
         const int ins_num,
@@ -333,11 +334,114 @@ __global__ void CalcVectorSimilarityKernel(
         b_norm_j = sqrt(b_norm_j);
         // CHECK(a_norm_i >= 1e-5 && b_norm_j >= 1e-5);
         if (!(a_norm_i >= 1e-5 && b_norm_j >= 1e-5)) {
-            printf("a_norm_i or b_norm_j not >= 1e-5");
+            printf("a_norm_i or b_norm_j not >= 1e-5\n");
         }
         vec_sim_mat[z] /= (a_norm_i * b_norm_j);
     }
+}
+*/
 
+template <typename T>
+__global__ void CalcVectorSimilarityKernel(
+        const int ins_num,
+        const int cols,
+        const T* self_in_val,
+        const T* other_in_val,
+        T* vec_sim_mat) {
+      
+        // (ins_num * ins_num - 1) / 32 + 1 
+        // const size_t z = blockIdx.x * blockDim.x + threadIdx.x;
+        const size_t q = blockIdx.x * 32 + threadIdx.x / WARP_SIZE;
+        if (4 * q >= ins_num * ins_num) return;
+
+        cg::thread_block b = cg::this_thread_block();
+        cg::thread_block_tile<WARP_SIZE> g = cg::tiled_partition<WARP_SIZE>(b);
+        const size_t k = g.thread_rank();
+
+        int col_per_thread = cols / WARP_SIZE;
+        int remain = cols % WARP_SIZE;
+
+        int col_size = col_per_thread;
+        if (k < remain) col_size++;
+  
+        int left = -1, right = -1;
+        if (k < remain) {
+          left = k * (col_per_thread + 1);
+          right = left + col_size;
+        } else {
+          left = remain * (col_per_thread + 1) + (k - remain) * col_per_thread;
+          right = left + col_size;
+        }
+
+        for (int z = 4 * q; (z < 4 * q + 4) && (z < ins_num * ins_num); z++) {
+
+          const size_t i = z / ins_num;
+          const size_t j = z % ins_num;
+          // const size_t k = threadIdx.y;
+
+          // cg::thread_block b = cg::this_thread_block();
+          // cg::thread_block_tile<WARP_SIZE> g = cg::tiled_partition<WARP_SIZE>(b);
+          // const size_t k = g.thread_rank();
+
+          // a_norm, b_norm
+          float a_norm_i = 0.0;
+          float b_norm_j = 0.0;
+          vec_sim_mat[z] = 0.0;
+   
+          // int col_per_thread = cols / WARP_SIZE;
+          // int remain = cols % WARP_SIZE;
+
+          // int col_size = col_per_thread;
+          // if (k < remain) col_size++;
+  
+          // int left = -1, right = -1;
+          // if (k < remain) {
+          //  left = k * (col_per_thread + 1);
+          //  right = left + col_size;
+          // } else {
+          //  left = remain * (col_per_thread + 1) + (k - remain) * col_per_thread;
+          //  right = left + col_size;
+          // }
+
+          float local_a_norm_i_sum = 0.0;
+          float local_b_norm_j_sum = 0.0;
+          float local_vec_sim_sum = 0.0; 
+
+          for (int t = left; t < right; t++) {
+            local_a_norm_i_sum += other_in_val[i * cols + t] * other_in_val[i * cols + t];
+            local_b_norm_j_sum += self_in_val[j * cols + t] * self_in_val[j * cols + t];
+            local_vec_sim_sum += other_in_val[i * cols + t] * self_in_val[j * cols + t];
+          }
+
+          // reduce among threads within warp
+          // shfl_down
+          for (int p = 1; p < WARP_SIZE; p *= 2) {
+            local_a_norm_i_sum += g.shfl_down(local_a_norm_i_sum, p);
+            local_b_norm_j_sum += g.shfl_down(local_b_norm_j_sum, p);
+            local_vec_sim_sum += g.shfl_down(local_vec_sim_sum, p);
+            // if (g.thread_rank() < p) {
+            //
+            //}
+          }
+          // for (int k = 0; k < cols; k++) {
+          //    a_norm_i += other_in_val[i * cols + k] * other_in_val[i* cols + k];
+          //    b_norm_j += self_in_val[j * cols + k] * self_in_val[j * cols + k];
+          //    vec_sim_mat[z] += other_in_val[i * cols + k] * self_in_val[j * cols + k];
+          //}
+
+          if (g.thread_rank() == 0) {
+            a_norm_i = sqrt(local_a_norm_i_sum);
+            b_norm_j = sqrt(local_b_norm_j_sum);
+
+            // CHECK(a_norm_i >= 1e-5 && b_norm_j >= 1e-5);
+            if (!(a_norm_i >= 1e-5 && b_norm_j >= 1e-5)) {
+                printf("a_norm_i or b_norm_j not >= 1e-5, %f, %f, %f, %f\n", local_a_norm_i_sum, local_b_norm_j_sum, a_norm_i, b_norm_j);
+            }
+
+            vec_sim_mat[z] = local_vec_sim_sum / (a_norm_i * b_norm_j);
+          }
+          g.sync();
+        }
 }
 
 template <typename T>
@@ -406,50 +510,58 @@ template <typename T>
 __global__ void DoWeightedRematch(const int ins_num,
         const T* sample_weight_mat,
         double* cdf_mat) {
+/*
     CUDA_KERNEL_LOOP(i, ins_num) {
+
         double* cdf = cdf_mat + i * ins_num;
         const T* sample_weight_start = sample_weight_mat + i * ins_num;
         cdf[0] = sample_weight_start[0];
         for (int k = 1; k < ins_num; k++) cdf[k] = cdf[k - 1] + sample_weight_start[k];
         double sum = cdf[ins_num - 1];
-        if (!(sum >= 1e-5)) { printf("sum not >= 1e-5"); }
+        if (!(sum >= 1e-5)) { printf("sum not >= 1e-5\n"); }
         for (int k = 0; k < ins_num; k++) {cdf[k] /= sum; }
     }
+*/
 
-/*
   // 32 threads(warp) for each ins      
-  const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
-  const size_t j = threadIdx.y;
+  const size_t i = blockIdx.x * 32 + threadIdx.x / WARP_SIZE;
+  if (i >= ins_num) return;
+
+  // const size_t j = threadIdx.y;
 
   cg::thread_block b = cg::this_thread_block();
   cg::thread_block_tile<WARP_SIZE> g = cg::tiled_partition<WARP_SIZE>(b);
+  const size_t j = g.thread_rank();
 
-  int cdf_size = ins_num / blockDim.y;
-  int left_size = ins_num % blockDim.y
-  if (j < left_size) cdf_size++;
+  int cdf_per_thread = ins_num / WARP_SIZE;
+  int remain = ins_num % WARP_SIZE;
+  
+  int cdf_size = cdf_per_thread;
+
+  if (j < remain) cdf_size++;
+
   //float cdf[cdf_size];
-  float* cdf = cdf_mat + i * ins_num;
-  float* sample_weight_start = sample_weight_mat + i * ins_num；
-  if (j <= left_size) {
-    sample_weight_start += j * cdf_size;
-    cdf += j * cdf_size; 
+  double* cdf = cdf_mat + i * ins_num;
+  const T* sample_weight_start = sample_weight_mat + i * ins_num;
+
+  if (j < remain) {
+    sample_weight_start += j * (cdf_per_thread + 1);
+    cdf += j * (cdf_per_thread + 1); 
   }
   else {
-    sample_weight_start += left_size * (cdf_size + 1) + (j - left_size) * cdf_size;
-    cdf += left_size * (cdf_size + 1) + (j - left_size) * cdf_size;
+    sample_weight_start += remain * (cdf_per_thread + 1) + (j - remain) * cdf_per_thread;
+    cdf += remain * (cdf_per_thread + 1) + (j - remain) * cdf_per_thread;
   }
+
   // prefix sum
-  //if (j == 0) {
   cdf[0] = sample_weight_start[0];
   for (int k = 1; k < cdf_size; k++) cdf[k] = cdf[k-1] + sample_weight_start[k];
-  //}
-  // _syncwarp();
 
-  float cdf_offset = 0.0;
+  double cdf_offset = 0.0;
   for (int i = 1; i < WARP_SIZE; i *= 2) {
-    int temp_sum = g.shfl_up(cdf[cdf_size -1] + cdf_offset, i);
+    double temp_sum = g.shfl_up(cdf[cdf_size -1] + cdf_offset, i);
     if (g.thread_rank() >= i) {
-      cdf_offset += temp_sum
+      cdf_offset += temp_sum;
     }
   }
 
@@ -457,15 +569,16 @@ __global__ void DoWeightedRematch(const int ins_num,
   double sum = 0.0;
   if (g.thread_rank() == WARP_SIZE - 1) {
     sum = cdf[cdf_size - 1] + cdf_offset;
-    CHECK(sum >= 1e-5); // check
+    if (!(sum >= 1e-5)) {
+      printf("sum not >= 1e-5\n");
+    }
   }
+  g.sync();
   sum = g.shfl(sum, WARP_SIZE - 1);
-  // _syncwarp();
   
   for (int j = 0; j < cdf_size; ++j) {
     cdf[j] =  (cdf[j] + cdf_offset) / sum;
   }
-*/
 
 }
 
@@ -713,9 +826,8 @@ void WeightedRematch(const framework::ExecutionContext& ctx,
     auto cdf_mat_v = memory::Alloc(ctx.GetPlace(), ori_ins_num * ori_ins_num * sizeof(double));
     double* cdf_data = reinterpret_cast<double*>(cdf_mat_v->ptr());
 
-
-
-    int calc_sim_grid_size = (ori_ins_num * ori_ins_num - 1) / 1024 + 1;
+    // 每个warp处理4行数据
+    int calc_sim_grid_size = (ori_ins_num * ori_ins_num - 1) / (32 * 4) + 1;
     int calc_sim_block_size = 1024;
     CalcVectorSimilarityKernel<<<calc_sim_grid_size, calc_sim_block_size, 0, gpu_stream>>>(ori_ins_num, col_num, self_in_val, other_in_val, vec_sim_data);
 
@@ -727,7 +839,7 @@ void WeightedRematch(const framework::ExecutionContext& ctx,
     int calc_sample_block_size = 1024;
     CalcSampleWeight<<<calc_sample_grid_size, calc_sample_block_size, 0, gpu_stream>>>(ori_ins_num, fea_num, vec_sim_max, vec_sim_base, fea_match_base, vec_sim_data, feature_match_data, sample_weight_data);
 
-    const size_t grid_size_ = (ori_ins_num - 1) / 1024 + 1;
+    const size_t grid_size_ = (ori_ins_num - 1) / 32 + 1;
     dim3 grid_dims(grid_size_);
     dim3 block_dims(1024);
     DoWeightedRematch<<<grid_dims, block_dims, 0, gpu_stream>>>(ori_ins_num, sample_weight_data, cdf_data);
@@ -737,7 +849,6 @@ void WeightedRematch(const framework::ExecutionContext& ctx,
     FillRandomVal<<<fill_random_grid_size, fill_random_block_size, 0, gpu_stream>>>(rematch_ratio - 1, ori_ins_num, cdf_data, random_val);
 
     cudaStreamSynchronize(gpu_stream);
-
 
 }
 
@@ -783,8 +894,6 @@ class WeightedRandomSampleOpGPUKernel : public framework::OpKernel<T> {
     
     auto gpu_stream =
         ctx.template device_context<platform::CUDADeviceContext>().stream();
-
- 
 
     if (need_initialize) {
 
