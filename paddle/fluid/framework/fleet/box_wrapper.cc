@@ -430,6 +430,13 @@ void BoxWrapper::CheckEmbedSizeIsValid(int embedx_dim, int expand_embed_dim) {
                           "embedx_dim % expand_embed_dim shoule be 0"));
 
     embedx_dim = embedx_dim / expand_embed_dim;
+  } else if (feature_type_ == static_cast<int>(boxps::FEATURE_TRADE_MERGE)) {
+    PADDLE_ENFORCE_GE(embedx_dim, expand_embed_dim,
+                      platform::errors::InvalidArgument(
+                          "SetInstance(): invalid dim. When "
+                          "embedx_dim > expand_embed_dim, but got %d %d.",
+                          embedx_dim, expand_embed_dim));
+    embedx_dim = embedx_dim - expand_embed_dim;
   } else if (feature_type_ == static_cast<int>(boxps::FEATURE_VARIABLE)) {
     PADDLE_ENFORCE_EQ(expand_embed_dim_, (expand_embed_dim - cvm_offset_),
                       platform::errors::InvalidArgument(
