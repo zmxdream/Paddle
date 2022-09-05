@@ -1839,7 +1839,7 @@ void SlotRecordDataset::PrepareTrain() {
 
         // minibatch building
         // ============== multi-thread optimize ===============
-        const int pre_build_thread_num = 50;
+        const int pre_build_thread_num = 60;
         std::vector<std::thread> build_threads;
 
         auto prebuild_thread = [this, &task_recs_count, &task_id_data, &task_index_data, pre_build_thread_num](int thread_id) {
@@ -1879,7 +1879,7 @@ void SlotRecordDataset::PrepareTrain() {
           task_recs[i].resize(task_recs_count[i]->load());
         }
 
-        const size_t build_thread_num = 50;
+        const size_t build_thread_num = 60;
         auto build_thread = [this, &task_recs, &task_id_vec, &task_index_vec, build_thread_num](int thread_id) {
           for (size_t i = thread_id; i < pre_input_records_.size(); i += build_thread_num) {
              int queue = task_id_vec[i];
