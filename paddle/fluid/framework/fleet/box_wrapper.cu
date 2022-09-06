@@ -895,6 +895,23 @@ __device__ void add_calculator_value(const int table_size, const float pred,
   local_pred[idx] += pred;
 }
 
+__device__ void add_calculator_value_with_float_label(const int table_size, const float pred,
+                                     const float label, const int idx,
+                                     double* positive, double* negative,
+                                     double* abs_error, double* sqr_error,
+                                     double* local_pred) {
+  int pos = static_cast<int>(pred * table_size);
+  if (pos >= table_size) {
+    pos = table_size - 1;
+  }
+  paddle::platform::CudaAtomicAdd(negative + pos, 1.0 - label);
+  paddle::platform::CudaAtomicAdd(positive + pos, label);
+  double err = pred - label;
+  abs_error[idx] += fabs(err);
+  sqr_error[idx] += err * err;
+  local_pred[idx] += pred;
+}
+
 __global__ void AddBasicCalculator(const float* pred, const int64_t* label,
                                    double* positive, double* negative,
                                    double* abs_error, double* sqr_error,
@@ -919,6 +936,21 @@ __global__ void AddMaskCalculator(const float* pred, const int64_t* label,
                          positive, negative, abs_error, sqr_error, local_pred);
   }
 }
+
+__global__ void AddFloatMaskCalculator(const float* pred, const float* label,
+                                  const int64_t* mask, double* positive,
+                                  double* negative, double* abs_error,
+                                  double* sqr_error, double* local_pred,
+                                  int len, int table_size) {
+  CUDA_KERNEL_LOOP(ins_idx, len) {
+    if (mask[ins_idx] != 1) {
+      continue;
+    }
+    add_calculator_value_with_float_label(table_size, pred[ins_idx], label[ins_idx], ins_idx,
+                         positive, negative, abs_error, sqr_error, local_pred);
+  }
+}
+
 template <typename TEmbedxOp>
 inline void FeaturePullCopy(
     const TEmbedxOp& op, const boxps::FeaturePullOffset* info,
@@ -1288,6 +1320,25 @@ void BasicAucCalculator::cuda_add_mask_data(
   cudaSetDevice(i);
 
   AddMaskCalculator<<<CUDA_BLOCK(len), stream>>>(
+      pred, label, mask, reinterpret_cast<double*>(_d_positive[i]->ptr()),
+      reinterpret_cast<double*>(_d_negative[i]->ptr()),
+      reinterpret_cast<double*>(_d_abserr[i]->ptr()),
+      reinterpret_cast<double*>(_d_sqrerr[i]->ptr()),
+      reinterpret_cast<double*>(_d_pred[i]->ptr()), len, _table_size);
+}
+
+void BasicAucCalculator::cuda_add_float_mask_data(
+    const paddle::platform::Place& place, const float* label,
+    const float* pred, const int64_t* mask, int len) {
+  auto stream = dynamic_cast<platform::CUDADeviceContext*>(
+                    platform::DeviceContextPool::Instance().Get(
+                        BOOST_GET_CONST(platform::CUDAPlace, place)))
+                    ->stream();
+  int i = BOOST_GET_CONST(platform::CUDAPlace, place).GetDeviceId();
+
+  cudaSetDevice(i);
+
+  AddFloatMaskCalculator<<<(len + 512 - 1) / 512, 512, 0, stream>>>(
       pred, label, mask, reinterpret_cast<double*>(_d_positive[i]->ptr()),
       reinterpret_cast<double*>(_d_negative[i]->ptr()),
       reinterpret_cast<double*>(_d_abserr[i]->ptr()),

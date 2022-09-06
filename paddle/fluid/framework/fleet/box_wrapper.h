@@ -67,6 +67,7 @@ class BasicAucCalculator {
   // add single data in CPU with LOCK, deprecated
   void add_unlock_data(double pred, int label);
   void add_unlock_data(double pred, int label, float sample_scale);
+  void add_unlock_data_with_float_label(double pred, double label);
   // add batch data
   void add_data(const float* d_pred, const int64_t* d_label, int batch_size,
                 const paddle::platform::Place& place);
@@ -74,6 +75,10 @@ class BasicAucCalculator {
   void add_mask_data(const float* d_pred, const int64_t* d_label,
                      const int64_t* d_mask, int batch_size,
                      const paddle::platform::Place& place);
+  // add mask data
+  void add_float_mask_data(const float* d_pred, const float* d_label,
+                           const int64_t* d_mask, int batch_size,
+                           const paddle::platform::Place& place);
   // add sample data
   void add_sample_data(const float* d_pred, const int64_t* d_label,
                        const std::vector<float>& d_sample_scale, int batch_size,
@@ -101,6 +106,9 @@ class BasicAucCalculator {
   void cuda_add_mask_data(const paddle::platform::Place& place,
                           const int64_t* label, const float* pred,
                           const int64_t* mask, int len);
+  void cuda_add_float_mask_data(const paddle::platform::Place& place,
+                                const float* label, const float* pred,
+                                const int64_t* mask, int len);
   void calculate_bucket_error();
 
  protected:
@@ -703,6 +711,10 @@ class BoxWrapper {
   int GetExpandEmbedDim(void) { return expand_embed_dim_; }
   // shrink boxps resource
   void ShrinkResource(void) { return boxps_ptr_->ShrinkResource(); }
+  // merge model interface
+  int MergeModel(const std::string& path) {
+    return boxps_ptr_->MergeModel(path);
+  }
   // get device id
   int GetPlaceDeviceId(const paddle::platform::Place& place) {
     if (platform::is_gpu_place(place)) {
