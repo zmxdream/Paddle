@@ -301,6 +301,23 @@ class CommonFeatureValueAccessor {
   __host__ __device__ CommonFeatureValueAccessor() {}
   __host__ __device__ ~CommonFeatureValueAccessor() {}
 
+
+  #define DEFINE_GET_INDEX4( instance, field) \
+        __host__ __device__ int get_##field##_index() { \
+            return instance.field##Index(); \
+        }
+
+#ifdef PADDLE_WITH_PSLIB
+  DEFINE_GET_INDEX4(common_feature_value, Show)
+  DEFINE_GET_INDEX4(common_feature_value, Click)
+  DEFINE_GET_INDEX4(common_feature_value, EmbedW)
+  DEFINE_GET_INDEX4(common_feature_value, EmbedxW)
+  DEFINE_GET_INDEX4(common_feature_value, DeltaScore)
+  DEFINE_GET_INDEX4(common_feature_value, Slot)
+  DEFINE_GET_INDEX4(common_feature_value, EmbedG2Sum)
+  DEFINE_GET_INDEX4(common_feature_value, MfDim)
+#endif
+
   __host__ int Initialize() {
     // NOTE(zhangminxu): gpups' sparse table optimizer type,
     // now only support embed&embedx 's sparse optimizer is the same
