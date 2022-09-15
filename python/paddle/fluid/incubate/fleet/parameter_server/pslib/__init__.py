@@ -684,11 +684,6 @@ class PSLib(Fleet):
         self._fleet_ptr.load_model_one_table(table_id, model_path, mode)
         self._role_maker._barrier_worker()
 
-
-
-
-
-
     def _load_one_table_from_paddle_model(self,
                                           scope,
                                           table_id,
