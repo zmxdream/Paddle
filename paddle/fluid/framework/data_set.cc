@@ -1668,20 +1668,21 @@ void SlotRecordDataset::CreateChannel() {
   }
 }
 void SlotRecordDataset::CreateReaders() {
-  VLOG(3) << "Calling CreateReaders()";
-  VLOG(3) << "thread num in Dataset: " << thread_num_;
-  VLOG(3) << "Filelist size in Dataset: " << filelist_.size();
-  VLOG(3) << "channel num in Dataset: " << channel_num_;
+  VLOG(0) << "Calling CreateReaders()";
+  VLOG(0) << "thread num in Dataset: " << thread_num_;
+  VLOG(0) << "Filelist size in Dataset: " << filelist_.size();
+  VLOG(0) << "channel num in Dataset: " << channel_num_;
   CHECK(thread_num_ > 0) << "thread num should > 0";
   CHECK(channel_num_ > 0) << "channel num should > 0";
   CHECK(channel_num_ <= thread_num_) << "channel num should <= thread num";
-  VLOG(3) << "readers size: " << readers_.size();
+  VLOG(0) << "readers size: " << readers_.size();
   if (readers_.size() != 0) {
-    VLOG(3) << "readers_.size() = " << readers_.size()
+    VLOG(0) << "readers_.size() = " << readers_.size()
             << ", will not create again";
     return;
   }
-  VLOG(3) << "data feed class name: " << data_feed_desc_.name();
+  VLOG(0) << "data feed class name: " << data_feed_desc_.name();
+
   for (int i = 0; i < thread_num_; ++i) {
     readers_.push_back(DataFeedFactory::CreateDataFeed(data_feed_desc_.name()));
     readers_[i]->Init(data_feed_desc_);
@@ -1701,7 +1702,7 @@ void SlotRecordDataset::CreateReaders() {
       readers_[i]->SetInputChannel(input_channel_.get());
     }
   }
-  VLOG(3) << "readers size: " << readers_.size();
+  VLOG(0) << "readers size: " << readers_.size();
 }
 
 void SlotRecordDataset::ReleaseMemory() {
@@ -1715,6 +1716,7 @@ void SlotRecordDataset::ReleaseMemory() {
   }
   if (enable_heterps_) {
     VLOG(3) << "put pool records size: " << input_records_.size();
+
     SlotRecordPool().put(&input_records_);
     input_records_.clear();
     input_records_.shrink_to_fit();
@@ -1734,6 +1736,7 @@ void SlotRecordDataset::ReleaseMemory() {
           << " object pool size=" << SlotRecordPool().capacity();  // For Debug
   STAT_SUB(STAT_total_feasign_num_in_mem, total_fea_num_);
 }
+
 void SlotRecordDataset::GlobalShuffle(int thread_num) {
   // TODO(yaoxuefeng)
   return;
@@ -1781,16 +1784,12 @@ inline std::default_random_engine& local_random_engine() {
 void SlotRecordDataset::PrepareTrain() {
 #ifdef PADDLE_WITH_GLOO
   if (enable_heterps_) {
-
     if (pre_input_records_.size() == 0 && input_channel_ != nullptr &&
         input_channel_->Size() != 0) {
-
       // channel shuffle 
-
       input_channel_->ReadAll(pre_input_records_);
       VLOG(3) << "read from channel to records with records size: "
               << pre_input_records_.size();
-
     }
     VLOG(0) << "pre_input records size: " << pre_input_records_.size();
 
@@ -1798,21 +1797,28 @@ void SlotRecordDataset::PrepareTrain() {
         reinterpret_cast<SlotRecordInMemoryDataFeed*>(readers_[0].get())
             ->GetDefaultBatchSize();
 
+    VLOG(0) << "default batch size: " << default_batch_size; 
+
     // ============ multi-task adapter=================
     // read from pre_input_records_ to input_records
     
-    if (pre_input_records_.size() > 0) { 
+    if (multi_task_num_ > 1 && pre_input_records_.size() > 0) { 
 
         std::shuffle(pre_input_records_.begin(), pre_input_records_.end(), local_random_engine());
     }
 
     if (multi_task_num_ <=1 ) {
       VLOG(3) << "multi_task_num = 1";
+      VLOG(0) << "input records size: " << input_records_.size();
       // CHECK(input_records_.size() == 0) << "input_records size must be zero";
       if (!pre_input_records_.empty()) {
-        input_records_.insert(input_records_.end(), pre_input_records_.begin(), pre_input_records_.end());
+        VLOG(0) << "pre input records size: " << pre_input_records_.size();
+        // input_records_.insert(input_records_.end(), pre_input_records_.begin(), pre_input_records_.end());
+        input_records_ = std::move(pre_input_records_);
+        VLOG(0) << "input records size: " << input_records_.size();
         pre_input_records_.clear();
       }
+      VLOG(0) << "input records size: " << input_records_.size();
     } else {
  
         // 把每个task的样本分开
@@ -1967,7 +1973,7 @@ void SlotRecordDataset::PrepareTrain() {
 
     std::vector<std::pair<int, int>> offset;
 
-    VLOG(3) << "thread_num: " << thread_num_
+    VLOG(0) << "thread_num: " << thread_num_
             << " memory size: " << total_ins_num
             << " default batch_size: " << default_batch_size;
 
@@ -1987,8 +1993,6 @@ void SlotRecordDataset::PrepareTrain() {
           ->AddBatchOffset(offset[i]);
     }
 
-
-
   }
 #else
   PADDLE_THROW(platform::errors::Unavailable(
@@ -1999,14 +2003,15 @@ void SlotRecordDataset::PrepareTrain() {
 
 void SlotRecordDataset::DynamicAdjustReadersNum(int thread_num) {
   if (thread_num_ == thread_num) {
-    VLOG(3) << "DatasetImpl<T>::DynamicAdjustReadersNum thread_num_="
+    VLOG(0) << "DatasetImpl<T>::DynamicAdjustReadersNum thread_num_="
             << thread_num_ << ", thread_num_=thread_num, no need to adjust";
     return;
   }
-  VLOG(3) << "adjust readers num from " << thread_num_ << " to " << thread_num;
+  VLOG(0) << "adjust readers num from " << thread_num_ << " to " << thread_num;
   thread_num_ = thread_num;
   std::vector<std::shared_ptr<paddle::framework::DataFeed>>().swap(readers_);
   CreateReaders();
+  VLOG(0) << "after create readers, before prepare train";
   VLOG(3) << "adjust readers num done";
   PrepareTrain();
 }

@@ -500,7 +500,7 @@ class InMemoryDataset(DatasetBase):
 
         """
         self.parse_ins_id = parse_ins_id
-
+    
     @deprecated(
         since="2.0.0",
         update_to="paddle.distributed.InMemoryDataset._set_parse_content")
@@ -784,6 +784,7 @@ class InMemoryDataset(DatasetBase):
             self.dataset.load_into_memory()
         elif core._is_compiled_with_heterps():
             self.psgpu.set_dataset(self.dataset)
+            print("psgpu load into memory")
             self.psgpu.load_into_memory(is_shuffle)
 
     @deprecated(

@@ -1318,8 +1318,10 @@ void MultiSlotInMemoryDataFeed::PutToFeedVec(const Record* ins_vec, int num) {
   ins_id_vec_.reserve(num);
   for (int i = 0; i < num; ++i) {
     auto& r = ins_vec[i];
+    // 肯定有吗??
     ins_id_vec_.push_back(r.ins_id_);
     ins_content_vec_.push_back(r.content_);
+
     for (auto& item : r.float_feasigns_) {
       batch_float_feasigns_[item.slot()].push_back(item.sign().float_feasign_);
       visit_[item.slot()] = true;
@@ -2104,6 +2106,7 @@ void SlotRecordInMemoryDataFeed::BeginLoadIntoMemory() {
   CHECK(parser != nullptr);
   parser->PreLoad(all_slots_info_);
 }
+
 void SlotRecordInMemoryDataFeed::EndLoadIntoMemory() {
   if (so_parser_name_.empty()) return;
   paddle::framework::CustomParser* parser =
@@ -2113,7 +2116,7 @@ void SlotRecordInMemoryDataFeed::EndLoadIntoMemory() {
 }
 
 void SlotRecordInMemoryDataFeed::LoadIntoMemory() {
-  VLOG(3) << "SlotRecord LoadIntoMemory() begin, thread_id=" << thread_id_;
+  VLOG(0) << "SlotRecord LoadIntoMemory() begin, thread_id=" << thread_id_;
   if (!so_parser_name_.empty()) {
     LoadIntoMemoryByLib();
   } else {
@@ -2152,8 +2155,11 @@ void SlotRecordInMemoryDataFeed::LoadIntoMemoryByFile(void) {
 #if (defined _LINUX) && (defined PADDLE_WITH_HETERPS) && \
     (defined PADDLE_WITH_PSLIB)
 
+  VLOG(0)<< "debug so_parse_name_:" << so_parser_name_;
   paddle::framework::CustomParser* parser =
       global_dlmanager_pool().Load(so_parser_name_, all_slots_info_);
+
+
   CHECK(parser != nullptr);
 
   // get slotrecord object
@@ -2183,7 +2189,7 @@ void SlotRecordInMemoryDataFeed::LoadIntoMemoryByFile(void) {
 
   std::string filename;
   while (this->PickOneFile(&filename)) {
-    VLOG(3) << "PickOneFile, filename=" << filename
+    VLOG(0) << "PickOneFile, filename=" << filename
             << ", thread_id=" << thread_id_;
     platform::Timer timeline;
     timeline.Start();
@@ -2195,6 +2201,9 @@ void SlotRecordInMemoryDataFeed::LoadIntoMemoryByFile(void) {
     do {
       if (ps_gpu_ptr->UseAfsApi() && idx == std::string::npos) {
         auto afs_reader = ps_gpu_ptr->OpenReader(filename);
+
+        VLOG(0) << "in use afs api, parsefileinstance" << filename;
+
         is_ok = parser->ParseFileInstance(
             [this, afs_reader](char* buf, int len) {
               return afs_reader->read(buf, len);
@@ -2226,7 +2235,6 @@ void SlotRecordInMemoryDataFeed::LoadIntoMemoryByFile(void) {
             << ", cost time=" << timeline.ElapsedSec()
             << " seconds, thread_id=" << thread_id_ << ", lines=" << lines;
   }
-  parser->Reset();
 #endif
 }
 
@@ -2363,6 +2371,7 @@ void SlotRecordInMemoryDataFeed::LoadIntoMemoryByCommand(void) {
           },
           lines);
     } while (line_reader.is_error());
+
     if (offset > 0) {
       input_channel_->WriteMove(offset, &record_vec[0]);
       if (offset < OBJPOOL_BLOCK_SIZE) {
@@ -2372,6 +2381,7 @@ void SlotRecordInMemoryDataFeed::LoadIntoMemoryByCommand(void) {
     } else {
       SlotRecordPool().put(&record_vec);
     }
+
     record_vec.clear();
     record_vec.shrink_to_fit();
     timeline.Pause();
@@ -2420,6 +2430,7 @@ bool SlotRecordInMemoryDataFeed::ParseOneInstance(const std::string& line,
     rec->ins_id_ = std::string(str + pos, len);
     pos += len + 1;
   }
+
   if (parse_logkey_) {
     int num = strtol(&str[pos], &endptr, 10);
     CHECK(num == 1);  // NOLINT
@@ -2535,6 +2546,13 @@ void SlotRecordInMemoryDataFeed::PutToFeedVec(const SlotRecord* ins_vec,
 
       for (int i = 0; i < num; ++i) {
         auto r = ins_vec[i];
+        
+        // 
+
+
+
+
+
         size_t fea_num = 0;
         float* slot_values =
             r->slot_float_feasigns_.get_values(info.slot_value_idx, &fea_num);

@@ -868,6 +868,8 @@ class DistributedAdam(DistributedOptimizerImplBase):
             "user_define_dump_filename", "")
         opt_info["dump_fields_path"] = strategy.get("dump_fields_path", "")
         opt_info["dump_param"] = strategy.get("dump_param", [])
+
+
         gpus_env = os.getenv("FLAGS_selected_gpus", "0")
         opt_info["worker_places"] = [int(s) for s in gpus_env.split(",")]
         opt_info["use_ps_gpu"] = strategy.get("use_ps_gpu", False)
@@ -877,6 +879,8 @@ class DistributedAdam(DistributedOptimizerImplBase):
                     "DownpourUnitAccessor", "DownpourDoubleUnitAccessor", "DownpourCtrDymfAccessor"
                 ]:
             opt_info["dump_slot"] = True
+
+
         elif server._server.downpour_server_param.downpour_table_param[
                 0].accessor.accessor_class == "DownpourSparseValueAccessor":
             opt_info["no_cvm"] = True
