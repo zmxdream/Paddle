@@ -49,6 +49,12 @@ using inference::analysis::Analyzer;
 using framework::proto::ProgramDesc;
 using framework::NaiveExecutor;
 
+namespace experimental {
+using float16 = paddle::platform::float16;
+using PlaceType = paddle::PaddlePlace;
+class InternalUtils;
+};
+
 ///
 /// \class AnalysisPredictor
 ///
@@ -416,6 +422,7 @@ class AnalysisPredictor : public PaddlePredictor {
   // Some status here that help to determine the status inside the predictor.
   bool status_is_cloned_{false};
   bool status_use_gpu_{false};
+  friend class paddle::experimental::InternalUtils;
 };
 
 }  // namespace paddle
