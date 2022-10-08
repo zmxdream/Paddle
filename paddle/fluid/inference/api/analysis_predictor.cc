@@ -1060,6 +1060,40 @@ std::unique_ptr<PaddlePredictor> CreatePaddlePredictor<AnalysisConfig>(
       config);
 }
 
+namespace experimental {
+
+void InternalUtils::SyncStream(paddle::PaddlePredictor *p) {
+#ifdef PADDLE_WITH_CUDA
+  auto *pred = dynamic_cast<paddle::AnalysisPredictor *>(p);
+  paddle::platform::DeviceContextPool &pool =
+      paddle::platform::DeviceContextPool::Instance();
+  auto *dev_ctx = reinterpret_cast<paddle::platform::CUDADeviceContext *>(
+      pool.Get(pred->place_));
+  cudaStreamSynchronize(dev_ctx->stream());
+#endif
+}
+bool InternalUtils::QueryStream(paddle::PaddlePredictor *p) {
+#ifdef PADDLE_WITH_CUDA
+  auto *pred = dynamic_cast<paddle::AnalysisPredictor *>(p);
+  paddle::platform::DeviceContextPool &pool =
+      paddle::platform::DeviceContextPool::Instance();
+  auto *dev_ctx = reinterpret_cast<paddle::platform::CUDADeviceContext *>(
+      pool.Get(pred->place_));
+  return (cudaSuccess == cudaStreamQuery(dev_ctx->stream()));
+#endif
+}
+void InternalUtils::SyncStream(cudaStream_t stream) {
+#ifdef PADDLE_WITH_CUDA
+  cudaStreamSynchronize(stream);
+#endif
+}
+bool InternalUtils::QueryStream(cudaStream_t stream) {
+#ifdef PADDLE_WITH_CUDA
+  return (cudaSuccess == cudaStreamQuery(stream));
+#endif
+}
+
+}  // namespace experimental
 }  // namespace paddle
 
 #if PADDLE_WITH_TENSORRT

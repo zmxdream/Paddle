@@ -27,11 +27,16 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <cuda_runtime.h>
 #include "crypto/cipher.h"
 #include "paddle_infer_declare.h"  // NOLINT
                                    /*! \namespace paddle
                                     */
 namespace paddle {
+
+namespace experimental {
+class InternalUtils;
+};
 
 /// \brief Paddle data type.
 enum PaddleDType {
@@ -233,7 +238,7 @@ class PD_INFER_DECL ZeroCopyTensor {
   void SetName(const std::string& name) { name_ = name; }
   void* FindTensor() const;
 
- private:
+ protected:
   std::string name_;
   bool input_or_output_;
   friend class AnalysisPredictor;
@@ -244,6 +249,8 @@ class PD_INFER_DECL ZeroCopyTensor {
   PaddlePlace place_;
   PaddleDType dtype_;
   int device_;
+
+  friend class paddle::experimental::InternalUtils;
 };
 
 /// \brief A Predictor for executing inference on a model.
@@ -449,5 +456,26 @@ PD_INFER_DECL int PaddleDtypeSize(PaddleDType dtype);
 PD_INFER_DECL std::string get_version();
 
 PD_INFER_DECL std::string UpdateDllFlag(const char* name, const char* value);
+
+namespace experimental {
+
+using PlaceType = paddle::PaddlePlace;
+
+// Unstable interface, may be modified or deleted in the future.
+class PD_INFER_DECL InternalUtils {
+ public:
+  // Note: Can only be used under thread_local semantics.
+  static void SyncStream(paddle::PaddlePredictor* pred);
+  static bool QueryStream(paddle::PaddlePredictor* pred);
+  static void SyncStream(cudaStream_t stream);
+  static bool QueryStream(cudaStream_t stream);
+  template <typename T>
+  static void CopyFromCpuWithIoStream(paddle::ZeroCopyTensor* t, const T* data,
+                                      cudaStream_t stream);
+  template <typename T>
+  static void CopyToCpuWithIoStream(paddle::ZeroCopyTensor* t, T* data,
+                                    cudaStream_t stream);
+};
+}  // namespace experimental
 
 }  // namespace paddle
