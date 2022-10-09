@@ -85,7 +85,7 @@ void BindAfsWrapper(py::module* m) {
       .def("touchz", &framework::AfsWrapper::touchz,
            py::call_guard<py::gil_scoped_release>())
       .def("cat", &framework::AfsWrapper::cat,
-           py::call_guard<py::gil_scoped_release>())
+            py::call_guard<py::gil_scoped_release>())
       .def("mv", &framework::AfsWrapper::mv,
            py::call_guard<py::gil_scoped_release>());
 }

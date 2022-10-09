@@ -596,7 +596,7 @@ void PSGPUWorker::TrainFiles() {
       }
     }
 */
-
+          VLOG(0) << "op type:" << op->Type();
           OpRunAndShapeCheck(*op, *thread_scope, place_);
 
         }
@@ -647,7 +647,7 @@ void PSGPUWorker::TrainFiles() {
     }
 
     if (need_dump_field_) {
-      DumpField(*thread_scope, dump_mode_, dump_interval_);
+      DumpField(*thread_scope, dump_mode_, dump_interval_, thread_id_);
     }
 
     if (need_dump_param_ && thread_id_ == 0) {

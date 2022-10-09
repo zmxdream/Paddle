@@ -2200,15 +2200,15 @@ void SlotRecordInMemoryDataFeed::LoadIntoMemoryByFile(void) {
     size_t idx = filename.find("file://");
     do {
       if (ps_gpu_ptr->UseAfsApi() && idx == std::string::npos) {
-        auto afs_reader = ps_gpu_ptr->OpenReader(filename);
 
-        VLOG(0) << "in use afs api, parsefileinstance" << filename;
+        auto afs_reader = ps_gpu_ptr->OpenReader(filename);
 
         is_ok = parser->ParseFileInstance(
             [this, afs_reader](char* buf, int len) {
               return afs_reader->read(buf, len);
             },
             pull_record_func, lines);
+
       } else {
         int err_no = 0;
         if (idx == 0) {

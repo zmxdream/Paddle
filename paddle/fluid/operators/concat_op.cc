@@ -204,6 +204,17 @@ class ConcatDoubleGradOpMaker : public framework::SingleGradOpMaker<T> {
 }  // namespace paddle
 
 namespace ops = paddle::operators;
+/*
+#define DECLARE_INFER_SHAPE_FUNCTOR(op_type, functor_name, fn)      \
+  struct functor_name : public paddle::framework::InferShapeBase {  \
+    void operator()(                                                \
+        paddle::framework::InferShapeContext* ctx) const override { \
+      auto infer_meta_context =                                     \
+          paddle::framework::BuildInferMetaContext(ctx, #op_type);  \
+      fn(&infer_meta_context);                                      \
+    }                                                               \
+  }
+*/
 
 DECLARE_INFER_SHAPE_FUNCTOR(concat, ConcatInferShapeFunctor,
                             PD_INFER_META(phi::ConcatInferMeta));

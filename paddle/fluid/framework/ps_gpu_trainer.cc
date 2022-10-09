@@ -159,8 +159,10 @@ void PSGPUTrainer::InitTrainerEnv(const ProgramDesc& main_program,
 
 void PSGPUTrainer::InitDumpEnv() {
   queue_ = paddle::framework::MakeChannel<std::string>();
+  binary_queue_ = paddle::framework::MakeChannel<std::shared_ptr<MemRegion>>();
   for (size_t i = 0; i < places_.size(); ++i) {
     workers_[i]->SetChannelWriter(queue_.get());
+    workers_[i]->SetBinaryChannelWriter(binary_queue_.get());
   }
   dump_thread_num_ = 1;
   if (dump_file_num_ > mpi_size_) {

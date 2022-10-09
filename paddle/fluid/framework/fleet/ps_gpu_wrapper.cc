@@ -79,6 +79,7 @@ int AfsWrapper::touchz(const std::string& path) {
 
 std::string AfsWrapper::cat(const std::string& path) {
   return afs_handler_.cat(path);
+  
 }
 
 int AfsWrapper::mv(const std::string& old_path, const std::string& dest_path) {
