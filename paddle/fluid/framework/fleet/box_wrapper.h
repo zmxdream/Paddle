@@ -41,11 +41,12 @@ limitations under the License. */
 #include "paddle/fluid/framework/data_set.h"
 #include "paddle/fluid/framework/lod_tensor.h"
 #include "paddle/fluid/framework/scope.h"
-#include "paddle/fluid/platform/gpu_info.h"
+#include "paddle/fluid/framework/tensor_util.h"
 #include "paddle/fluid/platform/monitor.h"
 #include "paddle/fluid/platform/place.h"
 #include "paddle/fluid/platform/timer.h"
 #include "paddle/fluid/string/string_helper.h"
+#include "paddle/fluid/framework/fleet/metrics.h"
 #define BUF_SIZE 1024 * 1024
 
 DECLARE_int32(fix_dayid);
@@ -58,92 +59,6 @@ namespace framework {
 
 #ifdef PADDLE_WITH_BOX_PS
 #define MAX_GPU_NUM 16
-class BasicAucCalculator {
- public:
-  explicit BasicAucCalculator(bool mode_collect_in_gpu = false)
-      : _mode_collect_in_gpu(mode_collect_in_gpu) {}
-  void init(int table_size, int max_batch_size = 0);
-  void reset();
-  // add single data in CPU with LOCK, deprecated
-  void add_unlock_data(double pred, int label);
-  void add_unlock_data(double pred, int label, float sample_scale);
-  void add_unlock_data_with_float_label(double pred, double label);
-  // add batch data
-  void add_data(const float* d_pred, const int64_t* d_label, int batch_size,
-                const paddle::platform::Place& place);
-  // add mask data
-  void add_mask_data(const float* d_pred, const int64_t* d_label,
-                     const int64_t* d_mask, int batch_size,
-                     const paddle::platform::Place& place);
-  // add mask data
-  void add_float_mask_data(const float* d_pred, const float* d_label,
-                           const int64_t* d_mask, int batch_size,
-                           const paddle::platform::Place& place);
-  // add sample data
-  void add_sample_data(const float* d_pred, const int64_t* d_label,
-                       const std::vector<float>& d_sample_scale, int batch_size,
-                       const paddle::platform::Place& place);
-  void compute();
-  int table_size() const { return _table_size; }
-  double bucket_error() const { return _bucket_error; }
-  double auc() const { return _auc; }
-  double mae() const { return _mae; }
-  double actual_ctr() const { return _actual_ctr; }
-  double predicted_ctr() const { return _predicted_ctr; }
-  double size() const { return _size; }
-  double rmse() const { return _rmse; }
-  std::vector<double>& get_negative() { return _table[0]; }
-  std::vector<double>& get_postive() { return _table[1]; }
-  double& local_abserr() { return _local_abserr; }
-  double& local_sqrerr() { return _local_sqrerr; }
-  double& local_pred() { return _local_pred; }
-  // lock and unlock
-  std::mutex& table_mutex(void) { return _table_mutex; }
-
- private:
-  void cuda_add_data(const paddle::platform::Place& place, const int64_t* label,
-                     const float* pred, int len);
-  void cuda_add_mask_data(const paddle::platform::Place& place,
-                          const int64_t* label, const float* pred,
-                          const int64_t* mask, int len);
-  void cuda_add_float_mask_data(const paddle::platform::Place& place,
-                                const float* label, const float* pred,
-                                const int64_t* mask, int len);
-  void calculate_bucket_error();
-
- protected:
-  double _local_abserr = 0;
-  double _local_sqrerr = 0;
-  double _local_pred = 0;
-  double _auc = 0;
-  double _mae = 0;
-  double _rmse = 0;
-  double _actual_ctr = 0;
-  double _predicted_ctr = 0;
-  double _size;
-  double _bucket_error = 0;
-
-  std::vector<std::shared_ptr<memory::Allocation>> _d_positive;
-  std::vector<std::shared_ptr<memory::Allocation>> _d_negative;
-  std::vector<std::shared_ptr<memory::Allocation>> _d_abserr;
-  std::vector<std::shared_ptr<memory::Allocation>> _d_sqrerr;
-  std::vector<std::shared_ptr<memory::Allocation>> _d_pred;
-
- private:
-  void set_table_size(int table_size) { _table_size = table_size; }
-  void set_max_batch_size(int max_batch_size) {
-    _max_batch_size = max_batch_size;
-  }
-  void collect_data_nccl();
-  void copy_data_d2h(int device);
-  int _table_size;
-  int _max_batch_size;
-  bool _mode_collect_in_gpu;
-  std::vector<double> _table[2];
-  static constexpr double kRelativeErrorBound = 0.05;
-  static constexpr double kMaxSpan = 0.01;
-  std::mutex _table_mutex;
-};
 
 class GpuReplicaCache {
  public:
@@ -151,7 +66,9 @@ class GpuReplicaCache {
 
   ~GpuReplicaCache() {
     for (size_t i = 0; i < d_embs_.size(); ++i) {
+#if defined(PADDLE_WITH_CUDA)
       cudaFree(d_embs_[i]);
+#endif
     }
   }
   int AddItems(const std::vector<float>& emb) {
@@ -165,22 +82,31 @@ class GpuReplicaCache {
   }
 
   void ToHBM() {
-    int gpu_num = platform::GetCUDADeviceCount();
+    int gpu_num = GetDeviceCount();
     for (int i = 0; i < gpu_num; ++i) {
       d_embs_.push_back(NULL);
+#if defined(PADDLE_WITH_CUDA)
       cudaSetDevice(i);
       cudaMalloc(&d_embs_.back(), h_emb_count_ * emb_dim_ * sizeof(float));
       auto place = platform::CUDAPlace(i);
-      auto stream = dynamic_cast<platform::CUDADeviceContext*>(
-                        platform::DeviceContextPool::Instance().Get(place))
-                        ->stream();
+      auto stream = dynamic_cast<phi::GPUContext*>(
+              platform::DeviceContextPool::Instance().Get(place))
+              ->stream();
       cudaMemcpyAsync(d_embs_.back(), h_emb_.data(),
                       h_emb_count_ * emb_dim_ * sizeof(float),
                       cudaMemcpyHostToDevice, stream);
+#else
+      PADDLE_THROW(phi::errors::Unimplemented("not supported platform."));
+#endif
     }
   }
-
+#if defined(PADDLE_WITH_CUDA)
   void PullCacheValue(uint64_t* d_keys, float* d_vals, int num, int gpu_id);
+#else
+  void PullCacheValue(uint64_t* d_keys, float* d_vals, int num, int gpu_id) {
+    PADDLE_THROW(phi::errors::Unimplemented("not supported platform."));
+  }
+#endif
   int emb_dim_ = 0;
   std::vector<float*> d_embs_;
   double GpuMemUsed(void) {
@@ -226,15 +152,22 @@ class InputTable {
     std::vector<float> d_values;
     d_keys.resize(num);
     d_values.resize(num * dim_);
-
+#if defined(PADDLE_WITH_CUDA)
     cudaSetDevice(device_id);
     cudaMemcpy(d_keys.data(), keys, d_keys.size() * sizeof(uint64_t),
                cudaMemcpyDeviceToHost);
+#else
+    PADDLE_THROW(phi::errors::Unimplemented("not supported platform."));
+#endif
     for (size_t i = 0; i < num; ++i) {
       memcpy(&d_values[i * dim_], &table_[d_keys[i]], dim_ * sizeof(float));
     }
+#if defined(PADDLE_WITH_CUDA)
     cudaMemcpy(values, d_values.data(), d_values.size() * sizeof(float),
                cudaMemcpyHostToDevice);
+#else
+    PADDLE_THROW(phi::errors::Unimplemented("not supported platform."));
+#endif
   }
 
   size_t size() const { return key_offset_.size(); }
@@ -352,7 +285,7 @@ class MetricMsg {
     auto* gpu_data = gpu_tensor.data<T>();
     auto len = gpu_tensor.numel();
     data->resize(len);
-    cudaMemcpy(data->data(), gpu_data, sizeof(T) * len, cudaMemcpyDeviceToHost);
+    SyncCopyD2H(data->data(), gpu_data, len);
   }
   static inline std::pair<int, int> parse_cmatch_rank(uint64_t x) {
     // first 32 bit store cmatch and second 32 bit store rank
@@ -390,6 +323,8 @@ class BoxWrapper {
     platform::Timer dense_nccl_timer;
     platform::Timer dense_sync_timer;
     platform::Timer pull_dedup_timer;
+    platform::Timer copy_keys_timer;
+    platform::Timer copy_values_timer;
 
     int64_t total_key_length = 0;
     int64_t dedup_key_length = 0;
@@ -402,6 +337,8 @@ class BoxWrapper {
       dense_nccl_timer.Reset();
       dense_sync_timer.Reset();
       pull_dedup_timer.Reset();
+      copy_keys_timer.Reset();
+      copy_values_timer.Reset();
     }
     double GpuMemUsed(void) {
       size_t total = 0;
@@ -550,8 +487,6 @@ class BoxWrapper {
                    uint64_t* total_keys, const int64_t* slot_lengths_lod,
                    int slot_num, int total_len, int* key2slot);
 
-  void CheckEmbedSizeIsValid(int embedx_dim, int expand_embed_dim);
-
   boxps::PSAgentBase* GetAgent();
   void RelaseAgent(boxps::PSAgentBase* agent);
   void InitializeGPUAndLoadModel(
@@ -593,7 +528,7 @@ class BoxWrapper {
       s_instance_->expand_embed_dim_ = expand_embed_dim;
       s_instance_->feature_type_ = feature_type;
       s_instance_->pull_embedx_scale_ = pull_embedx_scale;
-      s_instance_->gpu_num_ = platform::GetCUDADeviceCount();
+      s_instance_->gpu_num_ = GetDeviceCount();
       // get feature offset info
       s_instance_->GetFeatureOffsetInfo();
 
@@ -718,7 +653,10 @@ class BoxWrapper {
   // get device id
   int GetPlaceDeviceId(const paddle::platform::Place& place) {
     if (platform::is_gpu_place(place)) {
-      return BOOST_GET_CONST(platform::CUDAPlace, place).GetDeviceId();
+      return place.GetDeviceId();
+    }
+    if (platform::is_xpu_place(place)) {
+      return place.GetDeviceId();
     }
     thread_local int device_id = -1;
     static std::atomic<int> dev_id{0};
@@ -729,7 +667,16 @@ class BoxWrapper {
   }
   // get feature offset info
   void GetFeatureOffsetInfo(void);
-
+  // execute func
+  void ExecuteFunc(const paddle::platform::Place& place,
+      const size_t &num, std::function<void(const size_t &)> func) {
+    boxps_ptr_->ExecuteFunc(GetPlaceDeviceId(place), num, func);
+  }
+  // execute func
+  void ExecRangeFunc(const paddle::platform::Place& place,
+        const size_t &num, std::function<void(const size_t &, const size_t &)> func) {
+    boxps_ptr_->ExecRangeFunc(GetPlaceDeviceId(place), num, func);
+  }
  private:
   static cudaStream_t stream_list_[MAX_GPU_NUM];
   static std::shared_ptr<BoxWrapper> s_instance_;
@@ -767,7 +714,7 @@ class BoxWrapper {
   DeviceBoxData* device_caches_ = nullptr;
   std::map<std::string, float> lr_map_;
   size_t input_table_dim_ = 0;
-  int gpu_num_ = platform::GetCUDADeviceCount();
+  int gpu_num_ = GetDeviceCount();
 
  public:
   static std::shared_ptr<boxps::PaddleShuffler> data_shuffle_;

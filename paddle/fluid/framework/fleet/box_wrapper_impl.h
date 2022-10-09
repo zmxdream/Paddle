@@ -22,21 +22,22 @@ namespace paddle {
 namespace framework {
 
 void BoxWrapper::PullSparseCaseGPU(const paddle::platform::Place& place,
-                                   const std::vector<const uint64_t*>& keys,
-                                   const std::vector<float*>& values,
-                                   const std::vector<int64_t>& slot_lengths,
-                                   const int hidden_size,
-                                   const int expand_embed_dim,
-                                   const int skip_offset, bool expand_only) {
+                                const std::vector<const uint64_t*>& keys,
+                                const std::vector<float*>& values,
+                                const std::vector<int64_t>& slot_lengths,
+                                const int hidden_size,
+                                const int expand_embed_dim,
+                                const int skip_offset, bool expand_only) {
+#if defined(PADDLE_WITH_CUDA)
   //  VLOG(3) << "Begin PullSparse";
-  int device_id = BOOST_GET_CONST(platform::CUDAPlace, place).GetDeviceId();
+  int device_id = place.GetDeviceId();
   DeviceBoxData& dev = device_caches_[device_id];
   platform::Timer& all_timer = dev.all_pull_timer;
   platform::Timer& pull_boxps_timer = dev.boxps_pull_timer;
   platform::Timer& pull_dedup_timer = dev.pull_dedup_timer;
   all_timer.Resume();
 
-  // construct slot_level lod info
+    // construct slot_level lod info
   std::vector<int64_t> slot_lengths_lod;
   slot_lengths_lod.push_back(0);
 
@@ -48,9 +49,9 @@ void BoxWrapper::PullSparseCaseGPU(const paddle::platform::Place& place,
   }
   dev.total_key_length = total_length;
 
-  auto ctx = platform::DeviceContextPool::Instance().Get(
-      BOOST_GET_CONST(platform::CUDAPlace, place));
-  auto stream = dynamic_cast<platform::CUDADeviceContext*>(ctx)->stream();
+  auto stream = dynamic_cast<phi::GPUContext*>(
+          platform::DeviceContextPool::Instance().Get(place))
+          ->stream();
 
   boxps::FeaturePullOffset* pull_offset = nullptr;
   if (dev.pull_offset.memory_size() == 0) {
@@ -85,6 +86,8 @@ void BoxWrapper::PullSparseCaseGPU(const paddle::platform::Place& place,
 
   int64_t* slot_lens = reinterpret_cast<int64_t*>(
       dev.slot_lens.mutable_data<int64_t>({(slot_num + 1), 1}, place));
+
+  dev.copy_keys_timer.Resume();
   cudaMemcpyAsync(gpu_keys, keys.data(), keys.size() * sizeof(uint64_t*),
                   cudaMemcpyHostToDevice, stream);
   cudaMemcpyAsync(slot_lens, slot_lengths_lod.data(),
@@ -92,6 +95,7 @@ void BoxWrapper::PullSparseCaseGPU(const paddle::platform::Place& place,
                   cudaMemcpyHostToDevice, stream);
   this->CopyKeys(place, gpu_keys, total_keys, slot_lens, slot_num,
                  static_cast<int>(total_length), key2slot);
+  dev.copy_keys_timer.Pause();
 
   // dedup keys pull
   if (FLAGS_enable_pullpush_dedup_keys) {
@@ -137,6 +141,8 @@ void BoxWrapper::PullSparseCaseGPU(const paddle::platform::Place& place,
     // values.size() not sure equal slot_num
     float** gpu_values = dev.values_ptr_tensor.mutable_data<float*>(
         static_cast<int>(values.size() * sizeof(float*)), place);
+
+    dev.copy_values_timer.Resume();
     cudaMemcpyAsync(gpu_values, values.data(), values.size() * sizeof(float*),
                     cudaMemcpyHostToDevice, stream);
 
@@ -144,6 +150,7 @@ void BoxWrapper::PullSparseCaseGPU(const paddle::platform::Place& place,
                       pull_offset, slot_lens, slot_num, key2slot, hidden_size,
                       expand_embed_dim, total_length, total_dims, skip_offset,
                       expand_only, d_restore_idx);
+    dev.copy_values_timer.Pause();
   } else {
     int64_t total_bytes = total_length * feature_pull_size_;
     void* total_values_gpu =
@@ -160,6 +167,8 @@ void BoxWrapper::PullSparseCaseGPU(const paddle::platform::Place& place,
     // values.size() not sure equal slot_num
     float** gpu_values = dev.values_ptr_tensor.mutable_data<float*>(
         static_cast<int>(values.size() * sizeof(float*)), place);
+
+    dev.copy_values_timer.Resume();
     cudaMemcpyAsync(gpu_values, values.data(), values.size() * sizeof(float*),
                     cudaMemcpyHostToDevice, stream);
 
@@ -167,17 +176,19 @@ void BoxWrapper::PullSparseCaseGPU(const paddle::platform::Place& place,
                       pull_offset, slot_lens, slot_num, key2slot, hidden_size,
                       expand_embed_dim, total_length, total_dims, skip_offset,
                       expand_only);
+    dev.copy_values_timer.Pause();
   }
   all_timer.Pause();
+#endif
 }
 
 void BoxWrapper::PullSparseCaseCPU(const paddle::platform::Place& place,
-                                   const std::vector<const uint64_t*>& keys,
-                                   const std::vector<float*>& values,
-                                   const std::vector<int64_t>& slot_lengths,
-                                   const int hidden_size,
-                                   const int expand_embed_dim,
-                                   const int skip_offset, bool expand_only) {
+                                    const std::vector<const uint64_t*>& keys,
+                                    const std::vector<float*>& values,
+                                    const std::vector<int64_t>& slot_lengths,
+                                    const int hidden_size,
+                                    const int expand_embed_dim,
+                                    const int skip_offset, bool expand_only) {
   //  VLOG(3) << "Begin PullSparse";
   int device_id = GetPlaceDeviceId(place);
   DeviceBoxData& dev = device_caches_[device_id];
@@ -197,7 +208,7 @@ void BoxWrapper::PullSparseCaseCPU(const paddle::platform::Place& place,
   }
   dev.total_key_length = total_length;
 
-  uint64_t* total_keys =
+    uint64_t* total_keys =
       reinterpret_cast<uint64_t*>(dev.keys_tensor.mutable_data<int64_t>(
           {static_cast<int64_t>(total_length * 2), 1}, place));
   int* key2slot = reinterpret_cast<int*>(dev.keys2slot.mutable_data<int>(
@@ -205,8 +216,10 @@ void BoxWrapper::PullSparseCaseCPU(const paddle::platform::Place& place,
   int* total_dims = reinterpret_cast<int*>(
       dev.dims_tensor.mutable_data<int>({total_length, 1}, place));
 
+  dev.copy_keys_timer.Resume();
   this->CopyCPUKeys(place, keys, total_keys, slot_lens, slot_num,
                     static_cast<int>(total_length), key2slot);
+  dev.copy_keys_timer.Pause();
 
   // dedup keys pull
   uint32_t* d_restore_idx =
@@ -247,10 +260,12 @@ void BoxWrapper::PullSparseCaseCPU(const paddle::platform::Place& place,
                                 "PullSparseGPU failed in BoxPS."));
   pull_boxps_timer.Pause();
 
+  dev.copy_values_timer.Resume();
   this->CopyForPullCPU(place, keys, values, total_values_gpu, slot_lens,
                        slot_num, key2slot, hidden_size, expand_embed_dim,
                        total_length, total_dims, skip_offset, expand_only,
                        d_restore_idx);
+  dev.copy_values_timer.Pause();
 
   all_timer.Pause();
 }
@@ -278,17 +293,17 @@ void BoxWrapper::PushSparseGradCaseGPU(
     const std::vector<int64_t>& slot_lengths, const int hidden_size,
     const int expand_embed_dim, const int batch_size, const int skip_offset,
     bool expand_only) {
-  int device_id = BOOST_GET_CONST(platform::CUDAPlace, place).GetDeviceId();
+#if defined(PADDLE_WITH_CUDA)
+  int device_id = place.GetDeviceId();
   DeviceBoxData& dev = device_caches_[device_id];
   platform::Timer& all_timer = dev.all_push_timer;
   platform::Timer& push_boxps_timer = dev.boxps_push_timer;
 
   all_timer.Resume();
 
-  auto stream = dynamic_cast<platform::CUDADeviceContext*>(
-                    platform::DeviceContextPool::Instance().Get(
-                        BOOST_GET_CONST(platform::CUDAPlace, place)))
-                    ->stream();
+  auto stream = dynamic_cast<phi::GPUContext*>(
+          platform::DeviceContextPool::Instance().Get(place))
+          ->stream();
   uint64_t* total_keys =
       reinterpret_cast<uint64_t*>(dev.keys_tensor.data<int64_t>());
   int* total_dims = reinterpret_cast<int*>(dev.dims_tensor.data<int>());
@@ -367,6 +382,7 @@ void BoxWrapper::PushSparseGradCaseGPU(
     push_boxps_timer.Pause();
   }
   all_timer.Pause();
+#endif
 }
 
 void BoxWrapper::PushSparseGradCaseCPU(

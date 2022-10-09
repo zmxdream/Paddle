@@ -20,7 +20,7 @@
 #include "paddle/fluid/framework/fleet/box_wrapper.h"
 #include "paddle/fluid/framework/op_registry.h"
 #include "paddle/fluid/framework/tensor.h"
-#include "paddle/fluid/operators/math/math_function.h"
+#include "paddle/phi/kernels/funcs/math_function.h"
 
 DECLARE_bool(enable_pull_box_padding_zero);
 
@@ -31,23 +31,21 @@ template <typename T>
 static void PaddingZeros(const framework::ExecutionContext &ctx,
                          framework::LoDTensor *data, int batch_size,
                          int hidden_size) {
+  auto place = ctx.GetPlace();
   // set data
   data->Resize({1, hidden_size});
-  data->mutable_data<T>(ctx.GetPlace());
-
-  auto &dev_ctx = ctx.template device_context<platform::CUDADeviceContext>();
-  math::set_constant(dev_ctx, data, 0);
-
-  //  auto data_eigen = framework::EigenVector<T>::Flatten(*data);
-  //  auto &place = *ctx.template device_context<platform::CUDADeviceContext>()
-  //                     .eigen_device();
-  //  data_eigen.device(place) = data_eigen.constant(static_cast<T>(0));
-
+  T *value_ptr = data->mutable_data<T>(place);
+  if (platform::is_cpu_place(place)) {
+    memset(value_ptr, 0, sizeof(T) * hidden_size);
+  } else {
+    auto &dev_ctx = ctx.template device_context<phi::DeviceContext>();
+    phi::funcs::set_constant(dev_ctx, data, 0);
+  }
   // set lod
-  std::vector<size_t> v_lod(batch_size + 1, 1);
-  v_lod[0] = 0;
-  paddle::framework::LoD data_lod;
-  data_lod.push_back(v_lod);
+  thread_local paddle::framework::LoD data_lod;
+  data_lod.resize(1);
+  data_lod[0].resize(batch_size + 1, 1);
+  data_lod[0][0] = 0;
   data->set_lod(data_lod);
 }
 
@@ -65,7 +63,7 @@ static void PullCacheValuesFunctor(const framework::ExecutionContext &ctx) {
       const_cast<float *>(output->mutable_data<float>(ctx.GetPlace()));
 
   auto box_ptr = paddle::framework::BoxWrapper::GetInstance();
-  int i = BOOST_GET_CONST(platform::CUDAPlace, ctx.GetPlace()).GetDeviceId();
+  int i = ctx.GetPlace().GetDeviceId();
 
   box_ptr->gpu_replica_cache.front().PullCacheValue(input_data, output_data,
                                                     batch_size, i);
@@ -84,8 +82,7 @@ static void LookupInputFunctor(const framework::ExecutionContext &ctx) {
       const_cast<float *>(output->mutable_data<float>(ctx.GetPlace()));
 
   auto box_ptr = paddle::framework::BoxWrapper::GetInstance();
-  size_t device_id =
-      BOOST_GET_CONST(platform::CUDAPlace, ctx.GetPlace()).GetDeviceId();
+  size_t device_id = ctx.GetPlace().GetDeviceId();
   box_ptr->input_table_deque_.front().LookupInput(input_data, output_data,
                                                   batch_size, device_id);
 #endif
@@ -114,7 +111,7 @@ static void PullBoxSparseFunctor(const framework::ExecutionContext &ctx) {
     }
   } else {
     for (size_t i = 0; i < slot_size; ++i) {
-      const auto *slot = inputs[i];
+    const auto *slot = inputs[i];
       if (slot->numel() == 0) {
         continue;
       }
@@ -186,17 +183,17 @@ static void PushBoxSparseFunctor(const framework::ExecutionContext &ctx) {
     all_keys[i] = single_slot_keys;
     slot_lengths[i] = numel;
     if (slot_idx == -1) {
-      int cur_batch_size =
-          slot->lod().size() ? slot->lod()[0].size() - 1 : slot->dims()[0];
-      if (batch_size == -1) {
-        batch_size = cur_batch_size;
-      } else {
+    int cur_batch_size =
+        slot->lod().size() ? slot->lod()[0].size() - 1 : slot->dims()[0];
+    if (batch_size == -1) {
+      batch_size = cur_batch_size;
+    } else {
         PADDLE_ENFORCE_EQ(
             batch_size, cur_batch_size,
-            platform::errors::PreconditionNotMet(
-                "The batch size of all input slots should be same, "
-                "please cheack"));
-      }
+                        platform::errors::PreconditionNotMet(
+                            "The batch size of all input slots should be same, "
+                            "please cheack"));
+    }
     }
     const float *grad_value = d_output[i]->data<float>();
     all_grad_values[i] = grad_value;
