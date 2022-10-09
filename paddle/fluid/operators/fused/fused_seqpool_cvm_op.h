@@ -15,6 +15,7 @@ limitations under the License. */
 #pragma once
 #include <memory>
 #include <vector>
+
 #include "paddle/fluid/framework/lod_tensor.h"
 #include "paddle/fluid/framework/op_registry.h"
 #include "paddle/fluid/framework/tensor.h"
@@ -25,22 +26,22 @@ namespace operators {
 using LoDTensor = framework::LoDTensor;
 
 template <typename T>
-class FusedSeqpoolCVMOpCPUKernel : public framework::OpKernel<T> {
+class FusedSeqpoolCVMOpKernel : public framework::OpKernel<T> {
  public:
   void Compute(const framework::ExecutionContext& ctx) const override {
-    PADDLE_THROW(
-        "Unimplemented CPU kernel for FusedSeqpoolCVMOp, only support GPU "
-        "now.");
+    PADDLE_THROW(platform::errors::Unimplemented(
+        "Unimplemented kernel for FusedSeqpoolCVMOp, only support GPU "
+        "now."));
   }
 };
 
 template <typename T>
-class FusedSeqpoolCVMGradOpCPUKernel : public framework::OpKernel<T> {
+class FusedSeqpoolCVMGradOpKernel : public framework::OpKernel<T> {
  public:
   void Compute(const framework::ExecutionContext& ctx) const override {
-    PADDLE_THROW(
-        "Unimplemented CPU kernel for FusedSeqpoolCVMGradOp, only support GPU "
-        "now.");
+    PADDLE_THROW(platform::errors::Unimplemented(
+        "Unimplemented kernel for FusedSeqpoolCVMGradOp, only support GPU "
+        "now."));
   }
 };
 

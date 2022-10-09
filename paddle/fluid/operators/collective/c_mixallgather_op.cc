@@ -16,12 +16,17 @@ limitations under the License. */
 #include "paddle/fluid/framework/lod_tensor.h"
 #include "paddle/fluid/framework/op_registry.h"
 #include "paddle/fluid/platform/device_memory_aligment.h"
+#if defined(PADDLE_WITH_BOX_PS)
 #if defined(PADDLE_WITH_NCCL)
-#include "paddle/fluid/platform/collective_helper.h"
-#include "paddle/fluid/platform/gpu_info.h"
-#include "paddle/fluid/platform/nccl_helper.h"
+#include "paddle/fluid/platform/device/gpu/gpu_info.h"
+#include "paddle/fluid/platform/device/gpu/nccl_helper.h"
+#elif defined(PADDLE_WITH_XPU_BKCL) || defined(PADDLE_WITH_XPU)
+#include "paddle/fluid/platform/device/xpu/xpu_info.h"
+#include "paddle/fluid/platform/device/xpu/bkcl_helper.h"
 #endif
 #include "paddle/fluid/framework/fleet/box_wrapper.h"
+#include "paddle/fluid/platform/collective_helper.h"
+#endif
 #include "paddle/fluid/operators/tensor_formatter.h"
 namespace paddle {
 namespace operators {
@@ -134,14 +139,14 @@ class CMixAllGatherOpCUDAKernel : public framework::OpKernel<T> {
 
     auto place = ctx.GetPlace();
 
-    int device_id = boost::get<platform::CUDAPlace>(place).GetDeviceId();
+    int device_id = place.GetDeviceId();
     auto box_ptr = paddle::framework::BoxWrapper::GetInstance();
 
     box_ptr->DenseNcclTimer(device_id, false, 0x03);
 
     int64_t numel = 0;
-    auto dtype =
-        static_cast<framework::proto::VarType::Type>(in_tensors[0]->type());
+    ncclDataType_t nccl_dtype =
+            platform::ToNCCLDataType(framework::TransToProtoVarType(in_tensors[0]->dtype()));
     GetTensorMemSize(in_tensors, &numel);
 
     int64_t offset = 0;
@@ -152,7 +157,7 @@ class CMixAllGatherOpCUDAKernel : public framework::OpKernel<T> {
 
     auto comm = platform::NCCLCommContext::Instance().Get(0, device_id);
     int comm_rank_num = comm->nranks();
-    int device_num = platform::GetCUDADeviceCount();
+    int device_num = platform::GetGPUDeviceCount();
 
     if (nccl_mode == NCCL_ALLGATHER) {  // allgather
       if (comm_rank_num == device_num) {
@@ -209,25 +214,24 @@ class CMixAllGatherOpCUDAKernel : public framework::OpKernel<T> {
     }
 
     cudaStream_t stream =
-        static_cast<platform::CUDADeviceContext *>(dev_ctx)->stream();
-    PADDLE_ENFORCE_CUDA_SUCCESS(cudaStreamSynchronize(stream));
+            dynamic_cast<phi::GPUContext *>(dev_ctx)->stream();
+    PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
     box_ptr->DenseNcclTimer(device_id, true, 0x02);
 
-    ncclDataType_t nccl_dtype = platform::ToNCCLDataType(dtype);
     if (nranks > 1 && comm_rank_num == device_num) {
       if (multi_nccl) {  // multi node nccl more than two network card
         if (nccl_mode == NCCL_ALLREDUCE) {  // allreduce
           // [inner reducescatter->node allreduce->allgather]
           int64_t part_param_len = numel / device_num;
           T *recv_ptr = &recvbuff[device_id * part_param_len];
-          PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclGroupStart());
-          PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclReduceScatter(
+          PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclGroupStart());
+          PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclReduceScatter(
               sendbuff, recv_ptr, part_param_len, nccl_dtype, ncclSum,
               comm->comm(), stream));
           CHECK(box_ptr->SyncDense(stream, part_param_len, recv_ptr, recv_ptr,
                                    device_id, false));
-          PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclGroupEnd());
-          PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclAllGather(
+          PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclGroupEnd());
+          PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclAllGather(
               recv_ptr, recvbuff, part_param_len, nccl_dtype, comm->comm(),
               stream));
         } else if (nccl_mode == NCCL_ALLGATHER) {  // allgather
@@ -235,35 +239,35 @@ class CMixAllGatherOpCUDAKernel : public framework::OpKernel<T> {
           CHECK(box_ptr->SyncDense(stream, numel, sendbuff,
                                    &recvbuff[numel * device_id * nranks],
                                    device_id, true));
-          PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclAllGather(
+          PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclAllGather(
               &recvbuff[numel * device_id * nranks], recvbuff, numel * nranks,
               nccl_dtype, comm->comm(), stream));
         } else {  // mixallgather
           // [inner reducescatter->node allgather->inner allgather]
           int64_t part_param_len = numel / device_num;
           T *recv_ptr = &recvbuff[device_id * part_param_len];
-          PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclGroupStart());
-          PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclReduceScatter(
+          PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclGroupStart());
+          PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclReduceScatter(
               sendbuff, recv_ptr, part_param_len, nccl_dtype, ncclSum,
               comm->comm(), stream));
           T *recv_buff_ext = &recvbuff[numel * nranks];
           CHECK(box_ptr->SyncDense(stream, part_param_len, recv_ptr,
                                    recv_buff_ext, device_id, true));
-          PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclGroupEnd());
+          PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclGroupEnd());
           // slice_multi_tensor op need symmetric data
           for (int rank = 0; rank < nranks; ++rank) {
             // gather data by rank id order
-            PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclAllGather(
+            PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclAllGather(
                 &recv_buff_ext[part_param_len * rank],
                 &recvbuff[rank * (numel + part_param_len)], part_param_len,
                 nccl_dtype, comm->comm(), stream));
           }
         }
       } else {  // only single network card
-        PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclGroupStart());
+        PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclGroupStart());
         if (nccl_mode == NCCL_ALLGATHER) {  // allgather
           // [inner allgather->device 0 node allgather->inner bcast]
-          PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclAllGather(
+          PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclAllGather(
               sendbuff, &recvbuff[numel * device_num * rank_id], numel,
               nccl_dtype, comm->comm(), stream));
           if (device_id == 0) {
@@ -275,7 +279,7 @@ class CMixAllGatherOpCUDAKernel : public framework::OpKernel<T> {
               // node allgather
               auto node_comm =
                   platform::NCCLCommContext::Instance().Get(ring_id, 0);
-              PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclAllGather(
+              PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclAllGather(
                   &recvbuff[numel * device_num * rank_id], recvbuff,
                   numel * device_num, nccl_dtype, node_comm->comm(), stream));
             }
@@ -283,7 +287,7 @@ class CMixAllGatherOpCUDAKernel : public framework::OpKernel<T> {
         } else {  // mixallgather allreduce
           // [inner reduce to device 0 -> device 0 node allgather or allreduce
           // -> inner bcast]
-          PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclReduce(
+          PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclReduce(
               sendbuff, sendbuff, numel, nccl_dtype, ncclSum, 0, comm->comm(),
               stream));
           if (device_id == 0) {
@@ -295,34 +299,34 @@ class CMixAllGatherOpCUDAKernel : public framework::OpKernel<T> {
                   platform::NCCLCommContext::Instance().Get(ring_id, 0);
               if (nccl_mode == NCCL_MIXALLGATHER) {
                 // allgather
-                PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclAllGather(
+                PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclAllGather(
                     sendbuff, recvbuff, numel, nccl_dtype, node_comm->comm(),
                     stream));
               } else {
                 // allreduce
-                PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclAllReduce(
+                PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclAllReduce(
                     sendbuff, recvbuff, numel, nccl_dtype, ncclSum,
                     node_comm->comm(), stream));
               }
             }
           }
         }
-        PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclGroupEnd());
+        PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclGroupEnd());
         // broadcast to all device
-        PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclBcast(
+        PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclBcast(
             recvbuff, recv_len, nccl_dtype, 0, comm->comm(), stream));
       }
     } else {  // single node or one ring
       if (nccl_mode == NCCL_ALLGATHER) {
-        PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclAllGather(
+        PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclAllGather(
             sendbuff, recvbuff, numel, nccl_dtype, comm->comm(), stream));
       } else {
-        PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclAllReduce(
+        PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclAllReduce(
             sendbuff, recvbuff, numel, nccl_dtype, ncclSum, comm->comm(),
             stream));
       }
     }
-    PADDLE_ENFORCE_CUDA_SUCCESS(cudaStreamSynchronize(stream));
+    PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
     //    if (device_id == 0) {
     //        print_gpu_data("fuse_nccl", recvbuff, static_cast<int>(recv_len),
     //        device_id, stream);
@@ -330,6 +334,88 @@ class CMixAllGatherOpCUDAKernel : public framework::OpKernel<T> {
     box_ptr->DenseNcclTimer(device_id, true, 0x01);
 #else
     PADDLE_THROW("PaddlePaddle should compile with GPU.");
+#endif
+  }
+
+ protected:
+  void GetTensorMemSize(
+      const std::vector<const framework::LoDTensor *> &lod_tensors,
+      int64_t *numel) const {
+    *numel = 0;
+    for (size_t i = 0; i < lod_tensors.size(); ++i) {
+      CHECK(lod_tensors[i]->IsInitialized());
+      *numel += lod_tensors[i]->numel();
+    }
+  }
+};
+
+template <typename T>
+class CMixAllGatherOpXPUKernel : public framework::OpKernel<T> {
+  static const int NCCL_ALLREDUCE = 0;
+  static const int NCCL_MIXALLGATHER = 1;
+  static const int NCCL_ALLGATHER = 2;
+
+ public:
+  void Compute(const framework::ExecutionContext &ctx) const override {
+#if defined(PADDLE_WITH_XPU_BKCL) && defined(PADDLE_WITH_BOX_PS)
+    auto in_tensors = ctx.MultiInput<framework::LoDTensor>("Input");
+    auto fused_tensor = ctx.Output<framework::LoDTensor>("Output");
+
+//    int nranks = ctx.Attr<int>("nranks");
+//    int rank_id = ctx.Attr<int>("rankid");
+    int nccl_mode = ctx.Attr<int>("nccl_mode");
+//    int ring_id = ctx.Attr<int>("ring_id");
+
+    if (nccl_mode == NCCL_ALLGATHER || nccl_mode == NCCL_MIXALLGATHER) {
+      PADDLE_THROW("PaddlePaddle xpu not support gather mode.");
+      return;
+    }
+
+    auto place = ctx.GetPlace();
+
+    int device_id = place.GetDeviceId();
+    auto box_ptr = paddle::framework::BoxWrapper::GetInstance();
+
+    box_ptr->DenseNcclTimer(device_id, false, 0x03);
+
+    int64_t numel = 0;
+    BKCLDataType bkcl_dtype =
+            platform::ToBKCLDataType(framework::TransToProtoVarType(in_tensors[0]->dtype()));
+    GetTensorMemSize(in_tensors, &numel);
+
+    auto comm = platform::BKCLCommContext::Instance().Get(0, device_id);
+//    int comm_rank_num = comm->nranks();
+//    int device_num = platform::GetDeviceCount();
+
+    T *recvbuff = fused_tensor->mutable_data<T>({numel, 1}, place);
+
+    auto dev_ctx = paddle::platform::DeviceContextPool::Instance().Get(place);
+    // copy input datas
+    int64_t offset = 0;
+    for (size_t i = 0; i < in_tensors.size(); ++i) {
+      int64_t len = in_tensors[i]->numel();
+      auto sub_tensor = fused_tensor->Slice(offset, offset + len);
+      framework::TensorCopy(*in_tensors[i], place, *dev_ctx, &sub_tensor);
+      offset += len;
+    }
+    box_ptr->DenseNcclTimer(device_id, true, 0x02);
+    XPUStream stream = static_cast<platform::XPUDeviceContext*>(dev_ctx)
+                       ->x_context()
+                       ->xpu_stream;
+    PADDLE_ENFORCE_EQ(
+        bkcl_all_reduce(comm->comm(),
+                        recvbuff,
+                        recvbuff,
+                        numel,
+                        bkcl_dtype,
+                        BKCL_ADD,
+                        stream),
+            BKCL_SUCCESS,
+            platform::errors::PreconditionNotMet("BKCL all reduce failed"));
+    PADDLE_ENFORCE_XPU_SUCCESS(xpu_wait(stream));
+    box_ptr->DenseNcclTimer(device_id, true, 0x01);
+#else
+    PADDLE_THROW("PaddlePaddle should compile with XPU.");
 #endif
   }
 
@@ -403,10 +489,19 @@ REGISTER_OP_CPU_KERNEL(c_mixallgather, ops::CMixAllGatherOpCPUKernel<float>,
                        ops::CMixAllGatherOpCPUKernel<int>,
                        ops::CMixAllGatherOpCPUKernel<int64_t>,
                        ops::CMixAllGatherOpCPUKernel<plat::float16>);
-#ifdef PADDLE_WITH_CUDA
+#if defined(PADDLE_WITH_BOX_PS)
+#if defined(PADDLE_WITH_NCCL)
 REGISTER_OP_CUDA_KERNEL(c_mixallgather, ops::CMixAllGatherOpCUDAKernel<float>,
                         ops::CMixAllGatherOpCUDAKernel<double>,
                         ops::CMixAllGatherOpCUDAKernel<int>,
                         ops::CMixAllGatherOpCUDAKernel<int64_t>,
                         ops::CMixAllGatherOpCUDAKernel<plat::float16>);
+#endif
+#if defined(PADDLE_WITH_XPU_BKCL)
+REGISTER_OP_XPU_KERNEL(c_mixallgather, ops::CMixAllGatherOpXPUKernel<float>,
+                        ops::CMixAllGatherOpXPUKernel<double>,
+                        ops::CMixAllGatherOpXPUKernel<int>,
+                        ops::CMixAllGatherOpXPUKernel<int64_t>,
+                        ops::CMixAllGatherOpXPUKernel<plat::float16>);
+#endif
 #endif

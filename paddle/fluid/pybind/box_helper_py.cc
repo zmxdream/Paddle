@@ -29,9 +29,6 @@ limitations under the License. */
 #include "paddle/fluid/framework/data_feed.pb.h"
 #include "paddle/fluid/framework/fleet/box_wrapper.h"
 #include "paddle/fluid/pybind/box_helper_py.h"
-#ifdef PADDLE_WITH_BOX_PS
-#include <boxps_public.h>
-#endif
 
 namespace py = pybind11;
 
@@ -99,7 +96,7 @@ void BindBoxWrapper(py::module* m) {
       .def("flip_phase", &framework::BoxWrapper::FlipPhase,
            py::call_guard<py::gil_scoped_release>())
       .def("set_phase", &framework::BoxWrapper::SetPhase,
-                    py::call_guard<py::gil_scoped_release>())
+           py::call_guard<py::gil_scoped_release>())
       .def("init_afs_api", &framework::BoxWrapper::InitAfsAPI,
            py::call_guard<py::gil_scoped_release>())
       .def("finalize", &framework::BoxWrapper::Finalize,

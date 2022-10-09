@@ -20,14 +20,20 @@ limitations under the License. */
 #include "paddle/fluid/framework/fleet/box_wrapper.h"
 #include "paddle/fluid/framework/tensor_util.h"
 #include "paddle/fluid/framework/trainer_desc.pb.h"
+#include "paddle/fluid/framework/tensor_util.h"
 #include "paddle/fluid/platform/cpu_helper.h"
 #include "paddle/fluid/platform/device_context.h"
-#include "paddle/fluid/platform/gpu_info.h"
 #include "paddle/fluid/platform/lodtensor_printer.h"
 
 #include "paddle/fluid/framework/details/nan_inf_utils.h"
+#if defined(PADDLE_WITH_CUDA)
 #include "paddle/fluid/platform/collective_helper.h"
-#include "paddle/fluid/platform/nccl_helper.h"
+#include "paddle/fluid/platform/device/gpu/nccl_helper.h"
+#elif defined(PADDLE_WITH_XPU_BKCL) || defined(PADDLE_WITH_XPU)
+#include "paddle/fluid/platform/device/xpu/xpu_info.h"
+#include "paddle/fluid/platform/device/xpu/bkcl_helper.h"
+#include "paddle/fluid/platform/collective_helper.h"
+#endif
 
 DECLARE_bool(enable_sync_dense_moment);
 DECLARE_bool(check_nan_inf);
@@ -42,7 +48,7 @@ BoxPSAsynDenseTable::BoxPSAsynDenseTable(const int device_num)
   for (int i = 0; i < buffer_size; i++) {
     buffer_poll_->Send(&device_grads_[i]);
   }
-  VLOG(0) << "BoxPSAsynDenseTable init finish ";
+  VLOG(1) << "BoxPSAsynDenseTable init finish ";
 }
 BoxPSAsynDenseTable::~BoxPSAsynDenseTable() {}
 
@@ -51,11 +57,11 @@ std::set<std::string> BoxPSAsynDenseTable::Init(
     const std::vector<std::string>& persistable_vars) {
   std::set<std::string> async_param_name;
   root_scope_ = const_cast<paddle::framework::Scope*>(&root_scope);
-  VLOG(0) << "Begin Init For Aysnc Optimize";
+  VLOG(1) << "Begin Init For Aysnc Optimize";
   for (const auto& e : param_need_sync) {
     if (e.find("param") != std::string::npos &&
         e.find("pow_acc") == std::string::npos) {
-      VLOG(0) << "async mode choose " << e << " to update";
+      VLOG(3) << "async mode choose " << e << " to update";
       async_param_list_.push_back(e);
       async_param_list_.push_back(e + "_moment1_0");
       async_param_list_.push_back(e + "_moment2_0");
@@ -64,7 +70,6 @@ std::set<std::string> BoxPSAsynDenseTable::Init(
     }
   }
   original_ps_.resize(async_param_list_.size());
-  VLOG(0) << "async_param_list_.size(): " << async_param_list_.size();
   std::sort(
       async_param_list_.begin(),
       async_param_list_
@@ -74,7 +79,6 @@ std::set<std::string> BoxPSAsynDenseTable::Init(
         root_scope.FindVar(async_param_list_[i])->Get<LoDTensor>();
     total_param_len_ += root_tensor.numel();
   }
-  VLOG(0) << "alloc param length dense table:" << total_param_len_;
 
   ps_.mutable_data<float>({total_param_len_, 1}, platform::CPUPlace());
   mom1_.mutable_data<float>({total_param_len_, 1}, platform::CPUPlace());
@@ -85,9 +89,8 @@ std::set<std::string> BoxPSAsynDenseTable::Init(
   }
 
   int64_t offset = 0;
-  VLOG(0) << " param size is " << async_param_list_.size();
   for (size_t i = 0; i < async_param_list_.size(); i++) {
-    VLOG(0) << "begin to copy " << async_param_list_[i];
+    VLOG(3) << "begin to copy " << async_param_list_[i];
     const LoDTensor& root_tensor =
         root_scope.FindVar(async_param_list_[i])->Get<LoDTensor>();
     auto dim = root_tensor.dims();
@@ -118,17 +121,19 @@ std::set<std::string> BoxPSAsynDenseTable::Init(
           platform::errors::PreconditionNotMet(
               "lr have been set, previous value: %f, current var is %s",
               base_lr_, e.c_str()));
-      VLOG(0) << "begin to copy global learning rate: " << e;
+      VLOG(3) << "begin to copy global learning rate: " << e;
       const LoDTensor& root_tensor = root_scope.FindVar(e)->Get<LoDTensor>();
       const float* gpu_lr = root_tensor.data<float>();
-      if (platform::is_gpu_place(root_tensor.place())) {
-        cudaMemcpy(&base_lr_, gpu_lr, sizeof(float), cudaMemcpyDeviceToHost);
+      if (platform::is_gpu_place(root_tensor.place()) || platform::is_xpu_place(root_tensor.place())) {
+        SyncCopyD2H(&base_lr_, gpu_lr, 1);
       } else {
         base_lr_ = *gpu_lr;
       }
     }
   }
-  VLOG(0) << "base lr is " << base_lr_;
+  VLOG(0) << "Aysnc alloc dense table param size: " << async_param_list_.size()
+          << ", total length:" << total_param_len_ << ", base_lr=" << base_lr_;
+
   ps_buffer_.reset(new PSBufferQueue(device_num_ * 3));  // magic number
   all_lr_.resize(total_param_len_);
   auto box_ptr = BoxWrapper::GetInstance();
@@ -157,7 +162,7 @@ void BoxPSAsynDenseTable::Finalize(void) {
   buffer_poll_->Close();
 
   for (size_t i = 0; i < async_param_list_.size(); ++i) {
-    VLOG(0) << "begin to copy back" << async_param_list_[i];
+    VLOG(3) << "begin to copy back" << async_param_list_[i];
     auto* root_tensor =
         root_scope_->Var(async_param_list_[i])->GetMutable<LoDTensor>();
     TensorCopySync(*static_cast<const Tensor*>(&original_ps_[i]),
@@ -238,7 +243,7 @@ void BoxPSAsynDenseTable::AsyncUpdate() {
     for (size_t i = 1; i < merge_num; ++i) {
       ps_buffer_->Receive(&grad[i]);
     }
-    AutoWRLock ps_lock(&ps_lock_);
+    phi::AutoWRLock ps_lock(&ps_lock_);
     std::vector<std::future<void>> wait_futures;
     for (int64_t i = 0; i < thread_num_; ++i) {
       wait_futures.emplace_back(thread_pool->Run(
@@ -263,7 +268,7 @@ void BoxPSAsynDenseTable::PullDense(const platform::Place& place,
   // And will hang when the lock was removed
   //   ;
   // }
-  AutoRDLock ps_lock(&ps_lock_);
+  phi::AutoRDLock ps_lock(&ps_lock_);
   TensorCopy(*static_cast<const Tensor*>(&ps_), place,
              static_cast<Tensor*>(tensor));
 }
@@ -301,7 +306,11 @@ static const int DenseDataNormal = 3;
 void BoxPSWorker::Initialize(const TrainerDesc& desc) {
   dev_ctx_ = platform::DeviceContextPool::Instance().Get(place_);
   node_size_ = boxps::MPICluster::Ins().size();
-  device_num_ = platform::GetCUDADeviceCount();
+  device_num_ = GetDeviceCount();
+  if (device_num_ == 0) {
+    device_num_ = desc.thread_num();
+  }
+  VLOG(1) << "boxps_worker init device num: " << device_num_;
 }
 
 void BoxPSWorker::SetDenseTable(BoxPSAsynDenseTable* dense) {
@@ -317,8 +326,8 @@ int BoxPSWorker::CheckNeedParam(VarDesc* var) {
   if (sync_mode_ == DenseDataNormal) {
     // data normal param
     if (name.find(".batch_size") != std::string::npos ||
-        name.find(".batch_sum") != std::string::npos ||
-        name.find(".batch_square_sum") != std::string::npos) {
+           name.find(".batch_sum") != std::string::npos ||
+           name.find(".batch_square_sum") != std::string::npos) {
       return 3;
     }
   } else {
@@ -361,7 +370,7 @@ int64_t BoxPSWorker::AllocParamTensor(int64_t* pad_len) {
     }
     const LoDTensor& root_tensor = root_scope_->FindVar(name)->Get<LoDTensor>();
     int64_t numel = root_tensor.numel();
-    if (flag == 2) {  // moment
+    if (flag == 2) { // moment
       total_moment_len += numel;
     } else {
       total_param_len += numel;
@@ -403,6 +412,9 @@ int64_t BoxPSWorker::AllocParamTensorAsync() {
   VLOG(2) << "param length:" << total_param_len
           << "param grad length:" << total_param_len
           << ", device num:" << device_num_;
+
+  CHECK(total_param_len > 0) << "error param total zero";
+  CHECK(dense_table_->GetParamTotalLen() == total_param_len);
 
   param_async_.mutable_data<float>({total_param_len, 1}, place_);
   grad_async_.mutable_data<float>({total_param_len, 1}, place_);
@@ -488,42 +500,65 @@ void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
   }
 }
 void BoxPSWorker::SyncParam(void) {
-  if (param_sync_.numel() == 0 ||
-      sync_mode_ == DenseKStepNode && node_size_ == 1) {
+  if (param_sync_.numel() == 0 || sync_mode_ == DenseKStepNode && node_size_ == 1) {
     return;
   }
 
   auto box_ptr = BoxWrapper::GetInstance();
   box_ptr->DenseNcclTimer(device_id_, false, 0x03);
+
+#if defined(PADDLE_WITH_CUDA)
   auto comm = platform::NCCLCommContext::Instance().Get(0, device_id_);
-  auto stream = static_cast<platform::CUDADeviceContext*>(dev_ctx_)->stream();
-
-  PADDLE_ENFORCE_CUDA_SUCCESS(cudaStreamSynchronize(stream));
+  auto stream = static_cast<phi::GPUContext*>(dev_ctx_)->stream();
+  PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
+#elif defined(PADDLE_WITH_XPU_BKCL) || defined(PADDLE_WITH_XPU)
+  auto comm = platform::BKCLCommContext::Instance().Get(0, device_id_);
+  XPUStream stream = static_cast<platform::XPUDeviceContext*>(dev_ctx_)
+                         ->x_context()
+                         ->xpu_stream;
+  PADDLE_ENFORCE_XPU_SUCCESS(xpu_wait(stream));
+#endif
   box_ptr->DenseNcclTimer(device_id_, true, 0x02);
-
   int64_t numel = param_sync_.numel();
   float* sendbuff = param_sync_.data<float>();
 
+#if defined(PADDLE_WITH_CUDA)
   if ((node_size_ > 1 && !one_ring_)) {  // KStep Node
     int part_param_len = numel / device_num_;
     float* recv_ptr = &sendbuff[device_id_ * part_param_len];
 
-    PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclGroupStart());
-    PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclReduceScatter(
+    PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclGroupStart());
+    PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclReduceScatter(
         sendbuff, recv_ptr, part_param_len, ncclFloat32, ncclSum, comm->comm(),
         stream));
     CHECK(box_ptr->SyncDense(stream, part_param_len, recv_ptr, recv_ptr,
                              device_id_, false));
-    PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclGroupEnd());
-    PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclAllGather(
+    PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclGroupEnd());
+    PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclAllGather(
         recv_ptr, sendbuff, part_param_len, ncclFloat32, comm->comm(), stream));
-  } else {
-    PADDLE_ENFORCE_CUDA_SUCCESS(platform::dynload::ncclAllReduce(
+  } else {  // KStep ALL
+    PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclAllReduce(
         sendbuff, sendbuff, numel, ncclFloat32, ncclSum, comm->comm(), stream));
-  }
+  } 
   const float scale = 1.0 / (device_num_ * node_size_);
   TensorScaleValue(place_, param_sync_, &param_sync_, scale);
-  PADDLE_ENFORCE_CUDA_SUCCESS(cudaStreamSynchronize(stream));
+  PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
+#elif defined(PADDLE_WITH_XPU_BKCL) || defined(PADDLE_WITH_XPU)
+  PADDLE_ENFORCE_EQ(
+         bkcl_all_reduce(comm->comm(),
+             sendbuff,
+             sendbuff,
+             numel,
+             BKCL_FLOAT,
+             BKCL_ADD,
+             stream),
+             BKCL_SUCCESS,
+             platform::errors::PreconditionNotMet("BKCL all reduce failed"));
+  const float scale = 1.0 / (device_num_ * node_size_);
+  TensorScaleValue(place_, param_sync_, &param_sync_, scale);
+  PADDLE_ENFORCE_XPU_SUCCESS(xpu_wait(stream));
+#endif
+
   box_ptr->DenseNcclTimer(device_id_, true, 0x01);
 }
 int BoxPSWorker::PackBatchTask(void) {
@@ -557,7 +592,7 @@ void BoxPSWorker::TrainFiles() {
     device_reader_->Start();
   }
   int step = 0;
-  platform::SetDeviceId(device_id_);
+  SetDeviceID(device_id_);
   while ((batch_size = PackBatchTask()) > 0) {
     VLOG(2) << "[" << device_id_
             << "]begin running ops, batch size:" << batch_size
@@ -579,13 +614,15 @@ void BoxPSWorker::TrainFiles() {
         SyncParam();
       }
     }
+#if defined(PADDLE_WITH_CUDA)
     if (FLAGS_check_nan_inf) {
       // check nan result
       if (framework::details::CheckBatchNanOrInfRet(place_)) {
         framework::details::DumpAllScope(*thread_scope_, place_);
-        PADDLE_ENFORCE(false, "ERROR: check INF and NAN");
+        PADDLE_ENFORCE(false, "ERROR: check INF and NAN, device id=%d, batch id=%d", device_id_, step);
       }
     }
+#endif
     AddAucMonitor(thread_scope_, place_);
 
     accum_num += batch_size;
@@ -603,64 +640,6 @@ void BoxPSWorker::TrainFiles() {
   auto box_ptr = BoxWrapper::GetInstance();
   box_ptr->PrintSyncTimer(device_id_, timer.ElapsedSec());
 }
-/**
-static
-void print_hbm_mem(const int gpu_id, const char *name = "") {
-    size_t hbm_free = 0;
-    size_t hbm_total = 0;
-    platform::GpuMemoryUsage(&hbm_free, &hbm_total);
-
-    VLOG(0) << "hbm usage:("
-            << name << "), device_id: "
-            << gpu_id << " total_size: "
-            << (hbm_total >> 20) << "MB, "
-            << "free: " << (hbm_free >> 20) << " MB, "
-            << "used: " << ((hbm_total - hbm_free) >> 20) << "MB";
-}
-
-class GPUOpMemStat {
-public:
-    GPUOpMemStat(int device_id) :
-        device_id_(device_id),
-        start_mem_used_(0),
-        end_mem_used_(0) {
-
-    }
-
-    void start(void) {
-        start_mem_used_ = get_used_mem();
-    }
-
-    void stop(void) {
-        end_mem_used_ = get_used_mem();
-    }
-
-    void print(const std::string &name) {
-        size_t used_mem = ((end_mem_used_ - start_mem_used_) >> 20);
-        if (used_mem == 0) {
-            return;
-        }
-        VLOG(0) << "hbm usage:(" << name << "), "
-                << "device_id: " << device_id_
-                << " before: " << (start_mem_used_ >> 20) << "MB, "
-                << "after: " << (end_mem_used_ >> 20) << " MB, "
-                << "used: " << used_mem << "MB";
-    }
-
-private:
-    size_t get_used_mem(void) {
-        size_t hbm_free = 0;
-        size_t hbm_total = 0;
-        platform::GpuMemoryUsage(&hbm_free, &hbm_total);
-        return (hbm_total - hbm_free);
-    }
-
-private:
-    int device_id_;
-    size_t start_mem_used_;
-    size_t end_mem_used_;
-};
-*/
 void BoxPSWorker::TrainFilesWithProfiler() {
   VLOG(3) << "begin section_worker TrainFiles with profiler";
 
@@ -674,6 +653,7 @@ void BoxPSWorker::TrainFilesWithProfiler() {
   platform::Timer sync_timer;
   platform::Timer main_timer;
   platform::Timer outer_timer;
+  platform::Timer dump_timer;
 
   std::vector<double> op_total_time;
   std::vector<std::string> op_name;
@@ -687,10 +667,7 @@ void BoxPSWorker::TrainFilesWithProfiler() {
   platform::Timer timeline;
   device_reader_->Start();
 
-  //  print_hbm_mem(device_id_, "BoxPSWorker");
-  //
-  //  GPUOpMemStat op_mem(device_id_);
-  platform::SetDeviceId(device_id_);
+  SetDeviceID(device_id_);
   outer_timer.Start();
   while (true) {
     main_timer.Resume();
@@ -709,33 +686,35 @@ void BoxPSWorker::TrainFilesWithProfiler() {
     int op_id = 0;
     dev_ctx_->Wait();
     for (auto& op : ops_) {
-      //      op_mem.start();
       timeline.Start();
       op->Run(*thread_scope_, place_);
       dev_ctx_->Wait();
       timeline.Pause();
       op_total_time[op_id++] += timeline.ElapsedUS();
-      //      op_mem.stop();
-      //      op_mem.print(op->Type());
     }
     dev_ctx_->Wait();
     cal_timer.Pause();
-
+#if defined(PADDLE_WITH_CUDA)
     if (FLAGS_check_nan_inf) {
       // check nan result
       if (framework::details::CheckBatchNanOrInfRet(place_)) {
         framework::details::DumpAllScope(*thread_scope_, place_);
-        PADDLE_ENFORCE(false, "ERROR: check INF and NAN");
+        PADDLE_ENFORCE(false, "ERROR: check INF and NAN, device id=%d, batch id=%d", device_id_, step_cnt);
       }
     }
+#endif
 
     AddAucMonitor(thread_scope_, place_);
 
     if (need_dump_field_) {
-      DumpField(*thread_scope_, dump_mode_, dump_interval_);
+      dump_timer.Resume();
+      DumpFieldBoxPS(*thread_scope_, dump_mode_, dump_interval_);
+      dump_timer.Pause();
     }
     if (need_dump_param_ && device_id_ == 0) {
-      DumpParam(*thread_scope_, step_cnt);
+      dump_timer.Resume();
+      DumpParamBoxPS(*thread_scope_, step_cnt);
+      dump_timer.Pause();
     }
     thread_scope_->DropKids();
     ++step_cnt;
@@ -743,7 +722,9 @@ void BoxPSWorker::TrainFilesWithProfiler() {
     main_timer.Pause();
   }
   if (need_dump_field_ || need_dump_param_) {
+    dump_timer.Resume();
     writer_.Flush();
+    dump_timer.Pause();
   }
 
   thread_scope_->DropKids();
@@ -758,12 +739,15 @@ void BoxPSWorker::TrainFilesWithProfiler() {
              << " cal_time:" << cal_timer.ElapsedUS()
              << " sync_time:" << sync_timer.ElapsedUS()
              << " main_time:" << main_timer.ElapsedUS()
-             << " outer_time:" << outer_timer.ElapsedUS();
+             << " outer_time:" << outer_timer.ElapsedUS()
+             << " dump_timer:" << dump_timer.ElapsedUS();
   for (size_t i = 0; i < ops_.size(); ++i) {
     LOG(ERROR) << "card:" << device_id_ << ", op: " << op_name[i]
                << ", mean time: " << op_total_time[i] / accum_num
                << "us, sum:" << op_total_time[i] / 1000000.0 << "sec";
   }
+  auto box_ptr = BoxWrapper::GetInstance();
+  box_ptr->PrintSyncTimer(device_id_, outer_timer.ElapsedSec());
 }
 }  // namespace framework
 }  // namespace paddle
