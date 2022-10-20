@@ -207,7 +207,73 @@ size_t Used<platform::XPUPlace>(const platform::XPUPlace &place) {
       platform::errors::PermissionDenied("'XPUPlace' is not supported."));
 #endif
 }
+template <>
+void *Alloc<platform::XPUL3Place>(const platform::XPUL3Place &place, size_t size) {
+#ifdef PADDLE_WITH_XPU
+  VLOG(10) << "Allocate " << size << " bytes on " << platform::Place(place);
+  void *p = nullptr;
 
+  platform::XPUDeviceGuard gurad(place.device);
+
+  int ret = xpu_malloc(reinterpret_cast<void **>(&p), size, XPU_MEM_L3);
+  if (ret != XPU_SUCCESS) {
+    VLOG(10) << "xpu l3 memory malloc(" << size << ") failed, try gm again";
+    xpu_wait();
+    ret = xpu_malloc(reinterpret_cast<void **>(&p), size);
+  }
+  PADDLE_ENFORCE_EQ(
+      ret, XPU_SUCCESS,
+      platform::errors::External(
+          "XPU API return wrong value[%d], no enough memory", ret));
+  if (FLAGS_init_allocated_mem) {
+    PADDLE_THROW(platform::errors::Unimplemented(
+        "xpu memory FLAGS_init_allocated_mem is not implemented."));
+  }
+  VLOG(10) << "  pointer=" << p;
+  return p;
+#else
+  PADDLE_THROW(
+      platform::errors::PermissionDenied("'XPUL3Place' is not supported."));
+  return nullptr;
+#endif
+}
+
+template <>
+void Free<platform::XPUL3Place>(const platform::XPUL3Place &place, void *p,
+                              size_t size) {
+#ifdef PADDLE_WITH_XPU
+  VLOG(10) << "Allocate " << size << " bytes on " << platform::Place(place);
+  VLOG(10) << "Free pointer=" << p << " on " << platform::Place(place);
+
+  platform::XPUDeviceGuard gurad(place.device);
+  xpu_free(p);
+#else
+  PADDLE_THROW(
+      platform::errors::PermissionDenied("'XPUL3Place' is not supported."));
+#endif
+}
+
+template <>
+uint64_t Release<platform::XPUL3Place>(const platform::XPUL3Place &place) {
+#ifdef PADDLE_WITH_XPU
+  LOG(WARNING) << "Release XPU pool is not supported now, no action here.";
+#else
+  PADDLE_THROW(
+      platform::errors::PermissionDenied("'XPUL3Place' is not supported."));
+#endif
+  return -1;
+}
+
+template <>
+size_t Used<platform::XPUL3Place>(const platform::XPUL3Place &place) {
+#ifdef PADDLE_WITH_XPU
+  printf("Used func return 0 for XPUL3Place\n");
+  return 0;
+#else
+  PADDLE_THROW(
+      platform::errors::PermissionDenied("'XPUL3Place' is not supported."));
+#endif
+}
 // For Ascend NPU
 #ifdef PADDLE_WITH_ASCEND_CL
 constexpr int EXTRA_PADDING_SIZE = 32;

@@ -691,6 +691,10 @@ class AnyVisitor : public boost::static_visitor<bool> {
                  const platform::XPUPlace& xpu) const {
     return GetResultHelper(out, xpu);
   }
+  bool GetResult(const framework::Tensor& out,
+                 const platform::XPUL3Place& xpu) const {
+    return GetResultHelper(out, xpu);
+  }
 
   bool GetResult(const framework::Tensor& out,
                  const platform::MLUPlace& mlu) const {
@@ -913,6 +917,9 @@ struct BothFalseVisitor : public boost::static_visitor<> {
 
   void VisitorImpl(const platform::XPUPlace& xpu) const {
     PADDLE_THROW(platform::errors::Unimplemented("XPUPlace is not supported"));
+  }
+  void VisitorImpl(const platform::XPUL3Place& xpu) const {
+    PADDLE_THROW(platform::errors::Unimplemented("XPUL3Place is not supported"));
   }
   void VisitorImpl(const platform::IPUPlace& ipu) const {
     PADDLE_THROW(platform::errors::Unimplemented("IPUPlace is not supported"));

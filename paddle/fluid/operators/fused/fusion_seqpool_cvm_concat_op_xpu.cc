@@ -32,6 +32,8 @@ public:
     int n = dxs.size();
     auto xpu_context =
         ctx.template device_context<DeviceContext>().x_context();
+    // auto place = ctx.GetPlace();
+    phi::Place l3_place = ctx.template device_context<DeviceContext>().GetL3Place();
     T* dy_data = const_cast<T*>(dOut->data<T>());
     T* cvm_data = const_cast<T*>(cvm->data<T>());
     int batch_size = dOut->dims()[0];
@@ -54,8 +56,8 @@ public:
     unsigned int start_index = 0;
     for (int k = 0; k < n; k++) {
         auto dx = dxs[k];
-        // T* dx_data = dx->mutable_data_l3<T>(ctx.GetPlace());
-        T* dx_data = dx->mutable_data<T>(ctx.GetPlace());
+        // T* dx_data = dx->mutable_data<T>(place);
+        T* dx_data = dx->mutable_data<T>(l3_place);
         auto lod = dx->lod();
         cpu_dx_list[k] = reinterpret_cast<unsigned long long>(dx_data);
         auto lod_level_0 = dx->lod()[0];
@@ -102,9 +104,9 @@ public:
         y_lod[0][i] = i;
     }
     out->set_lod(y_lod);
-    auto place = ctx.GetPlace();
-    T* y_data = out->mutable_data<T>(place);
-    // T* y_data = out->mutable_data_l3<T>(place);
+    // auto place = ctx.GetPlace();
+    phi::Place l3_place = ctx.template device_context<DeviceContext>().GetL3Place();
+    T* y_data = out->mutable_data<T>(l3_place);
     int w = ins[0]->numel() / x0_dims[0];
     if(use_cvm) {
       PADDLE_ENFORCE_EQ(y_dims[1] % w, 0,

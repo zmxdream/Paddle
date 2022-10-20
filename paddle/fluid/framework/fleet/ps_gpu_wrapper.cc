@@ -1024,18 +1024,23 @@ void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
                               const std::vector<float*>& values,
                               const std::vector<int64_t>& slot_lengths,
                               const int hidden_size) {
+  auto dev_ctx = platform::DeviceContextPool::Instance().Get(place);
+  auto ctx_xpu = static_cast<platform::XPUDeviceContext*>(dev_ctx)->x_context();
+  phi::Place l3_place = static_cast<platform::XPUDeviceContext*>(dev_ctx)->GetL3Place();
   int d_id = place.GetDeviceId();
   int thread_id = HeterPs_->get_index_by_devid(d_id);
   TIMER_MULTITHREAD_ENTER(platform::TIMER_OPS_PULL_SPARSE_ALL, thread_id);
- 
+
   platform::Timer all_timer;
   platform::Timer pull_gpups_timer;
   all_timer.Start();
   int64_t total_length =
       std::accumulate(slot_lengths.begin(), slot_lengths.end(), 0UL);
   VLOG(3) << "Begine Gpu/Xpu Ps PullSparse";
-  auto buf = memory::Alloc(place, total_length * sizeof(FeatureValue));
-  FeatureValue* total_values_gpu = reinterpret_cast<FeatureValue*>(buf->ptr());
+  // auto buf = memory::Alloc(place, total_length * sizeof(FeatureValue));
+  // FeatureValue* total_values_gpu = reinterpret_cast<FeatureValue*>(buf->ptr());
+  xpu::ctx_guard RAII_GUARD(ctx_xpu);
+  FeatureValue* total_values_gpu = RAII_GUARD.alloc_l3_or_gm<FeatureValue>(total_length);
   if (platform::is_cpu_place(place)) {
     PADDLE_THROW(platform::errors::Unimplemented(
         "Warning:: CPUPlace is not supported in GpuPs now."));
@@ -1090,8 +1095,10 @@ void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
     int device_id = place.GetDeviceId();
     int devid_2_index = HeterPs_->get_index_by_devid(device_id);
     LoDTensor& total_keys_tensor = keys_tensor[devid_2_index];
+    // uint32_t* total_keys = reinterpret_cast<uint32_t*>(
+    //     total_keys_tensor.mutable_data<int32_t>({total_length, 1}, place));
     uint32_t* total_keys = reinterpret_cast<uint32_t*>(
-        total_keys_tensor.mutable_data<int32_t>({total_length, 1}, place));
+        total_keys_tensor.mutable_data<int32_t>({total_length, 1}, l3_place));
 
     // construct slot_level lod info
     auto slot_lengths_lod = slot_lengths;

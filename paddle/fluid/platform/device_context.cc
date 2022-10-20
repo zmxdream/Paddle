@@ -62,7 +62,7 @@ AllocationPtr Alloc(const platform::DeviceContext& dev_ctx, size_t size) {
         "Paddle can't use CUDA device since it's not compiled with CUDA,"
         "Please recompile or reinstall Paddle with GPU support."));
 #endif
-  } else if (platform::is_xpu_place(place)) {
+  } else if (platform::is_xpu_place(place) || platform::is_xpul3_place(place)) {
 #ifdef PADDLE_WITH_XPU
     // TODO(liuyuhui): Consider xpu stream later
     return Alloc(place, size);
@@ -224,7 +224,7 @@ DeviceContextPool::DeviceContextPool(
           "CUDAPlace is not supported. Please re-compile with WITH_GPU "
           "option."));
 #endif
-    } else if (platform::is_xpu_place(p)) {
+    } else if (platform::is_xpu_place(p) || platform::is_xpul3_place(p)) {
 #ifdef PADDLE_WITH_XPU
       EmplaceDeviceContext<XPUDeviceContext>(&device_contexts_, p);
 #else
