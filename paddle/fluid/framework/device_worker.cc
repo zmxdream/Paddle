@@ -12,7 +12,6 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License. */
 
-#include <chrono>
 #include "paddle/fluid/framework/device_worker.h"
 
 #include "paddle/fluid/framework/convert_utils.h"
@@ -405,11 +404,10 @@ void DeviceWorker::DumpField(const Scope& scope, int dump_mode,
                                                    // 1: random with insid hash,
                                                    // 2: random with random
                                                    // number
-  // auto start = std::chrono::steady_clock::now();
 
   size_t batch_size = device_reader_->GetCurBatchSize();
   auto& ins_id_vec = device_reader_->GetInsIdVec();
-  // auto& ins_content_vec = device_reader_->GetInsContentVec();
+  auto& ins_content_vec = device_reader_->GetInsContentVec();
   if (ins_id_vec.size() > 0) {
     batch_size = ins_id_vec.size();
   }
@@ -469,16 +467,9 @@ void DeviceWorker::DumpField(const Scope& scope, int dump_mode,
        dump_field_threads[i].join();
    }
 
-   // auto end0 = std::chrono::steady_clock::now();
-   // auto tt_0 =
-   //       std::chrono::duration_cast<std::chrono::microseconds>(end0 - start);
-   // VLOG(0) << " Dump Field copy "<< tid << "takes " << tt_0.count() << " us";
-
-
-
   size_t fill_thread_num = 32;
   auto fill_hit = [this, dump_interval, dump_mode, batch_size,
-                   &ins_id_vec, &ars, &dist, &engine, &cpu_tensors](size_t begin, size_t end) {
+                   &ins_id_vec, &ins_content_vec, &ars, &dist, &engine, &cpu_tensors](size_t begin, size_t end) {
    
     for (size_t i = begin; i < end; i++) {
       size_t r = 0;
@@ -492,8 +483,14 @@ void DeviceWorker::DumpField(const Scope& scope, int dump_mode,
       }
       // hit[i] = true;
       // ars[i] += ins_id_vec[i];
-      ars[i].append(ins_id_vec[i]);
-    
+      if (ins_id_vec.size() > 0) {
+        ars[i].append(ins_id_vec[i]);
+      }
+      if (ins_content_vec.size() > 0) {
+        ars[i].append("\t");
+        ars[i].append(ins_content_vec[i]);
+      }    
+
       // int j = 0;
       for (auto& tensor : cpu_tensors) {
         if (tensor == nullptr) {
@@ -546,11 +543,7 @@ void DeviceWorker::DumpField(const Scope& scope, int dump_mode,
     }
     writer_ << ars[i];
   }
-  writer_.Flush();
-  // auto end1 = std::chrono::steady_clock::now();
-  // auto tt =
-  //        std::chrono::duration_cast<std::chrono::microseconds>(end1 - start);
-  //  VLOG(0) << " Dump Field "<< tid << "takes " << tt.count() << " us";
+  // writer_.Flush();
 }
 
 }  // namespace framework
