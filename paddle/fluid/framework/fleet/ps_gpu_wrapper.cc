@@ -79,7 +79,6 @@ int AfsWrapper::touchz(const std::string& path) {
 
 std::string AfsWrapper::cat(const std::string& path) {
   return afs_handler_.cat(path);
-  
 }
 
 int AfsWrapper::mv(const std::string& old_path, const std::string& dest_path) {
@@ -906,7 +905,6 @@ void PSGPUWrapper::LoadIntoMemory(bool is_shuffle) {
     if (is_shuffle) {
       dataset_->LocalShuffle();
     }
-
     InitSlotInfo();
     std::shared_ptr<HeterContext> gpu_task = gpu_task_pool_.Get();
     gpu_task->Reset();
@@ -936,7 +934,7 @@ void PSGPUWrapper::pre_build_thread() {
     if (!data_ready_channel_->Get(gpu_task)) {
       continue;
     }
-    VLOG(0) << "thread PreBuildTask start.";
+    VLOG(3) << "thread PreBuildTask start.";
     platform::Timer timer;
     timer.Start();
     // build cpu ps data process

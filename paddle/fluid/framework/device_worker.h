@@ -230,7 +230,6 @@ class DeviceWorker {
   int dump_mode_ = 0;
   int dump_interval_ = 10000;
   ChannelWriter<std::string> writer_;
-  
   platform::DeviceContext* dev_ctx_ = nullptr;
 };
 

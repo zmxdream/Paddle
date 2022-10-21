@@ -55,20 +55,13 @@ void PSGPUWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
         }
       }
     }
-
-    
-    // 设置为Runtime infer shape flag
     for (auto& op : ops_) {
       op->SetIsRuntimeInferShape(true);
     }
 
-    // input var is !persistable
-    // child scope's var consists of input_var & need_reuse_var
-
     // reusing memory
     auto input_names = device_reader_->GetInputVarNames();
     std::set<std::string> input_names_set(input_names.begin(), input_names.end());
-
     for (auto& scope : thread_scope_vec_) {
       std::vector<Variable*> need_reuse;
       for (auto& var : block.AllVars()) {
@@ -77,7 +70,6 @@ void PSGPUWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
           if (input_names_set.find(var->Name()) != input_names_set.end()) {
             continue;
           }
-          // not input
           auto* ptr = scope->FindLocalVar(var->Name());
           PADDLE_ENFORCE_NE(ptr, nullptr,
                 phi::errors::NotFound("The var %s is not found.", var->Name()));
@@ -86,8 +78,6 @@ void PSGPUWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
       }
       need_reuse_var_vec_[scope] = std::move(need_reuse);
     }
-    // 每个scope一个need reuse var vector
-    // thread scope又有一个
     {
       need_reuse_var_.clear();
       for (auto& var : block.AllVars()) {
@@ -103,10 +93,7 @@ void PSGPUWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
         }
       }
     }
-
-
   }
-
 }
 
 void PSGPUWorker::BindingDataFeedMemory() {
@@ -114,7 +101,6 @@ void PSGPUWorker::BindingDataFeedMemory() {
     this->HogwildWorker::BindingDataFeedMemory();
   } else {
     for (auto& scope : thread_scope_vec_) {
-      // data feed 设置每个scope的feed_vec...不过不都是空的吗
       device_reader_->AssignFeedVar(*scope);
     }
   }
@@ -226,7 +212,6 @@ void PSGPUWorker::PrepareCudaGraph() {
   // so the capture attribute can infect another op whose all inputs and outputs nerver changed
   std::unordered_set<std::string> var_whitelist;
   for (auto& op : ops_) {
-
     if (op_whitelist.find(op->Type()) != op_whitelist.end() ||
         (op->HasAttr(enable_cuda_graph_capture_attr_name) && op->Attr<int>(enable_cuda_graph_capture_attr_name))) {
       for (auto& input : op->InputVars()) {
@@ -238,13 +223,10 @@ void PSGPUWorker::PrepareCudaGraph() {
         var_whitelist.emplace(framework::GradVarName(output));
       }
     }
-
   }
 
   for (auto& op : ops_) {
-
     bool need_skip = false;
-
     for (auto t = 0u; t < skip_ops_.size(); ++t) {
       if (op->Type().find(skip_ops_[t]) != std::string::npos) {
         need_skip = true;
@@ -252,9 +234,7 @@ void PSGPUWorker::PrepareCudaGraph() {
       }
     }
     if (!need_skip) {
-
       bool need_capture = false;
-
       // if (op_blacklist.find(op->Type()) == op_blacklist.end()) {
       //   if (op->HasAttr(enable_cuda_graph_capture_attr_name) && op->Attr<int>(enable_cuda_graph_capture_attr_name)) {
       //     need_capture = true;
@@ -282,7 +262,6 @@ void PSGPUWorker::PrepareCudaGraph() {
         op_or_cudagraphs_.emplace_back();
         op_or_cudagraphs_.back().need_capture = need_capture;
       }
-
       auto& op_or_cuda_graph = op_or_cudagraphs_.back();
       if (need_capture) {
         if (op_or_cuda_graph.name.empty()) {
@@ -293,12 +272,8 @@ void PSGPUWorker::PrepareCudaGraph() {
         op_or_cuda_graph.name += op->Type();
       }
       op_or_cuda_graph.ops.emplace_back(op);
-
     }
   }
-
-
-
 }
 
 PSGPUWorker::~PSGPUWorker() {
@@ -380,7 +355,6 @@ int PSGPUWorker::OpRunAndShapeCheck(OperatorBase& op,
 
 
 void PSGPUWorker::TrainFiles() {
-
   VLOG(0) << "Begin to train files";
   platform::SetNumThreads(1);
   platform::Timer timeline;
@@ -395,37 +369,20 @@ void PSGPUWorker::TrainFiles() {
   int graph_batch_size = 0;
   platform::SetDeviceId(place_.GetDeviceId());
 
-
   // async infershape
   pack_is_end_.store(false);
-
-  // scope_num_ != 1是什么情况
   if (scope_num_ != 1) {
-
-    //每个scope一个task 
     for (size_t i = 0; i < thread_scope_vec_.size(); i++) {
       TaskData task;
       task.scope = thread_scope_vec_[i];
       free_task_queue_.Push(task);
     }
-
-    // async infershape
-    //int task_threads_num_ {6};
-    //int scope_num_ {task_threads_num_ + 1};
-    // 
     thread_count_.store(task_threads_num_);
     task_threads_.reserve(task_threads_num_);
-
-    // 开启多个线程
     for (int i = 0; i < task_threads_num_; i++) {
-
       task_threads_.emplace_back(std::thread([this]() -> void {
-
         while (true) {
-
-          // 拿到一个pack
           auto pack = device_reader_->get_pack(nullptr);
-
           if (pack == nullptr) {
             int thread_num = thread_count_.fetch_sub(1);
             if (thread_num == 1) {
@@ -433,15 +390,10 @@ void PSGPUWorker::TrainFiles() {
             }
             return;
           }
-
-          // 从free task queue里弹出一个task,也就是选择一个child scope
-          // 然后把输入写入这个子scope
           auto task = free_task_queue_.Pop();
           task.pack = pack;
           task.ins_num = pack->ins_num();
           device_reader_->PackToScope(task.pack, task.scope);
-
-          // 在子scope跑一次runtime infershape？？
           for (size_t i = 0; i < ops_.size(); i++) {
             auto& op = ops_[i];
             bool need_skip = false;
@@ -455,37 +407,22 @@ void PSGPUWorker::TrainFiles() {
               op->RuntimeInferShape(*task.scope);
             }
           }
-
           using_task_queue_.Push(task);
-
         }
-
-
       }));
-
     }
-
   }
-
   while (true) {
-
     auto thread_scope = thread_scope_;
-
     TaskData cur_task;
-
     if (scope_num_ == 1) {
-
       cur_batch = device_reader_->Next();
-
     } else {
-
       while (true) {
         if (using_task_queue_.Size() != 0) {
-           
           cur_task = using_task_queue_.Pop();
           cur_batch = cur_task.ins_num;
           break;
-
         }
         bool is_end = pack_is_end_.load();
         if (is_end) {
@@ -497,20 +434,16 @@ void PSGPUWorker::TrainFiles() {
         std::this_thread::sleep_for(
           std::chrono::microseconds(200));
       }
-
       thread_scope = cur_task.scope;
-
       auto pack = cur_task.pack;
       // get insid from pack
       device_reader_->SetInsIdVec(pack);
 
       // tensor share buffer
       std::vector<Variable*>& cur_scope_vars = need_reuse_var_vec_[thread_scope];
-
       PADDLE_ENFORCE_EQ(cur_scope_vars.size(), need_reuse_var_.size(),
                         platform::errors::Fatal(
                               "reuse vars size must be same."));
-
       for (size_t i = 0; i < need_reuse_var_.size(); i++) {
         Variable* child = cur_scope_vars[i];
         Variable* parent = need_reuse_var_[i];
@@ -526,20 +459,14 @@ void PSGPUWorker::TrainFiles() {
 
     total_ins_num += cur_batch;
 
-
-    // 这个是干啥的
-    //
     if (shape_check_flag_.load()) {
-
       VLOG(0) << "Begin OpRunAndShapeCheck, "
             << shape_check_count_.load();
-
       if (scope_num_ == 1 || shape_check_count_.fetch_sub(1) <= 0) {
         VLOG(0) << "End OpRunAndShapeCheck."
             << shape_check_count_.load();
         shape_check_flag_ = false;
       }
-
     }
 
     if (op_or_cudagraphs_.empty()) {
@@ -553,53 +480,11 @@ void PSGPUWorker::TrainFiles() {
           }
         }
         if (!need_skip) {
-
-        // if (thread_id_ == 0) {
-        //  VLOG(0) << "debug op:" << op->Type(); 
-        // }
-
-/*
-       std::vector<std::string> check_nan_var_names {"_generated_var_6", "fc_news_u1.tmp_0", "fc_news_u1.tmp_1", "fc_news_u2.tmp_0", "fc_news_u2.tmp_1", "fc_news_u1_update.tmp_0", "fc_news_u1_update.tmp_1", "fc_news_u2_update.tmp_0", "fc_news_u2_update.tmp_1", "_generated_var_1", "_generated_var_0"};
-
-    for (std::string& var_name : check_nan_var_names) {
-      Variable* var = thread_scope->FindVar(var_name);
-      if (var == nullptr) {
-        continue;
-      }
-      LoDTensor* tensor = var->GetMutable<LoDTensor>();
-      if (tensor == nullptr || !tensor->IsInitialized()) {
-        continue;
-      }
-      if (framework::TensorContainsInf(*tensor) ||
-          framework::TensorContainsNAN(*tensor)) {
-        static std::mutex mutex;
-        {
-          std::lock_guard<std::mutex> lock(mutex);
-          VLOG(0) << "worker " << thread_id_ << ": " << var_name
-                  << " cantains inf or nan";
-          auto all_vars = thread_scope->LocalVarNames();
-          std::stringstream ss;
-          ss << "====== worker " << thread_id_ << "======\n";
-          for (auto& local_var : all_vars) {
-            platform::PrintVar(thread_scope, local_var, local_var, &ss);
-            ss << "\n";
-          }
-          std::cout << ss.str() << std::endl;
-          VLOG(0) << "worker " << thread_id_ << "print nan var done....";
-        }
-        sleep(600);
-        exit(-1);
-      }
-    }
-*/
-          VLOG(0) << "op type:" << op->Type();
           OpRunAndShapeCheck(*op, *thread_scope, place_);
-
         }
       }
       graph_batch_size = cur_batch;
       PrepareCudaGraph();
-
     } else if (graph_batch_size != cur_batch || batch_cnt <= thread_id_) {
       // when batch_size changed, run original ops
       for (auto& op : ops_) {
@@ -615,7 +500,6 @@ void PSGPUWorker::TrainFiles() {
         }
       }
     } else {
-
       // secend batch we capture the cudagraph
       for (auto& op_or_cuda_graph : op_or_cudagraphs_) {
         if (op_or_cuda_graph.need_capture) {
@@ -628,24 +512,19 @@ void PSGPUWorker::TrainFiles() {
             }
             op_or_cuda_graph.cudagraph = platform::EndCUDAGraphCapture();
           }
-
           platform::RecordEvent op_type_record_event(
               op_or_cuda_graph.name, platform::TracerEventType::Operator, 1);
           op_or_cuda_graph.cudagraph->Replay();
         } else {
-
           for (auto& op : op_or_cuda_graph.ops) {
             OpRunAndShapeCheck(*op, *thread_scope, place_);
           }
-
         }
       }
     }
-
     if (need_dump_field_) {
       DumpField(*thread_scope, dump_mode_, dump_interval_);
     }
-
     if (need_dump_param_ && thread_id_ == 0) {
       DumpParam(*thread_scope, batch_cnt);
     }
