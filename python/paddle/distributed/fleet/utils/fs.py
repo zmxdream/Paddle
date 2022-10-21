@@ -1466,7 +1466,6 @@ class AFSClient(FS):
                 client.delete("hdfs:/test_hdfs_client")
         """
         if not self.is_exist(fs_path):
-            print("in afs delete, file not exists")
             return
         self._fs.remove(fs_path)
 

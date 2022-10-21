@@ -643,7 +643,7 @@ void PSGPUWorker::TrainFiles() {
     }
 
     if (need_dump_field_) {
-      DumpField(*thread_scope, dump_mode_, dump_interval_, thread_id_);
+      DumpField(*thread_scope, dump_mode_, dump_interval_);
     }
 
     if (need_dump_param_ && thread_id_ == 0) {

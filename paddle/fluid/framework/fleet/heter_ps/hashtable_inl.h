@@ -43,9 +43,6 @@ __global__ void insert_kernel(Table* table,
   }
 }
 
-//  insert_kernel<<<grid_size, BLOCK_SIZE_, 0, stream>>>(container_, d_keys, len,
-//                                                       pool, feature_value_size, start_index);
-
 template <typename Table>
 __global__ void insert_kernel(Table* table,
                               const typename Table::key_type* const keys,

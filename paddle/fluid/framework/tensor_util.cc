@@ -437,20 +437,15 @@ void TensorCopySync(const Tensor& src, const platform::Place& dst_place,
 
   VLOG(3) << "TensorCopySync " << src.dims() << " from " << src.place()
           << " to " << dst_place;
-
   src.check_memory_size();
-
   dst->Resize(src.dims());
   dst->set_layout(src.layout());
-
 #ifdef PADDLE_WITH_MKLDNN
   dst->set_format(src.format());
 #endif
-
   auto src_place = src.place();
   auto src_ptr = src.data();
   auto dst_ptr = dst->mutable_data(dst_place, src.dtype());
-
   VLOG(4) << "src:" << src_ptr << ", dst:" << dst_ptr;
 
   if (src_ptr == dst_ptr && src_place == dst_place) {

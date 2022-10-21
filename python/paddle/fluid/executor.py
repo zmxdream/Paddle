@@ -1852,13 +1852,10 @@ class Executor(object):
         if program._pipeline_opt is None:
             if program._heter_pipeline_opt is None:
                 self._dump_debug_info(program=program, trainer=trainer)
-
         # warning if dataset not set psgpu in psgpu mode
         if dataset.use_ps_gpu is False and trainer.proto_desc.use_ps_gpu:
             logging.warning("dataset should call set_use_ps_gpu in PsGpu mode")
-
         dataset._dynamic_adjust_before_train(trainer.proto_desc.thread_num)
-
 
         if program._heter_pipeline_opt is None:
             trainer_instance = self._default_executor.init_for_dataset(

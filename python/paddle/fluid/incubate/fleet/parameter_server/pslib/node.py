@@ -416,7 +416,6 @@ class DownpourServer(Server):
                 prefix + 'sparse_initial_g2sum', 3)
             bounds = strategy.get(prefix + 'sparse_weight_bounds', [-10, 10])
             sgd.adagrad.weight_bounds.extend(bounds)
-
         elif optimizer_name == "adam":
             sgd.adam.learning_rate = \
                 strategy.get(prefix + 'sparse_learning_rate', 0.001)

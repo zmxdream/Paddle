@@ -33,43 +33,6 @@
 namespace paddle {
 namespace framework {
 
-    class MemRegion {
-        public:
-            MemRegion() {
-                _cap = 2 * 1024 * 1024;
-                _buf = (char*)malloc(_cap);
-                _cur = 0;
-                _file_idx = -1;
-            }
-            virtual ~MemRegion() {
-                free(_buf);
-            }
-            bool buff_remain(int len) {
-                if (_cap - _cur < len) {
-                    return false;
-                } else {
-                    return true;
-                }
-            }
-            char* acquire(int len) {
-                if (_cap - _cur < len) {
-                    return nullptr;
-                } else {
-                    char* ret =  _buf + _cur;
-                    _cur += len;
-                    return ret;
-                }
-            }
-            void reset() {
-                _cur = 0;
-                _file_idx = -1;
-            }
-            int _cap;
-            int _cur;
-            int _file_idx;
-            char* _buf;
-    };
-
 template <class T>
 class ChannelObject {
  public:

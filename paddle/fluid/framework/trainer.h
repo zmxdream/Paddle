@@ -93,7 +93,6 @@ class TrainerBase {
   int dump_thread_num_;
   std::vector<std::thread> dump_thread_;
   std::shared_ptr<paddle::framework::ChannelObject<std::string>> queue_;
-  std::shared_ptr<paddle::framework::ChannelObject<std::shared_ptr<MemRegion>>> binary_queue_;
 };
 
 // general trainer for async execution

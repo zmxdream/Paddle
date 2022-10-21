@@ -254,7 +254,6 @@ class FusedSeqpoolCVMGradOp : public framework::OperatorWithKernel {
                 "input shape [%s].",
                 og_dims[i].size(), og_dims[i], x_dims[i].size(), x_dims[i]));
       }
-
     }
     for (size_t i = 0; i < x_dims.size(); ++i) {
       ctx->ShareLoD("X", framework::GradVarName("X"), i, i);

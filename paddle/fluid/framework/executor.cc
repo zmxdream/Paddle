@@ -137,7 +137,7 @@ std::shared_ptr<TrainerBase> Executor::InitForDataset(
                     platform::errors::PreconditionNotMet(
                         "Fail to parse TrainerDesc from string:\n%s",
                         trainer_desc_str.c_str()));
-  VLOG(0) << "Going to create trainer, trainer class is "
+  VLOG(3) << "Going to create trainer, trainer class is "
           << trainer_desc.class_name();
   std::shared_ptr<TrainerBase> trainer;
   trainer = TrainerFactory::CreateTrainer(trainer_desc.class_name());
@@ -164,7 +164,7 @@ void Executor::RunFromDataset(std::shared_ptr<TrainerBase> trainer) {
 }
 
 void Executor::ReleaseTrainer(std::shared_ptr<TrainerBase> trainer) {
-  VLOG(0) << "Trainer going to finalize";
+  VLOG(3) << "Trainer going to finalize";
   trainer->Finalize();
 }
 

@@ -194,9 +194,6 @@ class DeviceWorker {
   virtual void SetChannelWriter(ChannelObject<std::string>* queue) {
     writer_.Reset(queue);
   }
-  virtual void SetBinaryChannelWriter(ChannelObject<std::shared_ptr<MemRegion>>* queue) {
-    binary_writer_.Reset(queue);
-  }
   virtual void SetPlace(const paddle::platform::Place& place) {
     place_ = place;
   }
@@ -212,7 +209,7 @@ class DeviceWorker {
  protected:
   virtual void DumpParam(const Scope& scope, const int batch_id);
   virtual void DumpField(const Scope& scope, int dump_mode,
-                         int dump_interval = 10000, int tid = 0);
+                         int dump_interval = 10000);
   Scope* root_scope_ = nullptr;
   Scope* thread_scope_;
   paddle::platform::Place place_;
@@ -233,7 +230,6 @@ class DeviceWorker {
   int dump_mode_ = 0;
   int dump_interval_ = 10000;
   ChannelWriter<std::string> writer_;
-  ChannelWriter<std::shared_ptr<MemRegion>> binary_writer_;
   
   platform::DeviceContext* dev_ctx_ = nullptr;
 };

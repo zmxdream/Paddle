@@ -400,7 +400,7 @@ void DeviceWorker::DumpField(const Scope& scope, int dump_mode,
 
 
 void DeviceWorker::DumpField(const Scope& scope, int dump_mode,
-                             int dump_interval, int tid) {  // dump_mode: 0: no random,
+                             int dump_interval) {  // dump_mode: 0: no random,
                                                    // 1: random with insid hash,
                                                    // 2: random with random
                                                    // number
