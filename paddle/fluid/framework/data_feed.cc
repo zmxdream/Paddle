@@ -139,7 +139,6 @@ class BufferedLineFileReader {
   size_t sample_line_ = 0;
   size_t error_line_ = 0;
 };
-
 void RecordCandidateList::ReSize(size_t length) {
   mutex_.lock();
   capacity_ = length;
@@ -1015,15 +1014,11 @@ void MultiSlotInMemoryDataFeed::Init(
           "Multi_slot_desc has not been set in MultiSlotInMemoryDataFeed."));
   paddle::framework::MultiSlotDesc multi_slot_desc =
       data_feed_desc.multi_slot_desc();
-
   SetBatchSize(data_feed_desc.batch_size());
-
   size_t all_slot_num = multi_slot_desc.slots_size();
-
   all_slots_.resize(all_slot_num);
   all_slots_type_.resize(all_slot_num);
   use_slots_index_.resize(all_slot_num);
-
   total_dims_without_inductive_.resize(all_slot_num);
   inductive_shape_index_.resize(all_slot_num);
   use_slots_.clear();
@@ -1116,7 +1111,6 @@ bool MultiSlotInMemoryDataFeed::ParseOneInstanceFromPipe(Record* instance) {
     // VLOG(3) << line;
     char* endptr = const_cast<char*>(str);
     int pos = 0;
-
     if (parse_ins_id_) {
       int num = strtol(&str[pos], &endptr, 10);
       CHECK(num == 1);  // NOLINT
@@ -1141,7 +1135,6 @@ bool MultiSlotInMemoryDataFeed::ParseOneInstanceFromPipe(Record* instance) {
       pos += len + 1;
       VLOG(3) << "content " << instance->content_;
     }
-
     if (parse_logkey_) {
       int num = strtol(&str[pos], &endptr, 10);
       CHECK(num == 1);  // NOLINT
@@ -1163,7 +1156,6 @@ bool MultiSlotInMemoryDataFeed::ParseOneInstanceFromPipe(Record* instance) {
       instance->rank = rank;
       pos += len + 1;
     }
-
     for (size_t i = 0; i < use_slots_index_.size(); ++i) {
       int idx = use_slots_index_[i];
       int num = strtol(&str[pos], &endptr, 10);
@@ -1318,10 +1310,8 @@ void MultiSlotInMemoryDataFeed::PutToFeedVec(const Record* ins_vec, int num) {
   ins_id_vec_.reserve(num);
   for (int i = 0; i < num; ++i) {
     auto& r = ins_vec[i];
-    // 肯定有吗??
     ins_id_vec_.push_back(r.ins_id_);
     ins_content_vec_.push_back(r.content_);
-
     for (auto& item : r.float_feasigns_) {
       batch_float_feasigns_[item.slot()].push_back(item.sign().float_feasign_);
       visit_[item.slot()] = true;
@@ -1987,17 +1977,13 @@ void SlotRecordInMemoryDataFeed::Init(const DataFeedDesc& data_feed_desc) {
   PADDLE_ENFORCE(data_feed_desc.has_multi_slot_desc(),
                  platform::errors::PreconditionNotMet(
                      "Multi_slot_desc has not been set in data_feed_desc"));
-
   paddle::framework::MultiSlotDesc multi_slot_desc =
       data_feed_desc.multi_slot_desc();
   SetBatchSize(data_feed_desc.batch_size());
-
   size_t all_slot_num = multi_slot_desc.slots_size();
-
   all_slots_.resize(all_slot_num);
   all_slots_info_.resize(all_slot_num);
   used_slots_info_.resize(all_slot_num);
-
   use_slot_size_ = 0;
   use_slots_.clear();
 
@@ -2005,18 +1991,14 @@ void SlotRecordInMemoryDataFeed::Init(const DataFeedDesc& data_feed_desc) {
   float_total_dims_without_inductives_.clear();
 
   for (size_t i = 0; i < all_slot_num; ++i) {
-
     const auto& slot = multi_slot_desc.slots(i);
     all_slots_[i] = slot.name();
-
     AllSlotInfo& all_slot = all_slots_info_[i];
     all_slot.slot = slot.name();
     all_slot.type = slot.type();
     all_slot.used_idx = slot.is_used() ? use_slot_size_ : -1;
     all_slot.slot_value_idx = -1;
-
     if (slot.is_used()) {
-
       UsedSlotInfo& info = used_slots_info_[use_slot_size_];
       info.idx = i;
       info.slot = slot.name();
@@ -2027,21 +2009,15 @@ void SlotRecordInMemoryDataFeed::Init(const DataFeedDesc& data_feed_desc) {
 
       // record float value and uint64_t value pos
       if (info.type[0] == 'u') {
-
         info.slot_value_idx = uint64_use_slot_size_;
         all_slot.slot_value_idx = uint64_use_slot_size_;
         ++uint64_use_slot_size_;
-
       } else if (info.type[0] == 'f') {
-
         info.slot_value_idx = float_use_slot_size_;
         all_slot.slot_value_idx = float_use_slot_size_;
         ++float_use_slot_size_;
- 
      }
-
       use_slots_.push_back(slot.name());
-
       if (slot.is_dense()) {
         for (int j = 0; j < slot.shape_size(); ++j) {
           if (slot.shape(j) > 0) {
@@ -2116,7 +2092,7 @@ void SlotRecordInMemoryDataFeed::EndLoadIntoMemory() {
 }
 
 void SlotRecordInMemoryDataFeed::LoadIntoMemory() {
-  VLOG(0) << "SlotRecord LoadIntoMemory() begin, thread_id=" << thread_id_;
+  VLOG(3) << "SlotRecord LoadIntoMemory() begin, thread_id=" << thread_id_;
   if (!so_parser_name_.empty()) {
     LoadIntoMemoryByLib();
   } else {
@@ -2154,18 +2130,12 @@ void SlotRecordInMemoryDataFeed::LoadIntoMemoryByLib(void) {
 void SlotRecordInMemoryDataFeed::LoadIntoMemoryByFile(void) {
 #if (defined _LINUX) && (defined PADDLE_WITH_HETERPS) && \
     (defined PADDLE_WITH_PSLIB)
-
-  VLOG(0)<< "debug so_parse_name_:" << so_parser_name_;
   paddle::framework::CustomParser* parser =
       global_dlmanager_pool().Load(so_parser_name_, all_slots_info_);
-
-
   CHECK(parser != nullptr);
-
   // get slotrecord object
   auto pull_record_func = [this](std::vector<SlotRecord>& record_vec,
                                  int max_fetch_num, int offset) {
-
     if (offset > 0) {
       for (int i = 0; i < offset; i++) {
         record_vec[i]->shrink();
@@ -2184,12 +2154,11 @@ void SlotRecordInMemoryDataFeed::LoadIntoMemoryByFile(void) {
     } else {
       SlotRecordPool().put(&record_vec);
     }
-
   };
 
   std::string filename;
   while (this->PickOneFile(&filename)) {
-    VLOG(0) << "PickOneFile, filename=" << filename
+    VLOG(3) << "PickOneFile, filename=" << filename
             << ", thread_id=" << thread_id_;
     platform::Timer timeline;
     timeline.Start();
@@ -2200,22 +2169,18 @@ void SlotRecordInMemoryDataFeed::LoadIntoMemoryByFile(void) {
     size_t idx = filename.find("file://");
     do {
       if (ps_gpu_ptr->UseAfsApi() && idx == std::string::npos) {
-        
         auto afs_reader = ps_gpu_ptr->OpenReader(filename);
-
         is_ok = parser->ParseFileInstance(
             [this, afs_reader](char* buf, int len) {
               return afs_reader->read(buf, len);
             },
             pull_record_func, lines);
-
       } else {
         int err_no = 0;
         if (idx == 0) {
           filename = filename.substr(7);
         }
         this->fp_ = fs_open_read(filename, &err_no, this->pipe_command_);
-
         CHECK(this->fp_ != nullptr);
         __fsetlocking(&*(this->fp_), FSETLOCKING_BYCALLER);
         is_ok = parser->ParseFileInstance(
@@ -2223,7 +2188,6 @@ void SlotRecordInMemoryDataFeed::LoadIntoMemoryByFile(void) {
               return fread(buf, sizeof(char), len, this->fp_.get());
             },
             pull_record_func, lines);
-
         if (!is_ok) {
           LOG(WARNING) << "parser error, filename=" << filename
                        << ", lines=" << lines;
@@ -2246,7 +2210,6 @@ void SlotRecordInMemoryDataFeed::LoadIntoMemoryByLine(void) {
   BufferedLineFileReader line_reader;
   line_reader.set_sample_rate(sample_rate_);
   BufferedLineFileReader::LineFunc line_func = nullptr;
-
   while (this->PickOneFile(&filename)) {
     VLOG(0) << "PickOneFile, filename=" << filename
             << ", thread_id=" << thread_id_;
@@ -2255,7 +2218,6 @@ void SlotRecordInMemoryDataFeed::LoadIntoMemoryByLine(void) {
     timeline.Start();
     int offset = 0;
     int old_offset = 0;
-
     SlotRecordPool().get(&record_vec, OBJPOOL_BLOCK_SIZE);
     // get slotrecord object function
     auto record_func = [this, &offset, &record_vec, &old_offset](
@@ -2334,7 +2296,6 @@ void SlotRecordInMemoryDataFeed::LoadIntoMemoryByCommand(void) {
   std::string filename;
   BufferedLineFileReader line_reader;
   line_reader.set_sample_rate(sample_rate_);
-
   while (this->PickOneFile(&filename)) {
     VLOG(3) << "PickOneFile, filename=" << filename
             << ", thread_id=" << thread_id_;
@@ -2344,7 +2305,6 @@ void SlotRecordInMemoryDataFeed::LoadIntoMemoryByCommand(void) {
     timeline.Start();
     SlotRecordPool().get(&record_vec, OBJPOOL_BLOCK_SIZE);
     int offset = 0;
-
     do {
       int err_no = 0;
       this->fp_ = fs_open_read(filename, &err_no, this->pipe_command_);
@@ -2381,7 +2341,6 @@ void SlotRecordInMemoryDataFeed::LoadIntoMemoryByCommand(void) {
     } else {
       SlotRecordPool().put(&record_vec);
     }
-
     record_vec.clear();
     record_vec.shrink_to_fit();
     timeline.Pause();
@@ -2430,7 +2389,6 @@ bool SlotRecordInMemoryDataFeed::ParseOneInstance(const std::string& line,
     rec->ins_id_ = std::string(str + pos, len);
     pos += len + 1;
   }
-
   if (parse_logkey_) {
     int num = strtol(&str[pos], &endptr, 10);
     CHECK(num == 1);  // NOLINT
@@ -2445,7 +2403,6 @@ bool SlotRecordInMemoryDataFeed::ParseOneInstance(const std::string& line,
     uint32_t cmatch;
     uint32_t rank;
     parser_log_key(log_key, &search_id, &cmatch, &rank);
-
     rec->ins_id_ = log_key;
     rec->search_id = search_id;
     rec->cmatch = cmatch;
@@ -2467,10 +2424,8 @@ bool SlotRecordInMemoryDataFeed::ParseOneInstance(const std::string& line,
                    str);
     if (info.used_idx != -1) {
       if (info.type[0] == 'f') {  // float
-
         auto& slot_fea = slot_float_feasigns[info.slot_value_idx];
         slot_fea.clear();
-
         for (int j = 0; j < num; ++j) {
           float feasign = strtof(endptr, &endptr);
           if (fabs(feasign) < 1e-6 && !used_slots_info_[info.used_idx].dense) {
@@ -2479,7 +2434,6 @@ bool SlotRecordInMemoryDataFeed::ParseOneInstance(const std::string& line,
           slot_fea.push_back(feasign);
           ++float_total_slot_num;
         }
-
       } else if (info.type[0] == 'u') {  // uint64
         auto& slot_fea = slot_uint64_feasigns[info.slot_value_idx];
         slot_fea.clear();
@@ -2546,13 +2500,6 @@ void SlotRecordInMemoryDataFeed::PutToFeedVec(const SlotRecord* ins_vec,
 
       for (int i = 0; i < num; ++i) {
         auto r = ins_vec[i];
-        
-        // 
-
-
-
-
-
         size_t fea_num = 0;
         float* slot_values =
             r->slot_float_feasigns_.get_values(info.slot_value_idx, &fea_num);
@@ -2686,109 +2633,59 @@ bool SlotRecordInMemoryDataFeed::Start() {
     this->offset_index_ = 0;
   }
   this->finish_start_ = true;
-
 #if defined(PADDLE_WITH_CUDA) && defined(PADDLE_WITH_HETERPS)
-
   CHECK(paddle::platform::is_gpu_place(this->place_));
 
   for (int i = 0; i < pack_thread_num_ + 1; i++) {
-
     auto pack = BatchGpuPackMgr().get(this->GetPlace(), used_slots_info_);
-
     // 这两个干啥的
     pack_vec_.push_back(pack);
     free_pack_queue_.Push(pack);
-
   }
 
   pack_offset_index_.store(0);
   pack_is_end_.store(false);
   thread_count_.store(pack_thread_num_);
-
   pack_threads_.reserve(pack_thread_num_);
-
-
   for (int i = 0; i < pack_thread_num_; i++) {
-
     pack_threads_.emplace_back(std::thread([this]() -> void {
-
       while (!stop_token_.load()) {
-         
-        // offset + 1
-        // 返回的是+1前的值
         uint64_t offset_index = pack_offset_index_.fetch_add(1);
-
-        // 如果当前线程处理的offset_index >= batch_offsets_.size()
-        //
         if (offset_index >= batch_offsets_.size()) {
-          // 包括当前线程还剩下
           int thread_num = thread_count_.fetch_sub(1); // 返回的是-1前的吗
           if (thread_num == 1) { 
             pack_is_end_.store(true);
           }
           return;
         }
-        
-        // free里弹出一个
         auto* pack = free_pack_queue_.Pop();
-
-        // 拿出一个batch
-        //
         auto& batch = batch_offsets_[offset_index];
-
-        // 这个batch的offset和batch_size
-        // 
         auto offset = batch.first;
         auto batch_size = batch.second;
-
         paddle::platform::SetDeviceId(place_.GetDeviceId());
-           
-        // 把这个batch pack起来
-        // 
         pack->pack_instance(&records_[offset], batch_size);
-
         this->BuildSlotBatchGPU(batch_size, pack);
-
-
-        // pack正在被使用
-        // 
         using_pack_queue_.Push(pack);
-
       }
-
     }));
-
   }
-
-
 #endif
-
   return true;
-
-
 }
 
 int SlotRecordInMemoryDataFeed::Next() {
   while (true) {
-
     if (last_pack_ != nullptr) {
-
       free_pack_queue_.Push(last_pack_);
       last_pack_ = nullptr;
-
     }
-
     if (using_pack_queue_.Size() != 0) {
-
-
       auto* pack = using_pack_queue_.Pop();
       // 填充scope??
       PackToScope(pack);
       last_pack_ = pack;
       return pack->ins_num();
-
     }
-
     bool is_end = pack_is_end_.load();
     if (is_end) {
       if (using_pack_queue_.Size() == 0) {
@@ -2802,35 +2699,14 @@ int SlotRecordInMemoryDataFeed::Next() {
 
 #if defined(PADDLE_WITH_CUDA) && defined(PADDLE_WITH_HETERPS)
 void SlotRecordInMemoryDataFeed::BuildSlotBatchGPU(const int ins_num, MiniBatchGpuPack* pack) {
-
   int offset_cols_size = (ins_num + 1);
   // slot总数 = 样本数 * 每个样本的slot数
   size_t slot_total_num = (use_slot_size_ * offset_cols_size);
   // 创建保存全部slot-offset的bytes buffer
   pack->resize_gpu_slot_offsets(slot_total_num * sizeof(size_t));
 
-/*
-void* gpu_slot_offsets(void) { return gpu_slot_offsets_->ptr(); }
-// std::shared_ptr<phi::Allocation> gpu_slot_offsets_ = nullptr;
-void* slot_buf_ptr(void) { return slot_buf_ptr_->ptr(); }
-
-void resize_gpu_slot_offsets(const size_t slot_total_bytes) {
-  if (gpu_slot_offsets_ == nullptr) {
-    gpu_slot_offsets_ = memory::AllocShared(place_, slot_total_bytes);
-  } else if (gpu_slot_offsets_->size() < slot_total_bytes) {
-    auto buf = memory::AllocShared(place_, slot_total_bytes);
-    gpu_slot_offsets_.swap(buf);
-    buf = nullptr;
-  }
-}
-*/
-
   // gpu value
   auto& value = pack->value();
- 
-
-  // 每个slot的信息,包括是否为uint64, 以及slot_value_idx
-  //  
   const UsedSlotGpuType* used_slot_gpu_types =
       static_cast<const UsedSlotGpuType*>(pack->get_gpu_slots());
 
@@ -2850,51 +2726,25 @@ void resize_gpu_slot_offsets(const size_t slot_total_bytes) {
                       used_slot_gpu_types,
                       pack->get_stream());
 
-  // 如果有N个slot, M个ins,那么shape就是N*(M + 1)
   size_t* d_slot_offsets = reinterpret_cast<size_t*>(pack->gpu_slot_offsets());
-  // HostBuffer<size_t> offsets_;
   HostBuffer<size_t>& offsets = pack->offsets();
   offsets.resize(slot_total_num);
-
-
-  // 保存每个slot在scope里的数据存储地址
   HostBuffer<void*>& h_tensor_ptrs = pack->h_tensor_ptrs();
   h_tensor_ptrs.resize(use_slot_size_);
-
-  // alloc gpu memory
-  // 给uint64_tensors, float_tensors_分配gpu显存，保存所有的feasign
-  // 
   pack->resize_tensor();
   LoDTensor& float_tensor = pack->float_tensor();
   LoDTensor& uint64_tensor = pack->uint64_tensor();
-
-  // copy index
-  // d_slot_offsets拷贝到内存
   CUDA_CHECK(cudaMemcpyAsync(offsets.data(), d_slot_offsets,
                         slot_total_num * sizeof(size_t),
                         cudaMemcpyDeviceToHost, pack->get_stream()));
-
   cudaStreamSynchronize(pack->get_stream());
 
   int64_t float_offset = 0;
   int64_t uint64_offset = 0;
-
-
-  // 记录feasign为0的slot个数
   size_t float_zero_slot_index = 0;
   size_t uint64_zero_slot_index = 0;
 
-
-  // async infershape
-  // std::map<const Scope*, std::vector<LoDTensor*> > scpoe_feed_vec_;
-  // 这玩意是用来干啥的
-  // 遍历use_slot_size
   for (int j = 0; j < use_slot_size_; ++j) {
-
-    //.begin()返回的的是迭代器
-    // scpoe_feed_ve_.begin()->second保存的是每个slot在scope里的数据首地址
-    // scope里创建var是什么时候
-    // 
     if (scpoe_feed_vec_.size() > 0) {
       if (scpoe_feed_vec_.begin()->second[j] == nullptr) {
         h_tensor_ptrs[j] = nullptr;
@@ -2907,37 +2757,22 @@ void resize_gpu_slot_offsets(const size_t slot_total_bytes) {
       }
     }
 
-    // int offset_cols_size = (ins_num + 1);
-    // j * offset_cols_size就是第j个slot的lod信息起始地址
     size_t* off_start_ptr = &offsets[j * offset_cols_size];
-    //然后拿到这个slot的feasign总数，一个batch的
     int total_instance = static_cast<int>(off_start_ptr[offset_cols_size - 1]);
 
     CHECK(total_instance >= 0) << "slot idx:" << j
                                << ", total instance:" << total_instance;
-
     auto& info = used_slots_info_[j];
-
     // fill slot value with default value 0
     if (info.type[0] == 'f') {  // float
-
       if (total_instance > 0) {
-
         h_tensor_ptrs[j] = float_tensor.data<float>() + float_offset;
         float_offset += total_instance;
-
       } else {
-        // 这个是什么
-        // std::vector<LoDTensor>& float_tensor_vec(void) { return float_tensor_vec_; }
-        // float_tensor_vec_.resize(use_slot_size_)
-        // 可是这total_instance不是0吗...
-        // h_tensor_ptrs[j] = pack->float_tensor_vec()[float_zero_slot_index].mutable_data<float>({total_instance, 1}, this->place_);
         h_tensor_ptrs[j] = pack->float_tensor_vec()[float_zero_slot_index].mutable_data<float>({total_instance, 1},
                             this->place_);
         float_zero_slot_index++;
-
       }
-
     } else if (info.type[0] == 'u') {  // uint64
       if (total_instance > 0) {
         h_tensor_ptrs[j] = uint64_tensor.data<int64_t>() + uint64_offset;
@@ -2948,28 +2783,12 @@ void resize_gpu_slot_offsets(const size_t slot_total_bytes) {
         uint64_zero_slot_index++;
       }
     }
-
   }
-
-  // std::shared_ptr<phi::Allocation> slot_buf_ptr_ = nullptr;
-  // void* slot_buf_ptr(void) { return slot_buf_ptr_->ptr(); }
-  // slot_buf_ptr_ = memory::AllocShared(place_, used_slot_size_ * sizeof(void*));
-  // 
   void** dest_gpu_p = reinterpret_cast<void**>(pack->slot_buf_ptr());
-
-  // 保存每个slot在scope里的数据存储地址
-  // HostBuffer<void*>& h_tensor_ptrs = pack->h_tensor_ptrs();
-  // h_tensor_ptrs.resize(use_slot_size_);
-  // 把地址拷贝到dest_gpu_p, h_tensor_ptrs里保存的也是gpu显存里的地址
   CUDA_CHECK(cudaMemcpyAsync(dest_gpu_p, h_tensor_ptrs.data(),
                         use_slot_size_ * sizeof(void*),
                         cudaMemcpyHostToDevice, pack->get_stream()));
 
-  // pack->resize_gpu_slot_offsets(slot_total_num * sizeof(size_t));
-  // gpu_slot_offset的shape是 use_slot_size * (ins_num + 1)
-  // d_uint64_keys保存的是所有样本的uint64 key
-  // d_uint64_lens shape (ins_num + 1), 保存每个ins的uint64 feasign num数量
-  // d_uint64_offset shape(ins_num * (uint64_slot_num + 1)),保存每个样本的uint64_slot_offset 
   CopyForTensor(ins_num, use_slot_size_, dest_gpu_p,
                 (const size_t*)pack->gpu_slot_offsets(),
                 (const uint64_t*)value.d_uint64_keys.data(),
@@ -2979,12 +2798,9 @@ void resize_gpu_slot_offsets(const size_t slot_total_bytes) {
                 (const int*)value.d_float_offset.data(),
                 (const int*)value.d_float_lens.data(), float_use_slot_size_,
                 used_slot_gpu_types, pack->get_stream());
-
-
 }
 
 void SlotRecordInMemoryDataFeed::PackToScope(MiniBatchGpuPack* pack, const Scope* scope) {
-
   int64_t float_offset = 0;
   int64_t uint64_offset = 0;
   size_t float_zero_slot_index = 0;
@@ -2995,12 +2811,7 @@ void SlotRecordInMemoryDataFeed::PackToScope(MiniBatchGpuPack* pack, const Scope
   LoDTensor& float_tensor = pack->float_tensor();
   LoDTensor& uint64_tensor = pack->uint64_tensor();
 
-  // 我们用的是这个看来
-  // 
   auto* feed_vec = &feed_vec_;
-
-  // async infershape
-  // std::map<const Scope*, std::vector<LoDTensor*> > scpoe_feed_vec_;
   if (scope) {
     CHECK(scpoe_feed_vec_.count(scope) > 0) << "scope not found.";
     feed_vec = &scpoe_feed_vec_[scope];
@@ -3009,37 +2820,25 @@ void SlotRecordInMemoryDataFeed::PackToScope(MiniBatchGpuPack* pack, const Scope
   CHECK(feed_vec != nullptr) << "feed_vec nullptr.";
 
   for (int j = 0; j < use_slot_size_; ++j) {
-
     auto& feed = (*feed_vec)[j]; // LodTensor* 
-
     if (feed == nullptr) {
       continue;
     }
-
     size_t* off_start_ptr = &offsets[j * offset_cols_size];
-
     int total_instance = static_cast<int>(off_start_ptr[offset_cols_size - 1]);
     auto& info = used_slots_info_[j];
-
     // fill slot value with default value 0
     if (info.type[0] == 'f') {  // float
-
       if (total_instance > 0) {
-
         feed->ShareDataWith(float_tensor.Slice(
             static_cast<int64_t>(float_offset),
             static_cast<int64_t>(float_offset + total_instance)));
-
         feed->Resize({total_instance, 1});
         float_offset += total_instance;
-
       } else {
-
         feed->ShareDataWith(pack->float_tensor_vec()[float_zero_slot_index++]);
         feed->Resize({total_instance, 1});
-
       }
-
     } else if (info.type[0] == 'u') {  // uint64
       if (total_instance > 0) {
         feed->ShareDataWith(uint64_tensor.Slice(
@@ -3052,7 +2851,6 @@ void SlotRecordInMemoryDataFeed::PackToScope(MiniBatchGpuPack* pack, const Scope
         feed->Resize({total_instance, 1});
       }
     }
-
     if (info.dense) {
       if (info.inductive_shape_index != -1) {
         info.local_shape[info.inductive_shape_index] =
@@ -3060,28 +2858,23 @@ void SlotRecordInMemoryDataFeed::PackToScope(MiniBatchGpuPack* pack, const Scope
       }
       feed->Resize(phi::make_ddim(info.local_shape));
     } else {
-
       LoD& lod = (*feed->mutable_lod());
       lod.resize(1);
       lod[0].resize(offset_cols_size);
       paddle::framework::MixVector<size_t> mixv_lod(&lod[0]);
       memcpy(mixv_lod.MutableData(platform::CPUPlace()), off_start_ptr,
              offset_cols_size * sizeof(size_t));
-
     }
   }
-
 }
 
 MiniBatchGpuPack* SlotRecordInMemoryDataFeed::get_pack(MiniBatchGpuPack* last_pack) {
-
   if (last_pack != nullptr) {
     free_pack_queue_.Push(last_pack);
     return nullptr;
   }
 
   std::unique_lock<std::mutex> lock(pack_mutex_);
-
   while (true) {
     if (using_pack_queue_.Size() != 0) {
       auto* pack = using_pack_queue_.Pop();
@@ -3096,7 +2889,6 @@ MiniBatchGpuPack* SlotRecordInMemoryDataFeed::get_pack(MiniBatchGpuPack* last_pa
     std::this_thread::sleep_for(
           std::chrono::microseconds(200));
   }
-
 }
 
 
@@ -3104,9 +2896,6 @@ MiniBatchGpuPack::MiniBatchGpuPack(const paddle::platform::Place& place,
                                    const std::vector<UsedSlotInfo>& infos,
                                    phi::StreamId stream_id) {
   place_ = place;
-
-  // 搞了个stream
-  // 
   stream_holder_.reset(new platform::stream::CUDAStream(place));
   stream_ = stream_holder_->raw_stream();
   alloc_stream_id_ = stream_id;
@@ -3117,12 +2906,6 @@ MiniBatchGpuPack::MiniBatchGpuPack(const paddle::platform::Place& place,
   used_uint64_num_ = 0;
 
   used_slot_size_ = static_cast<int>(infos.size());
-
-// struct UsedSlotGpuType {
-//  int is_uint64_value;
-//  int slot_value_idx;
-//};
-
   for (int i = 0; i < used_slot_size_; ++i) {
     auto& info = infos[i];
     if (info.type[0] == 'u') {
@@ -3133,28 +2916,16 @@ MiniBatchGpuPack::MiniBatchGpuPack(const paddle::platform::Place& place,
       ++used_float_num_;
     }
   }
-  // 把cpu上的slot信息拷贝到gpu上
   copy_host2device(&gpu_slots_, gpu_used_slots_.data(), gpu_used_slots_.size());
 
   slot_buf_ptr_ = memory::AllocShared(place_, used_slot_size_ * sizeof(void*), phi_stream());
 
   int device_id = place_.GetDeviceId();
   VLOG(3) << "begin get batch pack device id: " << device_id;
-
   // sync
   CUDA_CHECK(cudaStreamSynchronize(stream_));
-
-  // uint64 tensor
-  // LoDTensor uint64_tensor_;
-  // std::vector<LoDTensor> uint64_tensor_vec_;
-  // float tensor
-  // LoDTensor float_tensor_;
-  // std::vector<LoDTensor> float_tensor_vec_;
-
-  // 这个是用来干啥的
   float_tensor_vec_.resize(used_slot_size_);
   uint64_tensor_vec_.resize(used_slot_size_);
-
 }
 
 MiniBatchGpuPack::~MiniBatchGpuPack() {}
@@ -3176,25 +2947,17 @@ void MiniBatchGpuPack::reset(const paddle::platform::Place& place) {
   pv_num_ = 0;
 }
 
-// pack一个batch
 void MiniBatchGpuPack::pack_all_data(const SlotRecord* ins_vec, int num) {
   int uint64_total_num = 0;
   int float_total_num = 0;
 
-
-  // 下面是lod信息
   buf_.h_uint64_lens.resize(num + 1);
   buf_.h_uint64_lens[0] = 0;
   buf_.h_float_lens.resize(num + 1);
   buf_.h_float_lens[0] = 0;
 
   for (int i = 0; i < num; ++i) {
-
     auto r = ins_vec[i]; // 拿出一个SlotRecord
-
-    // SlotValues<uint64_t> slot_uint64_feasigns_;
-    // SlotValues<float> slot_float_feasigns_;
-    // 拿到这个SlotRecord里所有uint64的feasign
     uint64_total_num += r->slot_uint64_feasigns_.slot_values.size();
     buf_.h_uint64_lens[i + 1] = uint64_total_num;
     float_total_num += r->slot_float_feasigns_.slot_values.size();
@@ -3203,14 +2966,10 @@ void MiniBatchGpuPack::pack_all_data(const SlotRecord* ins_vec, int num) {
 
   int uint64_cols = (used_uint64_num_ + 1);
   buf_.h_uint64_offset.resize(uint64_cols * num);
-
-  // uint64 key
   buf_.h_uint64_keys.resize(uint64_total_num);
 
   int float_cols = (used_float_num_ + 1);
   buf_.h_float_offset.resize(float_cols * num);
-
-  // float key
   buf_.h_float_keys.resize(float_total_num);
 
   size_t fea_num = 0;
@@ -3218,33 +2977,24 @@ void MiniBatchGpuPack::pack_all_data(const SlotRecord* ins_vec, int num) {
   float_total_num = 0;
 
   for (int i = 0; i < num; ++i) {
-
     auto r = ins_vec[i];
-
     auto& uint64_feasigns = r->slot_uint64_feasigns_;
-
     fea_num = uint64_feasigns.slot_values.size();
-
     if (fea_num > 0) {
      // 拷贝key
       memcpy(&buf_.h_uint64_keys[uint64_total_num],
              uint64_feasigns.slot_values.data(), fea_num * sizeof(uint64_t));
     }
-
     uint64_total_num += fea_num;
 
     // copy uint64 offset
-    // 每个样本的所有slot的feasign放在一起
-    // 保存每个样本的slot lod信息
     memcpy(&buf_.h_uint64_offset[i * uint64_cols],
            uint64_feasigns.slot_offsets.data(), sizeof(int) * uint64_cols);
 
     auto& float_feasigns = r->slot_float_feasigns_;
     fea_num = float_feasigns.slot_values.size();
-
     memcpy(&buf_.h_float_keys[float_total_num],
            float_feasigns.slot_values.data(), fea_num * sizeof(float));
-
     float_total_num += fea_num;
 
     // copy float offset
@@ -3267,7 +3017,6 @@ void MiniBatchGpuPack::pack_uint64_data(const SlotRecord* ins_vec, int num) {
   buf_.h_uint64_lens.resize(num + 1);
   buf_.h_uint64_lens[0] = 0;
 
-  // 每个样本的lod信息，每个样本的feasign数量
   for (int i = 0; i < num; ++i) {
     auto r = ins_vec[i];
     uint64_total_num += r->slot_uint64_feasigns_.slot_values.size();
@@ -3338,7 +3087,6 @@ void MiniBatchGpuPack::pack_instance(const SlotRecord* ins_vec, int num) {
   // VLOG(0) << "pack_instance, slot_record:" << ins_vec << ", num: " << num;
   ins_num_ = num;
   batch_ins_ = ins_vec;
-
   CHECK(used_uint64_num_ > 0 || used_float_num_ > 0);
   // uint64 and float
   if (used_uint64_num_ > 0 && used_float_num_ > 0) {
@@ -3352,8 +3100,6 @@ void MiniBatchGpuPack::pack_instance(const SlotRecord* ins_vec, int num) {
   transfer_to_gpu();
 }
 
-
-// 从buf_拷贝到value_
 void MiniBatchGpuPack::transfer_to_gpu(void) {
   copy_host2device(&value_.d_uint64_lens, buf_.h_uint64_lens);
   copy_host2device(&value_.d_uint64_keys, buf_.h_uint64_keys);
