@@ -97,13 +97,11 @@ struct SlotValues {
     }
     slot_offsets.push_back(static_cast<uint32_t>(slot_values.size()));
   }
-
   T* get_values(int idx, size_t* size) {
     uint32_t& offset = slot_offsets[idx];
     (*size) = slot_offsets[idx + 1] - offset;
     return &slot_values[offset];
   }
-
   void add_slot_feasigns(const std::vector<std::vector<T>>& slot_feasigns,
                          uint32_t fea_num) {
     slot_values.reserve(fea_num);
@@ -119,7 +117,6 @@ struct SlotValues {
     }
     slot_offsets[slot_num] = slot_values.size();
   }
-
   void clear(bool shrink) {
     slot_offsets.clear();
     slot_values.clear();
@@ -538,7 +535,6 @@ struct BatchCPUValue {
 };
 
 struct BatchGPUValue {
-
   CudaBuffer<int> d_uint64_lens;
   CudaBuffer<uint64_t> d_uint64_keys;
   CudaBuffer<int> d_uint64_offset;
@@ -554,7 +550,6 @@ struct BatchGPUValue {
 
 class MiniBatchGpuPack {
  public:
-
   MiniBatchGpuPack(const paddle::platform::Place& place,
                    const std::vector<UsedSlotInfo>& infos,
                    phi::StreamId stream_id);
@@ -562,24 +557,18 @@ class MiniBatchGpuPack {
 
   bool is_use();
   void set_use_flag(bool is_use);
-
   void reset(const paddle::platform::Place& place);
   void pack_instance(const SlotRecord* ins_vec, int num);
-
   int ins_num() { return ins_num_; }
   int pv_num() { return pv_num_; }
-
   BatchGPUValue& value() { return value_; }
   BatchCPUValue& cpu_value() { return buf_; }
-
   UsedSlotGpuType* get_gpu_slots(void) {
     return reinterpret_cast<UsedSlotGpuType*>(gpu_slots_.data());
   }
-
   SlotRecord* get_records(void) { return &ins_vec_[0]; }
 
   // tensor gpu memory reused
-  //
   void resize_tensor(void) {
     if (used_float_num_ > 0) {
       int float_total_len = buf_.h_float_lens.back();
@@ -597,10 +586,8 @@ class MiniBatchGpuPack {
       }
     }
   }
-
   LoDTensor& float_tensor(void) { return float_tensor_; }
   LoDTensor& uint64_tensor(void) { return uint64_tensor_; }
- 
   std::vector<LoDTensor>& float_tensor_vec(void) { return float_tensor_vec_; }
   std::vector<LoDTensor>& uint64_tensor_vec(void) { return uint64_tensor_vec_; }
 
@@ -622,7 +609,6 @@ class MiniBatchGpuPack {
       buf = nullptr;
     }
   }
-
   const std::string& get_lineid(int idx) {
     if (enable_pv_) {
       return ins_vec_[idx]->ins_id_;
@@ -641,7 +627,6 @@ class MiniBatchGpuPack {
 
  private:
   void transfer_to_gpu(void);
-
   void pack_all_data(const SlotRecord* ins_vec, int num);
   void pack_uint64_data(const SlotRecord* ins_vec, int num);
   void pack_float_data(const SlotRecord* ins_vec, int num);
@@ -662,15 +647,12 @@ class MiniBatchGpuPack {
   }
 
  private:
-
   bool is_using_ = false;
   paddle::platform::Place place_;
   std::unique_ptr<platform::stream::CUDAStream> stream_holder_;
   cudaStream_t stream_;
-
   BatchGPUValue value_;
   BatchCPUValue buf_;
-
   int ins_num_ = 0;
   int pv_num_ = 0;
 
@@ -681,9 +663,7 @@ class MiniBatchGpuPack {
 
   CudaBuffer<UsedSlotGpuType> gpu_slots_;
   std::vector<UsedSlotGpuType> gpu_used_slots_;
-
   std::vector<SlotRecord> ins_vec_;
-
   const SlotRecord* batch_ins_ = nullptr;
 
   // uint64 tensor
@@ -692,22 +672,15 @@ class MiniBatchGpuPack {
   // float tensor
   LoDTensor float_tensor_;
   std::vector<LoDTensor> float_tensor_vec_;
-
-
-
-
   // batch
   HostBuffer<size_t> offsets_;
   HostBuffer<void*> h_tensor_ptrs_;
-
-
 
   std::shared_ptr<phi::Allocation> gpu_slot_offsets_ = nullptr;
   std::shared_ptr<phi::Allocation> slot_buf_ptr_ = nullptr;
 
   phi::StreamId alloc_stream_id_ {0};
 };
-
 class MiniBatchGpuPackMgr {
   static const int MAX_DEIVCE_NUM = 16;
 
@@ -729,7 +702,6 @@ class MiniBatchGpuPackMgr {
       }
     }
   }
-
 
   // thread unsafe
   MiniBatchGpuPack* get(const paddle::platform::Place& place,
@@ -753,23 +725,19 @@ class MiniBatchGpuPackMgr {
     auto* pack = new MiniBatchGpuPack(place, infos, alloc_stream_id);
     pack->set_use_flag(true);
     pack_list_[device_id].push_back(pack);
-
     return pack;
   }
 
  private:
-
   std::vector<std::vector<MiniBatchGpuPack*>> pack_list_;
   std::unordered_map<int, std::unique_ptr<platform::stream::CUDAStream>> alloc_stream_map_;
   std::mutex mutex_;
 };
-
 // global mgr
 inline MiniBatchGpuPackMgr& BatchGpuPackMgr() {
   static MiniBatchGpuPackMgr mgr;
   return mgr;
 }
-
 #endif
 
 typedef paddle::framework::CustomParser* (*CreateParserObjectFunc)();
@@ -1120,9 +1088,7 @@ class InMemoryDataFeed : public DataFeed {
   virtual void SetCurrentPhase(int current_phase);
   virtual void LoadIntoMemory();
   virtual void LoadIntoMemoryFromSo();
-
   virtual void SetRecord(T* records) { records_ = records; }
-
   int GetDefaultBatchSize() { return default_batch_size_; }
   void AddBatchOffset(const std::pair<int, int>& offset) {
     batch_offsets_.push_back(offset);
@@ -1165,7 +1131,6 @@ class InMemoryDataFeed : public DataFeed {
   paddle::framework::ChannelObject<PvInstance>* consume_pv_channel_;
 
   std::vector<std::pair<int, int>> batch_offsets_;
-
   uint64_t offset_index_ = 0;
   bool enable_heterps_ = false;
   T* records_ = nullptr;
@@ -1608,20 +1573,14 @@ class SlotRecordInMemoryDataFeed : public InMemoryDataFeed<SlotRecord> {
   std::vector<int> float_total_dims_without_inductives_;
 
 #if defined(PADDLE_WITH_CUDA) && defined(PADDLE_WITH_HETERPS)
-
   int pack_thread_num_ {5};
-
   std::vector<std::thread> pack_threads_;
   std::vector<MiniBatchGpuPack*> pack_vec_;
-
   BlockingQueue<MiniBatchGpuPack*> free_pack_queue_;
   BlockingQueue<MiniBatchGpuPack*> using_pack_queue_;
-
   std::atomic<bool> pack_is_end_ {false};
   std::atomic<uint64_t> pack_offset_index_ {0};
-
   MiniBatchGpuPack* last_pack_ {nullptr};
-
   std::atomic<bool> stop_token_ {false};
   std::atomic<int> thread_count_ {0};
   std::mutex pack_mutex_;
