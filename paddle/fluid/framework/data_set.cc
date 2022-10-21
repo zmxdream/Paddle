@@ -257,9 +257,7 @@ static void compute_left_batch_num(const int ins_num, const int thread_num,
                                    const int start_pos) {
   int cur_pos = start_pos;
   int batch_size = ins_num / thread_num;
-
   int left_num = ins_num % thread_num;
-
   for (int i = 0; i < thread_num; ++i) {
     int batch_num_size = batch_size;
     if (i == 0) {
@@ -268,13 +266,11 @@ static void compute_left_batch_num(const int ins_num, const int thread_num,
     offset->push_back(std::make_pair(cur_pos, batch_num_size));
     cur_pos += batch_num_size;
   }
-
 }
 
 static void compute_batch_num(const int64_t ins_num, const int batch_size,
                               const int thread_num,
                               std::vector<std::pair<int, int>>* offset) {
-
   int thread_batch_num = batch_size * thread_num;
   // less data
   if (static_cast<int64_t>(thread_batch_num) > ins_num) {
@@ -283,10 +279,8 @@ static void compute_batch_num(const int64_t ins_num, const int batch_size,
   }
 
   int cur_pos = 0;
-
   int offset_num = static_cast<int>(ins_num / thread_batch_num) * thread_num;
   int left_ins_num = static_cast<int>(ins_num % thread_batch_num);
-
   if (left_ins_num > 0 && left_ins_num < thread_num) {
     offset_num = offset_num - thread_num;
     left_ins_num = left_ins_num + thread_batch_num;
@@ -297,7 +291,6 @@ static void compute_batch_num(const int64_t ins_num, const int batch_size,
     // split data to thread avg two rounds
     compute_left_batch_num(left_ins_num, thread_num * 2, offset, cur_pos);
   } else {
-
     for (int i = 0; i < offset_num; ++i) {
       offset->push_back(std::make_pair(cur_pos, batch_size));
       cur_pos += batch_size;
@@ -305,35 +298,24 @@ static void compute_batch_num(const int64_t ins_num, const int batch_size,
     if (left_ins_num > 0) {
       compute_left_batch_num(left_ins_num, thread_num, offset, cur_pos);
     }
-
   }
-
-
-
 }
 
 static int compute_thread_batch_nccl(
     const int thr_num, const int64_t total_instance_num,
     const int minibatch_size, std::vector<std::pair<int, int>>* nccl_offsets) {
-
   int thread_avg_batch_num = 0;
-
   if (total_instance_num < static_cast<int64_t>(thr_num)) {
     LOG(WARNING) << "compute_thread_batch_nccl total ins num:["
                  << total_instance_num << "], less thread num:[" << thr_num
                  << "]";
-
     return thread_avg_batch_num;
   }
 
   auto& offset = (*nccl_offsets);
-
   // split data avg by thread num
   compute_batch_num(total_instance_num, minibatch_size, thr_num, &offset);
-
   thread_avg_batch_num = static_cast<int>(offset.size() / thr_num);
-
-
 #ifdef PADDLE_WITH_GLOO
   auto gloo_wrapper = paddle::framework::GlooWrapper::GetInstance();
   if (!gloo_wrapper->IsInitialized()) {
@@ -420,14 +402,12 @@ void MultiSlotDataset::PrepareTrain() {
     int default_batch_size =
         reinterpret_cast<MultiSlotInMemoryDataFeed*>(readers_[0].get())
             ->GetDefaultBatchSize();
-
     VLOG(3) << "thread_num: " << thread_num_
             << " memory size: " << total_ins_num
             << " default batch_size: " << default_batch_size;
     compute_thread_batch_nccl(thread_num_, total_ins_num, default_batch_size,
                               &offset);
     VLOG(3) << "offset size: " << offset.size();
-
     for (int i = 0; i < thread_num_; i++) {
       reinterpret_cast<MultiSlotInMemoryDataFeed*>(readers_[i].get())
           ->SetRecord(&input_records_[0]);
@@ -472,7 +452,7 @@ void DatasetImpl<T>::LoadIntoMemory() {
   input_channel_->SetBlockSize(in_chan_size / thread_num_ + 1);
 
   timeline.Pause();
-  VLOG(0) << "DatasetImpl<T>::LoadIntoMemory() end"
+  VLOG(3) << "DatasetImpl<T>::LoadIntoMemory() end"
           << ", memory data size=" << input_channel_->Size()
           << ", cost time=" << timeline.ElapsedSec() << " seconds";
 }
@@ -930,7 +910,6 @@ void DatasetImpl<T>::SetFleetSendSleepSeconds(int seconds) {
 
 template <typename T>
 void DatasetImpl<T>::CreateReaders() {
-
   VLOG(3) << "Calling CreateReaders()";
   VLOG(3) << "thread num in Dataset: " << thread_num_;
   VLOG(3) << "Filelist size in Dataset: " << filelist_.size();
@@ -1675,20 +1654,20 @@ void SlotRecordDataset::CreateChannel() {
   }
 }
 void SlotRecordDataset::CreateReaders() {
-  VLOG(0) << "Calling CreateReaders()";
-  VLOG(0) << "thread num in Dataset: " << thread_num_;
-  VLOG(0) << "Filelist size in Dataset: " << filelist_.size();
-  VLOG(0) << "channel num in Dataset: " << channel_num_;
+  VLOG(3) << "Calling CreateReaders()";
+  VLOG(3) << "thread num in Dataset: " << thread_num_;
+  VLOG(3) << "Filelist size in Dataset: " << filelist_.size();
+  VLOG(3) << "channel num in Dataset: " << channel_num_;
   CHECK(thread_num_ > 0) << "thread num should > 0";
   CHECK(channel_num_ > 0) << "channel num should > 0";
   CHECK(channel_num_ <= thread_num_) << "channel num should <= thread num";
-  VLOG(0) << "readers size: " << readers_.size();
+  VLOG(3) << "readers size: " << readers_.size();
   if (readers_.size() != 0) {
-    VLOG(0) << "readers_.size() = " << readers_.size()
+    VLOG(3) << "readers_.size() = " << readers_.size()
             << ", will not create again";
     return;
   }
-  VLOG(0) << "data feed class name: " << data_feed_desc_.name();
+  VLOG(3) << "data feed class name: " << data_feed_desc_.name();
 
   for (int i = 0; i < thread_num_; ++i) {
     readers_.push_back(DataFeedFactory::CreateDataFeed(data_feed_desc_.name()));
@@ -1709,7 +1688,7 @@ void SlotRecordDataset::CreateReaders() {
       readers_[i]->SetInputChannel(input_channel_.get());
     }
   }
-  VLOG(0) << "readers size: " << readers_.size();
+  VLOG(3) << "readers size: " << readers_.size();
 }
 
 void SlotRecordDataset::ReleaseMemory() {
@@ -1723,7 +1702,6 @@ void SlotRecordDataset::ReleaseMemory() {
   }
   if (enable_heterps_) {
     VLOG(3) << "put pool records size: " << input_records_.size();
-
     SlotRecordPool().put(&input_records_);
     input_records_.clear();
     input_records_.shrink_to_fit();
@@ -1743,7 +1721,6 @@ void SlotRecordDataset::ReleaseMemory() {
           << " object pool size=" << SlotRecordPool().capacity();  // For Debug
   STAT_SUB(STAT_total_feasign_num_in_mem, total_fea_num_);
 }
-
 void SlotRecordDataset::GlobalShuffle(int thread_num) {
   // TODO(yaoxuefeng)
   return;
@@ -1980,26 +1957,22 @@ void SlotRecordDataset::PrepareTrain() {
 
     std::vector<std::pair<int, int>> offset;
 
-    VLOG(0) << "thread_num: " << thread_num_
+    VLOG(3) << "thread_num: " << thread_num_
             << " memory size: " << total_ins_num
             << " default batch_size: " << default_batch_size;
 
     compute_thread_batch_nccl(thread_num_, total_ins_num, default_batch_size,
                               &offset);
-
     VLOG(3) << "offset size: " << offset.size();
-
     for (int i = 0; i < thread_num_; i++) {
       reinterpret_cast<SlotRecordInMemoryDataFeed*>(readers_[i].get())
           ->SetRecord(&input_records_[0]);
     }
-
     for (size_t i = 0; i < offset.size(); i++) {
       reinterpret_cast<SlotRecordInMemoryDataFeed*>(
           readers_[i % thread_num_].get())
           ->AddBatchOffset(offset[i]);
     }
-
   }
 #else
   PADDLE_THROW(platform::errors::Unavailable(
@@ -2010,15 +1983,14 @@ void SlotRecordDataset::PrepareTrain() {
 
 void SlotRecordDataset::DynamicAdjustReadersNum(int thread_num) {
   if (thread_num_ == thread_num) {
-    VLOG(0) << "DatasetImpl<T>::DynamicAdjustReadersNum thread_num_="
+    VLOG(3) << "DatasetImpl<T>::DynamicAdjustReadersNum thread_num_="
             << thread_num_ << ", thread_num_=thread_num, no need to adjust";
     return;
   }
-  VLOG(0) << "adjust readers num from " << thread_num_ << " to " << thread_num;
+  VLOG(3) << "adjust readers num from " << thread_num_ << " to " << thread_num;
   thread_num_ = thread_num;
   std::vector<std::shared_ptr<paddle::framework::DataFeed>>().swap(readers_);
   CreateReaders();
-  VLOG(0) << "after create readers, before prepare train";
   VLOG(3) << "adjust readers num done";
   PrepareTrain();
 }

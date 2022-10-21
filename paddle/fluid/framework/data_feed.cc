@@ -2650,7 +2650,7 @@ bool SlotRecordInMemoryDataFeed::Start() {
         uint64_t offset_index = pack_offset_index_.fetch_add(1);
         if (offset_index >= batch_offsets_.size()) {
           int thread_num = thread_count_.fetch_sub(1);
-          if (thread_num == 1) { 
+          if (thread_num == 1) {
             pack_is_end_.store(true);
           }
           return;
