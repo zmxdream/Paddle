@@ -1989,7 +1989,6 @@ void SlotRecordInMemoryDataFeed::Init(const DataFeedDesc& data_feed_desc) {
 
   float_total_dims_size_ = 0;
   float_total_dims_without_inductives_.clear();
-
   for (size_t i = 0; i < all_slot_num; ++i) {
     const auto& slot = multi_slot_desc.slots(i);
     all_slots_[i] = slot.name();
@@ -2331,7 +2330,6 @@ void SlotRecordInMemoryDataFeed::LoadIntoMemoryByCommand(void) {
           },
           lines);
     } while (line_reader.is_error());
-
     if (offset > 0) {
       input_channel_->WriteMove(offset, &record_vec[0]);
       if (offset < OBJPOOL_BLOCK_SIZE) {
@@ -2638,7 +2636,6 @@ bool SlotRecordInMemoryDataFeed::Start() {
 
   for (int i = 0; i < pack_thread_num_ + 1; i++) {
     auto pack = BatchGpuPackMgr().get(this->GetPlace(), used_slots_info_);
-    // 这两个干啥的
     pack_vec_.push_back(pack);
     free_pack_queue_.Push(pack);
   }
@@ -2652,7 +2649,7 @@ bool SlotRecordInMemoryDataFeed::Start() {
       while (!stop_token_.load()) {
         uint64_t offset_index = pack_offset_index_.fetch_add(1);
         if (offset_index >= batch_offsets_.size()) {
-          int thread_num = thread_count_.fetch_sub(1); // 返回的是-1前的吗
+          int thread_num = thread_count_.fetch_sub(1);
           if (thread_num == 1) { 
             pack_is_end_.store(true);
           }
@@ -2681,7 +2678,6 @@ int SlotRecordInMemoryDataFeed::Next() {
     }
     if (using_pack_queue_.Size() != 0) {
       auto* pack = using_pack_queue_.Pop();
-      // 填充scope??
       PackToScope(pack);
       last_pack_ = pack;
       return pack->ins_num();
@@ -2759,7 +2755,6 @@ void SlotRecordInMemoryDataFeed::BuildSlotBatchGPU(const int ins_num, MiniBatchG
 
     size_t* off_start_ptr = &offsets[j * offset_cols_size];
     int total_instance = static_cast<int>(off_start_ptr[offset_cols_size - 1]);
-
     CHECK(total_instance >= 0) << "slot idx:" << j
                                << ", total instance:" << total_instance;
     auto& info = used_slots_info_[j];
@@ -2820,7 +2815,7 @@ void SlotRecordInMemoryDataFeed::PackToScope(MiniBatchGpuPack* pack, const Scope
   CHECK(feed_vec != nullptr) << "feed_vec nullptr.";
 
   for (int j = 0; j < use_slot_size_; ++j) {
-    auto& feed = (*feed_vec)[j]; // LodTensor* 
+    auto& feed = (*feed_vec)[j];
     if (feed == nullptr) {
       continue;
     }
@@ -2957,7 +2952,7 @@ void MiniBatchGpuPack::pack_all_data(const SlotRecord* ins_vec, int num) {
   buf_.h_float_lens[0] = 0;
 
   for (int i = 0; i < num; ++i) {
-    auto r = ins_vec[i]; // 拿出一个SlotRecord
+    auto r = ins_vec[i];
     uint64_total_num += r->slot_uint64_feasigns_.slot_values.size();
     buf_.h_uint64_lens[i + 1] = uint64_total_num;
     float_total_num += r->slot_float_feasigns_.slot_values.size();
@@ -2975,18 +2970,15 @@ void MiniBatchGpuPack::pack_all_data(const SlotRecord* ins_vec, int num) {
   size_t fea_num = 0;
   uint64_total_num = 0;
   float_total_num = 0;
-
   for (int i = 0; i < num; ++i) {
     auto r = ins_vec[i];
     auto& uint64_feasigns = r->slot_uint64_feasigns_;
     fea_num = uint64_feasigns.slot_values.size();
     if (fea_num > 0) {
-     // 拷贝key
       memcpy(&buf_.h_uint64_keys[uint64_total_num],
              uint64_feasigns.slot_values.data(), fea_num * sizeof(uint64_t));
     }
     uint64_total_num += fea_num;
-
     // copy uint64 offset
     memcpy(&buf_.h_uint64_offset[i * uint64_cols],
            uint64_feasigns.slot_offsets.data(), sizeof(int) * uint64_cols);

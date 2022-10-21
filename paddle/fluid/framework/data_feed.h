@@ -593,9 +593,7 @@ class MiniBatchGpuPack {
   HostBuffer<void*>& h_tensor_ptrs(void) { return h_tensor_ptrs_; }
 
   void* gpu_slot_offsets(void) { return gpu_slot_offsets_->ptr(); }
-  // std::shared_ptr<phi::Allocation> gpu_slot_offsets_ = nullptr;
 
-  // std::shared_ptr<phi::Allocation> slot_buf_ptr_ = nullptr;
   void* slot_buf_ptr(void) { return slot_buf_ptr_->ptr(); }
 
   void resize_gpu_slot_offsets(const size_t slot_total_bytes) {
