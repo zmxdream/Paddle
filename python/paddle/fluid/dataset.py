@@ -500,7 +500,7 @@ class InMemoryDataset(DatasetBase):
 
         """
         self.parse_ins_id = parse_ins_id
- 
+
     @deprecated(
         since="2.0.0",
         update_to="paddle.distributed.InMemoryDataset._set_parse_content")

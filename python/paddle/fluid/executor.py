@@ -1835,7 +1835,6 @@ class Executor(object):
                         'op_role',
                         core.op_proto_and_checker_maker.OpRole.Optimize)
             fetch_list = None
-
         scope, trainer = self._prepare_trainer(
             program=program,
             dataset=dataset,
