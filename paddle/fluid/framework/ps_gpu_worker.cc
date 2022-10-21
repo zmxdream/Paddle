@@ -504,14 +504,12 @@ void PSGPUWorker::TrainFiles() {
       // get insid from pack
       device_reader_->SetInsIdVec(pack);
 
-      // VLOG(0) << "=====debug cur_scope_vars ==========" << need_reuse_var_vec_.size(); 
       // tensor share buffer
       std::vector<Variable*>& cur_scope_vars = need_reuse_var_vec_[thread_scope];
 
       PADDLE_ENFORCE_EQ(cur_scope_vars.size(), need_reuse_var_.size(),
                         platform::errors::Fatal(
                               "reuse vars size must be same."));
-
 
       for (size_t i = 0; i < need_reuse_var_.size(); i++) {
         Variable* child = cur_scope_vars[i];
@@ -520,8 +518,6 @@ void PSGPUWorker::TrainFiles() {
           child->GetMutable<LoDTensor>()->ShareBufferWith(*(parent->GetMutable<LoDTensor>()));
         }
       }
-
-
     }
 
     if (cur_batch <= 0) {

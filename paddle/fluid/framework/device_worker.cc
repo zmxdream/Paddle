@@ -414,7 +414,7 @@ void DeviceWorker::DumpField(const Scope& scope, int dump_mode,
     batch_size = ins_id_vec.size();
   }
   std::vector<std::string> ars(batch_size);
-  std::vector<bool> hit(batch_size, false);
+  // std::vector<bool> hit(batch_size, false);
 
   std::default_random_engine engine(0);
   std::uniform_int_distribution<size_t> dist(0U, INT_MAX);
@@ -477,7 +477,7 @@ void DeviceWorker::DumpField(const Scope& scope, int dump_mode,
 
 
   size_t fill_thread_num = 32;
-  auto fill_hit = [this, dump_interval, dump_mode, batch_size, &hit,
+  auto fill_hit = [this, dump_interval, dump_mode, batch_size,
                    &ins_id_vec, &ars, &dist, &engine, &cpu_tensors](size_t begin, size_t end) {
    
     for (size_t i = begin; i < end; i++) {
@@ -490,7 +490,7 @@ void DeviceWorker::DumpField(const Scope& scope, int dump_mode,
       if (r % dump_interval != 0) {
         continue;
       }
-      hit[i] = true;
+      // hit[i] = true;
       // ars[i] += ins_id_vec[i];
       ars[i].append(ins_id_vec[i]);
     

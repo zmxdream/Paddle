@@ -257,7 +257,9 @@ static void compute_left_batch_num(const int ins_num, const int thread_num,
                                    const int start_pos) {
   int cur_pos = start_pos;
   int batch_size = ins_num / thread_num;
+
   int left_num = ins_num % thread_num;
+
   for (int i = 0; i < thread_num; ++i) {
     int batch_num_size = batch_size;
     if (i == 0) {
@@ -266,6 +268,7 @@ static void compute_left_batch_num(const int ins_num, const int thread_num,
     offset->push_back(std::make_pair(cur_pos, batch_num_size));
     cur_pos += batch_num_size;
   }
+
 }
 
 static void compute_batch_num(const int64_t ins_num, const int batch_size,
@@ -294,6 +297,7 @@ static void compute_batch_num(const int64_t ins_num, const int batch_size,
     // split data to thread avg two rounds
     compute_left_batch_num(left_ins_num, thread_num * 2, offset, cur_pos);
   } else {
+
     for (int i = 0; i < offset_num; ++i) {
       offset->push_back(std::make_pair(cur_pos, batch_size));
       cur_pos += batch_size;
@@ -301,6 +305,7 @@ static void compute_batch_num(const int64_t ins_num, const int batch_size,
     if (left_ins_num > 0) {
       compute_left_batch_num(left_ins_num, thread_num, offset, cur_pos);
     }
+
   }
 
 
@@ -415,12 +420,14 @@ void MultiSlotDataset::PrepareTrain() {
     int default_batch_size =
         reinterpret_cast<MultiSlotInMemoryDataFeed*>(readers_[0].get())
             ->GetDefaultBatchSize();
+
     VLOG(3) << "thread_num: " << thread_num_
             << " memory size: " << total_ins_num
             << " default batch_size: " << default_batch_size;
     compute_thread_batch_nccl(thread_num_, total_ins_num, default_batch_size,
                               &offset);
     VLOG(3) << "offset size: " << offset.size();
+
     for (int i = 0; i < thread_num_; i++) {
       reinterpret_cast<MultiSlotInMemoryDataFeed*>(readers_[i].get())
           ->SetRecord(&input_records_[0]);

@@ -879,6 +879,7 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::merge_grad(
 
   void* d_buff = NULL;
   auto d_temp_storage = memory::Alloc(place, temp_storage_bytes);
+
   PADDLE_ENFORCE_GPU_SUCCESS(cub::DeviceRadixSort::SortPairs(
       d_temp_storage->ptr(), temp_storage_bytes, d_keys, d_merge_keys_ptr,
       d_idx, d_index, len, 0, 8 * sizeof(KeyType), stream));

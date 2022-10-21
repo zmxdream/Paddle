@@ -75,7 +75,9 @@ void TrainerBase::DumpWork(int tid) {
     ChannelReader<std::string> reader(queue_.get());
     // 先读一个，写direct看看
     while (reader >> out_str) {
-      afs_writer->write(out_str.data(), out_str.length(), true);
+      if (0 != afs_writer->write(out_str.data(), out_str.length(), true)) {
+        VLOG(0) << "Dump Work save failed!!!";
+      }
     }
 
 
@@ -132,12 +134,12 @@ void TrainerBase::DumpWork(int tid) {
 
 void TrainerBase::FinalizeDumpEnv() {
   queue_->Close();
-  binary_queue_->Close();
+  // binary_queue_->Close();
   for (auto& th : dump_thread_) {
     th.join();
   }
   queue_.reset();
-  binary_queue_.reset();
+  // binary_queue_.reset();
 }
 
 }  // end namespace framework
