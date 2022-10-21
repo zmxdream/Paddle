@@ -57,56 +57,26 @@ void TrainerBase::DumpWork(int tid) {
   int err_no = 0;
   // GetDumpPath is implemented in each Trainer
   std::string path = GetDumpPath(tid);
-
-  // auto start = std::chrono::steady_clock::now();
   auto ps_gpu_ptr = PSGPUWrapper::GetInstance();
-
-  // VLOG(0) << "psgpu use afs api:" << ps_gpu_ptr->UseAfsApi();
-
   if (ps_gpu_ptr->UseAfsApi()) {
-
-    // VLOG(0) << "afs writer before open write:" << path;
     auto afs_writer = ps_gpu_ptr->OpenWriter(path);
-    // VLOG(0) << "afs writer open write:" << path;
     // read batch from  queue_
-
     std::string out_str;
     ChannelReader<std::string> reader(queue_.get());
-    // 先读一个，写direct看看
     while (reader >> out_str) {
       if (0 != afs_writer->write(out_str.data(), out_str.length(), true)) {
         VLOG(0) << "Dump Work save failed!!!";
       }
     }
-
-
-/*
-    ChannelReader<std::shared_ptr<MemRegion>> reader(binary_queue_.get());
-    std::shared_ptr<MemRegion> out_mem_region = nullptr;
-    // 先读一个，写direct看看
-    while (reader >> out_mem_region) {
-      // VLOG(0) << "buf:" << (uint64_t)out_mem_region->_buf << " cur:" << out_mem_region->_cur; 
-      if (0 != afs_writer->write(out_mem_region->_buf, out_mem_region->_cur, true)) {
-        VLOG(0) << "Dump Work save failed!!!";
-      }
-    }
-*/
-
   } else {
-
     std::shared_ptr<FILE> fp = fs_open_write(path, &err_no, dump_converter_);
-
     // while (1) {
-
      std::string out_str;
-    
      ChannelReader<std::string> reader(queue_.get());
      while (reader >> out_str) {
-
       // if (!queue_->Get(out_str)) {
       //  break;
       //}
-
       size_t write_count =
           fwrite_unlocked(out_str.data(), 1, out_str.length(), fp.get());
       if (write_count != out_str.length()) {
@@ -118,16 +88,9 @@ void TrainerBase::DumpWork(int tid) {
         VLOG(3) << "dump text failed";
         continue;
       }
-
      }
-  
     // }
-
   }
-     // auto end = std::chrono::steady_clock::now();
-     // auto tt =
-     //     std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-     // VLOG(0) << " Dump worker "<< tid << "takes " << tt.count() << " us";
 #endif
 }
 

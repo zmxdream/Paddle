@@ -577,10 +577,8 @@ class MiniBatchGpuPack {
       }
     }
     if (used_uint64_num_ > 0) {
-      // 所有样本的uint64_feasign数
       int uint64_total_len = buf_.h_uint64_lens.back();
       if (uint64_total_len > 0) {
-        // 保存所有的uint64_feasign
         uint64_tensor_.mutable_data<int64_t>({uint64_total_len, 1},
                                              this->place_, phi_stream());
       }

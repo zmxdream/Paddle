@@ -38,7 +38,6 @@ __global__ void FillSlotValueOffsetKernel(
     const int *uint64_offsets, const int uint64_slot_size,
     const int *float_offsets, const int float_slot_size,
     const UsedSlotGpuType *used_slots) {
-
   int col_num = ins_num + 1;
   int uint64_cols = uint64_slot_size + 1;
   int float_cols = float_slot_size + 1;
