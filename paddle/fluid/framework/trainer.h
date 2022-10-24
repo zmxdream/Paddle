@@ -415,6 +415,7 @@ class BoxPSTrainer : public TrainerBase {
 
   std::shared_ptr<std::vector<std::string>> param_need_sync_;
   std::vector<std::string> persistable_vars_;
+  std::set<std::string> async_grad_name_;
 
   bool async_mode_ = false;
   std::shared_ptr<BoxPSAsynDenseTable> dense_table_ = nullptr;

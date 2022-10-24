@@ -54,22 +54,33 @@ BoxPSAsynDenseTable::~BoxPSAsynDenseTable() {}
 
 std::set<std::string> BoxPSAsynDenseTable::Init(
     const Scope& root_scope, const std::vector<std::string>& param_need_sync,
-    const std::vector<std::string>& persistable_vars) {
+    const std::vector<std::string>& persistable_vars,
+    const std::set<std::string>& async_grad_name) {
   std::set<std::string> async_param_name;
   root_scope_ = const_cast<paddle::framework::Scope*>(&root_scope);
   VLOG(1) << "Begin Init For Aysnc Optimize";
   for (const auto& e : param_need_sync) {
+    std::string grad_name = e + "@GRAD";
+    if (async_grad_name.find(grad_name) == async_grad_name.end()) continue;
     if (e.find("param") != std::string::npos &&
         e.find("pow_acc") == std::string::npos) {
-      VLOG(3) << "async mode choose " << e << " to update";
+      VLOG(3) << "async mode choose adam param " << e << " to update";
       async_param_list_.push_back(e);
       async_param_list_.push_back(e + "_moment1_0");
       async_param_list_.push_back(e + "_moment2_0");
       async_param_name.insert(e);
       async_param_name.insert(e + "@GRAD");
     }
+    if (e.find("summary") != std::string::npos && 
+        e.find("batch_s") != std::string::npos) {
+      VLOG(3) << "async mode choose norm param " << e << " to update";
+      async_norm_param_list_.push_back(e);
+      async_param_name.insert(e);
+      async_param_name.insert(e + "@GRAD");
+    }
   }
-  original_ps_.resize(async_param_list_.size());
+  //adam param
+  const size_t adam_param_list_size = async_param_list_.size();
   std::sort(
       async_param_list_.begin(),
       async_param_list_
@@ -77,12 +88,25 @@ std::set<std::string> BoxPSAsynDenseTable::Init(
   for (size_t i = 0; i < async_param_list_.size(); i += 3) {
     const LoDTensor& root_tensor =
         root_scope.FindVar(async_param_list_[i])->Get<LoDTensor>();
-    total_param_len_ += root_tensor.numel();
+    adam_param_len_ += root_tensor.numel();
   }
+  //norm param
+  std::sort(
+      async_norm_param_list_.begin(),
+      async_norm_param_list_
+          .end());  // xxsummary.batch_size, xxsummary.batch_square_sum, xxsummary.batch_sum
+  for (size_t i = 0; i < async_norm_param_list_.size(); i += 1) {
+    const LoDTensor& root_tensor =
+        root_scope.FindVar(async_norm_param_list_[i])->Get<LoDTensor>();
+    total_param_len_ += root_tensor.numel();
+    async_param_list_.push_back(async_norm_param_list_[i]);
+  }
+  total_param_len_ += adam_param_len_;
+  original_ps_.resize(async_param_list_.size());
 
   ps_.mutable_data<float>({total_param_len_, 1}, platform::CPUPlace());
-  mom1_.mutable_data<float>({total_param_len_, 1}, platform::CPUPlace());
-  mom2_.mutable_data<float>({total_param_len_, 1}, platform::CPUPlace());
+  mom1_.mutable_data<float>({adam_param_len_, 1}, platform::CPUPlace());
+  mom2_.mutable_data<float>({adam_param_len_, 1}, platform::CPUPlace());
   for (size_t i = 0; i < device_grads_.size(); ++i) {
     device_grads_[i].mutable_data<float>(
         {static_cast<int64_t>(total_param_len_), 1}, platform::CPUPlace());
@@ -95,23 +119,32 @@ std::set<std::string> BoxPSAsynDenseTable::Init(
         root_scope.FindVar(async_param_list_[i])->Get<LoDTensor>();
     auto dim = root_tensor.dims();
     size_t len = root_tensor.numel();
-    if (i % 3 == 0) {
+    if (i < adam_param_list_size) {
+      if (i % 3 == 0) {
+        original_ps_[i]
+            .ShareDataWith(ps_.Slice(offset, offset + len))
+            .Resize(dim);
+      } else if (i % 3 == 1) {
+        original_ps_[i]
+            .ShareDataWith(mom1_.Slice(offset, offset + len))
+            .Resize(dim);
+      } else {
+        original_ps_[i]
+            .ShareDataWith(mom2_.Slice(offset, offset + len))
+            .Resize(dim);
+        offset += len;
+      }
+    } else {
+      VLOG(3) << "original_ps_ ShareDataWith norml name:" << async_param_list_[i] << " , i:" << i << " offset:" << offset;
       original_ps_[i]
           .ShareDataWith(ps_.Slice(offset, offset + len))
-          .Resize(dim);
-    } else if (i % 3 == 1) {
-      original_ps_[i]
-          .ShareDataWith(mom1_.Slice(offset, offset + len))
-          .Resize(dim);
-    } else {
-      original_ps_[i]
-          .ShareDataWith(mom2_.Slice(offset, offset + len))
           .Resize(dim);
       offset += len;
     }
     TensorCopy(*static_cast<const Tensor*>(&root_tensor), platform::CPUPlace(),
                static_cast<Tensor*>(&(original_ps_[i])));
   }
+  VLOG(3) << "after original_ps_ ShareDataWith offset:" << offset;
 
   // Copy global lr for async mode
   for (const auto& e : persistable_vars) {
@@ -132,14 +165,17 @@ std::set<std::string> BoxPSAsynDenseTable::Init(
     }
   }
   VLOG(0) << "Aysnc alloc dense table param size: " << async_param_list_.size()
-          << ", total length:" << total_param_len_ << ", base_lr=" << base_lr_;
+          << ", adam param size: " << adam_param_list_size
+          << ", total length:" << total_param_len_
+          << ", adam length: " << adam_param_len_ 
+          << ", base_lr=" << base_lr_;
 
   ps_buffer_.reset(new PSBufferQueue(device_num_ * 3));  // magic number
-  all_lr_.resize(total_param_len_);
+  all_lr_.resize(adam_param_len_);
   auto box_ptr = BoxWrapper::GetInstance();
   std::map<std::string, float> lr_map = box_ptr->GetLRMap();
   int lr_index = 0;
-  for (size_t i = 0; i < async_param_list_.size() / 3; ++i) {
+  for (size_t i = 0; i < adam_param_list_size / 3; ++i) {
     float learning_rate = base_lr_;
     if (lr_map.find(async_param_list_[i * 3]) != lr_map.end()) {
       learning_rate = lr_map[async_param_list_[i * 3]];
@@ -219,12 +255,16 @@ void BoxPSAsynDenseTable::ThreadUpdate(int thread_id,
                      4;
     }
   }
-
+  VLOG(3) << "ThreadUpdate[" << thread_id << "] start: " << start << ", end: " << end << ", adam_param_len_: " <<  (size_t)adam_param_len_;
   for (size_t j = start; j < end; ++j) {
-    mom1_data[j] =
-        0.99 * mom1_data[j] + 0.01 * grad_data[j];  // magic beta and episilon
-    mom2_data[j] = 0.9999 * mom2_data[j] + 0.0001 * grad_data[j] * grad_data[j];
-    param_data[j] -= all_lr_[j] * (mom1_data[j] / (sqrt(mom2_data[j]) + 1e-8));
+    if (j < (size_t)adam_param_len_) {//adam
+      mom1_data[j] =
+          0.99 * mom1_data[j] + 0.01 * grad_data[j];  // magic beta and episilon
+      mom2_data[j] = 0.9999 * mom2_data[j] + 0.0001 * grad_data[j] * grad_data[j];
+      param_data[j] -= all_lr_[j] * (mom1_data[j] / (sqrt(mom2_data[j]) + 1e-8));
+    } else { //norm
+      param_data[j] = param_data[j] * 0.9999999 + grad_data[j];
+    }
   }
   return;
 }
@@ -443,15 +483,28 @@ void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
   std::vector<VarDesc*> sorted_var = block.AllVars();
   std::sort(sorted_var.begin(), sorted_var.end(),
             [](const VarDesc* var1, const VarDesc* var2) {
-              return var1->Name() < var2->Name();
+              std::string var1_name = var1->Name();
+              std::string var2_name = var2->Name();
+              if (var1_name.find("param") != std::string::npos && 
+                  var2_name.find("param") == std::string::npos) {
+                return true;
+              } else if (var1_name.find("param") == std::string::npos && 
+                         var2_name.find("param") != std::string::npos) {
+                return false;
+              } else {
+                return var1->Name() < var2->Name();
+              }
             });
   // init var and copy persistable
+  int grad_var_num = 0;
+  int var_num = 0;
   for (auto& var : sorted_var) {
     std::string name = var->Name();
     if (!var->Persistable()) {
       if (dense_table_ &&
           async_param_name_.find(name) != async_param_name_.end()) {
         // parm@GRAD can not find in root_scope_  use parm length replace
+        VLOG(3) << "device[" << device_id_ << "] grad var name " << name;
         const LoDTensor& root_tensor =
             root_scope_->FindVar(name.substr(0, name.length() - 5))
                 ->Get<LoDTensor>();
@@ -463,6 +516,7 @@ void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
             ->ShareDataWith(grad_async_.Slice(grad_offset, grad_offset + len))
             .Resize(dim);
         grad_offset += len;
+        grad_var_num += 1;
       } else {
         auto* ptr = thread_scope_->Var(name);
         InitializeVariable(ptr, var->GetType());
@@ -481,11 +535,13 @@ void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
         }
       } else if (dense_table_) {
         if (async_param_name_.find(name) != async_param_name_.end()) {
+          VLOG(3) << "device[" << device_id_ << "] Persistable var name " << name;
           auto dim = root_tensor.dims();
           size_t len = root_tensor.numel();
           gpu_tensor->ShareDataWith(param_async_.Slice(offset, offset + len))
               .Resize(dim);
           offset += len;
+          var_num += 1;
         }
       }
       TensorCopy(*static_cast<const Tensor*>(&root_tensor), place_,
@@ -495,6 +551,10 @@ void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
   if (sync_mode_ > 0) {
     CHECK(offset <= (param_sync_.numel() - pad_len));
   } else if (dense_table_) {
+    VLOG(3) << "device[" << device_id_ << "]CreateDeviceResource param_async_ offset:" << offset
+            << " grad_offset: " << grad_offset
+            << " var_num: " << var_num
+            << " grad_var_num: " << grad_var_num;
     CHECK(offset <= param_async_.numel());
     CHECK(grad_offset <= grad_async_.numel());
   }

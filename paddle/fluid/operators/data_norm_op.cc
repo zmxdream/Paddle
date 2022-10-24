@@ -251,6 +251,8 @@ class DataNormOpMaker : public framework::OpProtoAndCheckerMaker {
     AddAttr<std::string>("data_layout", "").SetDefault("NCHW");
     AddAttr<bool>("sync_stats", "(bool, default false) only used in multi-GPU")
         .SetDefault(false);
+    AddAttr<bool>("async_train_mode", "(bool, default false) only used in async_train")
+        .SetDefault(false);
     AddAttr<bool>("use_mkldnn",
                   "(bool, default false) Only used in mkldnn kernel")
         .SetDefault(false)
