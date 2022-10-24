@@ -62,6 +62,7 @@ struct BatchFidSeq {
   std::vector<std::shared_ptr<int>> d_cache_bfid_resort_indexes;
   std::vector<std::vector<int>> h_cache_bfid_lods;
   std::vector<std::shared_ptr<int>> d_cache_bfid_lods;
+  std::vector<std::shared_ptr<paddle::framework::FeaturePushValue>> d_peer_addrs;
 
   std::string to_string() {
     std::stringstream data_ss;
@@ -156,7 +157,7 @@ class CacheManager {
   }
   std::shared_ptr<BatchFidSeq> parse_uniq_fids(
       std::vector<std::deque<Record>::iterator> & train_data_iters,
-                                           int iter_offset, int batch_sz, 
+                                           int iter_offset, int batch_sz,
                                  const std::vector<bool> & slot_is_dense);
   std::shared_ptr<BatchFidSeq> parse_uniq_fids(
       std::vector<paddle::framework::DataFeed*> all_readers, size_t offset_index);
@@ -174,6 +175,8 @@ class CacheManager {
   void get_device_all_fidseq(int dev_id, uint32_t ** out_keys, int * out_key_len);
   void get_bfidseq(int dev_id, int ** out_keys, int * out_key_len);
   int get_device_bucket_mean_len();
+  void get_peer_addr(int dev_id, paddle::framework::FeaturePushValue** peer_addr);
+  void wait();
   void compress_bucket(int dev_id, void * vals, int val_len, int type_size, const XPUStream & stream);
   template<class T>
   void compress_bucket(int dev_id, T * vals, int val_len, const XPUStream & stream) {

@@ -1075,33 +1075,39 @@ void HeterComm<KeyType, ValType, GradType>::push_sparse(int dev_num,
 
   TIMER_MULTITHREAD_LEAVE(platform::TIMER_OPS_PUSH_SPARSE_HETER_STAGE3, dev_id);
   TIMER_MULTITHREAD_ENTER(platform::TIMER_OPS_PUSH_SPARSE_HETER_STAGE4, dev_id);
-  // all_gather
-  GradType* d_all_grads_ptr =
-      RAII_GUARD.alloc_l3_or_gm<GradType>(all_fidseq_bucket_len);
-  GradType* d_all_grads_after_gather_ptr =
-      RAII_GUARD.alloc_l3_or_gm<GradType>(all_fidseq_bucket_len * resource_->total_device());
 
+  // allreduce
+  //merge_grad work with stream, xpu_memcpy_peer depend on merge_grad's result and work with default stream, should xpu_wait
+  xpu_wait(stream);
+  int bucket_mean_len = cache_mgr_->get_device_bucket_mean_len();
+  GradType* d_bucket_grads_ptr = RAII_GUARD.alloc_l3_or_gm<GradType>(bucket_mean_len);
   if (resource_->total_device() > 1) {
-    // sync_stream(stream);
-    auto comm = platform::BKCLCommContext::Instance().Get(0, place);
-    VLOG(3) << "heter comm inl push sparse all gather start";
-    bkcl_all_gather(comm->comm(), d_all_fidseq_bucket_grads_ptr,
-        all_fidseq_bucket_len * sizeof(GradType) / sizeof(float),
-        d_all_grads_after_gather_ptr, BKCL_FLOAT, stream);
-    VLOG(3) << "heter comm inl push sparse all gather finish";
+    GradType* target_addr = nullptr;
+    for (int target_num = 0; target_num < resource_->total_device(); target_num++) {
+      // dev_num: Software id, dev_id: Physical id
+      int target_id = resource_->dev_id(target_num);
+      if(target_id==dev_id)
+        continue;
+      cache_mgr_->get_peer_addr(target_num, &target_addr);
+      xpu_memcpy_peer(
+          target_id, target_addr + dev_num * bucket_mean_len, dev_id,
+          d_all_fidseq_bucket_grads_ptr + target_num * bucket_mean_len,
+          bucket_mean_len * sizeof(GradType));
+    }
+    cache_mgr_->wait();
+    cache_mgr_->get_peer_addr(dev_num, &target_addr);
+    PADDLE_ENFORCE_XDNN_SUCCESS(
+        xpu::copy<float>(
+            ctx_xpu,
+            (float*)(d_all_fidseq_bucket_grads_ptr + dev_num * bucket_mean_len),
+            (float*)(target_addr + dev_num * bucket_mean_len),
+            bucket_mean_len * sizeof(GradType) / sizeof(float)),
+            "copy");
 
-    // sync_stream(stream);
-    // timeline.Pause();
-    // time_ss << "bkcl_all_gather, len: " << all_fidseq_bucket_len * sizeof(GradType)
-    // << ", time: " << timeline.ElapsedSec()
-    // << "s, speed: " << (all_fidseq_bucket_len * sizeof(GradType)) / timeline.ElapsedSec() << "B/s";
-
-    heter_comm_kernel_->sum_fidseq_add_grad(d_all_grads_after_gather_ptr,
-        all_fidseq_bucket_len, stream,
-        resource_->total_device(), d_all_grads_ptr);
+    heter_comm_kernel_->sum_fidseq_add_grad(target_addr, bucket_mean_len, stream, resource_->total_device(), d_bucket_grads_ptr);
   } else {
     VLOG(3) << "heter comm inl push sparse unnecessary all gather";
-    d_all_grads_ptr = d_all_fidseq_bucket_grads_ptr;
+    d_bucket_grads_ptr = d_all_fidseq_bucket_grads_ptr;
   }
 
   TIMER_MULTITHREAD_LEAVE(platform::TIMER_OPS_PUSH_SPARSE_HETER_STAGE4, dev_id);
@@ -1109,10 +1115,9 @@ void HeterComm<KeyType, ValType, GradType>::push_sparse(int dev_num,
   // update
   //timeline.Start();
 
-  int bucket_mean_len = cache_mgr_->get_device_bucket_mean_len();
   int bucket_size = cache_mgr_->get_host_all_fidseq_bucket_sizes()[dev_num];
   tables_[dev_num]->update(place, d_all_fidseq_bucket_ptr + dev_num * bucket_mean_len,
-      d_all_grads_ptr + dev_num * bucket_mean_len, bucket_size, stream);
+    d_bucket_grads_ptr, bucket_size, stream);
 
   VLOG(3) << "heter comm inl push sparse update finish";
   sync_stream(stream);

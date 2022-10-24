@@ -173,7 +173,7 @@ void CacheManager::build_sign2fids(const std::vector<std::vector<FeatureKey>> & 
   }
   sign2fid_.reserve(int(total_key_size * 2));
   fid2meta_.resize((max_device_size + 1) * worker_num_ + 1);
- 
+
   std::vector<int> device_offsets(all_device_keys.size(), 0);
   sign2fid_[0] = 0;
   device_offsets[0]++;
@@ -186,7 +186,7 @@ void CacheManager::build_sign2fids(const std::vector<std::vector<FeatureKey>> & 
         continue;
       }
       int offset = device_offsets[i]++;
-      int tmp_fid = i + offset * worker_num_; 
+      int tmp_fid = i + offset * worker_num_;
       sign2fid_[all_device_keys[i][j]] = tmp_fid;
       fid2meta_[tmp_fid] = {all_device_keys[i][j]};
     }
@@ -201,7 +201,7 @@ void CacheManager::build_sign2fids(const std::vector<std::vector<FeatureKey>> & 
 
 uint32_t CacheManager::query_sign2fid(const FeatureKey & key) {
   auto iter = sign2fid_.find(key);
-  PADDLE_ENFORCE_EQ((iter != sign2fid_.end()), true); 
+  PADDLE_ENFORCE_EQ((iter != sign2fid_.end()), true);
   return iter->second;
 }
 
@@ -275,7 +275,7 @@ std::string CacheManager::dump_to_file() {
 #if defined(PADDLE_WITH_XPU_CACHE_BFID)
 
 std::shared_ptr<BatchFidSeq> CacheManager::parse_uniq_fids(
-     std::vector<std::deque<Record>::iterator> & train_data_iters, 
+     std::vector<std::deque<Record>::iterator> & train_data_iters,
            int iter_offset, int batch_sz, const std::vector<bool> & slot_is_dense) {
   // convert feasign to fid
   //platform::Timer timeline;
@@ -417,7 +417,7 @@ std::shared_ptr<BatchFidSeq> CacheManager::parse_uniq_fids(
     //all readers use the same ins_vec, but have different offsets.
     uint32_t max_fid = 0;
     for (size_t reader_idx = 0; reader_idx < all_readers.size(); ++reader_idx) {
-        std::vector<std::pair<int, int>>& offset = 
+        std::vector<std::pair<int, int>>& offset =
             reinterpret_cast<SlotRecordInMemoryDataFeed*>(all_readers[reader_idx])->GetBatchOffsets();
         if (offset_index >= offset.size()) {
             continue;
@@ -444,7 +444,7 @@ std::shared_ptr<BatchFidSeq> CacheManager::parse_uniq_fids(
             }
         }
     }
-    
+
     bool has_blank_slot = false;
     int uint64_fid_bit_vec_size = (max_fid / 64) + 1;
     std::vector<std::bitset<64>> fid_bit_vec(uint64_fid_bit_vec_size);
@@ -557,9 +557,9 @@ void CacheManager::build_batch_fidseq(std::vector<std::deque<Record> *> & all_ch
   for (auto & chan_recs : all_chan_recs) {
     PADDLE_ENFORCE_EQ(chan_recs->size(), expected_chan_size);
   }
- 
+
   fidseq_chan_ = paddle::framework::MakeChannel<std::shared_ptr<BatchFidSeq>>();
- 
+
   build_fidseq_thread_ = std::thread([all_chan_recs, slot_is_dense, this] () {
     int batch_sz = batch_sz_;
     int size = all_chan_recs[0]->size();
@@ -582,7 +582,7 @@ void CacheManager::build_batch_fidseq(std::vector<std::deque<Record> *> & all_ch
     build_fidseq_pool.set_task([&, this] (int tid) {
       int current_batch_sz = 0;
       for (int i = tid * batch_sz_; i < size; i += thread_num * batch_sz_) {
-        current_batch_sz = std::min(batch_sz, size - i);  
+        current_batch_sz = std::min(batch_sz, size - i);
         auto batch_fidseq = parse_uniq_fids(train_data_iters, i, current_batch_sz, slot_is_dense);
 
         std::shared_ptr<std::vector<uint32_t>> fidseq_before_opt = std::make_shared<std::vector<uint32_t>>();
@@ -628,11 +628,11 @@ void CacheManager::build_batch_fidseq(std::vector<paddle::framework::DataFeed*> 
         platform::errors::External("all_readers size error"));
 
     fidseq_chan_ = paddle::framework::MakeChannel<std::shared_ptr<BatchFidSeq>>();
- 
+
     build_fidseq_thread_ = std::thread([all_readers, this] () {
         size_t max_train_loop_size = 0;
         for (size_t i = 0; i < all_readers.size(); ++i) {
-            std::vector<std::pair<int, int>>& offset = 
+            std::vector<std::pair<int, int>>& offset =
                 reinterpret_cast<SlotRecordInMemoryDataFeed*>(all_readers[i])->GetBatchOffsets();
             max_train_loop_size = offset.size() > max_train_loop_size? offset.size() : max_train_loop_size;
         }
@@ -727,6 +727,7 @@ void CacheManager::prepare_next_batch(int worker_id) {
     current_batch_fidseq_->d_cache_bfid_resort_indexes.resize(worker_num_, nullptr);
     current_batch_fidseq_->h_cache_bfid_lods.resize(worker_num_);
     current_batch_fidseq_->d_cache_bfid_lods.resize(worker_num_, nullptr);
+    current_batch_fidseq_->d_peer_addrs.resize(worker_num_, nullptr);
 
     if (FLAGS_dump_cache_manager) {
       current_batch_fidseq_->debug_h_cache_bfids.resize(worker_num_);
@@ -757,6 +758,8 @@ void CacheManager::prepare_next_batch(int worker_id) {
       malloc_l3_or_gm<uint32_t>(current_batch_fidseq_->h_bucket_sizes.size(), dev_id);
   current_batch_fidseq_->d_fidseq_buckets[worker_id] =
       malloc_l3_or_gm<uint32_t>(current_batch_fidseq_->h_fidseq_bucket.size(), dev_id);
+  current_batch_fidseq_->d_peer_addrs[worker_id] =
+      malloc_l3_or_gm<paddle::framework::FeaturePushValue>(current_batch_fidseq_->max_bucket_size * worker_num_, dev_id);  // TODO:
 
   //timeline.Pause();
   //total_time += timeline.ElapsedSec();
@@ -1017,6 +1020,16 @@ void CacheManager::get_bfidseq(int dev_id, int ** out_keys, int * out_key_len) {
 int CacheManager::get_device_bucket_mean_len() {
   PADDLE_ENFORCE_NOT_NULL(current_batch_fidseq_);
   return current_batch_fidseq_->max_bucket_size;
+}
+
+void CacheManager::get_peer_addr(int dev_id, paddle::framework::FeaturePushValue** peer_addr) {
+  PADDLE_ENFORCE_NOT_NULL(current_batch_fidseq_);
+  *(peer_addr) = current_batch_fidseq_->d_peer_addrs[dev_id].get();
+}
+
+void CacheManager::wait() {
+  PADDLE_ENFORCE_NOT_NULL(current_batch_fidseq_);
+  worker_barrier_.wait();
 }
 
 void CacheManager::compress_bucket(int dev_id, void * vals, int val_len, int type_size, const XPUStream & stream) {
