@@ -546,7 +546,7 @@ void DeviceWorker::DumpField(const Scope& scope, int dump_mode,
     }
     writer_ << ars[i];
   }
-  writer_.Flush();
+  // writer_.Flush();
   // auto end1 = std::chrono::steady_clock::now();
   // auto tt =
   //        std::chrono::duration_cast<std::chrono::microseconds>(end1 - start);

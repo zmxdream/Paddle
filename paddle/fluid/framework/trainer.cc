@@ -75,7 +75,10 @@ void TrainerBase::DumpWork(int tid) {
     ChannelReader<std::string> reader(queue_.get());
     // 先读一个，写direct看看
     while (reader >> out_str) {
-      afs_writer->write(out_str.data(), out_str.length(), true);
+      // afs_writer->write(out_str.data(), out_str.length(), true);
+      if (0 != afs_writer->write(out_str.data(), out_str.length(), true)) {
+        VLOG(0) << "Dump Work save failed!!!";
+      }
     }
 
 
