@@ -2189,7 +2189,7 @@ void SlotRecordInMemoryDataFeed::LoadIntoMemoryByFile(void) {
 
   std::string filename;
   while (this->PickOneFile(&filename)) {
-    VLOG(0) << "PickOneFile, filename=" << filename
+    VLOG(3) << "PickOneFile, filename=" << filename
             << ", thread_id=" << thread_id_;
     platform::Timer timeline;
     timeline.Start();
