@@ -18,6 +18,7 @@
 #include "paddle/fluid/framework/trainer.h"
 #include "paddle/fluid/framework/trainer_desc.pb.h"
 #include "paddle/fluid/framework/tensor_util.h"
+#include "paddle/fluid/framework/io/fs.h"
 
 DECLARE_bool(enable_binding_train_cpu);
 namespace paddle {
@@ -97,7 +98,35 @@ void BoxPSTrainer::InitOtherEnv(const ProgramDesc& main_program) {
 std::string BoxPSTrainer::GetDumpPath(int tid) {
   return string::format_string("%s/part-%05d", dump_fields_path_.c_str(), tid);
 }
-
+static const size_t MAX_FILE_LEN = 1UL << 31;
+void BoxPSTrainer::DumpWork(int tid) {
+  bool is_finish = false;
+  int fileid = 0;
+  size_t file_size = 0;
+  while (!is_finish) {
+    std::string path = string::format_string("%s/part-%05d-%05d",
+        dump_fields_path_.c_str(), tid, fileid++);
+    int err_no = 0;
+    std::shared_ptr<FILE> fp = fs_open_write(path, &err_no, dump_converter_);
+    // split dump file size
+    file_size = 0;
+    while (file_size < MAX_FILE_LEN) {
+      std::string out_str;
+      if (!queue_->Get(out_str)) {
+        is_finish = true;
+        break;
+      }
+      out_str.append("\n");
+      size_t write_count =
+          fwrite_unlocked(out_str.data(), 1, out_str.length(), fp.get());
+      if (write_count != out_str.length()) {
+        VLOG(3) << "dump text failed";
+        break;
+      }
+      file_size += write_count;
+    }
+  }
+}
 void BoxPSTrainer::InitDumpEnv() {
   queue_ = paddle::framework::MakeChannel<std::string>();
   // Only set dump channel on the last section

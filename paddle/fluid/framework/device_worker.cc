@@ -36,109 +36,180 @@ void DeviceWorker::SetRootScope(Scope* root_scope) { root_scope_ = root_scope; }
 void DeviceWorker::SetDataFeed(DataFeed* data_feed) {
   device_reader_ = data_feed;
 }
-template<class... ARGS>
-void format_string_append(std::string* str,
-    const char* fmt, ARGS && ... args) { // use VA_ARGS may be better ?
-    int len = snprintf(NULL, 0, fmt, args...);
-    PADDLE_ENFORCE(len >= 0, "format args length error");
-    size_t oldlen = str->length();
-    str->resize(oldlen + len + 1);
-    PADDLE_ENFORCE(snprintf(&(*str)[oldlen], (size_t)len + 1, fmt, args...) == len);
-    str->resize(oldlen + len);
-}
+
 template <typename T>
-void PrintLodTensorType(Tensor* tensor,
-                        int64_t start,
-                        int64_t end,
-                        std::string& out_val,
-                        char separator = ',',
-                        bool need_leading_separator = true) {
-  if (start >= end) return;
-  const T *ptr = tensor->data<T>();
+std::string PrintLodTensorType(phi::DenseTensor* tensor,
+                               int64_t start,
+                               int64_t end,
+                               char separator = ',',
+                               bool need_leading_separator = true) {
+  auto count = tensor->numel();
+  if (start < 0 || end > count) {
+    VLOG(3) << "access violation";
+    return "access violation";
+  }
+  if (start >= end) return "";
+  std::ostringstream os;
   if (!need_leading_separator) {
-    out_val += std::to_string(ptr[start]);
+    os << tensor->data<T>()[start];
     start++;
   }
   for (int64_t i = start; i < end; i++) {
+    // os << ":" << tensor->data<T>()[i];
+    os << separator << tensor->data<T>()[i];
+  }
+  return os.str();
+}
+template <typename T>
+void PrintLodTensorType(phi::DenseTensor* tensor,
+                        int64_t start,
+                        int64_t end,
+                        std::string& out_val,  // NOLINT
+                        char separator = ',',
+                        bool need_leading_separator = true) {
+  auto count = tensor->numel();
+  if (start < 0 || end > count) {
+    VLOG(3) << "access violation";
+    out_val += "access violation";
+    return;
+  }
+  if (start >= end) return;
+  if (!need_leading_separator) {
+    out_val += std::to_string(tensor->data<T>()[start]);
+    // os << tensor->data<T>()[start];
+    start++;
+  }
+  for (int64_t i = start; i < end; i++) {
+    // os << ":" << tensor->data<T>()[i];
+    // os << separator << tensor->data<T>()[i];
     out_val += separator;
-    out_val += std::to_string(ptr[i]);
+    out_val += std::to_string(tensor->data<T>()[i]);
   }
 }
 
 #define FLOAT_EPS 1e-8
-#define MAX_NUM_BUFF_SIZE 40
-void PrintLodTensorFloatType(Tensor* tensor,
+#define MAX_FLOAT_BUFF_SIZE 40
+template <>
+void PrintLodTensorType<float>(phi::DenseTensor* tensor,
                                int64_t start,
                                int64_t end,
-                               std::string& out_val,
+                               std::string& out_val,  // NOLINT
                                char separator,
                                bool need_leading_separator) {
-  if (start >= end) {
+  char buf[MAX_FLOAT_BUFF_SIZE];
+  auto count = tensor->numel();
+  if (start < 0 || end > count) {
+    VLOG(3) << "access violation";
+    out_val += "access violation";
     return;
   }
-
-  const float *ptr = tensor->data<float>();
-  if (!need_leading_separator) {
-    format_string_append(&out_val, "%.9g", ptr[start]);
-    ++start;
-  }
+  if (start >= end) return;
   for (int64_t i = start; i < end; i++) {
-    const float &n = ptr[i];
-    if (n > -FLOAT_EPS && n < FLOAT_EPS) {
-      format_string_append(&out_val, "%c0", separator);
+    if (i != start || need_leading_separator) out_val += separator;
+    if (tensor->data<float>()[i] > -FLOAT_EPS &&
+        tensor->data<float>()[i] < FLOAT_EPS) {
+      out_val += "0";
     } else {
-      format_string_append(&out_val, "%c%.9g", separator, n);
+      sprintf(buf, "%.9f", tensor->data<float>()[i]);  // NOLINT
+      out_val += buf;
     }
   }
 }
-void PrintLodTensorIntType(Tensor* tensor,
-                           int64_t start,
-                           int64_t end,
-                           std::string& out_val,
-                           char separator = ',',
-                           bool need_leading_separator = true) {
-  if (start >= end){
-    return;
+std::string PrintLodTensorIntType(phi::DenseTensor* tensor,
+                                  int64_t start,
+                                  int64_t end,
+                                  char separator = ',',
+                                  bool need_leading_separator = true) {
+  auto count = tensor->numel();
+  if (start < 0 || end > count) {
+    VLOG(3) << "access violation";
+    return "access violation";
   }
-  const int64_t *ptr = tensor->data<int64_t>();
+  if (start >= end) return "";
+  std::ostringstream os;
   if (!need_leading_separator) {
-    format_string_append(&out_val, "%lu", static_cast<uint64_t>(ptr[start]));
+    os << static_cast<uint64_t>(tensor->data<int64_t>()[start]);
     start++;
   }
   for (int64_t i = start; i < end; i++) {
-    format_string_append(&out_val, "%c%lu", separator, static_cast<uint64_t>(ptr[i]));
+    // os << ":" << static_cast<uint64_t>(tensor->data<int64_t>()[i]);
+    os << separator << static_cast<uint64_t>(tensor->data<int64_t>()[i]);
+  }
+  return os.str();
+}
+
+void PrintLodTensorIntType(phi::DenseTensor* tensor,
+                           int64_t start,
+                           int64_t end,
+                           std::string& out_val,  // NOLINT
+                           char separator = ',',
+                           bool need_leading_separator = true) {
+  auto count = tensor->numel();
+  if (start < 0 || end > count) {
+    VLOG(3) << "access violation";
+    out_val += "access violation";
+    return;
+  }
+  if (start >= end) return;
+  if (!need_leading_separator) {
+    out_val +=
+        std::to_string(static_cast<uint64_t>(tensor->data<int64_t>()[start]));
+    start++;
+  }
+  for (int64_t i = start; i < end; i++) {
+    // os << ":" << static_cast<uint64_t>(tensor->data<int64_t>()[i]);
+    // os << separator << static_cast<uint64_t>(tensor->data<int64_t>()[i]);
+    out_val += separator;
+    out_val +=
+        std::to_string(static_cast<uint64_t>(tensor->data<int64_t>()[i]));
   }
 }
-std::string PrintLodTensor(Tensor* tensor,
+
+std::string PrintLodTensor(phi::DenseTensor* tensor,
                            int64_t start,
                            int64_t end,
                            char separator,
                            bool need_leading_separator) {
   std::string out_val;
-  PrintLodTensor(tensor, start, end,
-      out_val, separator, need_leading_separator);
+  if (framework::TransToProtoVarType(tensor->dtype()) == proto::VarType::FP32) {
+    out_val = PrintLodTensorType<float>(
+        tensor, start, end, separator, need_leading_separator);
+  } else if (framework::TransToProtoVarType(tensor->dtype()) ==
+             proto::VarType::INT64) {
+    out_val = PrintLodTensorIntType(
+        tensor, start, end, separator, need_leading_separator);
+  } else if (framework::TransToProtoVarType(tensor->dtype()) ==
+             proto::VarType::FP64) {
+    out_val = PrintLodTensorType<double>(
+        tensor, start, end, separator, need_leading_separator);
+  } else {
+    out_val = "unsupported type";
+  }
   return out_val;
 }
-void PrintLodTensor(Tensor* tensor,
+
+void PrintLodTensor(phi::DenseTensor* tensor,
                     int64_t start,
                     int64_t end,
-                    std::string& out_val,
+                    std::string& out_val,  // NOLINT
                     char separator,
                     bool need_leading_separator) {
-  auto dtype = framework::TransToProtoVarType(tensor->dtype());
-  if (dtype == proto::VarType::FP32) {
-    PrintLodTensorFloatType(
+  if (framework::TransToProtoVarType(tensor->dtype()) == proto::VarType::FP32) {
+    PrintLodTensorType<float>(
         tensor, start, end, out_val, separator, need_leading_separator);
-  } else if (dtype == proto::VarType::INT64) {
+  } else if (framework::TransToProtoVarType(tensor->dtype()) ==
+             proto::VarType::INT64) {
     PrintLodTensorIntType(
         tensor, start, end, out_val, separator, need_leading_separator);
-  } else if (dtype == proto::VarType::FP64) {
+  } else if (framework::TransToProtoVarType(tensor->dtype()) ==
+             proto::VarType::FP64) {
     PrintLodTensorType<double>(
         tensor, start, end, out_val, separator, need_leading_separator);
   } else {
     out_val += "unsupported type";
   }
 }
+
 std::pair<int64_t, int64_t> GetTensorBound(LoDTensor* tensor, int index) {
   auto& dims = tensor->dims();
   if (tensor->lod().size() != 0) {
@@ -148,6 +219,7 @@ std::pair<int64_t, int64_t> GetTensorBound(LoDTensor* tensor, int index) {
     return {index * dims[1], (index + 1) * dims[1]};
   }
 }
+
 bool CheckValidOutput(LoDTensor* tensor, size_t batch_size) {
   auto& dims = tensor->dims();
   if (dims.size() != 2) return false;
@@ -287,7 +359,7 @@ void DeviceWorker::DumpField(const Scope& scope,
         continue;
       }
       size_t acutal_thread_num =
-          std::min((size_t)batch_size, tensor_iterator_thread_num);
+          std::min(static_cast<size_t>(batch_size), tensor_iterator_thread_num);
       for (size_t i = 0; i < acutal_thread_num; i++) {
         size_t average_size = batch_size / acutal_thread_num;
         size_t begin =
@@ -304,7 +376,7 @@ void DeviceWorker::DumpField(const Scope& scope,
     VLOG(1) << "writing a batch takes " << tt.count() << " us";
 
     size_t acutal_thread_num =
-        std::min((size_t)batch_size, tensor_iterator_thread_num);
+        std::min(static_cast<size_t>(batch_size), tensor_iterator_thread_num);
     for (size_t i = 0; i < acutal_thread_num; i++) {
       size_t average_size = batch_size / acutal_thread_num;
       size_t begin =
@@ -384,6 +456,17 @@ void DeviceWorker::DumpField(const Scope& scope,
     }
     writer_ << ars[i];
   }
+  writer_.Flush();
+}
+template<class... ARGS>
+void format_string_append(std::string* str,
+    const char* fmt, ARGS && ... args) { // use VA_ARGS may be better ?
+    int len = snprintf(NULL, 0, fmt, args...);
+    PADDLE_ENFORCE(len >= 0, "format args length error");
+    size_t oldlen = str->length();
+    str->resize(oldlen + len + 1);
+    PADDLE_ENFORCE(snprintf(&(*str)[oldlen], (size_t)len + 1, fmt, args...) == len);
+    str->resize(oldlen + len);
 }
 inline void GetLodBound(const LoD& lod, const int64_t &dim, const int &index,
     std::pair<int64_t, int64_t> *bound) {
@@ -426,9 +509,9 @@ void PrintLodTensor(Tensor* tensor, const int64_t &start, const int64_t &end, st
   }
 }
 void DeviceWorker::DumpParamBoxPS(const Scope& scope, const int batch_id) {
-  size_t field_num = dump_fields_->size();
-  std::vector<std::string> ars(field_num);
+  size_t field_num = dump_param_->size();
 
+  auto chan = writer_.channel();
   // thread process fields
 #ifdef PADDLE_WITH_BOX_PS
   auto box_ptr = paddle::framework::BoxWrapper::GetInstance();
@@ -436,7 +519,7 @@ void DeviceWorker::DumpParamBoxPS(const Scope& scope, const int batch_id) {
 #else
   parallel_run_dynamic(
 #endif
-      field_num, [this, &scope, batch_id, &ars](const size_t &id) {
+      field_num, [this, &scope, batch_id, chan](const size_t &id) {
     auto &name = (*dump_param_)[id];
     Variable* var = scope.FindVar(name);
     if (var == nullptr) {
@@ -448,19 +531,14 @@ void DeviceWorker::DumpParamBoxPS(const Scope& scope, const int batch_id) {
       TensorCopySync(*tensor, platform::CPUPlace(), &cpu_tensor);
       tensor = &cpu_tensor;
     }
-    auto &s = ars[id];
+
+    std::string s;
     format_string_append(&s, "(%d,%s)", batch_id, name.c_str());
     int64_t len = tensor->numel();
     PrintLodTensor(tensor, 0, len, &s);
+    // write to channel
+    chan->WriteMove(1, &s);
   });
-
-  // write to channel
-  for (auto &s : ars) {
-    if (s.empty()) {
-      continue;
-    }
-    writer_ << s;
-  }
 }
 void DeviceWorker::DumpFieldBoxPS(const Scope& scope, int dump_mode,
                              int dump_interval) {  // dump_mode: 0: no random,
@@ -529,14 +607,14 @@ void DeviceWorker::DumpFieldBoxPS(const Scope& scope, int dump_mode,
   std::atomic<size_t> line_cnt{0};
   std::atomic<size_t> num_cnt{0};
 
-  std::vector<std::string> ars(batch_size);
+  auto chan = writer_.channel();
 #ifdef PADDLE_WITH_BOX_PS
   box_ptr->ExecuteFunc(platform::CPUPlace(),
 #else
   // dump data
   parallel_run_dynamic(
 #endif
-      batch_size, [this, &ars, &dims, &cpu_tensors,
+      batch_size, [this, chan, &dims, &cpu_tensors,
          &lods, &need_dump_func, field_num, &line_cnt, &num_cnt](const size_t &i) {
     const std::string& lineid = device_reader_->GetLineId(i);
     if (!need_dump_func(lineid)) {
@@ -546,7 +624,7 @@ void DeviceWorker::DumpFieldBoxPS(const Scope& scope, int dump_mode,
     ++line_cnt;
 
     thread_local std::pair<int64_t, int64_t> bound;
-    auto &s = ars[i];
+    std::string s;
     size_t pos = 0;
     if (FLAGS_lineid_have_extend_info) {
       pos = lineid.find(" ");
@@ -589,14 +667,9 @@ void DeviceWorker::DumpFieldBoxPS(const Scope& scope, int dump_mode,
       s.append("\t", 1);
       s.append(&lineid[pos + 1], lineid.length() - pos - 1);
     }
+    // write to channel
+    chan->WriteMove(1, &s);
   });
-  // write to channel
-  for (auto &s : ars) {
-    if (s.empty()) {
-      continue;
-    }
-    writer_ << s;
-  }
 }
 
 }  // namespace framework

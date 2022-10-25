@@ -398,7 +398,7 @@ class BoxPSTrainer : public TrainerBase {
   virtual Scope* GetWorkerScope(int thread_id);
   void InitDumpEnv() override;
   virtual std::string GetDumpPath(int tid);
-
+  virtual void DumpWork(int tid);
 
  protected:
   void CopyParameters(const Scope& root_scope, int device_id);
