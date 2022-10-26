@@ -67,7 +67,6 @@ template <typename KeyType, typename ValType>
 HashTable<KeyType, ValType>::~HashTable() {
   delete container_;
   container_ = nullptr;
-  xpu_free((void*)device_optimizer_config_);
 }
 
 template <typename KeyType, typename ValType>
