@@ -201,7 +201,8 @@ void CacheManager::build_sign2fids(const std::vector<std::vector<FeatureKey>> & 
 
 uint32_t CacheManager::query_sign2fid(const FeatureKey & key) {
   auto iter = sign2fid_.find(key);
-  PADDLE_ENFORCE_EQ((iter != sign2fid_.end()), true);
+  PADDLE_ENFORCE_EQ((iter != sign2fid_.end()), true, 
+      platform::errors::External("key:%llu", (uint64_t)key)); 
   return iter->second;
 }
 
@@ -321,8 +322,8 @@ std::shared_ptr<BatchFidSeq> CacheManager::parse_uniq_fids(
   PADDLE_ENFORCE_LT(max_slot, (int)slot_is_dense.size());
   int uint64_fid_bit_vec_size = (max_fid / 64) + 1;
   std::vector<std::bitset<64>> fid_bit_vec(uint64_fid_bit_vec_size);
-  int uint64_slot_bit_vec_size = (max_slot / 64) + 1;
-  std::vector<std::bitset<64>> slot_bit_vec(uint64_slot_bit_vec_size);
+  //int uint64_slot_bit_vec_size = (max_slot / 64) + 1;
+  //std::vector<std::bitset<64>> slot_bit_vec(uint64_slot_bit_vec_size);
   for (size_t train_data_idx = 0; train_data_idx < train_data_iters.size(); ++train_data_idx) {
     auto it = train_data_iters[train_data_idx] + iter_offset;
     for (int j = 0; j < batch_sz; ++j) {
@@ -330,7 +331,7 @@ std::shared_ptr<BatchFidSeq> CacheManager::parse_uniq_fids(
       for (auto & fea : cur_rec.uint64_feasigns_) {
         int vec_idx = fea.slot() / 64;
         int bit_offset = fea.slot() % 64;
-        slot_bit_vec[vec_idx].set(bit_offset);
+        //slot_bit_vec[vec_idx].set(bit_offset);
         if (slot_is_dense[fea.slot()]) {
           continue;
         }
@@ -342,16 +343,18 @@ std::shared_ptr<BatchFidSeq> CacheManager::parse_uniq_fids(
     }
   }
 
-  // count total slots
-  uint32_t slot_has_value_count = 0;
-  for (auto & bs : slot_bit_vec) {
-    slot_has_value_count += bs.count();
-  }
-  // add default 0 if slot has no fid
-  if (slot_has_value_count < slot_is_dense.size()) {
-    fid_bit_vec[0].set(0);
-    //debug_fid_set.insert(0);
-  }
+  //// count total slots
+  //uint32_t slot_has_value_count = 0;
+  //for (auto & bs : slot_bit_vec) {
+  //  slot_has_value_count += bs.count();
+  //}
+  //// add default 0 if slot has no fid
+  //if (slot_has_value_count < slot_is_dense.size()) {
+  //  fid_bit_vec[0].set(0);
+  //  //debug_fid_set.insert(0);
+  //}
+  fid_bit_vec[0].set(0);  
+
   // count total fids
   int total_fid_count = 0;
   for (auto & bs : fid_bit_vec) {
@@ -444,8 +447,8 @@ std::shared_ptr<BatchFidSeq> CacheManager::parse_uniq_fids(
             }
         }
     }
-
-    bool has_blank_slot = false;
+    
+    //bool has_blank_slot = false;
     int uint64_fid_bit_vec_size = (max_fid / 64) + 1;
     std::vector<std::bitset<64>> fid_bit_vec(uint64_fid_bit_vec_size);
     for (size_t reader_idx = 0; reader_idx < all_readers.size(); ++ reader_idx) {
@@ -474,18 +477,19 @@ std::shared_ptr<BatchFidSeq> CacheManager::parse_uniq_fids(
                 }
             }
 
-            //judge blank slot
-            if (!has_blank_slot) {
-                for (size_t k = 1; k < cur_rec->slot_uint64_feasigns_.slot_offsets.size(); ++k) {
-                    if (cur_rec->slot_uint64_feasigns_.slot_offsets[k] == cur_rec->slot_uint64_feasigns_.slot_offsets[k - 1]) {
-                        fid_bit_vec[0].set(0);
-                        has_blank_slot = true;
-                        break;
-                    }
-                }
-            }
+            ////judge blank slot
+            //if (!has_blank_slot) {
+            //    for (size_t k = 1; k < cur_rec->slot_uint64_feasigns_.slot_offsets.size(); ++k) {
+            //        if (cur_rec->slot_uint64_feasigns_.slot_offsets[k] == cur_rec->slot_uint64_feasigns_.slot_offsets[k - 1]) {
+            //            fid_bit_vec[0].set(0);
+            //            has_blank_slot = true;
+            //            break;
+            //        }
+            //    }
+            //}
         }
     }
+    fid_bit_vec[0].set(0);
 
     // count total fids
     int total_fid_count = 0;
@@ -581,11 +585,19 @@ void CacheManager::build_batch_fidseq(std::vector<std::deque<Record> *> & all_ch
     std::atomic<int> writer_idx{0};
     build_fidseq_pool.set_task([&, this] (int tid) {
       int current_batch_sz = 0;
-      for (int i = tid * batch_sz_; i < size; i += thread_num * batch_sz_) {
-        current_batch_sz = std::min(batch_sz, size - i);
-        auto batch_fidseq = parse_uniq_fids(train_data_iters, i, current_batch_sz, slot_is_dense);
+      auto thread_train_data_iters = train_data_iters;
+      for (auto & iter : thread_train_data_iters) {
+        iter += tid * batch_sz_;
+      }
 
-        std::shared_ptr<std::vector<uint32_t>> fidseq_before_opt = std::make_shared<std::vector<uint32_t>>();
+      for (int i = tid * batch_sz_; i < size; i += thread_num * batch_sz_) {
+        current_batch_sz = std::min(batch_sz, size - i);  
+        //auto batch_fidseq = parse_uniq_fids(thread_train_data_iters, i, current_batch_sz, slot_is_dense);
+        auto batch_fidseq = parse_uniq_fids(thread_train_data_iters, 0, current_batch_sz, slot_is_dense);
+        for (auto & iter : thread_train_data_iters) {
+          iter += thread_num * batch_sz_;
+        }
+
         while (true) {
           std::unique_lock<std::mutex> lock(cv_mtx);
           if (tid == writer_idx.load()) {
@@ -863,6 +875,8 @@ void CacheManager::prepare_merge_grad(int dev_id) {
 
     std::vector<int> bfid_uniq_count(current_batch_fidseq_->h_fidseq_bucket.size(), 0);
     for (int i = 0; i < cache_bfid_size; i++) {
+      PADDLE_ENFORCE_GE(h_cache_bfids[i], 0,
+                            platform::errors::External("error bfid should >= 0"));
       PADDLE_ENFORCE_LT(h_cache_bfids[i], (int)bfid_uniq_count.size(),
                             platform::errors::External("error bfid"));
       bfid_uniq_count[h_cache_bfids[i]]++;
@@ -890,6 +904,7 @@ void CacheManager::prepare_merge_grad(int dev_id) {
       tmp_bfid = h_cache_bfids[i];
       tmp_pos = bfid_uniq_offset[tmp_bfid]++;
       tmp_pos += bfid_uniq_lod[tmp_bfid];
+      PADDLE_ENFORCE_LT(tmp_pos, (int)bfid_out_buffer.size());
       bfid_out_buffer[tmp_pos] = i;
     }
 
