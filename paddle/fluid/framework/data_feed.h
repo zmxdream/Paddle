@@ -923,7 +923,6 @@ class DataFeed {
   virtual const std::vector<std::string>& GetInsIdVec() const {
     return ins_id_vec_;
   }
-  virtual void SetInsIdVec(MiniBatchGpuPack* pack) {}
   virtual const std::vector<std::string>& GetInsContentVec() const {
     return ins_content_vec_;
   }
@@ -1491,17 +1490,6 @@ class SlotRecordInMemoryDataFeed : public InMemoryDataFeed<SlotRecord> {
   // virtual void ParseOneInstanceFromSo(const char* str, T* instance,
   //                                    CustomParser* parser) {}
   virtual void PutToFeedVec(const std::vector<SlotRecord>& ins_vec) {}
-
-  virtual void SetInsIdVec(MiniBatchGpuPack* pack) {
-    if (parse_ins_id_) {
-      size_t ins_num = pack->ins_num(); 
-      ins_id_vec_.clear();
-      ins_id_vec_.resize(ins_num);
-      for(size_t i = 0; i < ins_num; i++) {
-        ins_id_vec_[i] = pack->get_lineid(i);
-      }
-    }
-  }
 
   virtual void LoadIntoMemoryByCommand(void);
   virtual void LoadIntoMemoryByLib(void);
