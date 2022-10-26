@@ -927,6 +927,7 @@ class DataFeed {
     return ins_content_vec_;
   }
   virtual int GetCurBatchSize() { return batch_size_; }
+  virtual void SetCurBatchSize(const int batch_size) { batch_size_ = batch_size; }
   virtual void LoadIntoMemory() {
     PADDLE_THROW(platform::errors::Unimplemented(
         "This function(LoadIntoMemory) is not implemented."));
