@@ -3497,6 +3497,7 @@ def data_norm(input,
               do_model_average_for_mean_and_var=True,
               slot_dim=-1,
               sync_stats=False,
+              update_norm=True,
               summary_decay_rate=0.9999999,
               enable_scale_and_shift=False):
     r"""
@@ -3645,6 +3646,7 @@ def data_norm(input,
         "epsilon": epsilon,
         "data_layout": data_layout,
         "sync_stats": sync_stats,
+        "update_norm": update_norm,
         "summary_decay_rate": summary_decay_rate,
     }
     if slot_dim > 0:

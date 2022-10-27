@@ -154,6 +154,7 @@ class DataNormGradKernel<phi::GPUContext, T> : public framework::OpKernel<T> {
     const float epsilon = ctx.Attr<float>("epsilon");
     const float dr = ctx.Attr<float>("summary_decay_rate");
     const bool need_sync_stats = ctx.Attr<bool>("sync_stats");
+    const bool update_norm = ctx.Attr<bool>("update_norm");
 
     const auto &x_dims = x->dims();
     // Align with CPU version, but should we add this restriction?
@@ -233,22 +234,23 @@ class DataNormGradKernel<phi::GPUContext, T> : public framework::OpKernel<T> {
           "supported on windows now."));
 #endif
     }
-
-    T *batch_size_data =
-        ctx.Output<Tensor>("BatchSize")->mutable_data<T>(ctx.GetPlace());
-    T *batch_sum_data =
-        ctx.Output<Tensor>("BatchSum")->mutable_data<T>(ctx.GetPlace());
-    T *batch_square_sum_data =
-        ctx.Output<Tensor>("BatchSquareSum")->mutable_data<T>(ctx.GetPlace());
-    KernelUpdateParam<<<GET_BLOCKS(C), PADDLE_CUDA_NUM_THREADS, 0, stream>>>(
-        C,
-        d_batch_size,
-        d_batch_sum,
-        d_batch_square_sum,
-        batch_size_data,
-        batch_sum_data,
-        batch_square_sum_data,
-        dr);
+    if (update_norm) {
+      T *batch_size_data =
+          ctx.Output<Tensor>("BatchSize")->mutable_data<T>(ctx.GetPlace());
+      T *batch_sum_data =
+          ctx.Output<Tensor>("BatchSum")->mutable_data<T>(ctx.GetPlace());
+      T *batch_square_sum_data =
+          ctx.Output<Tensor>("BatchSquareSum")->mutable_data<T>(ctx.GetPlace());
+      KernelUpdateParam<<<GET_BLOCKS(C), PADDLE_CUDA_NUM_THREADS, 0, stream>>>(
+          C,
+          d_batch_size,
+          d_batch_sum,
+          d_batch_square_sum,
+          batch_size_data,
+          batch_sum_data,
+          batch_square_sum_data,
+          dr);
+    } //if !update_norm, will update norm param use BoxPSAsynDenseTable
   }
 };
 }  // namespace operators
