@@ -154,7 +154,7 @@ class DataNormGradKernel<phi::GPUContext, T> : public framework::OpKernel<T> {
     const float epsilon = ctx.Attr<float>("epsilon");
     const float dr = ctx.Attr<float>("summary_decay_rate");
     const bool need_sync_stats = ctx.Attr<bool>("sync_stats");
-    const bool async_train_mode = ctx.Attr<bool>("async_train_mode");
+    const bool update_norm = ctx.Attr<bool>("update_norm");
 
     const auto &x_dims = x->dims();
     // Align with CPU version, but should we add this restriction?
@@ -234,7 +234,7 @@ class DataNormGradKernel<phi::GPUContext, T> : public framework::OpKernel<T> {
           "supported on windows now."));
 #endif
     }
-    if (!async_train_mode) {
+    if (update_norm) {
       T *batch_size_data =
           ctx.Output<Tensor>("BatchSize")->mutable_data<T>(ctx.GetPlace());
       T *batch_sum_data =
@@ -250,7 +250,7 @@ class DataNormGradKernel<phi::GPUContext, T> : public framework::OpKernel<T> {
           batch_sum_data,
           batch_square_sum_data,
           dr);
-    } //if async_train_mode, will update norm param use BoxPSAsynDenseTable
+    } //if !update_norm, will update norm param use BoxPSAsynDenseTable
   }
 };
 }  // namespace operators
