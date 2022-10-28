@@ -222,7 +222,7 @@ void PSGPUWrapper::PreBuildTask(std::shared_ptr<HeterContext> gpu_task) {
 
     for (int i = 0; i < thread_keys_thread_num_; i++) {
       if (!multi_mf_dim_) {
-        VLOG(0) << "yxf::psgpu wrapper genfunc";
+        //VLOG(0) << "yxf::psgpu wrapper genfunc";
         threads.push_back(
             std::thread(gen_func, std::ref(vec_data), begin,
                         begin + len_per_thread + (i < remain ? 1 : 0), i));

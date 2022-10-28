@@ -2453,7 +2453,6 @@ void SlotRecordInMemoryDataFeed::PutToFeedVec(const SlotRecord* ins_vec,
     if (info.type[0] == 'f') {  // float
       auto& batch_fea = batch_float_feasigns_[j];
       batch_fea.clear();
-
       for (int i = 0; i < num; ++i) {
         auto r = ins_vec[i];
         size_t fea_num = 0;
@@ -2487,9 +2486,11 @@ void SlotRecordInMemoryDataFeed::PutToFeedVec(const SlotRecord* ins_vec,
           total_instance += fea_num;
         }
         if (fea_num == 0) {
-          batch_fea.resize(total_instance + fea_num);
-          batch_fea[total_instance] = 0;
+          //batch_fea.resize(total_instance + fea_num);
+          //batch_fea[total_instance] = 0;
           total_instance += 1;
+          batch_fea.resize(total_instance);
+          batch_fea[total_instance - 1] = 0;
         }
         slot_offset.push_back(total_instance);
       }
