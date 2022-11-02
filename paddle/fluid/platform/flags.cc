@@ -801,6 +801,10 @@ DEFINE_bool(enable_slotrecord_reset_shrink, false,
 DEFINE_bool(enable_ins_parser_file, false,
             "enable parser ins file , default false");
 
+PADDLE_DEFINE_EXPORTED_int32(
+    gpups_dedup_pull_push_mode,
+    1,
+    "enable dedup keys while pull push sparse, default 1");
 /**
  * ProcessGroupNCCL related FLAG
  * Name: nccl_blocking_wait

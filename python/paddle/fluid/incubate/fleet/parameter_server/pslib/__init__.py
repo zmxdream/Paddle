@@ -846,6 +846,32 @@ class PSLib(Fleet):
                 self._fleet_ptr.save_model_one_table(table_id, model_dir, mode)
         self._role_maker._barrier_worker()
 
+    def multi_save_one_table(self, table_id, model_dir, **kwargs):
+        """
+        save pslib model's one table, the modes are same with load model.
+        Args:
+            table_id(int): table id
+            model_dir(str): if you use hdfs, model_dir should starts with
+                            'hdfs:', otherwise means local dir
+            kwargs(dict): user-defined properties.
+                          mode(int): the modes illustrated above, default 0
+                          prefix(str): the parts to save can have prefix,
+                                       for example, part-prefix-000-00000
+        Examples:
+            .. code-block:: python
+              fleet.save_one_table("afs:/user/path/")
+        """
+        mode = kwargs.get("mode", 0)
+        prefix = kwargs.get("prefix", None)
+        self._role_maker._barrier_worker()
+        #if self._role_maker.is_first_worker():
+        if prefix is not None:
+            self._fleet_ptr.save_model_one_table_with_prefix(
+                    table_id, model_dir, mode, prefix)
+        else:
+            self._fleet_ptr.save_model_one_table(table_id, model_dir, mode)
+        self._role_maker._barrier_worker()
+
     def set_date(self, table_id, date):
         """
         set_date, eg, 20210918

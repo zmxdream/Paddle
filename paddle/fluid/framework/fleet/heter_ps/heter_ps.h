@@ -49,6 +49,17 @@ class HeterPs : public HeterPsBase {
   virtual void push_sparse(int num, FeatureKey* d_keys,
                            float* d_grads, size_t len) override;
 
+  int dedup_keys_and_fillidx(const int gpu_id,
+                             const int total_fea_num,
+                             const FeatureKey* d_keys,   // input
+                             FeatureKey* d_merged_keys,  // output
+                             FeatureKey* d_sorted_keys,
+                             uint32_t* d_restore_idx,
+                             uint32_t* d_sorted_idx,
+                             uint32_t* d_offset,
+                             uint32_t* d_merged_cnts,
+                             bool filter_zero);
+
   void set_sparse_sgd(const OptimizerConfig& optimizer_config) override;
   void set_embedx_sgd(const OptimizerConfig& optimizer_config) override;
 

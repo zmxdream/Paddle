@@ -54,6 +54,19 @@ class HeterPsBase {
 
   static HeterPsBase* get_instance(size_t capacity,
                                    std::shared_ptr<HeterPsResource> resource, std::string accessor_type, int optimizer_type);
+
+  virtual int dedup_keys_and_fillidx(const int gpu_id,
+                                     const int total_fea_num,
+                                     const FeatureKey* d_keys,   // input
+                                     FeatureKey* d_merged_keys,  // output
+                                     FeatureKey* d_sorted_keys,
+                                     uint32_t* d_restore_idx,
+                                     uint32_t* d_sorted_idx,
+                                     uint32_t* d_offset,
+                                     uint32_t* d_merged_cnts,
+                                     bool filter_zero) = 0;
+
+
 };
 
 }  // end namespace framework

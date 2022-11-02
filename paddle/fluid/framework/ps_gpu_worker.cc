@@ -22,6 +22,7 @@ limitations under the License. */
 #include "paddle/fluid/platform/cuda_graph_with_memory_pool.h"
 #include "paddle/fluid/platform/profiler.h"
 #include "paddle/fluid/platform/profiler/event_tracing.h"
+#include "paddle/fluid/framework/fleet/heter_ps/heter_ps_utils.h"
 
 #if (defined PADDLE_WITH_NCCL || defined PADDLE_WITH_RCCL) && \
     (defined PADDLE_WITH_PSLIB)
@@ -295,6 +296,7 @@ int PSGPUWorker::OpRunAndShapeCheck(OperatorBase& op,
       RuntimeContext ctx(op.Inputs(), op.Outputs(), scope);
       RuntimeInferShapeContext infer_shape_ctx(op, ctx, scope);
       auto outnames = op.Outputs();
+
       for (auto& var_name_item : outnames) {
         pre_dims.push_back(infer_shape_ctx.GetOutputsDim(var_name_item.first));
         pre_lods.push_back(infer_shape_ctx.GetOutputsLod(var_name_item.first));
@@ -476,7 +478,15 @@ void PSGPUWorker::TrainFiles() {
           }
         }
         if (!need_skip) {
+          // before op run, get gpu memory
+          std::string before_debug_info = "before op run:";
+          before_debug_info.append(op->Type());
+          debug_gpu_memory_info(thread_id_,before_debug_info.c_str());
           OpRunAndShapeCheck(*op, *thread_scope, place_);
+          // after op run, get gpu memory
+          std::string after_debug_info = "after op run:";
+          after_debug_info.append(op->Type());
+          debug_gpu_memory_info(thread_id_, after_debug_info.c_str());
         }
       }
       graph_batch_size = cur_batch;

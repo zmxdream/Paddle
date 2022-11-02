@@ -198,6 +198,27 @@ class HeterComm {
 
   void end_pass();
 
+  int dedup_keys_and_fillidx(const int gpu_id,
+                             const int total_fea_num,
+                             const KeyType* d_keys,   // input
+                             KeyType* d_merged_keys,  // output
+                             KeyType* d_sorted_keys,
+                             uint32_t* d_restore_idx,
+                             uint32_t* d_sorted_idx,
+                             uint32_t* d_offset,
+                             uint32_t* d_merged_cnts,
+                             bool filter_zero);
+
+  void fill_restore_idx(bool filter_zero,
+                        const size_t total_num,
+                        const size_t merge_size,
+                        const KeyType* d_keys,
+                        const uint32_t* d_sorted_idx,
+                        const uint32_t* d_offset,
+                        const uint32_t* d_merged_cnts,
+                        uint32_t* d_restore_idx,
+                        const cudaStream_t& stream);
+
   int get_transfer_devid(int send_id) { return (send_id + 4) % 8; }
 
   struct Node {
@@ -228,6 +249,16 @@ class HeterComm {
       alloc(size, true);
     }
 
+    void reset() {
+      all_keys_mem.reset();
+      all_grads_mem.reset();
+      local_keys_mem.reset();
+      local_grads_mem.reset();
+
+    }
+
+    // int feanum_{1800 * 2048};
+    // storage_[i].init(feanum_, resource_->dev_id(i), grad_type_size_);
     void init(size_t size, int dev_id, size_t grad_type_size) {
       place_ = platform::CUDAPlace(dev_id);
       grad_type_size_ = grad_type_size;
@@ -235,8 +266,10 @@ class HeterComm {
     }
 
     void alloc(size_t size, bool force = false) {
+
       // VLOG(0) << "yxf local storage alloc size: " << size << " force: " << force;
       // VLOG(0) << "yxf LocalStorage alloc grad size: " << grad_type_size_;
+
       if (force || size > all_keys_mem->size()) {
         // VLOG(0) << "yxf11 LocalStorage alloc grad size: " << grad_type_size_;
         all_keys_mem.reset();
@@ -244,33 +277,52 @@ class HeterComm {
         all_grads_mem.reset();
         // VLOG(0) << "yxf33 LocalStorage alloc grad size: " << grad_type_size_;
         all_keys_mem = memory::Alloc(place_, size * sizeof(KeyType));
+
         // VLOG(0) << "yxf LocalStorage alloc grad size: " << grad_type_size_;
         all_grads_mem = memory::Alloc(place_, size * grad_type_size_);
+
         all_keys = reinterpret_cast<KeyType*>(all_keys_mem->ptr());
+
         all_grads = reinterpret_cast<GradType*>(all_grads_mem->ptr());
+
       }
+
       if (force || size > local_keys_mem->size()) {
+
         local_keys_mem.reset();
         local_grads_mem.reset();
+
         local_keys_mem = memory::Alloc(place_, size * sizeof(KeyType));
+
         // VLOG(0) << "yxf LocalStorage111 alloc grad size: " << grad_type_size_;
         local_grads_mem = memory::Alloc(place_, size * grad_type_size_);
+
         local_keys = reinterpret_cast<KeyType*>(local_keys_mem->ptr());
         local_grads = reinterpret_cast<GradType*>(local_grads_mem->ptr());
+
       }
+
     }
 
     void alloc_for_inter_copy(size_t size, bool force = false) {
       // VLOG(0) << "yxf LocalStorage222 alloc grad size: " << size << " local mem size: " << local_keys_mem->size();
+
       if (force || size * sizeof(KeyType) > local_keys_mem->size()) {
+
         local_keys_mem.reset();
         local_grads_mem.reset();
+
         local_keys_mem = memory::Alloc(place_, size * sizeof(KeyType));
+
         VLOG(0) << "yxf LocalStorage111 alloc grad size: " << size * grad_type_size_;
+
         local_grads_mem = memory::Alloc(place_, size * grad_type_size_);
+
         local_keys = reinterpret_cast<KeyType*>(local_keys_mem->ptr());
         local_grads = reinterpret_cast<GradType*>(local_grads_mem->ptr());
+
       }
+
     }
 
     void alloc_for_multi_node_nccl(size_t size, bool force = false) {
@@ -284,6 +336,7 @@ class HeterComm {
         all_grads = reinterpret_cast<GradType*>(all_grads_mem->ptr());
       }
     }
+
     void alloc_for_data_transfer(size_t size, bool force = false) {
       if (force || size > all_keys_mem->size()) {
         all_keys_mem.reset();
@@ -295,6 +348,7 @@ class HeterComm {
         all_grads = reinterpret_cast<GradType*>(all_grads_mem->ptr());
       }
     }
+
     void alloc_for_data_transfer_nccl(size_t size, bool force = false) {
       if (force || size > local_keys_mem->size()) {
         local_keys_mem.reset();
@@ -321,18 +375,22 @@ class HeterComm {
     }
 
     platform::CUDAPlace place_;
+
     std::shared_ptr<memory::Allocation> all_keys_mem;
     std::shared_ptr<memory::Allocation> all_grads_mem;
+
     KeyType* all_keys;
     GradType* all_grads;
 
     std::shared_ptr<memory::Allocation> local_keys_mem;
     std::shared_ptr<memory::Allocation> local_grads_mem;
+
     KeyType* local_keys;
     GradType* local_grads;
 
     std::shared_ptr<memory::Allocation> trans_all_keys_mem;
     std::shared_ptr<memory::Allocation> trans_all_grads_mem;
+
     KeyType* trans_all_keys;
     GradType* trans_all_grads;
 
@@ -341,10 +399,13 @@ class HeterComm {
     // nccl shard info
     int* h_local_left;
     int* h_local_right;
+
     int* h_merge_offset;
     int* h_merge_len;
+
     KeyType* tmp_local_keys;
     char* tmp_local_grads;
+
     size_t gather_one_node_len;
   
   };
@@ -376,15 +437,21 @@ class HeterComm {
   int test_batch = 0;
 
  private:
+
   std::vector<LocalStorage> storage_;
+
   CustomGradMerger merger_;
+
   int topo_aware_{0};
+
   int feanum_{1800 * 2048};
+
   int multi_node_{1};
   int node_rank_{-1};
   std::vector<ncclComm_t> nccl_inner_comms_;
   std::vector<ncclComm_t> nccl_inter_comms_;
   std::vector<ncclComm_t> nccl_trans_inter_comms_;
+/*
   std::vector<double> mg_time_1;
   std::vector<double> mg_time_2;
   std::vector<double> mg_time_3;
@@ -400,15 +467,21 @@ class HeterComm {
   std::vector<double> mg_time_13;
   std::vector<double> mg_time_14;
   std::vector<double> mg_time_15;
+*/
+
   int node_size_;
   std::vector<std::shared_ptr<cub::CachingDeviceAllocator>> allocators_;
+
   int multi_mf_dim_{8};
   int max_mf_dim_ = 8;
   size_t val_type_size_;
   size_t grad_type_size_;
+
   std::unordered_map<int,std::shared_ptr<memory::Allocation>> trans_keys;
   std::unordered_map<int, std::shared_ptr<memory::Allocation>> trans_grads;
+
   std::vector<int> trans_ids = {2, 3, 4, 5};
+
  };
 
 }  // end namespace framework

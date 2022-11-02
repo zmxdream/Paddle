@@ -14,7 +14,10 @@ limitations under the License. */
 #pragma once
 #ifdef PADDLE_WITH_HETERPS
 //#include "paddle/fluid/framework/fleet/heter_ps/heter_comm.h"
+#include "paddle/fluid/framework/fleet/heter_ps/heter_ps_utils.h"
 #include <queue>
+
+DECLARE_int32(gpups_dedup_pull_push_mode);
 
 namespace paddle {
 namespace framework {
@@ -412,45 +415,71 @@ __global__ void dy_mf_fill_dvals<int, CommonFeatureValueAccessor>(float* d_shard
 template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
 HeterComm<KeyType, ValType, GradType, GPUAccessor>::HeterComm(
     size_t capacity, std::shared_ptr<HeterPsResource> resource, GPUAccessor& gpu_accessor) {
+
   VLOG(1) << "Construct new HeterComm";
   resource_ = resource;
   node_rank_ = resource_->node_rank();
+
   storage_.resize(resource_->total_gpu());
   h_barrier.reset(resource->total_gpu());
   
   multi_mf_dim_ = resource->multi_mf();
   gpu_accessor_ = gpu_accessor;
+
   for (int i = 0; i < resource_->total_gpu(); ++i) {
     platform::CUDADeviceGuard guard(resource_->dev_id(i));
     // allocators_.push_back(std::make_shared<cub::CachingDeviceAllocator>(
     //     2, 1, 20, (size_t)-1, false, false));  // NOLINT
+
+    // 不是direct accesss就用不到了
     allocators_.push_back(std::make_shared<cub::CachingDeviceAllocator>(
         8, 1, (unsigned int)-1, (size_t)-1, false, false));
+
       max_mf_dim_ = resource->max_mf_dim();
       auto accessor_wrapper_ptr =
           GlobalAccessorFactory::GetInstance().GetAccessorWrapper();
-      size_t val_type_size =
+
+      // size_t val_type_size =
+      //    accessor_wrapper_ptr->GetFeatureValueSize(max_mf_dim_);
+      // size_t grad_type_size =
+      //    accessor_wrapper_ptr->GetPushValueSize(max_mf_dim_);
+      val_type_size_ =
           accessor_wrapper_ptr->GetFeatureValueSize(max_mf_dim_);
-      size_t grad_type_size =
+      grad_type_size_ =
           accessor_wrapper_ptr->GetPushValueSize(max_mf_dim_);
-      VLOG(3) << " HeterComm init, max feature_value_size:" << val_type_size
-              << ", feature_value_push_size:" << grad_type_size;
+
+      VLOG(3) << " HeterComm init, max feature_value_size:" << val_type_size_
+              << ", feature_value_push_size:" << grad_type_size_;
+
       auto ptr_table = new PtrTable(capacity / load_factor_);
       ptr_table->set_feature_value_size(val_type_size_, grad_type_size_);
       ptr_tables_.push_back(ptr_table);
+
     if (multi_node_) {
       storage_[i].init(feanum_, resource_->dev_id(i), grad_type_size_);
     }
     
   }
+
+  // std::vector<int> trans_ids = {2, 3, 4, 5};
   // trans_keys.resize(4);
   // trans_grads.resize(4);
+  // 这4张卡用来干嘛？？
+  // gather_multi_node_grad_v4用的
   for (auto id : trans_ids) {
+
     platform::CUDAPlace place = platform::CUDAPlace(id);
     platform::CUDADeviceGuard guard(id);
+
+    // std::unordered_map<int,std::shared_ptr<memory::Allocation>> trans_keys;
+    // std::unordered_map<int, std::shared_ptr<memory::Allocation>> trans_grads;
+
     trans_keys[id] = memory::Alloc(place, feanum_ * sizeof(KeyType));
     trans_grads[id] = memory::Alloc(place, feanum_ * grad_type_size_);
+
   }
+
+/*
   mg_time_1 = std::vector<double>(resource_->total_gpu(), 0.0);
   mg_time_2 = std::vector<double>(resource_->total_gpu(), 0.0);
   mg_time_3 = std::vector<double>(resource_->total_gpu(), 0.0);
@@ -466,6 +495,10 @@ HeterComm<KeyType, ValType, GradType, GPUAccessor>::HeterComm(
   mg_time_13 = std::vector<double>(resource_->total_gpu(), 0.0);
   mg_time_14 = std::vector<double>(resource_->total_gpu(), 0.0);
   mg_time_15 = std::vector<double>(resource_->total_gpu(), 0.0);
+*/
+
+
+
   init_path();
 }
 
@@ -767,21 +800,35 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::walk_to_src(
 
 template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
 HeterComm<KeyType, ValType, GradType, GPUAccessor>::~HeterComm() {
-  if (!multi_mf_dim_) {
-    for (auto& table : tables_) {
-      delete table;
-      table = nullptr;
-    }
-  } else {
+
+//  if (!multi_mf_dim_) {
+//    for (auto& table : tables_) {
+//      delete table;
+//      table = nullptr;
+//    }
+//  } else {
+
     //VLOG(0) << "yxf:: heter comm ~hetercomm";
     for (auto& table : ptr_tables_) {
       delete table;
       table = nullptr;
     }
-    for (auto& table : tables_) {
-      delete table;
-      table = nullptr;
+    // 有必要吗，
+    for (auto& trans_pair: trans_keys) {
+      trans_pair.second.reset();
+    } 
+    for (auto& trans_pair: trans_grads) {
+      trans_pair.second.reset();
     }
+    for (auto& local_storage: storage_) {
+      local_storage.reset();
+    }
+    // for (auto& table : tables_) {
+    //  delete table;
+    //  table = nullptr;
+    //}
+
+    /*
     for (size_t i = 1; i < mg_time_1.size(); i++) {
       mg_time_1[0] += mg_time_1[i];
       mg_time_2[0] += mg_time_2[i];
@@ -814,7 +861,8 @@ HeterComm<KeyType, ValType, GradType, GPUAccessor>::~HeterComm() {
     VLOG(0) << "yxf::mg_11:push gather multi node: " << mg_time_11[0];
     VLOG(0) << "yxf::mg_12:push update one table: " << mg_time_12[0];
     VLOG(0) << "yxf::mg_13:push merge_grad: " << mg_time_13[0];
-   }
+    */
+   // }
 }
 
 template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
@@ -839,6 +887,123 @@ template <typename KeyType, typename ValType, typename GradType, typename GPUAcc
 int HeterComm<KeyType, ValType, GradType, GPUAccessor>::get_index_by_devid(int devid) {
   return resource_->get_index_by_devid(devid);
 }
+
+// ===== hbm optimized ======
+template <typename KeyType, typename T>
+__global__ void kernel_fill_restore_idx_filter_zero(const size_t N,  // merged size
+                                                    const KeyType* d_keys,  // 去重以后的key
+                                                    const T* d_sorted_idx,  // 每个key原来的idx
+                                                    const T* d_offset,      // 前缀和 
+                                                    const T* d_merged_cnts, // 每个key的数量
+                                                    T* d_restore_idx) {
+  const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i < N) {
+    if (d_keys[i] == 0) { // 不管feasign 0
+      return;
+    }
+    const T& off = d_offset[i]; // 前面有几个feasign，offset
+    const T& num = d_merged_cnts[i]; // 当前feasign数
+    for (size_t k = 0; k < num; ++k) { // 
+      d_restore_idx[d_sorted_idx[off + k]] = i;  // d_sorted_idx[off + k]表示原idx, 那么d_restore_idx保存的是
+                                                 // 每个key排序去重以后是第几个key..
+    }
+  }
+}
+
+template <typename T>
+__global__ void kernel_fill_restore_idx(const size_t N,
+                                        const T* d_sorted_idx,
+                                        const T* d_offset,
+                                        const T* d_merged_cnts,
+                                        T* d_restore_idx) {
+  const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i < N) {
+    const T& off = d_offset[i];
+    const T& num = d_merged_cnts[i];
+    for (size_t k = 0; k < num; ++k) {
+      d_restore_idx[d_sorted_idx[off + k]] = i;
+    }
+  }
+}
+
+template <typename T>
+__global__ void kernel_fill_restore_idx_by_search(const size_t N,
+                                                  const T* d_sorted_idx,
+                                                  const size_t merge_num,
+                                                  const T* d_offset,
+                                                  T* d_restore_idx) { // 输出
+  const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i < N) { // 对排序以后的feasign数组进行遍历,
+    if (i < d_offset[1]) { // d_offset[1]是第一个feasign的数量, 也就是对于第一个feasign特殊处理
+      d_restore_idx[d_sorted_idx[i]] = 0; // 根据d_sorted_idx[i]拿到原来的idx..., 那么对应的d_restore_idx[idx] = 0
+      return;
+    }
+    int high = merge_num - 1;
+    int low = 1;
+    while (low < high) {
+      int mid = (low + high) / 2;
+      if (i < d_offset[mid + 1]) {
+        high = mid;
+      } else {
+        low = mid + 1;
+      }
+    }
+    d_restore_idx[d_sorted_idx[i]] = low;
+  }
+}
+
+/*
+  fill_restore_idx(filter_zero,
+                   total_fea_num,
+                   merged_size,   // 去重以后的feasign数
+                   d_merged_keys, // 去重以后的key
+                   d_sorted_idx,  // 排序以后，保存每个key原来的idx 
+                   d_offset,      // 保存每个feasign的数量的数组的前缀和数组
+                   d_merged_cnts, // 每个feasign的数量
+                   d_restore_idx, // 输出
+                   stream);
+*/
+
+template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
+void HeterComm<KeyType, ValType, GradType, GPUAccessor>::fill_restore_idx(bool filter_zero,
+                                                                          const size_t total_num,
+                                                                          const size_t merge_size,
+                                                                          const KeyType* d_keys,
+                                                                          const uint32_t* d_sorted_idx,
+                                                                          const uint32_t* d_offset,
+                                                                          const uint32_t* d_merged_cnts,
+                                                                          uint32_t* d_restore_idx,
+                                                                          const cudaStream_t& stream) {
+  // fill restore idx [1,3,5,2,4,6] = [1,2,1,3,2,1]
+  if (merge_size * 3 > total_num) { // 重复率 < 3
+    // repetition rate is not very high
+    size_t grid_size = (merge_size - 1) / block_size_ + 1;
+    if (filter_zero) {
+      kernel_fill_restore_idx_filter_zero<<<grid_size,
+                                            block_size_,
+                                            0,
+                                            stream>>>(merge_size, // 去重以后的数量
+                                                      d_keys,     // 去重以后的key 
+                                                      d_sorted_idx, // 每个key原来的idx 
+                                                      d_offset,     // 前缀和
+                                                      d_merged_cnts, // 每个feasign的数量
+                                                      d_restore_idx); // 输出
+    } else {
+      kernel_fill_restore_idx<<<grid_size, block_size_, 0, stream>>>(
+          merge_size, d_sorted_idx, d_offset, d_merged_cnts, d_restore_idx);
+    }
+  } else {
+    size_t grid_size = (total_num - 1) / block_size_ + 1;
+    // mid search
+    kernel_fill_restore_idx_by_search<<<grid_size, block_size_, 0, stream>>>(
+        total_num, d_sorted_idx, merge_size, d_offset, d_restore_idx);  // total_num 所有的feasign数量
+                                                                        // d_sorted_idx 排序以后每个key原来的idx
+                                                                        // merge_size merge以后key的数量
+                                                                        // d_offset 数组
+                                                                        // d_restore_idx kernel输出
+  }
+}
+// ====== hbm optimized =============
 
 template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
 void HeterComm<KeyType, ValType, GradType, GPUAccessor>::set_sparse_sgd(
@@ -1029,7 +1194,9 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::merge_grad(int gpu_num,
                                                                    int& uniq_len) {
   platform::Timer timeline;
   timeline.Start();
+
   int dev_id = resource_->dev_id(gpu_num);
+
   platform::CUDAPlace place = platform::CUDAPlace(dev_id);
   platform::CUDADeviceGuard guard(dev_id);
   auto stream = resource_->local_stream(gpu_num, 0);
@@ -1091,14 +1258,20 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::merge_grad(int gpu_num,
   timeline.Pause();
 
   timeline.Start();
+
   temp_storage_bytes = 0;
+
   PADDLE_ENFORCE_GPU_SUCCESS(cub::DeviceRunLengthEncode::Encode(
       NULL, temp_storage_bytes, d_merge_keys_ptr, d_keys, d_fea_num_info_ptr,
       d_merged_size, len, stream));
+
   if (d_temp_storage->size() < temp_storage_bytes) {
     d_temp_storage = NULL;
     d_temp_storage = memory::Alloc(place, temp_storage_bytes);
   }
+
+  // d_keys保存所有去重后的key,d_fea_num_info_ptr保存每个key的次数
+  // d_merged_size保存key的数量
   PADDLE_ENFORCE_GPU_SUCCESS(cub::DeviceRunLengthEncode::Encode(
       d_temp_storage->ptr(), temp_storage_bytes, d_merge_keys_ptr, d_keys,
       d_fea_num_info_ptr, d_merged_size, len, stream));
@@ -1130,7 +1303,9 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::merge_grad(int gpu_num,
   assert(d_merged_size > 0);
   uint32_t* d_offset = (uint32_t*)&d_index[len];
 
+  // 传入的是每个key的次数,d_offset保存前缀和
   temp_storage_bytes = 0;
+
   PADDLE_ENFORCE_GPU_SUCCESS(cub::DeviceScan::ExclusiveSum(
       NULL, temp_storage_bytes, d_fea_num_info_ptr, d_offset, uniq_len,
       stream));
@@ -1158,6 +1333,7 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::merge_grad(int gpu_num,
       (char*)d_merge_grads_ptr, uniq_len, grad_value_size, merger_, gpu_accessor_);
 
   const size_t grad_dim = max_mf_dim_;
+
   if (grad_dim > 0) {
     int grid_size2 = (uniq_len * grad_dim - 1) / block_size_ + 1;
     merge_gradient_embedx_kernel<<<grid_size2, block_size_, 0, stream>>>(
@@ -1285,8 +1461,10 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::split_input_to_shard(
 
   int total_gpu = resource_->total_gpu();
   int dev_id = resource_->dev_id(gpu_num);
+
   platform::CUDAPlace place = platform::CUDAPlace(dev_id);
   platform::CUDADeviceGuard guard(dev_id);
+
   auto stream = resource_->local_stream(gpu_num, 0);
 
   auto d_idx_tmp = memory::Alloc(place, len * sizeof(int));
@@ -1301,12 +1479,15 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::split_input_to_shard(
   int grid_size = (len - 1) / block_size_ + 1;
   fill_idx<<<grid_size, block_size_, 0, stream>>>(d_idx_tmp_ptr, len);
 
+  // d_shard_index_tmp_ptr保存每个key的shard id
   calc_shard_index<<<grid_size, block_size_, 0, stream>>>(
       d_keys, len, d_shard_index_tmp_ptr, total_gpu);
 
   size_t temp_storage_bytes;
   const int num_bits = 1 + log2i(total_gpu);
 
+  // 对d_shard_index_tmp_ptr进行排序，将结果保存到d_shard_index_ptr
+  // d_idx_ptr保存每个key原来的顺序
   PADDLE_ENFORCE_GPU_SUCCESS(cub::DeviceRadixSort::SortPairs(
       NULL, temp_storage_bytes, d_shard_index_tmp_ptr, d_shard_index_ptr,
       d_idx_tmp_ptr, d_idx_ptr, len, 0, num_bits, stream));
@@ -1359,6 +1540,7 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::pull_sparse(int num,
 
   auto d_shard_keys = memory::Alloc(place, len * sizeof(KeyType));
   KeyType* d_shard_keys_ptr = reinterpret_cast<KeyType*>(d_shard_keys->ptr());
+
   auto d_shard_vals = memory::Alloc(place, len * val_type_size);
   float* d_shard_vals_ptr = reinterpret_cast<float*>(d_shard_vals->ptr());
 
@@ -1387,11 +1569,12 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::pull_sparse(int num,
 
     walk_to_dest(num, total_gpu, h_left, h_right, d_shard_keys_ptr, NULL);
   }
-  std::vector<platform::Timer> time_lines;
-  time_lines.resize(total_gpu);
+
+  // std::vector<platform::Timer> time_lines;
+  // time_lines.resize(total_gpu);
 
   for (int i = 0; i < total_gpu; ++i) {
-    time_lines[i].Start();
+    // time_lines[i].Start();
     if (h_left[i] == -1) {
       continue;
     }
@@ -1443,8 +1626,8 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::pull_sparse(int num,
       continue;
     }
     ptr_tables_[i]->rwlock_->UNLock();
-    time_lines[i].Pause();
-    mg_time_2[i] += time_lines[i].ElapsedSec();
+    // time_lines[i].Pause();
+    // mg_time_2[i] += time_lines[i].ElapsedSec();
   }
 
   if (!direct_access_) {
@@ -1556,6 +1739,8 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::push_sparse(int gpu_num
         d_shard_keys_ptr, d_keys, d_shard_grads_ptr, d_grads, d_idx_ptr,
         uniq_len, grad_value_size, gpu_accessor_);
 
+  // d_shard_keys_ptr 是d_keys按照shard id排序后的结果，同理，d_shard_grads_ptr也是
+
   cudaMemcpyAsync(h_left, d_left_ptr, total_gpu * sizeof(int),
              cudaMemcpyDeviceToHost, stream);
   cudaMemcpyAsync(h_right, d_right_ptr, total_gpu * sizeof(int),
@@ -1574,11 +1759,11 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::push_sparse(int gpu_num
   walk_to_dest(gpu_num, total_gpu, h_left, h_right, d_shard_keys_ptr,
                reinterpret_cast<char*>(d_shard_grads_ptr), grad_value_size);
 
-  std::vector<platform::Timer> time_lines;
-  time_lines.resize(total_gpu);
+  // std::vector<platform::Timer> time_lines;
+  // time_lines.resize(total_gpu);
 
   for (int i = 0; i < total_gpu; ++i) {
-    time_lines[i].Start();
+    // time_lines[i].Start();
     if (h_left[i] == -1 || h_right[i] == -1) {
       continue;
     }
@@ -1595,13 +1780,13 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::push_sparse(int gpu_num
   for (int i = 0; i < total_gpu; ++i) {
     cudaStreamSynchronize(resource_->remote_stream(i, gpu_num));
     if (h_left[i] != -1) {
-      if (!multi_mf_dim_) {
-        tables_[i]->rwlock_->UNLock();
-      } else {
-        ptr_tables_[i]->rwlock_->UNLock();
-      }
-      time_lines[i].Pause();
-      mg_time_3[i] += time_lines[i].ElapsedSec();
+      // if (!multi_mf_dim_) {
+      //  tables_[i]->rwlock_->UNLock();
+      //} else {
+      ptr_tables_[i]->rwlock_->UNLock();
+      // }
+      // time_lines[i].Pause();
+      // mg_time_3[i] += time_lines[i].ElapsedSec();
     }
   }
   for (int i = 0; i < total_gpu; ++i) {
@@ -1624,8 +1809,10 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::update_one_table(
   int dev_id = resource_->dev_id(gpu_num);
   platform::CUDADeviceGuard guard(dev_id);
   ptr_tables_[gpu_num]->rwlock_->WRLock();
+  // ptr_tables_[gpu_num]->update(d_keys, reinterpret_cast<char*>(d_grads), len, sgd,
+  //                         resource_->remote_stream(gpu_num, gpu_num));
   ptr_tables_[gpu_num]->update(d_keys, reinterpret_cast<char*>(d_grads), len, sgd,
-                           resource_->remote_stream(gpu_num, gpu_num));
+                           resource_->remote_stream(gpu_num, gpu_num), dev_id);
   ptr_tables_[gpu_num]->rwlock_->UNLock();
   cudaStreamSynchronize(resource_->remote_stream(gpu_num, gpu_num));
 }
@@ -1638,13 +1825,20 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::push_sparse_multi_node(
   if (len == 0) {
     return;
   }
+
   platform::Timer time_line;
   time_line.Start();
   int uniq_len = len;
+
   // VLOG(0) << "yxf::multinode merge grad start: len: " << len << "uniq len: " << uniq_len << " gpunum: " << gpu_num;
-  merge_grad(gpu_num, d_keys, d_grads, NULL, len, uniq_len);
+  if (!FLAGS_gpups_dedup_pull_push_mode) {
+    merge_grad(gpu_num, d_keys, d_grads, NULL, len, uniq_len);
+  }
+  // d_keys, d_grads 都是排序去重以后的了,uniq_len也是去重以后的长度
+
   time_line.Pause();
-  mg_time_13[gpu_num] += time_line.ElapsedSec();
+  // mg_time_13[gpu_num] += time_line.ElapsedSec();
+
   // VLOG(0) << "yxf:: mergelen: " << len << " uniq_len: " << uniq_len;
   // char* test_grad_values =
   //     (char*)malloc(grad_type_size_ * uniq_len);
@@ -1672,9 +1866,13 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::push_sparse_multi_node(
 
   // VLOG(0) << "yxf::multinode merge grad done: len: " << len << "uniq len: " << uniq_len << " gpunum: " << gpu_num;
   time_line.Start();
+
+  // 将所有卡上shard id为gpu_num的key，排序，去重, uniq_len就是去重以后的长度，然后去重以后的key和grad保存在
+  // storage_[gpu_num].local_keys和local_grads
   uniq_len = gather_one_node_grad_v2(gpu_num, d_keys, d_grads, uniq_len);
+
   time_line.Pause();
-  mg_time_10[gpu_num] += time_line.ElapsedSec();
+  // mg_time_10[gpu_num] += time_line.ElapsedSec();
   // VLOG(0) << "yxf::multinode gather_one_node_grad done: uniq len: " << uniq_len << " gpunum: " << gpu_num;
   
   // test_grad_values =
@@ -1698,7 +1896,11 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::push_sparse_multi_node(
   // }
   // free(test_grad_values);
   // free(test_grad_keys);
+
   time_line.Start();
+
+  // 对2,3,4,5卡和其余卡采取的逻辑不同
+  // 
   if (gpu_num >= 2 && gpu_num <= 5) {
     uniq_len = gather_multi_node_grad(gpu_num, storage_[gpu_num].local_keys,
                                   storage_[gpu_num].local_grads, uniq_len);
@@ -1708,8 +1910,8 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::push_sparse_multi_node(
   }
   
   time_line.Pause();
-  mg_time_11[gpu_num] += time_line.ElapsedSec();
-  // VLOG(0) << "yxf::multinode gather_multi_node_grad done: uniq len: " << uniq_len << " gpunum: " << gpu_num;
+  //mg_time_11[gpu_num] += time_line.ElapsedSec();
+  VLOG(3) << "yxf::multinode gather_multi_node_grad done: uniq len: " << uniq_len << " gpunum: " << gpu_num;
   
   // test_grad_values =
   //     (char*)malloc(grad_type_size_ * uniq_len);
@@ -1733,28 +1935,37 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::push_sparse_multi_node(
   // }
   // free(test_grad_values);
   // free(test_grad_keys);
+
+  // uniq_len是gpu_num卡所有机器上的grads排序去重以后的数据长度
+  // 
   time_line.Start();
   update_one_table(gpu_num, storage_[gpu_num].local_keys,
                    storage_[gpu_num].local_grads, uniq_len, sgd);
   time_line.Pause();
-  mg_time_12[gpu_num] += time_line.ElapsedSec();
-  // VLOG(0) << "yxf::multinode update_one_table done: uniq len: " << uniq_len << " gpunum: " << gpu_num;
+  // mg_time_12[gpu_num] += time_line.ElapsedSec();
+  VLOG(3) << "yxf::multinode update_one_table done: uniq len: " << uniq_len << " gpunum: " << gpu_num;
 }
 
+// uniq_len = gather_one_node_grad_v2(gpu_num, d_keys, d_grads, uniq_len);
 template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
 int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_one_node_grad_v2(
     int gpu_num, KeyType* d_keys, GradType* d_grads, int len) {
 
   platform::Timer time_line;
+
   time_line.Start();
   int total_gpu = resource_->total_gpu();
   int dev_id = resource_->dev_id(gpu_num);
+
+
+
   auto& storage = storage_[gpu_num];
+
   platform::CUDAPlace place = platform::CUDAPlace(dev_id);
   platform::CUDADeviceGuard guard(dev_id);
   auto stream = resource_->local_stream(gpu_num, 0);
 
-  VLOG(0) << "in gather one node grad v2";
+  // VLOG(0) << "in gather one node grad v2";
 
   // size_t grad_value_size =
   //    TYPEALIGN(8, sizeof(FeaturePushValue) + (max_mf_dim_ * sizeof(float)));
@@ -1763,8 +1974,7 @@ int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_one_node_grad_v2(
   size_t grad_value_size =
       accessor_wrapper_ptr->GetPushValueSize(max_mf_dim_);
 
-
-  VLOG(0) << "before alloc memory";
+  // VLOG(0) << "before alloc memory";
   // split keys grad in shard in current gpu 
 
   auto h_left_alloc = memory::Alloc(phi::GPUPinnedPlace(), sizeof(int) * total_gpu);
@@ -1779,6 +1989,7 @@ int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_one_node_grad_v2(
 
   cudaMemsetAsync(d_left_ptr, -1, total_gpu * sizeof(int), stream);
   cudaMemsetAsync(d_right_ptr, -1, total_gpu * sizeof(int), stream);
+
   auto d_idx = memory::Alloc(place, len * sizeof(int));
   int* d_idx_ptr = reinterpret_cast<int*>(d_idx->ptr());
 
@@ -1788,13 +1999,16 @@ int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_one_node_grad_v2(
   auto d_shard_grads = memory::Alloc(place, len * grad_value_size);
   GradType* d_shard_grads_ptr = reinterpret_cast<GradType*>(d_shard_grads->ptr());
 
-  VLOG(0) << "after alloc memory";
+  // VLOG(0) << "after alloc memory";
   size_t grid_size = (len - 1) / block_size_ + 1;
 
   split_input_to_shard(d_keys, d_idx_ptr, len, d_left_ptr, d_right_ptr,
                        gpu_num);
 
-  VLOG(0) << "after split input to shard";
+  // left, right 保存每张卡上的左右边界，比如10个key,如果前三个key,shard id分别是0 0 1, 那么left[0] = 0, right[0] = 1
+  // d_idx_ptr保存每个key原来的在d_keys上的顺序
+
+  // VLOG(0) << "after split input to shard";
 
   cudaMemcpyAsync(h_left, d_left_ptr, total_gpu * sizeof(int),
              cudaMemcpyDeviceToHost, stream);
@@ -1805,19 +2019,26 @@ int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_one_node_grad_v2(
   dim3 block_dims(32, 32);
   grid_size = (len - 1) / 32 + 1; 
   dim3 grid_dims(grid_size);
+
   dy_mf_fill_shard_grads<<<grid_dims, block_dims, 0, stream>>>(
       d_shard_keys_ptr, d_keys, d_shard_grads_ptr, d_grads, d_idx_ptr,
       len, grad_value_size, gpu_accessor_);
 
-  VLOG(0) << "after dymf fill shard grads";
+  // d_shard_keys_ptr 是d_keys按照shard id排序后的结果，同理，d_shard_grads_ptr也是
+  // VLOG(0) << "after dymf fill shard grads";
 
   PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
+
   // split keys grad in shard in current gpu end 
   storage.h_local_left = h_left;
   storage.h_local_right = h_right;
+
   storage.tmp_local_keys = d_shard_keys_ptr;
   storage.tmp_local_grads = (char*)d_shard_grads_ptr;
 
+
+  // 每张卡都会有一份
+  //
   int h_merge_offset[total_gpu];
   int h_merge_len[total_gpu];
 
@@ -1825,31 +2046,44 @@ int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_one_node_grad_v2(
   size_t inter_len = 0;
 
   time_line.Pause();
-  mg_time_14[gpu_num] += time_line.ElapsedSec();
+  // mg_time_14[gpu_num] += time_line.ElapsedSec();
   time_line.Start();
 
-  h_barrier.wait();
+  h_barrier.wait(); // 8卡全部走到这里
   
   time_line.Pause();
-  mg_time_1[gpu_num] += time_line.ElapsedSec();
+  // mg_time_1[gpu_num] += time_line.ElapsedSec();
   time_line.Start();
 
+  // 8卡barrier以后, storage_都填充满了
+  // 没张卡的storage的h_local_left, h_local_right都有
   for (int i = 0; i < total_gpu; ++i) {
+
     auto& cur_storage = storage_[i];
-    h_merge_offset[i] = cur_offset;
-    h_merge_len[i] = cur_storage.h_local_right[gpu_num] - cur_storage.h_local_left[gpu_num] + 1;
+
+    h_merge_offset[i] = cur_offset; // 0
+    h_merge_len[i] = cur_storage.h_local_right[gpu_num] - cur_storage.h_local_left[gpu_num] + 1; // 第i张卡上分shard到第gpu_num号卡上的数据量
+
     cur_offset += h_merge_len[i];
     inter_len += h_merge_len[i];
-  }
-  VLOG(0) << "after merge" << inter_len;
 
+  }
+
+  // inter_len是分配到gpu_num号卡上的所有数据总长度
+  // VLOG(0) << "after merge" << inter_len;
 
   storage.alloc_for_inter_copy(inter_len);
-  
-  VLOG(0) << "after alloc_for_inter_copy" << inter_len;
 
+  // 更新了storage里的local keys和local grads
+
+  // VLOG(0) << "gpu_num:" << gpu_num << " after alloc_for_inter_copy" << inter_len << " grad value size:" << grad_value_size;
+  // VLOG(0) << "gpu_num: " << gpu_num << " h_merge_offset:" << h_merge_offset[0] << " " << h_merge_offset[1] <<  " " << h_merge_offset[2] << " " << h_merge_offset[3] << " " << h_merge_offset[4] << " " << h_merge_offset[5] << " " << h_merge_offset[6] << " " << h_merge_offset[7];
+  // VLOG(0) << "gpu_num: " << gpu_num << " h_merge_len:" << h_merge_len[0] << " " << h_merge_len[1] << " " << h_merge_len[2] << " " << h_merge_len[3] << " " << h_merge_len[4] << " " << h_merge_len[5] << " " << h_merge_len[6] << " " << h_merge_len[7];
+  // VLOG(0) << "gpu_num: " << gpu_num << " h_local_left: " << storage_[0].h_local_left[gpu_num] << " " << storage_[1].h_local_left[gpu_num] << " " << storage_[2].h_local_left[gpu_num] << " " << storage_[3].h_local_left[gpu_num] << " " << storage_[4].h_local_left[gpu_num]
+  //        << " " << storage_[5].h_local_left[gpu_num] << " " << storage_[6].h_local_left[gpu_num] << " " << storage_[7].h_local_left[gpu_num];
+
+  // 把所有应该放到gpu_num卡上的数据都拷贝过来
   for (int i = 0; i < total_gpu; i++) {
-
 
     auto& cur_storage = storage_[i];
 
@@ -1869,18 +2103,22 @@ int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_one_node_grad_v2(
   for (int i = 0; i < total_gpu; i++) {
     cudaStreamSynchronize(resource_->remote_stream(gpu_num, i));
   }
-  VLOG(0) << "after memory copy async";
+
+  // VLOG(0) << "after memory copy async";
 
   time_line.Pause();
-  mg_time_4[gpu_num] += time_line.ElapsedSec();
+  // mg_time_4[gpu_num] += time_line.ElapsedSec();
 
   time_line.Start();
   int ret = inter_len;
+
+  // 拷贝过来以后，再做一次merge_grad, ret就是最后去重以后的key数量，最后去重以后的key, grads,保存在storage.local_keys和storage.local_grads
+  // 
   merge_grad(gpu_num, storage.local_keys, storage.local_grads, NULL, inter_len, ret);
   time_line.Pause();
-  mg_time_6[gpu_num] += time_line.ElapsedSec();
+  // mg_time_6[gpu_num] += time_line.ElapsedSec();
   h_barrier.wait();
-  VLOG(0) << "before wait";
+  // VLOG(0) << "before wait";
   return ret;
   // storage.gather_one_node_len = ret;
 
@@ -1940,7 +2178,7 @@ int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_multi_node_grad_v
 
   cudaMemcpy(d_node_len, h_node_len, sizeof(int), cudaMemcpyHostToDevice);
   time_line.Pause();
-  mg_time_15[gpu_num] += time_line.ElapsedSec();
+  // mg_time_15[gpu_num] += time_line.ElapsedSec();
   time_line.Start();
   // auto d_nccl_rank_mem = memory::Alloc(place, sizeof(int));
   // int* d_nccl_rank = reinterpret_cast<int*>(d_nccl_rank_mem->ptr());
@@ -1965,7 +2203,7 @@ int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_multi_node_grad_v
     }
     
     time_line.Pause();
-    mg_time_7[gpu_num] += time_line.ElapsedSec();
+    // mg_time_7[gpu_num] += time_line.ElapsedSec();
     time_line.Start();
     
     // test all gather with different send len
@@ -1983,7 +2221,7 @@ int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_multi_node_grad_v
   }
   
   time_line.Pause();
-  mg_time_8[gpu_num] += time_line.ElapsedSec();
+  // mg_time_8[gpu_num] += time_line.ElapsedSec();
   
   return 0;
 }
@@ -2070,7 +2308,7 @@ int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_one_node_grad(
              cudaMemcpyHostToDevice);
 
   time_line.Pause();
-  mg_time_14[gpu_num] += time_line.ElapsedSec();
+  // mg_time_14[gpu_num] += time_line.ElapsedSec();
   time_line.Start();
   // allgather grad len
   PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclGroupStart());
@@ -2081,7 +2319,7 @@ int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_one_node_grad(
   PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclGroupEnd());
   PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
   time_line.Pause();
-  mg_time_4[gpu_num] += time_line.ElapsedSec();
+  // mg_time_4[gpu_num] += time_line.ElapsedSec();
   time_line.Start();
   cudaMemcpy(h_node_len, d_node_len, sizeof(int) * total_gpu,
              cudaMemcpyDeviceToHost);
@@ -2113,7 +2351,7 @@ int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_one_node_grad(
   // PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
   // VLOG(0) << "yxffff: end two nccl: gpu: " << gpu_num << " max_size: " << max_size << " size: " << max_size * grad_type_size_;
   time_line.Pause();
-  mg_time_5[gpu_num] += time_line.ElapsedSec();
+  // mg_time_5[gpu_num] += time_line.ElapsedSec();
   time_line.Start();
   int h_left[total_gpu];   // NOLINT
   int h_right[total_gpu];  // NOLINT
@@ -2165,30 +2403,37 @@ int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_one_node_grad(
   // VLOG(0) << "yxf gather one node keys done grad_type_size_: " << grad_type_size_;
   int ret = merge_num;
   time_line.Pause();
-  mg_time_1[gpu_num] += time_line.ElapsedSec();
+  // mg_time_1[gpu_num] += time_line.ElapsedSec();
   time_line.Start();
   merge_grad(gpu_num, storage.local_keys, storage.local_grads, NULL, merge_num, ret);
   time_line.Pause();
-  mg_time_6[gpu_num] += time_line.ElapsedSec();
+  // mg_time_6[gpu_num] += time_line.ElapsedSec();
   return ret;
 }
 
 template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
 int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_multi_node_grad_v4(
     int gpu_num, KeyType* d_keys, GradType* d_grads, int len) {
+
   platform::Timer time_line;
   time_line.Start();
   int dev_id = resource_->dev_id(gpu_num);
-  int trans_id = (dev_id + 4) % 8;
+  int trans_id = (dev_id + 4) % 8; // 0卡先拷贝到4卡，1卡先拷贝到5卡, 6卡先拷贝到2卡，7卡先拷贝到3卡
+
   auto& storage = storage_[gpu_num];
-  auto& trans_storage = storage_[trans_id];
+  auto& trans_storage = storage_[trans_id]; // 拿到需要拷贝到该卡的storage
+
   platform::CUDAPlace place = platform::CUDAPlace(trans_id);
   platform::CUDADeviceGuard guard(trans_id);
   // VLOG(0) << "yxfff: trans_id: " << trans_id << " gpu num: " << gpu_num << " devid: " << dev_id;
   auto stream = resource_->local_stream(gpu_num, 0);
   auto trans_stream = resource_->remote_stream(trans_id, gpu_num);
+
   int max_size = 0;
+
+  // 用的还是transid的inter comm
   ncclComm_t nccl_inter_comm = nccl_trans_inter_comms_[trans_id];
+
   // alloc for size
   int h_node_len[node_size_];  // NOLINT
   auto d_node_len_mem = memory::Alloc(place, node_size_ * sizeof(int));
@@ -2197,7 +2442,7 @@ int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_multi_node_grad_v
 
   cudaMemcpy(d_node_len, h_node_len, sizeof(int), cudaMemcpyHostToDevice);
   time_line.Pause();
-  mg_time_15[gpu_num] += time_line.ElapsedSec();
+  // mg_time_15[gpu_num] += time_line.ElapsedSec();
   time_line.Start();
   // auto d_nccl_rank_mem = memory::Alloc(place, sizeof(int));
   // int* d_nccl_rank = reinterpret_cast<int*>(d_nccl_rank_mem->ptr());
@@ -2211,8 +2456,10 @@ int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_multi_node_grad_v
       d_node_len, d_node_len, 1, ncclInt, nccl_inter_comm, trans_stream));
   PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclGroupEnd());
   PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(trans_stream));
+
   cudaMemcpy(h_node_len, d_node_len, sizeof(int) * node_size_,
              cudaMemcpyDeviceToHost);
+
   // VLOG(0) << "yxfff00 " << h_node_len[0] << " | " << h_node_len[1];
   for (int i = 0; i < node_size_; ++i) {
     if (h_node_len[i] > max_size) {
@@ -2221,12 +2468,13 @@ int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_multi_node_grad_v
   }
   
   time_line.Pause();
-  mg_time_7[gpu_num] += time_line.ElapsedSec();
+  // mg_time_7[gpu_num] += time_line.ElapsedSec();
   time_line.Start();
   
   // test all gather with different send len
   // VLOG(0) << "yxfff44";
   // storage_[trans_id].alloc_in_transfer(max_size * node_size_);
+  // hetercomm初始化的时候，预留了一定空间fea_num_
   if (max_size * node_size_ > trans_keys[trans_id]->size()) {
     VLOG(0) << "yxfff55" << "cur size: " << max_size * node_size_ << " ori size: " << trans_keys[trans_id]->size();
     trans_keys[trans_id].reset();
@@ -2234,13 +2482,18 @@ int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_multi_node_grad_v
     trans_keys[trans_id] = memory::Alloc(place, max_size * node_size_ * sizeof(KeyType));
     trans_grads[trans_id] = memory::Alloc(place, max_size * node_size_ * grad_type_size_);
   }
+
   // auto trans_all_keys_mem = memory::Alloc(place, max_size * node_size_ * sizeof(KeyType));
   // // VLOG(0) << "yxf LocalStorage111 alloc grad size: " << grad_type_size_;
   // auto trans_all_grads_mem = memory::Alloc(place, max_size * node_size_ * grad_type_size_);
   auto* trans_all_keys = reinterpret_cast<KeyType*>(trans_keys[trans_id]->ptr());
   auto* trans_all_grads = reinterpret_cast<GradType*>(trans_grads[trans_id]->ptr());
+
   // VLOG(0) << "yxfff33";
   // storage.alloc(max_size * node_size_);
+
+
+  // 先把当前卡的数据拷贝到trans_id对应的卡上
   cudaMemcpyAsync((char*)(trans_all_keys), (char*)d_keys,
                      len * sizeof(KeyType), cudaMemcpyDefault, trans_stream);
   cudaMemcpyAsync((char*)(trans_all_grads), (char*)d_grads,
@@ -2276,10 +2529,12 @@ int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_multi_node_grad_v
       nccl_inter_comm, trans_stream));
   PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclGroupEnd());
   PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(trans_stream));
+
   // VLOG(0) << "yxfff11";
   time_line.Pause();
-  mg_time_8[gpu_num] += time_line.ElapsedSec();
+  // mg_time_8[gpu_num] += time_line.ElapsedSec();
   time_line.Start();
+
   // copy from trans gpu to current gpu
   guard.SetDeviceIndex(dev_id);
   storage.alloc_for_data_transfer_nccl(max_size * node_size_);
@@ -2299,7 +2554,7 @@ int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_multi_node_grad_v
   int ret = merge_num;
   merge_grad(gpu_num, storage.local_keys, storage.local_grads, NULL, merge_num, ret);
   time_line.Pause();
-  mg_time_9[gpu_num] += time_line.ElapsedSec();
+  // mg_time_9[gpu_num] += time_line.ElapsedSec();
   return ret;
 }
 
@@ -2332,7 +2587,7 @@ int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_multi_node_grad_v
   // VLOG(0) << "yxf11";
 
   time_line.Pause();
-  mg_time_15[gpu_num] += time_line.ElapsedSec();
+  // mg_time_15[gpu_num] += time_line.ElapsedSec();
   time_line.Start();
   // auto d_nccl_rank_mem = memory::Alloc(place, sizeof(int));
   // int* d_nccl_rank = reinterpret_cast<int*>(d_nccl_rank_mem->ptr());
@@ -2356,7 +2611,7 @@ int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_multi_node_grad_v
   }
   
   time_line.Pause();
-  mg_time_7[gpu_num] += time_line.ElapsedSec();
+  // mg_time_7[gpu_num] += time_line.ElapsedSec();
   time_line.Start();
   // VLOG(0) << "yxf22";
   // test all gather with different send len
@@ -2393,47 +2648,64 @@ int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_multi_node_grad_v
   PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
   // VLOG(0) << "yxf44";
   time_line.Pause();
-  mg_time_8[gpu_num] += time_line.ElapsedSec();
+  // mg_time_8[gpu_num] += time_line.ElapsedSec();
   return 0;
 }
 
 template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
 int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_multi_node_grad(
     int gpu_num, KeyType* d_keys, GradType* d_grads, int len) {
+
   platform::Timer time_line;
   time_line.Start();
   int dev_id = resource_->dev_id(gpu_num);
+
   auto& storage = storage_[gpu_num];
   platform::CUDAPlace place = platform::CUDAPlace(dev_id);
   platform::CUDADeviceGuard guard(dev_id);
   auto stream = resource_->local_stream(gpu_num, 0);
+
+
   int max_size = 0;
   ncclComm_t nccl_inter_comm = nccl_inter_comms_[gpu_num];
+
   // alloc for size
   int h_node_len[node_size_];  // NOLINT
+
   auto d_node_len_mem = memory::Alloc(place, node_size_ * sizeof(int));
   int* d_node_len = reinterpret_cast<int*>(d_node_len_mem->ptr());
+
   h_node_len[0] = len;
 
   cudaMemcpy(d_node_len, h_node_len, sizeof(int), cudaMemcpyHostToDevice);
   time_line.Pause();
-  mg_time_15[gpu_num] += time_line.ElapsedSec();
+
+  // mg_time_15[gpu_num] += time_line.ElapsedSec();
   time_line.Start();
+
   // auto d_nccl_rank_mem = memory::Alloc(place, sizeof(int));
   // int* d_nccl_rank = reinterpret_cast<int*>(d_nccl_rank_mem->ptr());
   // PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclCommUserRank(nccl_inter_comm, d_nccl_rank));
   // int h_nccl_rank[1];  // NOLINT
   // cudaMemcpy(h_nccl_rank, d_nccl_rank, sizeof(int), cudaMemcpyDeviceToHost);
 
+
   // allgather grad len
   PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclGroupStart());
+
   PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclAllGather(
       d_node_len, d_node_len, 1, ncclInt, nccl_inter_comm, stream));
+
   PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclGroupEnd());
+
   PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
+
   cudaMemcpy(h_node_len, d_node_len, sizeof(int) * node_size_,
              cudaMemcpyDeviceToHost);
 
+  // 两机都拿到d_node_len,然后拷贝到h_node_len,两机的h_node_len是一样的
+  // 然后拿一个最大值
+  //
   for (int i = 0; i < node_size_; ++i) {
     if (h_node_len[i] > max_size) {
       max_size = h_node_len[i];
@@ -2441,9 +2713,10 @@ int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_multi_node_grad(
   }
   
   time_line.Pause();
-  mg_time_7[gpu_num] += time_line.ElapsedSec();
+  // mg_time_7[gpu_num] += time_line.ElapsedSec();
   time_line.Start();
   
+  // 分配空间用来存储多机allgather以后的所有数据
   // test all gather with different send len
   storage.alloc_for_multi_node_nccl(max_size * node_size_);
   // storage.alloc(max_size * node_size_);
@@ -2473,10 +2746,11 @@ int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_multi_node_grad(
   PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclAllGather(
       (void*)(d_grads), (void*)storage.all_grads, max_size * grad_type_size_, ncclUint8,
       nccl_inter_comm, stream));
+
   PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclGroupEnd());
   PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
   time_line.Pause();
-  mg_time_8[gpu_num] += time_line.ElapsedSec();
+  // mg_time_8[gpu_num] += time_line.ElapsedSec();
   time_line.Start();
   // //test all gather time
 
@@ -2490,23 +2764,35 @@ int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_multi_node_grad(
   // PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclGroupEnd());
   // PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
 
+
+  // 把所有机器数据又拷贝回storage.local_keys和storage.local_grads
+  //
   // //test all gather time end
   int merge_num = 0;
   for (int i = 0; i < node_size_; ++i) {
+
     int index = i * max_size;
+
     char* current_local_grads = (char*)(storage.local_grads) + merge_num * grad_type_size_;
     char* current_all_grads = (char*)(storage.all_grads) + index * grad_type_size_;
+
     cudaMemcpyAsync(storage.local_keys + merge_num, storage.all_keys + index,
                     h_node_len[i] * sizeof(KeyType), cudaMemcpyDefault, stream);
+
     cudaMemcpyAsync(current_local_grads, current_all_grads,
                     h_node_len[i] * grad_type_size_, cudaMemcpyDefault, stream);
+
     merge_num += h_node_len[i];
     // VLOG(0) << "yxf end4444: i: " << i << " index: " << index << " merge_num: " << merge_num;
   }
+
+  // 然后又排序，去重,然后storage.local_keys,就是所有机器，gpu_num卡上的grads数据了，然后就是去更新hashtable
+  // 
   int ret = merge_num;
   merge_grad(gpu_num, storage.local_keys, storage.local_grads, NULL, merge_num, ret);
+
   time_line.Pause();
-  mg_time_9[gpu_num] += time_line.ElapsedSec();
+  // mg_time_9[gpu_num] += time_line.ElapsedSec();
   return ret;
 }
 
@@ -2620,7 +2906,7 @@ int HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_multi_node_grad_v
   PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclGroupEnd());
   PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
   time_line.Pause();
-  mg_time_7[gpu_num] += time_line.ElapsedSec();
+  // mg_time_7[gpu_num] += time_line.ElapsedSec();
 
 
   // calculaye len with different mf dim end
@@ -2647,6 +2933,173 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::end_pass() {
       t.join();
     }
   }
+}
+
+/*
+      uint32_t* d_restore_idx =
+          reinterpret_cast<uint32_t*>(&key2slot[total_length]);
+      uint32_t* d_sorted_idx =
+          reinterpret_cast<uint32_t*>(&d_restore_idx[total_length]);
+      uint32_t* d_offset =
+          reinterpret_cast<uint32_t*>(&d_sorted_idx[total_length]);
+      uint32_t* d_merged_cnts =
+          reinterpret_cast<uint32_t*>(&d_offset[total_length]);
+
+      uint64_t* d_merged_keys =
+          reinterpret_cast<uint64_t*>(&total_keys[total_length]);
+      uint64_t* d_sorted_keys =
+          reinterpret_cast<uint64_t*>(&d_merged_keys[total_length]);
+
+      int dedup_size = HeterPs_->dedup_keys_and_fillidx(
+          devid_2_index,
+          static_cast<int>(total_length),
+          total_keys,     // input
+          d_merged_keys,  // output
+          d_sorted_keys,  // sort keys
+          d_restore_idx,  // pull fill idx
+          d_sorted_idx,   // sort old idx
+          d_offset,       // offset
+          d_merged_cnts,
+          FLAGS_gpups_dedup_pull_push_mode & 0x02);
+*/
+
+template <typename KeyType,
+          typename ValType,
+          typename GradType, typename GPUAccessor>
+int HeterComm<KeyType, ValType, GradType, GPUAccessor>::dedup_keys_and_fillidx(
+    const int gpu_id,
+    const int total_fea_num, // 所有的feasign 
+    const KeyType* d_keys,   // input
+    KeyType* d_merged_keys,  // output
+    KeyType* d_sorted_keys,
+    uint32_t* d_restore_idx,
+    uint32_t* d_sorted_idx,
+    uint32_t* d_offset,
+    uint32_t* d_merged_cnts,
+    bool filter_zero) { // true
+
+  int dev_id = resource_->dev_id(gpu_id);
+  platform::CUDAPlace place = platform::CUDAPlace(dev_id);
+  platform::CUDADeviceGuard guard(dev_id);
+
+  auto stream = resource_->local_stream(gpu_id, 0);
+
+  assert(total_fea_num > 0);
+  int merged_size = 0;
+
+  // 最后一个uint32_t保存d_merged_size
+  size_t byte_size = sizeof(uint32_t) * (total_fea_num + 1);
+
+  auto d_index_ptr = memory::Alloc(place, byte_size);
+  uint32_t* d_index_in = reinterpret_cast<uint32_t*>(d_index_ptr->ptr());
+  int* d_merged_size = reinterpret_cast<int*>(&d_index_in[total_fea_num]);
+
+  // heter_comm_kernel_->fill_idx(d_index_in, total_fea_num, stream);
+  int grid_size = (total_fea_num - 1) / block_size_ + 1;
+
+  // 从0开始 
+  fill_idx<<<grid_size, block_size_, 0, stream>>>(d_index_in, total_fea_num);
+
+  void* d_buf = NULL;
+  size_t temp_storage_bytes = 0;
+
+  PADDLE_ENFORCE_GPU_SUCCESS(
+      cub::DeviceRadixSort::SortPairs(NULL,
+                                      temp_storage_bytes,
+                                      d_keys,
+                                      d_sorted_keys,
+                                      d_index_in,
+                                      d_sorted_idx,
+                                      total_fea_num,
+                                      0,
+                                      8 * sizeof(KeyType),
+                                      stream,
+                                      false));
+  auto d_cache_ptr = memory::Alloc(place, temp_storage_bytes);
+  d_buf = reinterpret_cast<int*>(d_cache_ptr->ptr());
+  PADDLE_ENFORCE_GPU_SUCCESS(
+      cub::DeviceRadixSort::SortPairs(d_buf,
+                                      temp_storage_bytes,
+                                      d_keys,
+                                      d_sorted_keys,
+                                      d_index_in,
+                                      d_sorted_idx,
+                                      total_fea_num,
+                                      0,
+                                      8 * sizeof(KeyType),
+                                      stream,
+                                      false));
+
+  // 把d_keys排序后放在d_sorted_keys
+  // 对应的index放在d_sorted_idx
+
+  PADDLE_ENFORCE_GPU_SUCCESS(
+      cub::DeviceRunLengthEncode::Encode(NULL,
+                                         temp_storage_bytes,
+                                         d_sorted_keys,
+                                         d_merged_keys,
+                                         d_merged_cnts,
+                                         d_merged_size,
+                                         total_fea_num,
+                                         stream));
+  if (d_cache_ptr->size() < temp_storage_bytes) {
+    d_cache_ptr = NULL;
+    d_cache_ptr = memory::Alloc(place, temp_storage_bytes);
+  }
+  d_buf = reinterpret_cast<int*>(d_cache_ptr->ptr());
+  PADDLE_ENFORCE_GPU_SUCCESS(
+      cub::DeviceRunLengthEncode::Encode(d_buf,
+                                         temp_storage_bytes,
+                                         d_sorted_keys,
+                                         d_merged_keys,
+                                         d_merged_cnts,
+                                         d_merged_size,
+                                         total_fea_num,
+                                         stream));
+  // 去重以后的key放在d_merged_keys
+  // 每个key出现的次数放在d_merged_cnts
+  // 去重以后的key个数放在d_merged_size
+  PADDLE_ENFORCE_GPU_SUCCESS(cudaMemcpyAsync((void*)&merged_size,
+                                             (void*)d_merged_size,
+                                             sizeof(int),
+                                             cudaMemcpyDeviceToHost,
+                                             stream));
+  PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
+
+  PADDLE_ENFORCE_GPU_SUCCESS(cub::DeviceScan::ExclusiveSum(
+      NULL, temp_storage_bytes, d_merged_cnts, d_offset, merged_size, stream));
+
+  if (d_cache_ptr->size() < temp_storage_bytes) {
+    d_cache_ptr = NULL;
+    d_cache_ptr = memory::Alloc(place, temp_storage_bytes);
+  }
+  d_buf = reinterpret_cast<int*>(d_cache_ptr->ptr());
+  PADDLE_ENFORCE_GPU_SUCCESS(cub::DeviceScan::ExclusiveSum(
+      d_buf, temp_storage_bytes, d_merged_cnts, d_offset, merged_size, stream));
+
+  // d_offset是d_merged_cnts的前缀和
+  // [8,6,7,5,3,0,9] -> [0, 8, 14, 21, 26, 29, 29]
+
+  // 初始化为0
+  //
+  if (filter_zero) {
+    cudaMemsetAsync(d_restore_idx, 0, total_fea_num * sizeof(uint32_t), stream);
+  }
+  // fill restore idx [1,3,5,2,4,6] = [1,2,1,3,2,1]
+  fill_restore_idx(filter_zero,
+                   total_fea_num,
+                   merged_size,   // 去重以后的feasign数
+                   d_merged_keys, // 去重以后的key
+                   d_sorted_idx,  // 排序以后，保存每个key原来的idx 
+                   d_offset,      // 保存每个feasign的数量的数组的前缀和数组
+                   d_merged_cnts, // 每个feasign的数量
+                   d_restore_idx, // 输出
+                   stream);
+
+  PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
+
+  return merged_size;
+  
 }
 
 // template <typename KeyType, typename ValType, typename GradType>

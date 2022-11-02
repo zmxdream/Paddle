@@ -288,18 +288,22 @@ public:
 
         ptr[gpu_accessor_.common_feature_value.MfSizeIndex()] =
           gpu_accessor_.common_feature_value.MFSize(ptr_mf_dim) / sizeof(float);
-
+ 
+        // get embedxw index
+        int embedx_w_index = gpu_accessor_.common_feature_value.EmbedxWOffsetIndex(ptr);
+        
         for (int i = 0; i < ptr_mf_dim; ++i) {
-          ptr[gpu_accessor_.common_feature_value.EmbedxWIndex() + i] =
+          ptr[embedx_w_index + i] =
             (curand_uniform(&state)) * optimizer_config.mf_initial_range;
           ptr[gpu_accessor_.common_feature_value.EmbedxG2SumIndex() + i] = 0;
         }
       }
     } else {
+      int embedx_w_index = gpu_accessor_.common_feature_value.EmbedxWOffsetIndex(ptr);
       update_mf(
           optimizer_config,
           ptr_mf_dim,
-          &ptr[gpu_accessor_.common_feature_value.EmbedxWIndex()],
+          &ptr[embedx_w_index],
           &ptr[gpu_accessor_.common_feature_value.EmbedxG2SumIndex()],
           &grad[gpu_accessor_.common_push_value.EmbedxGIndex()],
           grad_show);

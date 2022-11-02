@@ -25,7 +25,6 @@ limitations under the License. */
 #include "pslib.h"
 #endif
 
-
 namespace paddle {
 namespace framework {
 #define MF_DIM 8
@@ -314,22 +313,6 @@ class CommonFeatureValueAccessor {
   __host__ __device__ CommonFeatureValueAccessor() {}
   __host__ __device__ ~CommonFeatureValueAccessor() {}
 
-  #define DEFINE_GET_INDEX4( instance, field) \
-        __host__ __device__ int get_##field##_index() { \
-            return instance.field##Index(); \
-        }
-
-#ifdef PADDLE_WITH_PSLIB
-    DEFINE_GET_INDEX4(common_feature_value, Show)
-    DEFINE_GET_INDEX4(common_feature_value, Click)
-    DEFINE_GET_INDEX4(common_feature_value, EmbedW)
-    DEFINE_GET_INDEX4(common_feature_value, EmbedxW)
-    DEFINE_GET_INDEX4(common_feature_value, DeltaScore)
-    DEFINE_GET_INDEX4(common_feature_value, Slot)
-    DEFINE_GET_INDEX4(common_feature_value, EmbedG2Sum)
-    DEFINE_GET_INDEX4(common_feature_value, MfDim)
-#endif
-
   __host__ int Initialize() {
     // NOTE(zhangminxu): gpups' sparse table optimizer type,
     // now only support embed&embedx 's sparse optimizer is the same
@@ -409,19 +392,30 @@ __host__ void BuildFill(float* gpu_val,
   ptr_val[cpu_accessor->get_mf_dim_index()] = float(mf_dim);
   gpu_val[common_feature_value.MfDimIndex()] = float(mf_dim);
 
-  if (cpu_dim > 8) {
+  // get basic len from cpu accessor
+  size_t basic_len = cpu_accessor->dim() - cpu_accessor->mf_size() / sizeof(float);
+  
+  if (cpu_dim > basic_len) { // replace
     gpu_val[common_feature_value.MfSizeIndex()] = 
         common_feature_value.MFSize(mf_dim) / sizeof(float);
 
     for (int x = 0; x < int(common_feature_value.MFSize(mf_dim) / sizeof(float));
             x++) {
-      gpu_val[common_feature_value.EmbedxG2SumIndex() + x]  = ptr_val[8 + x];
+      gpu_val[common_feature_value.EmbedxG2SumIndex() + x]  = ptr_val[basic_len + x];
     }
+
   } else {
+
     gpu_val[common_feature_value.MfSizeIndex()] = 0;
-    for (int i = 0; i < mf_dim + common_feature_value.EmbedXDim(); i++) {
+
+    // for (int i = 0; i < mf_dim + common_feature_value.EmbedXDim(); i++) {
+    //  gpu_val[common_feature_value.EmbedxG2SumIndex() + i] = 0;
+    //}
+
+    for (size_t i = 0; i < common_feature_value.MFSize(mf_dim) / sizeof(float); i++) {
       gpu_val[common_feature_value.EmbedxG2SumIndex() + i] = 0;
     }
+
   }
 #endif
 }
@@ -436,21 +430,35 @@ __host__ void DumpFill(float* gpu_val,
   auto* cpu_accessor = dynamic_cast<::paddle::ps::DownpourCtrDymfAccessor*>(_cpu_accessor);
   uint64_t cpu_addr = *(uint64_t*)(gpu_val + common_feature_value.CpuPtrIndex());
   auto* downpour_value = (::paddle::ps::DownpourFixedFeatureValue*)cpu_addr;
-  int downpour_value_size = downpour_value->size();
-  if ((int)gpu_val[common_feature_value.MfSizeIndex()] > 0 && downpour_value_size == 8) {
+  size_t downpour_value_size = downpour_value->size();
+  size_t basic_len = cpu_accessor->dim() - cpu_accessor->mf_size() / sizeof(float);
+  if ((int)gpu_val[common_feature_value.MfSizeIndex()] > 0 && downpour_value_size == basic_len) {
     int mf_size = common_feature_value.MFSize(mf_dim) / sizeof(float); // mf_size = gpu_val[common_feature_value.MfSizeIndex()];
     downpour_value->resize(downpour_value_size + mf_size);
   }
+
   float* cpu_val = downpour_value->data(); 
 
+  // VLOG(0) << "downpour value size:" << downpour_value_size << "basic_len:" << basic_len << ", delta score:" << cpu_accessor->get_delta_score_index() << ",show_index:" << cpu_accessor->get_show_index()
+  //        << "click index:" << cpu_accessor->get_click_index() << ", embedw index:" << cpu_accessor->get_embed_w_index() << ",slot index" 
+  //        << "slot index:" << cpu_accessor->get_slot_index();
+
+  // VLOG(0) << "gpu delta score:" << common_feature_value.DeltaScoreIndex() << ", show index:" << common_feature_value.ShowIndex() 
+  //        << ",Click index:" << common_feature_value.ClickIndex() << ", embedw index:" << common_feature_value.EmbedWIndex() 
+  //        << ", SlotIndex:" << common_feature_value.SlotIndex();
+ 
   cpu_val[cpu_accessor->get_delta_score_index()] =
       gpu_val[common_feature_value.DeltaScoreIndex()];
+
   cpu_val[cpu_accessor->get_show_index()] =
       gpu_val[common_feature_value.ShowIndex()];
+
   cpu_val[cpu_accessor->get_click_index()] =
       gpu_val[common_feature_value.ClickIndex()];
+
   cpu_val[cpu_accessor->get_embed_w_index()] =
       gpu_val[common_feature_value.EmbedWIndex()];
+
   cpu_val[cpu_accessor->get_slot_index()] =
       gpu_val[common_feature_value.SlotIndex()];
 
@@ -459,13 +467,15 @@ __host__ void DumpFill(float* gpu_val,
     cpu_val[cpu_accessor->get_embed_g2sum_index() + i] =
       gpu_val[common_feature_value.EmbedG2SumIndex() + i];
   }
+
   if ((int)gpu_val[common_feature_value.MfSizeIndex()] > 0) {
 
     for (int x = 0; x < int(common_feature_value.MFSize(mf_dim) / sizeof(float));
               x++) {
-        cpu_val[x + 8] =
+        cpu_val[x + basic_len] =
           gpu_val[common_feature_value.EmbedxG2SumIndex() + x];
     }
+
   }
 #endif
 }
@@ -488,9 +498,15 @@ __device__ void FeatureValueFill(float* dest_val,
   dest_val[common_feature_value.MfDimIndex()] = src_val[common_feature_value.MfDimIndex()];
   dest_val[common_feature_value.MfSizeIndex()] = src_val[common_feature_value.MfSizeIndex()];
   int mf_dim = (int)(src_val[common_feature_value.MfDimIndex()]);
-  for (int i = 0; i < mf_dim + common_feature_value.EmbedXDim(); i++) {
+
+  // for (int i = 0; i < mf_dim + common_feature_value.EmbedXDim(); i++) {
+  //  dest_val[common_feature_value.EmbedxG2SumIndex() + i] = src_val[common_feature_value.EmbedxG2SumIndex() + i];
+  //}
+  
+  for (size_t i = 0; i < common_feature_value.MFSize(mf_dim) / sizeof(float); i++) {
     dest_val[common_feature_value.EmbedxG2SumIndex() + i] = src_val[common_feature_value.EmbedxG2SumIndex() + i];
   }
+
 }
 
 // dy_mf_fill_shard_grads_kernel,update_one 阶段 gpukernel 中从src_val赋值给dest_val
@@ -569,10 +585,39 @@ __device__ void MergePushValueEmbedx(float* dest_val,
     }
 }
 
+/*
+// PullCopy 阶段 gpukernel 中  FeatureValue回填到PullValue
+__device__ void SelectV2(float* dest_val, 
+                       float* src_val,
+                       const uint64_t* key,
+                       int offset) { // [0, mf_dim + 3)
+#if defined PADDLE_WITH_PSLIB
+      switch(offset) {
+        case 0:
+          dest_val[common_pull_value.ShowIndex()] = src_val[common_feature_value.ShowIndex()];
+          break;
+        case 1:
+          dest_val[common_pull_value.ClickIndex()] = src_val[common_feature_value.ClickIndex()];
+          break;
+        case 2:
+          dest_val[common_pull_value.EmbedWIndex()] = src_val[common_feature_value.EmbedWIndex()];
+          break;
+        default: // copy mf
+          if (((int)(src_val[common_feature_value.MfSizeIndex()]) == 0) || (*key == 0)) {
+            *(dest_val + offset) = 0;
+          } else {
+            *(dest_val + offset) = 
+              src_val[common_feature_value.EmbedxWOffsetIndex(src_val) + offset - 3];
+          }
+      }
+#endif
+}
+*/
+
 // PullCopy 阶段 gpukernel 中  FeatureValue回填到PullValue
 __device__ void Select(float* dest_val, 
                        float* src_val,
-                       uint64_t* key,
+                       const uint64_t* key,
                        int mf_dim) {
 #if defined PADDLE_WITH_PSLIB
   if (*key == 0) {
@@ -614,6 +659,111 @@ __device__ void GradientSelect(float* dest_val,
   }
 #endif
 }
+
+/*
+__device__ void GradientSelectV2(float* dest_val, 
+                               float* src_val,
+                               int slot,
+                               int mf_dim,
+                               int bs,
+                               int offset) {
+#if defined PADDLE_WITH_PSLIB
+  switch (offset) {
+    case 0:
+      dest_val[common_push_value.SlotIndex()] = (float)slot;
+      dest_val[common_push_value.MfDimIndex()] = (float)mf_dim;
+      paddle::platform::CudaAtomicAdd(dest_val + common_push_value.ShowIndex(), *(src_val + offset));
+      break;
+    case 1:
+      paddle::platform::CudaAtomicAdd(dest_val + common_push_value.ClickIndex(), *(src_val + offset));
+      break;
+    case 2:
+      paddle::platform::CudaAtomicAdd(dest_val + common_push_value.EmbedGIndex(), *(src_val + offset) * -1. * bs);
+      break; 
+    default:
+      paddle::platform::CudaAtomicAdd(dest_val + common_push_value.EmbedxGIndex() + offset - 3, *(src_val + offset) * -1. * bs);
+  }
+  dest_val[common_push_value.SlotIndex()] = (float)slot;
+  dest_val[common_push_value.MfDimIndex()] = (float)mf_dim;
+  dest_val[common_push_value.ShowIndex()] = *src_val;
+  dest_val[common_push_value.ClickIndex()] = *(src_val + 1);
+  dest_val[common_push_value.EmbedGIndex()] = *(src_val + 2) * -1. * bs;
+  for (int j = 0; j < mf_dim; j++) {
+    dest_val[common_push_value.EmbedxGIndex() + j] = *(src_val + 3 + j) * -1. * bs;
+  }
+#endif
+}
+
+#define SUM_GRAD_VALUE                                             \
+  for (uint32_t j = 0; j < count; ++j) {                           \
+    const uint32_t& pos = d_sort_idx[start + j];                   \
+    const int& x = key2slot[pos];                                  \
+    int y = pos - slot_lens[x];                                        \
+    val += *(reinterpret_cast<float*>(src_val[x] + y * (mf_dim + 3) + offset)); \
+  }
+
+__device__ void GradientSelectV3(float* dest_val, 
+                                 float** src_val,
+                                 int slot,
+                                 int mf_dim,
+                                 int bs,
+                                 uint64_t key,
+                                 int offset,
+                                 const uint32_t& start,
+                                 const uint32_t& count,
+                                 const uint32_t* d_sort_idx,
+                                 const int* key2slot,
+                                 const int64_t* slot_lens) {
+#if defined PADDLE_WITH_PSLIB
+  if (key == 0) {
+    switch (offset) {
+      case 0:
+        dest_val[common_push_value.SlotIndex()] = (float)slot;
+        dest_val[common_push_value.MfDimIndex()] = (float)mf_dim;
+        dest_val[common_push_value.ShowIndex()] = 0;
+        break;
+      case 1:
+        dest_val[common_push_value.ClickIndex()] = 0;
+        break;
+      case 2:
+        dest_val[common_push_value.EmbedGIndex()] = 0;
+        break; 
+      default:
+        dest_val[common_push_value.EmbedxGIndex() + offset - 3] = 0;
+    }
+  } else {
+    double val = 0.0;
+    switch (offset) {
+      case 0:
+        dest_val[common_push_value.SlotIndex()] = (float)slot;
+        dest_val[common_push_value.MfDimIndex()] = (float)mf_dim;
+        SUM_GRAD_VALUE
+        dest_val[common_push_value.ShowIndex()] = val;
+        break;
+      case 1:
+        SUM_GRAD_VALUE
+        dest_val[common_push_value.ClickIndex()] = val;
+        break;
+      case 2:
+        SUM_GRAD_VALUE
+        dest_val[common_push_value.EmbedGIndex()] = val * -1. * bs;
+        break; 
+      default:
+        SUM_GRAD_VALUE
+        dest_val[common_push_value.EmbedxGIndex() + offset - 3] = val * -1. * bs;
+    }
+  }
+  dest_val[common_push_value.SlotIndex()] = (float)slot;
+  dest_val[common_push_value.MfDimIndex()] = (float)mf_dim;
+  dest_val[common_push_value.ShowIndex()] = *src_val;
+  dest_val[common_push_value.ClickIndex()] = *(src_val + 1);
+  dest_val[common_push_value.EmbedGIndex()] = *(src_val + 2) * -1. * bs;
+  for (int j = 0; j < mf_dim; j++) {
+    dest_val[common_push_value.EmbedxGIndex() + j] = *(src_val + 3 + j) * -1. * bs;
+  }
+#endif
+}
+*/
 
 __host__ __device__ std::string ParseToString(const float* v, int param_size) {
     /*
@@ -677,7 +827,9 @@ __host__ __device__ std::string ParseToString(const float* v, int param_size) {
     int total_dim = common_feature_value.Dim(mf_dim);
     // in all accessor, we put cpu_ptr in the first place
     if (thread_idx == common_feature_value.CpuPtrIndex()) { // cpu_ptr index == 0
+
       *(reinterpret_cast<uint64_t*>(output + thread_idx)) = *(reinterpret_cast<uint64_t*>(input + thread_idx)); 
+
     } else {
       int len_per_thread = (total_dim - 2) / (total_thread - 1); // cpu_ptr occupies 2 floats
       int remain = (total_dim - 2) % (total_thread - 1);
@@ -741,6 +893,19 @@ class VirtualAccessor {
                            int* gpu_dim,
                            size_t val_type_size) = 0;
 
+  virtual void CopyForPull(const paddle::platform::Place& place,
+                           const uint64_t* total_keys,
+                           float** gpu_values,
+                           const float* total_values_gpu,
+                           const int64_t* slot_lens,
+                           const int* key2slot,
+                           const int hidden_size,
+                           const int64_t total_length,
+                           const int* slot_dims,
+                           const uint32_t* gpu_restore_idx,
+                           int* gpu_dim,
+                           size_t val_type_size) = 0;
+
   virtual void CopyForPush(const paddle::platform::Place& place,
                            const std::vector<const float*>& grad_values,
                            float* total_grad_values_gpu,
@@ -750,6 +915,38 @@ class VirtualAccessor {
                            size_t grad_value_size,
                            std::vector<int>& slot_vector,
                            std::vector<int>& slot_mf_dim_vector) = 0;
+
+  virtual void CopyForPush(const paddle::platform::Place& place,
+                           const uint64_t* total_keys,
+                           float** grad_values,
+                           float* total_grad_values_gpu,
+                           const int* slots,
+                           const int64_t* slot_lens,
+                           const int hidden_size,
+                           const int64_t total_length,
+                           const int64_t dedup_length,
+                           const int batch_size,
+                           const int* slot_dims,
+                           const int* key2slot,
+                           const uint32_t* d_restore_idx,
+                           const size_t grad_value_size) = 0;
+
+  virtual void CopyForPush(const paddle::platform::Place& place,
+                           const uint64_t* total_keys,
+                           float** grad_values,
+                           float* total_grad_values_gpu,
+                           const int* slots,
+                           const int64_t* slot_lens,
+                           const int hidden_size,
+                           const int64_t total_length,
+                           const int64_t dedup_length,
+                           const int batch_size,
+                           const int* slot_dims,
+                           const int* key2slot,
+                           const uint32_t* gpu_sort_idx,
+                           const uint32_t* gpu_sort_offset,
+                           const uint32_t* gpu_sort_lens,
+                           const size_t grad_value_size) = 0;
 
   virtual std::string ParseToString(const float* v, int param_size) = 0;
 };
@@ -805,6 +1002,19 @@ class AccessorWrapper : public VirtualAccessor {
                            int* gpu_dim,
                            size_t val_type_size) override;
 
+  virtual void CopyForPull(const paddle::platform::Place& place,
+                           const uint64_t* total_keys,
+                           float** gpu_values,
+                           const float* total_values_gpu,
+                           const int64_t* slot_lens,
+                           const int* key2slot,
+                           const int hidden_size,
+                           const int64_t total_length,
+                           const int* slot_dims,
+                           const uint32_t* gpu_restore_idx,
+                           int* gpu_dim,
+                           size_t val_type_size) override;
+
   virtual void CopyForPush(const paddle::platform::Place& place,
                            const std::vector<const float*>& grad_values,
                            float* total_grad_values_gpu,
@@ -814,6 +1024,38 @@ class AccessorWrapper : public VirtualAccessor {
                            size_t grad_value_size,
                            std::vector<int>& slot_vector,
                            std::vector<int>& slot_mf_dim_vector) override;
+
+  virtual void CopyForPush(const paddle::platform::Place& place,
+                           const uint64_t* total_keys,
+                           float** grad_values,
+                           float* total_grad_values_gpu,
+                           const int* slots,
+                           const int64_t* slot_lens,
+                           const int hidden_size,
+                           const int64_t total_length,
+                           const int64_t dedup_length,
+                           const int batch_size,
+                           const int* slot_dims,
+                           const int* key2slot,
+                           const uint32_t* d_restore_idx,
+                           const size_t grad_value_size) override;
+  
+  virtual void CopyForPush(const paddle::platform::Place& place,
+                           const uint64_t* total_keys,
+                           float** grad_values,
+                           float* total_grad_values_gpu,
+                           const int* slots,
+                           const int64_t* slot_lens,
+                           const int hidden_size,
+                           const int64_t total_length,
+                           const int64_t dedup_length,
+                           const int batch_size,
+                           const int* slot_dims,
+                           const int* key2slot,
+                           const uint32_t* gpu_sort_idx,
+                           const uint32_t* gpu_sort_offset,
+                           const uint32_t* gpu_sort_lens,
+                           const size_t grad_value_size) override;
 
   virtual std::string ParseToString(const float* v, int param_size) {
     return gpu_accessor_.ParseToString(v, param_size);

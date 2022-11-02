@@ -86,12 +86,64 @@ class AfsWrapper {
 #endif
 
 class PSGPUWrapper {
+
+ class DCacheBuffer {
+   public:
+    DCacheBuffer() : buf_(nullptr) {}
+    ~DCacheBuffer() {}
+    /**
+     * @Brief get data
+     */
+    template <typename T>
+    T* mutable_data(const size_t total_bytes,
+                    const paddle::platform::Place& place) {
+      if (buf_ == nullptr) {
+        buf_ = memory::AllocShared(place, total_bytes);
+      } else if (buf_->size() < total_bytes) {
+        buf_.reset();
+        buf_ = memory::AllocShared(place, total_bytes);
+      }
+      return reinterpret_cast<T*>(buf_->ptr());
+    }
+    template <typename T>
+    T* data() {
+      return reinterpret_cast<T*>(buf_->ptr());
+    }
+    size_t memory_size() {
+      if (buf_ == nullptr) {
+        return 0;
+      }
+      return buf_->size();
+    }
+    bool IsInitialized(void) { return (buf_ != nullptr); }
+
+   private:
+    std::shared_ptr<memory::Allocation> buf_ = nullptr;
+  };
+  struct PSDeviceData {
+    DCacheBuffer keys_tensor;
+    DCacheBuffer dims_tensor;
+    DCacheBuffer keys_ptr_tensor;
+    DCacheBuffer values_ptr_tensor;
+    DCacheBuffer pull_push_tensor;
+
+    DCacheBuffer slot_lens;
+    DCacheBuffer d_slot_vector;
+    DCacheBuffer keys2slot;
+
+    int64_t total_key_length = 0;
+    int64_t dedup_key_length = 0;
+  };
+  PSDeviceData* device_caches_ = nullptr;
+
  public:
   virtual ~PSGPUWrapper() { delete HeterPs_; }
 
   PSGPUWrapper() {
     HeterPs_ = NULL;
     sleep_seconds_before_fail_exit_ = 300;
+    // mg_time_0 = std::vector<double>(8, 0.0);
+    // mg_time_1 = std::vector<double>(8, 0.0);
   }
 
   void PullSparse(const paddle::platform::Place& place, const int table_id,
@@ -116,6 +168,14 @@ class PSGPUWrapper {
   void CopyKeys(const paddle::platform::Place& place, uint64_t** origin_keys,
                 uint64_t* total_keys, const int64_t* gpu_len, int slot_num,
                 int total_len, int* gpu_dim);
+
+  void CopyKeys2(const paddle::platform::Place& place,
+                 uint64_t** origin_keys,
+                 uint64_t* total_keys,
+                 const int64_t* slot_lens,
+                 int slot_num,
+                 int total_len,
+                 int* key2slot);
 
   void BuildGPUTask(std::shared_ptr<HeterContext> gpu_task);
   void PreBuildTask(std::shared_ptr<HeterContext> gpu_task);
@@ -143,6 +203,11 @@ class PSGPUWrapper {
     VLOG(3) << "begin stop buildpull_threads_";
     buildpull_threads_.join();
     s_instance_ = nullptr;
+
+    if (device_caches_ != nullptr) {
+      delete[] device_caches_;
+      device_caches_ = nullptr;
+    }
     VLOG(3) << "PSGPUWrapper Finalize Finished.";
   }
 
@@ -153,24 +218,28 @@ class PSGPUWrapper {
       resource_ = std::make_shared<HeterPsResource>(dev_ids);
       resource_->enable_p2p();
       keys_tensor.resize(resource_->total_gpu());
+      device_caches_ = new PSDeviceData[resource_->total_gpu()];
 #ifdef PADDLE_WITH_GLOO
       auto gloo = paddle::framework::GlooWrapper::GetInstance();
       if (gloo->Size() > 1) {
         multi_node_ = 1;
-        resource_->enable_multi_node(gloo->Rank());
+        resource_->enable_multi_node(gloo->Rank()); //给每个节点赋值节点的rank, 并把multi_node_标志置1 
         std::cout << "yxf multi node" << std::endl;
       }
 #else
       PADDLE_THROW(
           platform::errors::Unavailable("heter ps need compile with GLOO"));
 #endif
+
       if (multi_node_) {
         int dev_size = dev_ids.size();
+
         // init inner comm
         inner_comms_.resize(dev_size);
         inter_ncclids_.resize(dev_size);
         platform::dynload::ncclCommInitAll(&(inner_comms_[0]), dev_size,
                                            &dev_ids[0]);
+
 // init inter comm
 #ifdef PADDLE_WITH_GLOO
         inter_comms_.resize(dev_size);
@@ -184,6 +253,7 @@ class PSGPUWrapper {
             gloo->IsInitialized(), true,
             platform::errors::PreconditionNotMet(
                 "You must initialize the gloo environment first to use it."));
+
         gloo::BroadcastOptions opts(gloo->GetContext());
         opts.setOutput(&(inter_ncclids_[0]), dev_size);
         opts.setRoot(0);
@@ -194,6 +264,7 @@ class PSGPUWrapper {
           platform::dynload::ncclCommInitRank(&(inter_comms_[i]), gloo->Size(),
                                               inter_ncclids_[i], gloo->Rank());
         }
+
         node_size_ = gloo->Size();
 
         // for trans inter comm
@@ -210,6 +281,7 @@ class PSGPUWrapper {
             gloo->IsInitialized(), true,
             platform::errors::PreconditionNotMet(
                 "You must initialize the gloo environment first to use it."));
+
         // gloo::BroadcastOptions opts(gloo->GetContext());
         opts.setOutput(&(trans_inter_ncclids_[0]), dev_size);
         opts.setRoot(0);
@@ -227,7 +299,9 @@ class PSGPUWrapper {
             platform::errors::Unavailable("heter ps need compile with GLOO"));
 #endif
       }
+
       heter_devices_ = dev_ids;
+
       data_ready_channel_->Open();
       data_ready_channel_->SetCapacity(3);
       buildcpu_ready_channel_->Open();
@@ -243,6 +317,7 @@ class PSGPUWrapper {
       table_id_ = 0;
       // start build cpu&gpu ps thread
       start_build_thread();
+
 #ifdef PADDLE_WITH_PSLIB
       auto fleet_ptr = FleetWrapper::GetInstance();
       std::string dist_desc = fleet_ptr->GetDistDesc();
@@ -272,6 +347,13 @@ class PSGPUWrapper {
     thread_keys_shard_num_ = sparse_shard_num;
     VLOG(0) << "GPUPS set sparse shard num: " << thread_keys_shard_num_;
 
+    int mf_optimizer_type = (config.find("mf_optimizer_type") == config.end())
+                                ? 1
+                                : config["mf_optimizer_type"];
+    optimizer_type_ = mf_optimizer_type;
+
+    VLOG(0) << "GPUPS set mf optimizer type:" << optimizer_type_; 
+
     hbm_thread_pool_.resize(thread_keys_shard_num_);
     for (size_t i = 0; i < hbm_thread_pool_.size(); i++) {
       hbm_thread_pool_[i].reset(new ::ThreadPool(1));
@@ -280,10 +362,12 @@ class PSGPUWrapper {
     for (size_t i = 0; i < pull_thread_pool_.size(); i++) {
       pull_thread_pool_[i].reset(new ::ThreadPool(1));
     }
+
     uniq_thread_pool_.resize(thread_keys_shard_num_);
     for (size_t i = 0; i < uniq_thread_pool_.size(); i++) {
       uniq_thread_pool_[i].reset(new ::ThreadPool(1));
     }
+
     VLOG(0) << "set hbm_thread_pool size: " << hbm_thread_pool_.size()
             << " set pull_thread_pool size: " << pull_thread_pool_.size(); 
 
@@ -479,6 +563,7 @@ class PSGPUWrapper {
       local_tables_;
   HeterPsBase* HeterPs_;
   std::vector<LoDTensor> keys_tensor;  // Cache for pull_sparse
+  
   std::shared_ptr<HeterPsResource> resource_;
   int32_t sleep_seconds_before_fail_exit_;
   std::vector<int> slot_vector_;
@@ -492,12 +577,12 @@ class PSGPUWrapper {
   size_t val_type_size_{0};
   size_t grad_type_size_{0};
 
-  double time_1 = 0.0;
-  double time_2 = 0.0;
-  double time_3 = 0.0;
-  double time_4 = 0.0;
-  std::vector<double> mg_time_0;
-  std::vector<double> mg_time_1;
+  // double time_1 = 0.0;
+  // double time_2 = 0.0;
+  // double time_3 = 0.0;
+  // double time_4 = 0.0;
+  // std::vector<double> mg_time_0;
+  // std::vector<double> mg_time_1;
 
   int multi_node_{0};
   int node_size_;

@@ -27,7 +27,10 @@ HeterPsBase* HeterPsBase::get_instance(
     // we will support using diff optimizer for embed & embedx
     auto* accessor_wrapper_ptr =
       GlobalAccessorFactory::GetInstance().GetAccessorWrapper();
-  if (accessor_type == "DownpourCtrDymfAccessor" && optimizer_type == 1) { // optimizer_type == 1 means adagrad
+
+  VLOG(0) << "in heterpsbase get_instance, optimizer_type:" << optimizer_type; 
+
+  if (accessor_type == "DownpourCtrDymfAccessor" && optimizer_type == 1) { // adagrad
     // auto* accessor_wrapper_ptr =
     //  GlobalAccessorFactory::GetInstance().GetAccessorWrapper();
     CommonFeatureValueAccessor* gpu_accessor =
@@ -39,7 +42,7 @@ HeterPsBase* HeterPsBase::get_instance(
     return new HeterPs<CommonFeatureValueAccessor, StdAdagradOptimizer>(capacity, resource, *gpu_accessor);
   } else {
     CHECK(0) << " HeterPsBase get_instance Warning: now only support "
-               "DownpourCtrDymfAccessor && SparseAdagradOptimizer, but get accessor_type:"
+               "DownpourCtrDymfAccessor && SparseAdagradOptimizer/StdAdagradOptimizer, but get accessor_type:"
             << accessor_type << " optimizer type: " << optimizer_type;
   }
 }
@@ -75,6 +78,10 @@ void HeterPs<GPUAccessor, GPUOptimizer>::pull_sparse(int num, FeatureKey* d_keys
 //                       size_t len, size_t chunk_size, int stream_num) {
 //  comm_->build_ps(num, h_keys, h_vals, len, chunk_size, stream_num);
 // }
+    
+//   this->HeterPs_->build_ps(i, device_dim_keys.data(),
+//                             cur_pool->mem(), len, feature_value_size,
+//                             500000, 2);
 
 template <typename GPUAccessor, template<typename T> class GPUOptimizer>
 void HeterPs<GPUAccessor, GPUOptimizer>::build_ps(int num, FeatureKey* h_keys, char* pool,
@@ -131,7 +138,7 @@ void HeterPs<GPUAccessor, GPUOptimizer>::push_sparse(int num, FeatureKey* d_keys
 template <typename GPUAccessor, template<typename T> class GPUOptimizer>
 void HeterPs<GPUAccessor, GPUOptimizer>::set_nccl_comm_and_size(const std::vector<ncclComm_t>& inner_comms,
                                      const std::vector<ncclComm_t>& inter_comms,
-                                     int comm_size) {
+                                     int comm_size) { // node_size??
   comm_->set_nccl_comm_and_size(inner_comms, inter_comms, comm_size);
 }
 
@@ -143,6 +150,57 @@ void HeterPs<GPUAccessor, GPUOptimizer>::set_trans_inter_comm(const std::vector<
 template <typename GPUAccessor, template<typename T> class GPUOptimizer>
 void HeterPs<GPUAccessor, GPUOptimizer>::set_multi_mf_dim(int multi_mf_dim, int max_mf_dim) {
   comm_->set_multi_mf_dim(multi_mf_dim, max_mf_dim);
+}
+
+/*
+      uint32_t* d_restore_idx =
+          reinterpret_cast<uint32_t*>(&key2slot[total_length]);
+      uint32_t* d_sorted_idx =
+          reinterpret_cast<uint32_t*>(&d_restore_idx[total_length]);
+      uint32_t* d_offset =
+          reinterpret_cast<uint32_t*>(&d_sorted_idx[total_length]);
+      uint32_t* d_merged_cnts =
+          reinterpret_cast<uint32_t*>(&d_offset[total_length]);
+
+      uint64_t* d_merged_keys =
+          reinterpret_cast<uint64_t*>(&total_keys[total_length]);
+      uint64_t* d_sorted_keys =
+          reinterpret_cast<uint64_t*>(&d_merged_keys[total_length]);
+
+      int dedup_size = HeterPs_->dedup_keys_and_fillidx(
+          devid_2_index,
+          static_cast<int>(total_length),
+          total_keys,     // input
+          d_merged_keys,  // output
+          d_sorted_keys,  // sort keys
+          d_restore_idx,  // pull fill idx
+          d_sorted_idx,   // sort old idx
+          d_offset,       // offset
+          d_merged_cnts,
+          FLAGS_gpups_dedup_pull_push_mode & 0x02);
+*/
+template <typename GPUAccessor, template<typename T> class GPUOptimizer>
+int HeterPs<GPUAccessor, GPUOptimizer>::dedup_keys_and_fillidx(
+    const int gpu_id,
+    const int total_fea_num,
+    const FeatureKey* d_keys,   // input
+    FeatureKey* d_merged_keys,  // output
+    FeatureKey* d_sorted_keys,
+    uint32_t* d_restore_idx,
+    uint32_t* d_sorted_idx,
+    uint32_t* d_offset,
+    uint32_t* d_merged_cnts,
+    bool filter_zero) {
+  return comm_->dedup_keys_and_fillidx(gpu_id,
+                                       total_fea_num,
+                                       d_keys,         // input
+                                       d_merged_keys,  // output
+                                       d_sorted_keys,
+                                       d_restore_idx,
+                                       d_sorted_idx,
+                                       d_offset,
+                                       d_merged_cnts,
+                                       filter_zero);
 }
 
 }  // end namespace framework
