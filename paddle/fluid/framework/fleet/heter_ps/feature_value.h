@@ -192,6 +192,7 @@ class CommonFeatureValueAccessor {
 
     // 根据mf_dim 计算的 mf_size byte数
     __host__ __device__ int MFSize(int mf_dim) {
+      if (mf_dim == 0) return 0;
       int tmp_embedx_sgd_dim = 1; //shared adagrad
       if (mf_optimizer_type_ == 3) { //adam
         tmp_embedx_sgd_dim = mf_dim * 2 + 2;
@@ -286,16 +287,23 @@ class CommonFeatureValueAccessor {
        float show;
        float click;
        float embed_w;
+       float mf_size; // not copied to variable
        std::vector<float> embedx_w;
        */
 
-    __host__ __device__ static int Dim(int embedx_dim) { return 3 + embedx_dim; }
+    __host__ __device__ static int Dim(int embedx_dim) { return 4 + embedx_dim; }
     __host__ __device__ int DimSize(size_t dim) { return sizeof(float); }
     __host__ __device__ int Size(int embedx_dim) { return TYPEALIGN(8, Dim(embedx_dim) * sizeof(float)); }
     __host__ __device__ int ShowIndex() { return 0; }
     __host__ __device__ int ClickIndex() { return 1; }
     __host__ __device__ int EmbedWIndex() { return 2; }
-    __host__ __device__ int EmbedxWIndex() { return 3; }
+    // __host__ __device__ int EmbedxWIndex() { return 3; }
+
+    __host__ __device__ int MfSizeIndex() {
+      return 3;
+    }  // actual mf size (ex. 0)
+    __host__ __device__ int EmbedxWIndex() { return 4; }
+
     __host__ __device__ float& Show(float* val) {
       return val[CommonPullValue::ShowIndex()];
     }
@@ -307,6 +315,9 @@ class CommonFeatureValueAccessor {
     }
     __host__ __device__ float* EmbedxW(float* val) {
       return val + CommonPullValue::EmbedxWIndex();
+    }
+    __host__ __device__ float& MfSize(float* val) {
+      return val[CommonPullValue::MfSizeIndex()];
     }
   };
 
@@ -480,6 +491,59 @@ __host__ void DumpFill(float* gpu_val,
 #endif
 }
 
+// dy_mf_fill_dvals_kernel, dy_mf_search_kernel 阶段 gpukernel
+// 中从src_val赋值给dest_val
+__device__ void PullValueFill(float* dest_val, float* src_val) {
+  dest_val[common_pull_value.ShowIndex()] =
+    src_val[common_feature_value.ShowIndex()];
+  dest_val[common_pull_value.ClickIndex()] =
+    src_val[common_feature_value.ClickIndex()];
+  dest_val[common_pull_value.EmbedWIndex()] =
+    src_val[common_feature_value.EmbedWIndex()];
+
+  int mf_size = int(src_val[common_feature_value.MfSizeIndex()]);
+  if (mf_size == 0) {
+      dest_val[common_pull_value.MfSizeIndex()] = 0;
+      return;
+  }
+  // set pull value real dim size
+  int mf_dim = int(src_val[common_feature_value.MfDimIndex()]);
+  dest_val[common_pull_value.MfSizeIndex()] = mf_dim;
+
+  int embedx_off = common_pull_value.EmbedxWIndex();
+  int value_off = common_feature_value.EmbedxWIndex();
+  for (int k = 0; k < mf_dim; ++k) {
+    dest_val[embedx_off + k] = src_val[value_off + k];
+  }
+}
+
+// 
+__device__ void Pull2PullValueFill(float* dest_val, float* src_val) {
+  dest_val[common_pull_value.ShowIndex()] =
+    src_val[common_pull_value.ShowIndex()];
+  dest_val[common_pull_value.ClickIndex()] =
+    src_val[common_pull_value.ClickIndex()];
+  dest_val[common_pull_value.EmbedWIndex()] =
+    src_val[common_pull_value.EmbedWIndex()];
+
+  int mf_size = int(src_val[common_pull_value.MfSizeIndex()]);
+  if (mf_size == 0) {
+      dest_val[common_pull_value.MfSizeIndex()] = 0;
+      return;
+  } 
+  // set pull value real dim size
+  // int mf_dim = int(src_val[common_feature_value.MfDimIndex()]);
+  dest_val[common_pull_value.MfSizeIndex()] = mf_size;
+  
+  int mf_dim = mf_size;
+
+  int embedx_off = common_pull_value.EmbedxWIndex();
+  // int value_off = common_feature_value.EmbedxWIndex();
+  for (int k = 0; k < mf_dim; ++k) {
+    dest_val[embedx_off + k] = src_val[embedx_off + k];
+  }
+}
+
 // dy_mf_fill_dvals_kernel, dy_mf_search_kernel 阶段 gpukernel 中从src_val赋值给dest_val
 __device__ void FeatureValueFill(float* dest_val, 
                                  float* src_val) {
@@ -499,6 +563,7 @@ __device__ void FeatureValueFill(float* dest_val,
   dest_val[common_feature_value.MfSizeIndex()] = src_val[common_feature_value.MfSizeIndex()];
   int mf_dim = (int)(src_val[common_feature_value.MfDimIndex()]);
 
+  if (mf_dim == 0) return;
   // for (int i = 0; i < mf_dim + common_feature_value.EmbedXDim(); i++) {
   //  dest_val[common_feature_value.EmbedxG2SumIndex() + i] = src_val[common_feature_value.EmbedxG2SumIndex() + i];
   //}
@@ -847,6 +912,115 @@ __host__ __device__ std::string ParseToString(const float* v, int param_size) {
     }
   }
 
+
+// ======  hbm optimized =====
+// featurevalue to pullvalue
+  __device__ void FillPullDvals(float* output, float* input, int total_thread, int thread_idx) {
+    int mf_dim = (int)input[common_feature_value.MfDimIndex()];
+    // int mf_size = common_feature_value.MFSize(mf_dim) / sizeof(float);
+    int total_dim = common_pull_value.Dim(mf_dim);
+    // in all accessor, we put cpu_ptr in the first place
+
+    // if (thread_idx == common_feature_value.CpuPtrIndex()) { // cpu_ptr index == 0
+    //   *(reinterpret_cast<uint64_t*>(output + thread_idx)) = *(reinterpret_cast<uint64_t*>(input + thread_idx)); 
+    // } else {
+    if (thread_idx == 0) {
+        output[common_pull_value.ShowIndex()] = input[common_feature_value.ShowIndex()];
+    } else if (thread_idx == 1) {
+        output[common_pull_value.ClickIndex()] = input[common_feature_value.ClickIndex()];
+    } else if (thread_idx == 2) {
+        output[common_pull_value.EmbedWIndex()] = input[common_feature_value.EmbedWIndex()];
+    } else if (thread_idx == 3) { // mf_size
+      int mf_size = int(input[common_feature_value.MfSizeIndex()]);
+      if (mf_size == 0) {
+        output[common_pull_value.MfSizeIndex()] = 0;
+        return;
+      }
+      // set pull value real dim size
+      int mf_dim = int(input[common_feature_value.MfDimIndex()]);
+      output[common_pull_value.MfSizeIndex()] = mf_dim;
+    } else {
+      int mf_size = int(input[common_feature_value.MfSizeIndex()]);
+      if (mf_size == 0) return;
+
+      int len_per_thread = (total_dim - 4) / (total_thread - 4);
+      int remain = (total_dim - 4) % (total_thread - 4);
+      int real_len = len_per_thread;
+      if ((thread_idx - 4) < remain) real_len++;
+
+      int input_offset = common_feature_value.EmbedxWOffsetIndex(input);
+      int output_offset = common_pull_value.EmbedxWIndex();
+
+      int left = -1, right = -1;
+      if ((thread_idx - 4) < remain) {
+          left = (thread_idx - 4) * (len_per_thread + 1);
+          right = left + real_len;
+      } else {
+          left = remain * (len_per_thread + 1) + (thread_idx - 4 - remain) * len_per_thread;
+          right = left + real_len;
+      }
+      for(int j = left; j < right; j++) output[output_offset + j] = input[input_offset + j];
+
+    }
+    // }
+  }
+
+  // pullvalue to pullvalue
+  __device__ void FillPull2PullDvals(float* output, float* input, int total_thread, int thread_idx) {
+    // int mf_size = (int)input[common_pull_value.MfSizeIndex()];
+    // int mf_size = common_feature_value.MFSize(mf_dim) / sizeof(float);
+    // int total_dim = common_pull_value.Dim(mf_dim);
+    // in all accessor, we put cpu_ptr in the first place
+
+    // if (thread_idx == common_feature_value.CpuPtrIndex()) { // cpu_ptr index == 0
+    //   *(reinterpret_cast<uint64_t*>(output + thread_idx)) = *(reinterpret_cast<uint64_t*>(input + thread_idx)); 
+    // } else {
+    if (thread_idx == 0) {
+        output[common_pull_value.ShowIndex()] = input[common_pull_value.ShowIndex()];
+    } else if (thread_idx == 1) {
+        output[common_pull_value.ClickIndex()] = input[common_pull_value.ClickIndex()];
+    } else if (thread_idx == 2) {
+        output[common_pull_value.EmbedWIndex()] = input[common_pull_value.EmbedWIndex()];
+    } else if (thread_idx == 3) { // mf_size
+      int mf_size = int(input[common_pull_value.MfSizeIndex()]);
+      // if (mf_size == 0) {
+      output[common_pull_value.MfSizeIndex()] = mf_size;
+      //  // return;
+      //}
+      // set pull value real dim size
+      // int mf_dim = int(input[common_feature_value.MfDimIndex()]);
+      // output[common_pull_value.MfSizeIndex()] = mf_dim;
+    } else {
+      int mf_size = int(input[common_pull_value.MfSizeIndex()]);
+      if (mf_size == 0) return;
+      
+      int total_dim = common_pull_value.Dim(mf_size);
+
+      int len_per_thread = (total_dim - 4) / (total_thread - 4);
+      int remain = (total_dim - 4) % (total_thread - 4);
+      int real_len = len_per_thread;
+      if ((thread_idx - 4) < remain) real_len++;
+
+      // int input_offset = common_feature_value.EmbedxWOffsetIndex(input);
+      int embedx_offset = common_pull_value.EmbedxWIndex();
+
+      int left = -1, right = -1;
+      if ((thread_idx - 4) < remain) {
+          left = (thread_idx - 4) * (len_per_thread + 1);
+          right = left + real_len;
+      } else {
+          left = remain * (len_per_thread + 1) + (thread_idx - 4 - remain) * len_per_thread;
+          right = left + real_len;
+      }
+      for(int j = left; j < right; j++) output[embedx_offset + j] = input[embedx_offset + j];
+    }
+    // }
+  }
+// ===== hbm optimized ====== 
+
+
+
+
   __host__ int Configure(std::unordered_map<std::string, float>& config) {
     _config = config;
     Initialize();
@@ -868,6 +1042,8 @@ class VirtualAccessor {
   virtual size_t GetFeatureValueSize(int mf_dim) = 0;
 
   virtual size_t GetPushValueSize(int mf_dim) = 0;
+
+  virtual size_t GetPullValueSize(int mf_dim) = 0;
 
   // TODO: 在基类里调用cpu_accessor类型
   virtual void BuildFill(
@@ -969,6 +1145,10 @@ class AccessorWrapper : public VirtualAccessor {
 
   virtual size_t GetPushValueSize(int mf_dim) {
     return gpu_accessor_.common_push_value.Size(mf_dim);
+  }
+
+  virtual size_t GetPullValueSize(int mf_dim) {
+    return gpu_accessor_.common_pull_value.Size(mf_dim);
   }
 
   virtual void BuildFill(

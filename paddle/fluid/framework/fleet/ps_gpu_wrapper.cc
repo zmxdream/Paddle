@@ -1553,7 +1553,9 @@ void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
   size_t feature_value_size = 0;
   auto accessor_wrapper_ptr =
       GlobalAccessorFactory::GetInstance().GetAccessorWrapper();
-  feature_value_size = accessor_wrapper_ptr->GetFeatureValueSize(max_mf_dim_);
+  // feature_value_size = accessor_wrapper_ptr->GetFeatureValueSize(max_mf_dim_);
+
+  feature_value_size = accessor_wrapper_ptr->GetPullValueSize(max_mf_dim_);
 
   VLOG(3) << "PullSparse, total_length:" << total_length << " featurevalue size:" << feature_value_size;
 
@@ -1572,7 +1574,6 @@ void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
       auto& dev = device_caches_[devid_2_index]; // cache key
       int slot_num = static_cast<int>(slot_lengths.size());
 
-      // 和原来不一样
       std::vector<int64_t> slot_lengths_lod;
       slot_lengths_lod.reserve(slot_num + 1);
       slot_lengths_lod.push_back(0);
@@ -1676,7 +1677,7 @@ void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
       dev.dedup_key_length = dedup_size;
       // ======= pull dedup =========
       // d_restore_idx表示的key在排序去重以后的idx
-
+      // feature_value_size 就是pull_value_size
       int64_t total_bytes = dedup_size * feature_value_size;
       // FeatureValue* total_values_gpu =
       //    dev.pull_push_tensor.mutable_data<FeatureValue>(total_bytes, place);
@@ -1686,6 +1687,7 @@ void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
       pull_gpups_timer.Start();
 
       // d_merged_keys和total_values_gpu一一对应
+      // total_values_gpu里的每个向量现在是pull_value
       HeterPs_->pull_sparse(
           devid_2_index, d_merged_keys, total_values_gpu, dedup_size);
 
@@ -1714,7 +1716,7 @@ void PSGPUWrapper::PullSparse(const paddle::platform::Place& place,
                                         total_values_gpu,
                                         slot_lens,
                                         key2slot,
-                                        max_mf_dim_ + 3,
+                                        max_mf_dim_ + 3, // pull_value dim size
                                         total_length,
                                         gpu_slot_dims,
                                         d_restore_idx,
