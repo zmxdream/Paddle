@@ -1483,16 +1483,6 @@ class SlotRecordInMemoryDataFeed : public InMemoryDataFeed<SlotRecord> {
   virtual void Init(const DataFeedDesc& data_feed_desc);
   virtual void LoadIntoMemory();
   void ExpandSlotRecord(SlotRecord* ins);
-
- protected:
-  virtual bool Start();
-  virtual int Next();
-  virtual bool ParseOneInstance(SlotRecord* instance) { return false; }
-  virtual bool ParseOneInstanceFromPipe(SlotRecord* instance) { return false; }
-  // virtual void ParseOneInstanceFromSo(const char* str, T* instance,
-  //                                    CustomParser* parser) {}
-  virtual void PutToFeedVec(const std::vector<SlotRecord>& ins_vec) {}
-
   virtual void SetInsIdVec(MiniBatchGpuPack* pack) {
     if (parse_ins_id_) {
       size_t ins_num = pack->ins_num(); 
@@ -1503,6 +1493,15 @@ class SlotRecordInMemoryDataFeed : public InMemoryDataFeed<SlotRecord> {
       }
     }
   }
+
+ protected:
+  virtual bool Start();
+  virtual int Next();
+  virtual bool ParseOneInstance(SlotRecord* instance) { return false; }
+  virtual bool ParseOneInstanceFromPipe(SlotRecord* instance) { return false; }
+  // virtual void ParseOneInstanceFromSo(const char* str, T* instance,
+  //                                    CustomParser* parser) {}
+  virtual void PutToFeedVec(const std::vector<SlotRecord>& ins_vec) {}
 
   virtual void LoadIntoMemoryByCommand(void);
   virtual void LoadIntoMemoryByLib(void);
