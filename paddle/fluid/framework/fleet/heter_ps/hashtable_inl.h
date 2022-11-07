@@ -84,7 +84,7 @@ __global__ void search_kernel(Table* table,
     }
   }
 }
-
+// ==== hbm optimized ======
 template <class Table, typename GPUAccessor>
 __global__ void dy_mf_search_kernel(Table* table,
                                     const typename Table::key_type* const keys,
@@ -99,7 +99,8 @@ __global__ void dy_mf_search_kernel(Table* table,
       uint64_t offset = i * pull_feature_value_size;
       float* cur = (float*)(vals + offset);
       float* input = it->second;
-      gpu_accessor.FeatureValueFill(cur, input);
+      // gpu_accessor.FeatureValueFill(cur, input);
+      gpu_accessor.PullValueFill(cur, input);
     } else {
       if (keys[i] != 0) printf("pull miss key: %llu", keys[i]);
     }
@@ -122,17 +123,19 @@ __global__ void dy_mf_search_kernel<TableContainer<FeatureKey, float*>, CommonFe
       uint64_t offset = i * pull_feature_value_size;
       float* cur = (float*)(vals + offset);
       float* input = it->second;
-      gpu_accessor.FillDvals(cur, input, blockDim.x, k);
+      gpu_accessor.FillPullDvals(cur, input, blockDim.x, k);
     } else {
       if (keys[i] != 0 && k == 0) printf("pull miss key: %llu",keys[i]);
-      if (keys[i] == 0 && k == 0) {
+      if (keys[i] == 0 && k == 0) { // check
         uint64_t offset = i * pull_feature_value_size;
         float* cur = (float*)(vals + offset);
-        gpu_accessor.common_feature_value.MfDim(cur) = 0;
+        // gpu_accessor.common_feature_value.MfDim(cur) = 0;
+        gpu_accessor.common_pull_value.MfSize(cur) = 0;
       }
     }
   }
 }
+// ==== hbm optimized ======
 
 __global__ void  curand_init_kernel(curandState* p_value, int len) {
   const size_t i = blockIdx.x * blockDim.x + threadIdx.x;

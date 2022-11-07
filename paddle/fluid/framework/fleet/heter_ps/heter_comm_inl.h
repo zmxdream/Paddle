@@ -342,6 +342,7 @@ __global__ void fill_dvals(ValType* d_shard_vals, ValType* d_vals, T* idx,
   }
 }
 
+// ===== hbm optimized ======
 template <typename T, typename GPUAccessor>
 __global__ void dy_mf_fill_dvals(float* d_shard_vals,
                                  float* d_vals,
@@ -354,7 +355,7 @@ __global__ void dy_mf_fill_dvals(float* d_shard_vals,
     uint64_t new_offset = uint64_t(idx[i]) * val_size;
     float* cur = (float*)((char*)d_vals + new_offset);
     float* shard_val = (float*)((char*)d_shard_vals + uint64_t(i) * val_size);
-    gpu_accessor.FeatureValueFill(cur, shard_val);
+    gpu_accessor.Pull2PullValueFill(cur, shard_val);
   }
 }
 
@@ -408,9 +409,10 @@ __global__ void dy_mf_fill_dvals<int, CommonFeatureValueAccessor>(float* d_shard
 */  
     float* cur = (float*)((char*)d_vals + new_offset);
     float* input = (float*)((char*)d_shard_vals + i * val_size);
-    gpu_accessor.FillDvals(cur, input, blockDim.x, k);
+    gpu_accessor.FillPull2PullDvals(cur, input, blockDim.x, k);
   }
 }
+// ===== hbm optimized ======
 
 template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
 HeterComm<KeyType, ValType, GradType, GPUAccessor>::HeterComm(
@@ -447,12 +449,15 @@ HeterComm<KeyType, ValType, GradType, GPUAccessor>::HeterComm(
           accessor_wrapper_ptr->GetFeatureValueSize(max_mf_dim_);
       grad_type_size_ =
           accessor_wrapper_ptr->GetPushValueSize(max_mf_dim_);
+      size_t pull_type_size =
+          accessor_wrapper_ptr->GetPullValueSize(max_mf_dim_);
 
       VLOG(3) << " HeterComm init, max feature_value_size:" << val_type_size_
+              << ", pull_value_size:" << pull_type_size
               << ", feature_value_push_size:" << grad_type_size_;
 
       auto ptr_table = new PtrTable(capacity / load_factor_);
-      ptr_table->set_feature_value_size(val_type_size_, grad_type_size_);
+      ptr_table->set_feature_value_size(pull_type_size, grad_type_size_);
       ptr_tables_.push_back(ptr_table);
 
     if (multi_node_) {
@@ -1536,7 +1541,8 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::pull_sparse(int num,
 
   auto accessor_wrapper_ptr =
       GlobalAccessorFactory::GetInstance().GetAccessorWrapper();
-  size_t val_type_size = accessor_wrapper_ptr->GetFeatureValueSize(max_mf_dim_);
+  // size_t val_type_size = accessor_wrapper_ptr->GetFeatureValueSize(max_mf_dim_);
+  size_t val_type_size = accessor_wrapper_ptr->GetPullValueSize(max_mf_dim_);
 
   auto d_shard_keys = memory::Alloc(place, len * sizeof(KeyType));
   KeyType* d_shard_keys_ptr = reinterpret_cast<KeyType*>(d_shard_keys->ptr());

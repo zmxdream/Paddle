@@ -108,22 +108,22 @@ __global__ void PullDedupCopy(const size_t N,    // total_length * (max_mf_dim_ 
     //    dest_ptr, feature_value_ptr, total_keys + i, off);
     float* src_ptr = (float*)((char*)src + uint64_t(restore_idx[i]) *
                                                 uint64_t(max_val_size));
-
     switch (off) {
       case 0:
-        *(dest_ptr + off) = src_ptr[gpu_accessor.common_feature_value.ShowIndex()];
+        *(dest_ptr + off) = src_ptr[gpu_accessor.common_pull_value.ShowIndex()];
         break;
       case 1:
-        *(dest_ptr + off) = src_ptr[gpu_accessor.common_feature_value.ClickIndex()];
+        *(dest_ptr + off) = src_ptr[gpu_accessor.common_pull_value.ClickIndex()];
         break;
       case 2:
-        *(dest_ptr + off) = src_ptr[gpu_accessor.common_feature_value.EmbedWIndex()];
+        *(dest_ptr + off) = src_ptr[gpu_accessor.common_pull_value.EmbedWIndex()];
         break;
       default:
-        if (src_ptr[gpu_accessor.common_feature_value.MfSizeIndex()] == 0) {
+        // check
+        if (src_ptr[gpu_accessor.common_pull_value.MfSizeIndex()] == 0) {
           *(dest_ptr + off) = 0;
         } else {
-          *(dest_ptr + off) = src_ptr[gpu_accessor.common_feature_value.EmbedxWIndex() + off - 3];
+          *(dest_ptr + off) = src_ptr[gpu_accessor.common_pull_value.EmbedxWIndex() + off - 3];
         }
         break;
     }
