@@ -604,7 +604,7 @@ if(WITH_PYTHON)
   endif()
 endif()
 
-if(WITH_PSCORE)
+if(WITH_PSCORE AND WITH_PYTHON)
   add_custom_target(
     index_dataset_proto_init ALL
     DEPENDS fleet_proto_init index_dataset_py_proto

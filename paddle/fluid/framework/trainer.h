@@ -337,7 +337,7 @@ class PipelineTrainer : public TrainerBase {
 };
 #endif
 
-#if defined(PADDLE_WITH_PSCORE)
+#if defined(PADDLE_WITH_PSCORE) && defined(PADDLE_WITH_DISTRIBUTE)
 class HeterPipelineTrainer : public TrainerBase {
  public:
   HeterPipelineTrainer() {}
@@ -398,7 +398,7 @@ class BoxPSTrainer : public TrainerBase {
   virtual Scope* GetWorkerScope(int thread_id);
   void InitDumpEnv() override;
   virtual std::string GetDumpPath(int tid);
-
+  virtual void DumpWork(int tid);
 
  protected:
   void CopyParameters(const Scope& root_scope, int device_id);
@@ -415,6 +415,7 @@ class BoxPSTrainer : public TrainerBase {
 
   std::shared_ptr<std::vector<std::string>> param_need_sync_;
   std::vector<std::string> persistable_vars_;
+  std::set<std::string> async_grad_name_;
 
   bool async_mode_ = false;
   std::shared_ptr<BoxPSAsynDenseTable> dense_table_ = nullptr;

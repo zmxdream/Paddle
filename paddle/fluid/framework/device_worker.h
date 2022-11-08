@@ -373,7 +373,7 @@ class DownpourWorker : public HogwildWorker {
 };
 
 // Based on DownpourWorker，remove push pull code into operator
-#if defined(PADDLE_WITH_PSCORE)
+#if defined(PADDLE_WITH_PSCORE) && defined(PADDLE_WITH_DISTRIBUTE)
 class DownpourLiteWorker : public HogwildWorker {
  public:
   DownpourLiteWorker() {}
@@ -712,7 +712,7 @@ class SectionWorker : public DeviceWorker {
 };
 #endif
 
-#if defined(PADDLE_WITH_PSCORE)
+#if defined(PADDLE_WITH_PSCORE) && defined(PADDLE_WITH_DISTRIBUTE)
 class HeterSectionWorker : public DeviceWorker {
  public:
   HeterSectionWorker() {}
@@ -812,7 +812,8 @@ class BoxPSAsynDenseTable {
 
   std::set<std::string> Init(const Scope& root_scope,
                              const std::vector<std::string>& param_need_sync,
-                             const std::vector<std::string>& persistable_vars);
+                             const std::vector<std::string>& persistable_vars,
+                             const std::set<std::string>& async_grad_name);
   void Finalize(void);
   void PullDense(const platform::Place& place, Tensor* tensor);
   void PushDense(const platform::Place& place, Tensor* tensor);
@@ -826,6 +827,7 @@ class BoxPSAsynDenseTable {
   int device_num_ = 0;
   std::vector<LoDTensor> device_grads_;
   std::vector<std::string> async_param_list_;
+  std::vector<std::string> async_norm_param_list_;
   std::vector<LoDTensor> original_ps_;
   LoDTensor ps_;
   LoDTensor mom1_;
@@ -836,6 +838,7 @@ class BoxPSAsynDenseTable {
   std::shared_ptr<PSBufferQueue> ps_buffer_ = nullptr;
   Scope* root_scope_ = nullptr;
   int64_t total_param_len_ = 0;
+  int64_t adam_param_len_ = 0;
   std::vector<size_t> thread_start_index_;
   std::vector<size_t> thread_end_index_;
   std::shared_ptr<paddle::framework::ThreadPool> thread_pool = nullptr;
