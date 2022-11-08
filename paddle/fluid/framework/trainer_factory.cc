@@ -70,7 +70,7 @@ REGISTER_TRAINER_CLASS(DistMultiTrainer);
 
 #ifdef PADDLE_WITH_BOX_PS
 REGISTER_TRAINER_CLASS(BoxPSTrainer);
-#elif defined(PADDLE_WITH_PSCORE)
+#elif defined(PADDLE_WITH_PSCORE) && defined(PADDLE_WITH_DISTRIBUTE)
 REGISTER_TRAINER_CLASS(HeterPipelineTrainer);
 #endif
 

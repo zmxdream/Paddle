@@ -373,7 +373,7 @@ class DownpourWorker : public HogwildWorker {
 };
 
 // Based on DownpourWorker，remove push pull code into operator
-#if defined(PADDLE_WITH_PSCORE)
+#if defined(PADDLE_WITH_PSCORE) && defined(PADDLE_WITH_DISTRIBUTE)
 class DownpourLiteWorker : public HogwildWorker {
  public:
   DownpourLiteWorker() {}
@@ -712,7 +712,7 @@ class SectionWorker : public DeviceWorker {
 };
 #endif
 
-#if defined(PADDLE_WITH_PSCORE)
+#if defined(PADDLE_WITH_PSCORE) && defined(PADDLE_WITH_DISTRIBUTE)
 class HeterSectionWorker : public DeviceWorker {
  public:
   HeterSectionWorker() {}

@@ -337,7 +337,7 @@ class PipelineTrainer : public TrainerBase {
 };
 #endif
 
-#if defined(PADDLE_WITH_PSCORE)
+#if defined(PADDLE_WITH_PSCORE) && defined(PADDLE_WITH_DISTRIBUTE)
 class HeterPipelineTrainer : public TrainerBase {
  public:
   HeterPipelineTrainer() {}
