@@ -168,6 +168,14 @@ void BoxPSTrainer::InitTrainerEnv(const ProgramDesc& main_program,
                                   const platform::Place& place) {
   PADDLE_ENFORCE(root_scope_, "Null root_scope pointer");
   for (auto& var : main_program.Block(0).AllVars()) {
+    if (async_mode_) {
+      std::string cur_var_name = var->Name();
+      size_t tag_pos = cur_var_name.find("@GRAD");
+      if (tag_pos != std::string::npos && tag_pos == cur_var_name.size() - 5) {
+        VLOG(3) << "BoxPSTrainer async_grad_name_ insert : " << cur_var_name;
+        async_grad_name_.insert(cur_var_name);
+      }
+    }
     if (var->Persistable()) {
       persistable_vars_.push_back(var->Name());
     }
@@ -176,7 +184,8 @@ void BoxPSTrainer::InitTrainerEnv(const ProgramDesc& main_program,
   std::set<std::string> async_param_name;
   if (async_mode_) {
     async_param_name = dense_table_->Init(*root_scope_, *param_need_sync_.get(),
-                                          persistable_vars_);
+                                          persistable_vars_,
+                                          async_grad_name_);
   }
   for (int i = 0; i < thread_num_; ++i) {
     auto this_worker =
