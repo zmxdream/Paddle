@@ -4608,22 +4608,6 @@ void InputIndexDataFeed::LoadIntoMemory() {
 #endif
 ////////////////////////////// pack ////////////////////////////////////
 #if defined(PADDLE_WITH_CUDA) && defined(_LINUX)
-static void SetCPUAffinity(int tid) {
-  std::vector<int>& cores = boxps::get_train_cores();
-  if (cores.empty()) {
-    VLOG(0) << "not found binding read ins thread cores";
-    return;
-  }
-
-  size_t core_num = cores.size() / 2;
-  if (core_num < 8) {
-    return;
-  }
-  cpu_set_t mask;
-  CPU_ZERO(&mask);
-  CPU_SET(cores[core_num + (tid % core_num)], &mask);
-  pthread_setaffinity_np(pthread_self(), sizeof(mask), &mask);
-}
 MiniBatchGpuPack::MiniBatchGpuPack(const paddle::platform::Place& place,
                                    const std::vector<UsedSlotInfo>& infos) {
   place_ = place;
