@@ -12,18 +12,19 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License. */
 
-#pragma once
-#include "paddle/fluid/framework/fleet/heter_ps/hashtable.h"
+#include "paddle/fluid/framework/fleet/box_sparse/hashtable.h"
 
-template <typename KeyType, typename ValType, typename GradType>
-class HeterHelper {
-public:
-  void build_ps(int num, KeyType* h_keys, ValType* h_vals, size_t len,
-                size_t chunk_size, int stream_num);
-  void pull_sparse(int num, KeyType* d_keys, ValType* d_vals, size_t len);
-  void push_sparse(int num, KeyType* d_keys, GradType* d_grads, size_t len);
-  void end_pass();
-protected:
-  using Table = HashTable<KeyType, ValType>;
-  std::vector<Table*> tables_;
+
+namespace paddle {
+namespace framework {
+
+template <typename KeyType, typename ValType>
+template <typename OptimizerType, typename StreamType>
+void HashTable<KeyType, ValType>::update(const paddle::platform::Place& place,
+                                         const KeyType* d_keys,size_t len,
+                                         StreamType stream) {
+
 }
+
+}  // end namespace framework
+}  // end namespace paddle
