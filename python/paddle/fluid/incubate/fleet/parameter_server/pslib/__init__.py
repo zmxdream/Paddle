@@ -347,8 +347,8 @@ class PSLib(Fleet):
               fleet.set_file_num_one_shard(0, 5)
         """
         self._role_maker._barrier_worker()
-        if self._role_maker.is_first_worker():
-            self._fleet_ptr.set_file_num_one_shard(table_id, file_num)
+        #if self._role_maker.is_first_worker():
+        self._fleet_ptr.set_file_num_one_shard(table_id, file_num)
         self._role_maker._barrier_worker()
 
     def save_persistables(self, executor, dirname, main_program=None, **kwargs):
