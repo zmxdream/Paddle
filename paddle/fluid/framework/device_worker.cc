@@ -20,13 +20,6 @@ namespace phi {
 class DenseTensor;
 }  // namespace phi
 
-
-
-
-
-
-
-
 namespace paddle {
 namespace framework {
 
@@ -160,7 +153,6 @@ void DeviceWorker::DumpField(const Scope& scope, int dump_mode,
 
   size_t batch_size = device_reader_->GetCurBatchSize();
   auto& ins_id_vec = device_reader_->GetInsIdVec();
-  
   auto& ins_content_vec = device_reader_->GetInsContentVec();
   if (ins_id_vec.size() > 0) {
     batch_size = ins_id_vec.size();

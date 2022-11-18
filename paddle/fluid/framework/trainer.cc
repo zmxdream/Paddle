@@ -18,6 +18,43 @@ limitations under the License. */
 namespace paddle {
 namespace framework {
 
+class MemRegion {
+        public:
+            MemRegion() {
+                _cap = 200 * 1024 * 1024; // 200 MB
+                _buf = (char*)malloc(_cap);
+                _cur = 0;
+                _file_idx = -1;
+            }
+            virtual ~MemRegion() {
+                free(_buf);
+            }
+            bool buff_remain(int len) {
+                if (_cap - _cur < len) {
+                    return false;
+                } else {
+                    return true;
+                }
+            }
+            char* acquire(int len) {
+                if (_cap - _cur < len) {
+                    return nullptr;
+                } else {
+                    char* ret =  _buf + _cur;
+                    _cur += len;
+                    return ret;
+                }
+            }
+            void reset() {
+                _cur = 0;
+                _file_idx = -1;
+            }
+            int _cap;
+            int _cur;
+            int _file_idx;
+            char* _buf;
+};
+
 void TrainerBase::SetScope(Scope* root_scope) { root_scope_ = root_scope; }
 
 void TrainerBase::ParseDumpConfig(const TrainerDesc& desc) {
@@ -62,12 +99,28 @@ void TrainerBase::DumpWork(int tid) {
     auto afs_writer = ps_gpu_ptr->OpenWriter(path);
     // read batch from  queue_
     std::string out_str;
+    std::shared_ptr<MemRegion> region = std::make_shared<MemRegion>();
     ChannelReader<std::string> reader(queue_.get());
     while (reader >> out_str) {
-      if (0 != afs_writer->write(out_str.data(), out_str.length(), true)) {
-        VLOG(0) << "Dump Work save failed!!!";
+      int len = out_str.length();
+      if (!region->buff_remain(len)) {
+        // if (0 != afs_writer->write(out_str.data(), out_str.length(), true)) {
+        if (0 != afs_writer->write(region->_buf, region->_cur, true)) {
+          VLOG(0) << "Dump Work save failed!!!";
+        }
+        region->reset();
       }
+      char* buf = region->acquire(len);
+      // for safety, CHECK(buf)
+      memcpy(buf, out_str.data(), len);
     }
+    // write left str
+    if (region->_cur) {
+        if (0 != afs_writer->write(region->_buf, region->_cur, true)) {
+          VLOG(0) << "Dump Work save failed!!!";
+        }
+        region->reset();
+    } 
   } else {
     std::shared_ptr<FILE> fp = fs_open_write(path, &err_no, dump_converter_);
     // while (1) {
