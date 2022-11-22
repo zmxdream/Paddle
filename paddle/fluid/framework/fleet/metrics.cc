@@ -62,6 +62,28 @@ void BasicAucCalculator::add_unlock_data(double pred, int label, float sample_sc
   _table[label][pos] += sample_scale;
 }
 
+void BasicAucCalculator::add_unlock_data_with_float_label(double pred, double label) {
+  PADDLE_ENFORCE_GE(pred, 0.0, platform::errors::PreconditionNotMet(
+                                   "pred should be greater than 0"));
+  PADDLE_ENFORCE_LE(pred, 1.0, platform::errors::PreconditionNotMet(
+                                   "pred should be lower than 1"));
+
+  int pos = static_cast<int>(pred * _table_size);
+  PADDLE_ENFORCE_GE(
+      pos, 0,
+      platform::errors::PreconditionNotMet(
+          "pos must be equal or greater than 0, but its value is: %d", pos));
+  PADDLE_ENFORCE_LT(
+      pos, _table_size,
+      platform::errors::PreconditionNotMet(
+          "pos must be less than table_size, but its value is: %d", pos));
+  _local_abserr += fabs(pred - label);
+  _local_sqrerr += (pred - label) * (pred - label);
+  _local_pred += pred;
+  _table[0][pos] += 1 - label;
+  _table[1][pos] += label;
+}
+
 void BasicAucCalculator::add_data(
         const float* d_pred, const int64_t* d_label,
         int batch_size, const paddle::platform::Place& place_pred,
@@ -143,6 +165,38 @@ void BasicAucCalculator::add_mask_data(const float* d_pred,
   for (int i = 0; i < batch_size; ++i) {
     if (add_mask[i]) {
       add_unlock_data(add_pred[i], add_label[i]);
+    }
+  }
+}
+// add float mask data
+void BasicAucCalculator::add_float_mask_data(const float* d_pred,
+                                             const float* d_label,
+                                             const int64_t* d_mask, int batch_size,
+                                             const paddle::platform::Place& place) {
+  if (platform::is_gpu_place(place) || platform::is_xpu_place(place)) {
+    thread_local std::vector<float> h_pred;
+    thread_local std::vector<float> h_label;
+    thread_local std::vector<int64_t> h_mask;
+    h_pred.resize(batch_size);
+    h_label.resize(batch_size);
+    h_mask.resize(batch_size);
+
+    SyncCopyD2H(h_pred.data(), d_pred, batch_size);
+    SyncCopyD2H(h_label.data(), d_label, batch_size);
+    SyncCopyD2H(h_mask.data(), d_mask, batch_size);
+
+    std::lock_guard<std::mutex> lock(_table_mutex);
+    for (int i = 0; i < batch_size; ++i) {
+      if (h_mask[i]) {
+        add_unlock_data_with_float_label(h_pred[i], h_label[i]);
+      }
+    }
+  } else {
+    std::lock_guard<std::mutex> lock(_table_mutex);
+    for (int i = 0; i < batch_size; ++i) {
+      if (d_mask[i]) {
+        add_unlock_data_with_float_label(d_pred[i], d_label[i]);
+      }
     }
   }
 }
