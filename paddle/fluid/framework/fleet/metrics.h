@@ -60,6 +60,7 @@ class BasicAucCalculator {
   // add single data in CPU with LOCK, deprecated
   void add_unlock_data(double pred, int label);
   void add_unlock_data(double pred, int label, float sample_scale);
+  void add_unlock_data_with_float_label(double pred, double label);
   // add batch data
   void add_data(const float* d_pred, const int64_t* d_label, int batch_size,
                 const paddle::platform::Place& place_pred, const paddle::platform::Place& place_label);
@@ -69,6 +70,11 @@ class BasicAucCalculator {
                      const paddle::platform::Place& place_pred,
                      const paddle::platform::Place& place_label,
                      const paddle::platform::Place& place_mask);
+  // add float data
+  void add_float_mask_data(const float* d_pred,
+                           const float* d_label,
+                           const int64_t* d_mask, int batch_size,
+                           const paddle::platform::Place& place);
   // add sample data
   void add_sample_data(const float* d_pred, const int64_t* d_label,
                        const std::vector<float>& d_sample_scale, int batch_size,

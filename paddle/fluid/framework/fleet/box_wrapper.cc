@@ -596,6 +596,45 @@ class MultiMaskMetricMsg : public MetricMsg {
   std::string cmatch_rank_varname_;
 };
 
+class FloatMaskMetricMsg : public MetricMsg {
+ public:
+  FloatMaskMetricMsg(const std::string& label_varname,
+                const std::string& pred_varname, int metric_phase,
+                const std::string& mask_varname, int bucket_size = 1000000,
+                bool mode_collect_in_gpu = false, int max_batch_size = 0) {
+    label_varname_ = label_varname;
+    pred_varname_ = pred_varname;
+    mask_varname_ = mask_varname;
+    metric_phase_ = metric_phase;
+    calculator = new BasicAucCalculator(mode_collect_in_gpu);
+    calculator->init(bucket_size, max_batch_size);
+  }
+  virtual ~FloatMaskMetricMsg() {}
+  void add_data(const Scope* exe_scope,
+                const paddle::platform::Place& place) override {
+    int label_len = 0;
+    const float* label_data = NULL;
+    get_data<float>(exe_scope, label_varname_, &label_data, &label_len);
+
+    int pred_len = 0;
+    const float* pred_data = NULL;
+    get_data<float>(exe_scope, pred_varname_, &pred_data, &pred_len);
+
+    int mask_len = 0;
+    const int64_t* mask_data = NULL;
+    get_data<int64_t>(exe_scope, mask_varname_, &mask_data, &mask_len);
+    PADDLE_ENFORCE_EQ(label_len, mask_len,
+                      platform::errors::PreconditionNotMet(
+                          "the predict data length should be consistent with "
+                          "the label data length"));
+    auto cal = GetCalculator();
+    cal->add_float_mask_data(pred_data, label_data, mask_data, label_len, place);
+  }
+
+ protected:
+  std::string mask_varname_;
+};
+
 class CmatchRankMaskMetricMsg : public MetricMsg {
  public:
   CmatchRankMaskMetricMsg(const std::string& label_varname,
@@ -754,10 +793,15 @@ void BoxWrapper::InitMetric(const std::string& method, const std::string& name,
         name, new CmatchRankMaskMetricMsg(
                   label_varname, pred_varname, metric_phase, cmatch_rank_group,
                   cmatch_rank_varname, ignore_rank, mask_varname, bucket_size));
+  } else if (method == "FloatMaskAucCalculator") {
+    metric_lists_.emplace(
+        name, new FloatMaskMetricMsg(label_varname, pred_varname, metric_phase,
+                                     mask_varname, bucket_size, mode_collect_in_gpu,
+                                     max_batch_size));
   } else {
     PADDLE_THROW(platform::errors::Unimplemented(
         "PaddleBox only support AucCalculator, MultiTaskAucCalculator, "
-        "CmatchRankAucCalculator, MaskAucCalculator and "
+        "CmatchRankAucCalculator, MaskAucCalculator, FloatMaskAucCalculator and "
         "CmatchRankMaskAucCalculator"));
   }
   metric_name_list_.emplace_back(name);
