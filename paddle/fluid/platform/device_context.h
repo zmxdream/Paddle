@@ -183,6 +183,10 @@ template <>
 struct DefaultDeviceContextType<platform::XPUPlace> {
   using TYPE = XPUDeviceContext;
 };
+template <>
+struct DefaultDeviceContextType<platform::XPUL3Place> {
+  using TYPE = XPUDeviceContext;
+};
 #endif
 
 #ifdef PADDLE_WITH_ASCEND_CL

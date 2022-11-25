@@ -53,9 +53,9 @@ struct XPUContext::Impl {
     }
   }
 
-  Impl() : place_(XPUPlace()) {}
+  Impl() : place_(XPUPlace()), l3_place_(XPUL3Place()) {}
 
-  explicit Impl(const Place& place) : place_(place) {}
+  explicit Impl(const Place& place) : place_(place), l3_place_(XPUL3Place(place)) {}
 
   ~Impl() {
     if (owned_ && context_ != nullptr) {
@@ -65,6 +65,7 @@ struct XPUContext::Impl {
   }
 
   const Place& GetPlace() const { return place_; }
+  const Place& GetL3Place() const { return l3_place_; }
 
   void SetStream(XPUStream stream) { context_->xpu_stream = stream; }
 
@@ -100,6 +101,7 @@ struct XPUContext::Impl {
 
   bool owned_{false};
   Place place_;
+  Place l3_place_;
   backends::xpu::XPUVersion xpu_version_;
   xpu::Context* context_{nullptr};
 
@@ -116,6 +118,7 @@ XPUContext::XPUContext(const XPUPlace& place)
 XPUContext::~XPUContext() = default;
 
 const Place& XPUContext::GetPlace() const { return impl_->GetPlace(); }
+const Place& XPUContext::GetL3Place() const { return impl_->GetL3Place(); }
 
 void XPUContext::SetXPUStream(XPUStream stream) { impl_->SetStream(stream); }
 
