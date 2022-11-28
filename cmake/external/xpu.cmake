@@ -82,9 +82,23 @@ set(XPU_XCCL_URL
     "${XPU_XCCL_BASE_URL}/${XPU_XCCL_DIR_NAME}.tar.gz"
     CACHE STRING "" FORCE)
 set(XPU_PACK_DEPENCE_URL
-    #"https://baidu-kunlun-public.su.bcebos.com/paddle_depence/pack_paddle_depence.sh"
-    "data-im.baidu.com:/home/work/var/CI_DATA/im/static/pack_paddle_depence.sh/pack_paddle_depence.sh"
+    "https://baidu-kunlun-public.su.bcebos.com/paddle_depence/pack_paddle_depence.sh"
+    #"data-im.baidu.com:/home/work/var/CI_DATA/im/static/pack_paddle_depence.sh/pack_paddle_depence.sh"
     CACHE STRING "" FORCE)
+if(WITH_BOX_PS)
+    set(XPU_XRE_DIR_NAME "xre-bdcentos_x86_64")
+    set(XPU_XDNN_DIR_NAME "xdnn-bdcentos_x86_64")
+    set(XPU_XCCL_DIR_NAME "xccl-bdcentos_x86_64")
+    set(XPU_XRE_URL
+        "https://klx-sdk-release-public.su.bcebos.com/xre/release/4.0.22.1/${XPU_XRE_DIR_NAME}.tar.gz"
+        CACHE STRING "" FORCE)
+    set(XPU_XCCL_URL
+        "https://klx-sdk-release-public.su.bcebos.com/xccl/release/1.0.3/${XPU_XCCL_DIR_NAME}.tar.gz"
+        CACHE STRING "" FORCE)
+    set(XPU_XDNN_URL
+        "https://klx-sdk-release-public.su.bcebos.com/xdnn/release/2.6.0.1/${XPU_XDNN_DIR_NAME}.tar.gz"
+        CACHE STRING "" FORCE)
+endif()
 
 set(SNAPPY_PREFIX_DIR "${THIRD_PARTY_PATH}/xpu")
 set(XPU_DOWNLOAD_DIR "${SNAPPY_PREFIX_DIR}/src/${XPU_PROJECT}")
