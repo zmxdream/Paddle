@@ -35,7 +35,7 @@ namespace framework {
 
 std::shared_ptr<BoxWrapper> BoxWrapper::s_instance_ = nullptr;
 std::shared_ptr<boxps::PaddleShuffler> BoxWrapper::data_shuffle_ = nullptr;
-cudaStream_t BoxWrapper::stream_list_[MAX_GPU_NUM];
+boxps::StreamType BoxWrapper::stream_list_[MAX_GPU_NUM];
 
 void BoxWrapper::PullSparse(const paddle::platform::Place& place,
                             const std::vector<const uint64_t*>& keys,
@@ -865,7 +865,7 @@ void BoxWrapper::InitializeGPUAndLoadModel(
     const std::string& model_path, const std::map<std::string, float>& lr_map) {
   if (nullptr != s_instance_) {
     VLOG(3) << "Begin InitializeGPU";
-    std::vector<cudaStream_t*> stream_list;
+    std::vector<boxps::StreamType*> stream_list;
     gpu_num_ = GetDeviceCount();
     CHECK(gpu_num_ <= MAX_GPU_NUM) << "gpu card num: " << gpu_num_
                                    << ", more than max num: " << MAX_GPU_NUM;

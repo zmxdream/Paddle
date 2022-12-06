@@ -547,7 +547,7 @@ class BoxWrapper {
     return s_instance_;
   }
 
-  bool SyncDense(cudaStream_t stream, const int size, const void* sendbuf,
+  bool SyncDense(boxps::StreamType stream, const int size, const void* sendbuf,
                  void* recvbuf, const int deviceid = 0,
                  bool allgather = false) {
     return boxps_ptr_->SyncDense(
@@ -678,7 +678,7 @@ class BoxWrapper {
     boxps_ptr_->ExecRangeFunc(GetPlaceDeviceId(place), num, func);
   }
  private:
-  static cudaStream_t stream_list_[MAX_GPU_NUM];
+  static boxps::StreamType stream_list_[MAX_GPU_NUM];
   static std::shared_ptr<BoxWrapper> s_instance_;
   std::shared_ptr<boxps::BoxPSBase> boxps_ptr_ = nullptr;
 
