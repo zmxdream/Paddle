@@ -2707,14 +2707,6 @@ void SlotRecordInMemoryDataFeed::BuildSlotBatchGPU(const int ins_num, MiniBatchG
       static_cast<const UsedSlotGpuType*>(pack->get_gpu_slots());
 
   // 填充gpu_slot_offset
-  // uint64_use_slot_size_是uint64的slot数量
-  // float_use_slot_size_是float的slot数量
-  // value.d_uint64_offset存储每个ins的uint64 slot lod信息
-  // value.d_float_offset存储每个ins的float slot lod信息
-  // 比如 ins 10个，uint64 2个，float slot 3个
-  // 那么 value.d_uint64_offset的shape就是10 * (2 + 1)
-  // 那么 value.d_float_offset的shape就是10 * (3 + 1)
-  // used_slot_gpu_types 每个slot的信息,包括是否为uint64, 以及slot_value_idx
   FillSlotValueOffset(ins_num, use_slot_size_,
                       reinterpret_cast<size_t*>(pack->gpu_slot_offsets()),
                       value.d_uint64_offset.data(), uint64_use_slot_size_,

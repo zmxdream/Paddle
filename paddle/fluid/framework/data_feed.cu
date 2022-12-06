@@ -66,17 +66,6 @@ __global__ void FillSlotValueOffsetKernel(
   }
 }
 
-  // 填充gpu_slot_offset
-  // uint64_use_slot_size_是uint64的slot数量
-  // float_use_slot_size_是float的slot数量
-  // value.d_uint64_offset存储每个ins的uint64 slot lod信息
-  // value.d_float_offset存储每个ins的float slot lod信息
-  // 比如 ins 10个，uint64 2个，float slot 3个
-  // 那么 value.d_uint64_offset的shape就是10 * (2 + 1)
-  // 那么 value.d_float_offset的shape就是10 * (3 + 1)
-  // used_slot_gpu_types 每个slot的信息,包括是否为uint64, 以及slot_value_idx
-  // 这个函数就是填充slot_value_offsets
-  //
 void SlotRecordInMemoryDataFeed::FillSlotValueOffset(
     const int ins_num, const int used_slot_num, size_t *slot_value_offsets,
     const int *uint64_offsets, const int uint64_slot_size,
@@ -90,9 +79,6 @@ void SlotRecordInMemoryDataFeed::FillSlotValueOffset(
   cudaStreamSynchronize(stream);
 }
 
-  // uint64_feas保存的是所有样本的uint64 key
-  // uint64_ins_lens shape (ins_num + 1), 保存每个ins的uint64 feasign num数量
-  // uint64_offset shape(ins_num * (uint64_slot_num + 1)),保存每个样本的uint64_slot_offset 
 __global__ void CopyForTensorKernel(
     const int used_slot_num, const int ins_num, void **dest,
     const size_t *slot_value_offsets, const uint64_t *uint64_feas,
@@ -132,11 +118,6 @@ __global__ void CopyForTensorKernel(
   }
 }
 
-  // pack->resize_gpu_slot_offsets(slot_total_num * sizeof(size_t));
-  // gpu_slot_offset的shape是 use_slot_size * (ins_num + 1)
-  // d_uint64_keys保存的是所有样本的uint64 key
-  // d_uint64_lens shape (ins_num + 1), 保存每个ins的uint64 feasign num数量
-  // d_uint64_offset shape(ins_num * (uint64_slot_num + 1)),保存每个样本的uint64_slot_offset 
 void SlotRecordInMemoryDataFeed::CopyForTensor(
     const int ins_num, const int used_slot_num, void **dest,
     const size_t *slot_value_offsets, const uint64_t *uint64_feas,

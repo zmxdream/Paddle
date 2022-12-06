@@ -1792,7 +1792,7 @@ void SlotRecordDataset::PrepareTrain() {
     }
 
     if (multi_task_num_ <=1 ) {
-      VLOG(3) << "multi_task_num = 1";
+      VLOG(0) << "multi_task_num = 1";
       VLOG(0) << "input records size: " << input_records_.size();
       // CHECK(input_records_.size() == 0) << "input_records size must be zero";
       if (!pre_input_records_.empty()) {
@@ -1953,14 +1953,13 @@ void SlotRecordDataset::PrepareTrain() {
 
     int64_t total_ins_num = input_records_.size();
 
-    // ================================================
+    // ============ multi-task adapter=================
 
     std::vector<std::pair<int, int>> offset;
 
     VLOG(3) << "thread_num: " << thread_num_
             << " memory size: " << total_ins_num
             << " default batch_size: " << default_batch_size;
-
     compute_thread_batch_nccl(thread_num_, total_ins_num, default_batch_size,
                               &offset);
     VLOG(3) << "offset size: " << offset.size();
