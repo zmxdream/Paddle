@@ -21,6 +21,94 @@ DECLARE_bool(enable_pullpush_dedup_keys);
 namespace paddle {
 namespace framework {
 
+void BoxWrapper::PullSparseCaseCPU(const paddle::platform::Place& place,
+                                    const std::vector<const uint64_t*>& keys,
+                                    const std::vector<float*>& values,
+                                    const std::vector<int64_t>& slot_lengths,
+                                    const int hidden_size,
+                                    const int expand_embed_dim,
+                                    const int skip_offset, bool expand_only) {
+  //  VLOG(3) << "Begin PullSparse";
+  int device_id = GetPlaceDeviceId(place);
+  DeviceBoxData& dev = device_caches_[device_id];
+  platform::Timer& all_timer = dev.all_pull_timer;
+  platform::Timer& pull_boxps_timer = dev.boxps_pull_timer;
+  platform::Timer& pull_dedup_timer = dev.pull_dedup_timer;
+  all_timer.Resume();
+
+  int slot_num = static_cast<int>(slot_lengths.size());
+  int64_t* slot_lens = reinterpret_cast<int64_t*>(
+      dev.slot_lens.mutable_data<int64_t>({(slot_num + 1), 1}, place));
+  int64_t total_length = 0;
+  slot_lens[0] = 0;
+  for (int i = 0; i < slot_num; i++) {
+    total_length += slot_lengths[i];
+    slot_lens[i + 1] = total_length;
+  }
+  dev.total_key_length = total_length;
+
+    uint64_t* total_keys =
+      reinterpret_cast<uint64_t*>(dev.keys_tensor.mutable_data<int64_t>(
+          {static_cast<int64_t>(total_length * 2), 1}, place));
+  int* key2slot = reinterpret_cast<int*>(dev.keys2slot.mutable_data<int>(
+      {static_cast<int64_t>(total_length * 5), 1}, place));
+  int* total_dims = reinterpret_cast<int*>(
+      dev.dims_tensor.mutable_data<int>({total_length, 1}, place));
+
+  dev.copy_keys_timer.Resume();
+  this->CopyCPUKeys(place, keys, total_keys, slot_lens, slot_num,
+                    static_cast<int>(total_length), key2slot);
+  dev.copy_keys_timer.Pause();
+
+  // dedup keys pull
+  uint32_t* d_restore_idx =
+      reinterpret_cast<uint32_t*>(&key2slot[total_length]);
+  uint32_t* d_sorted_idx =
+      reinterpret_cast<uint32_t*>(&d_restore_idx[total_length]);
+  uint32_t* d_offset = reinterpret_cast<uint32_t*>(&d_sorted_idx[total_length]);
+  uint32_t* d_merged_cnts =
+      reinterpret_cast<uint32_t*>(&d_offset[total_length]);
+  uint64_t* d_merged_keys =
+      reinterpret_cast<uint64_t*>(&total_keys[total_length]);
+
+  pull_dedup_timer.Resume();
+  int dedup_size =
+      boxps_ptr_->DedupKeysAndFillIdx(device_id, total_length,
+                                      total_keys,     // input
+                                      d_merged_keys,  // output
+                                      d_restore_idx,  // pull fill idx
+                                      d_sorted_idx,   // sort old idx
+                                      d_offset,       // offset
+                                      d_merged_cnts);
+  pull_dedup_timer.Pause();
+  PADDLE_ENFORCE_GT(dedup_size, 0,
+                    platform::errors::PreconditionNotMet(
+                        "dedup keys need more than zero failed in BoxPS."));
+  dev.dedup_key_length = dedup_size;
+
+  int64_t total_bytes = dedup_size * feature_pull_size_;
+  void* total_values_gpu =
+      dev.pull_push_tensor.mutable_data<void>(total_bytes, place);
+
+  pull_boxps_timer.Resume();
+
+  int ret = boxps_ptr_->PullSparseGPU(d_merged_keys,
+                                      reinterpret_cast<void*>(total_values_gpu),
+                                      static_cast<int>(dedup_size), device_id);
+  PADDLE_ENFORCE_EQ(ret, 0, platform::errors::PreconditionNotMet(
+                                "PullSparseGPU failed in BoxPS."));
+  pull_boxps_timer.Pause();
+
+  dev.copy_values_timer.Resume();
+  this->CopyForPullCPU(place, keys, values, total_values_gpu, slot_lens,
+                       slot_num, key2slot, hidden_size, expand_embed_dim,
+                       total_length, total_dims, skip_offset, expand_only,
+                       d_restore_idx);
+  dev.copy_values_timer.Pause();
+
+  all_timer.Pause();
+}
+
 void BoxWrapper::PullSparseCaseGPU(const paddle::platform::Place& place,
                                 const std::vector<const uint64_t*>& keys,
                                 const std::vector<float*>& values,
@@ -182,92 +270,99 @@ void BoxWrapper::PullSparseCaseGPU(const paddle::platform::Place& place,
 #endif
 }
 
-void BoxWrapper::PullSparseCaseCPU(const paddle::platform::Place& place,
-                                    const std::vector<const uint64_t*>& keys,
-                                    const std::vector<float*>& values,
-                                    const std::vector<int64_t>& slot_lengths,
-                                    const int hidden_size,
-                                    const int expand_embed_dim,
-                                    const int skip_offset, bool expand_only) {
-  //  VLOG(3) << "Begin PullSparse";
-  int device_id = GetPlaceDeviceId(place);
+void BoxWrapper::PullSparseCaseXPU(const paddle::platform::Place& place,
+                                const std::vector<const uint64_t*>& keys,
+                                const std::vector<float*>& values,
+                                const std::vector<int64_t>& slot_lengths,
+                                const int hidden_size,
+                                const int expand_embed_dim,
+                                const int skip_offset, bool expand_only) {
+#ifdef PADDLE_WITH_XPU_KP
+  auto dev_ctx = platform::DeviceContextPool::Instance().Get(place);
+  auto ctx_xpu = static_cast<platform::XPUDeviceContext*>(dev_ctx)->x_context();
+  phi::Place l3_place =
+    static_cast<platform::XPUDeviceContext*>(dev_ctx)->GetL3Place();
+  int device_id = place.GetDeviceId();
   DeviceBoxData& dev = device_caches_[device_id];
-  platform::Timer& all_timer = dev.all_pull_timer;
-  platform::Timer& pull_boxps_timer = dev.boxps_pull_timer;
-  platform::Timer& pull_dedup_timer = dev.pull_dedup_timer;
-  all_timer.Resume();
 
+  platform::Timer all_timer;
+  platform::Timer pull_boxps_timer;
+  all_timer.Start();
+  int64_t total_length =
+      std::accumulate(slot_lengths.begin(), slot_lengths.end(), 0UL);
   int slot_num = static_cast<int>(slot_lengths.size());
-  int64_t* slot_lens = reinterpret_cast<int64_t*>(
-      dev.slot_lens.mutable_data<int64_t>({(slot_num + 1), 1}, place));
-  int64_t total_length = 0;
-  slot_lens[0] = 0;
-  for (int i = 0; i < slot_num; i++) {
-    total_length += slot_lengths[i];
-    slot_lens[i + 1] = total_length;
-  }
-  dev.total_key_length = total_length;
+  VLOG(3) << "Begine BoxPs PullSparse";
+  xpu::ctx_guard RAII_GUARD(ctx_xpu);
 
-    uint64_t* total_keys =
-      reinterpret_cast<uint64_t*>(dev.keys_tensor.mutable_data<int64_t>(
-          {static_cast<int64_t>(total_length * 2), 1}, place));
-  int* key2slot = reinterpret_cast<int*>(dev.keys2slot.mutable_data<int>(
-      {static_cast<int64_t>(total_length * 5), 1}, place));
+  int64_t total_bytes = total_length * feature_pull_size_;
+  void* total_values_xpu =
+      dev.pull_push_tensor.mutable_data<void>(total_bytes, place);
+
+  VLOG(3) << "Begin copy keys, key_num[" << total_length << "]";
+  LoDTensor& total_keys_tensor = dev.keys_tensor;
+  uint32_t* total_keys = reinterpret_cast<uint32_t*>(
+      total_keys_tensor.mutable_data<int32_t>({total_length, 1}, l3_place));
+  int* key2slot = nullptr;
+  key2slot = reinterpret_cast<int*>(
+      dev.keys2slot.mutable_data<int>({total_length, 1}, place));
+
+  // construct slot_level lod info
+  auto slot_lengths_lod = slot_lengths;
+  for (size_t i = 1; i < slot_lengths_lod.size(); i++) {
+    slot_lengths_lod[i] += slot_lengths_lod[i - 1];
+  }
+
   int* total_dims = reinterpret_cast<int*>(
       dev.dims_tensor.mutable_data<int>({total_length, 1}, place));
 
-  dev.copy_keys_timer.Resume();
-  this->CopyCPUKeys(place, keys, total_keys, slot_lens, slot_num,
-                    static_cast<int>(total_length), key2slot);
-  dev.copy_keys_timer.Pause();
+  uint64_t** xpu_keys = dev.keys_ptr_tensor.mutable_data<uint64_t*>(
+      static_cast<int>(keys.size() * sizeof(uint64_t*)), place);
+  int64_t* slot_lens = reinterpret_cast<int64_t*>(
+      dev.slot_lens.mutable_data<int64_t>({(slot_num + 1), 1}, place));
+  xpu_memcpy(xpu_keys, keys.data(), keys.size() * sizeof(uint64_t*),
+                  XPU_HOST_TO_DEVICE);
+  xpu_memcpy(slot_lens, slot_lengths_lod.data(),
+                  slot_lengths_lod.size() * sizeof(int64_t),
+                  XPU_HOST_TO_DEVICE);
 
-  // dedup keys pull
-  uint32_t* d_restore_idx =
-      reinterpret_cast<uint32_t*>(&key2slot[total_length]);
-  uint32_t* d_sorted_idx =
-      reinterpret_cast<uint32_t*>(&d_restore_idx[total_length]);
-  uint32_t* d_offset = reinterpret_cast<uint32_t*>(&d_sorted_idx[total_length]);
-  uint32_t* d_merged_cnts =
-      reinterpret_cast<uint32_t*>(&d_offset[total_length]);
-  uint64_t* d_merged_keys =
-      reinterpret_cast<uint64_t*>(&total_keys[total_length]);
+  box_wrapper_kernel_->CopyKeys(place, xpu_keys, total_keys, slot_lens,
+                  static_cast<int>(slot_lengths.size()),
+                  static_cast<int>(total_length));
+  VLOG(3) << "Begin call PullSparseXPU in BoxPS, dev: " << device_id
+            << " len: " << total_length;
 
-  pull_dedup_timer.Resume();
-  int dedup_size =
-      boxps_ptr_->DedupKeysAndFillIdx(device_id, total_length,
-                                      total_keys,     // input
-                                      d_merged_keys,  // output
-                                      d_restore_idx,  // pull fill idx
-                                      d_sorted_idx,   // sort old idx
-                                      d_offset,       // offset
-                                      d_merged_cnts);
-  pull_dedup_timer.Pause();
-  PADDLE_ENFORCE_GT(dedup_size, 0,
-                    platform::errors::PreconditionNotMet(
-                        "dedup keys need more than zero failed in BoxPS."));
-  dev.dedup_key_length = dedup_size;
+  // TODO: call cache_manager
+//   auto cache_manager = dynamic_cast<HeterPs*>(HeterPs_)->get_cache_manager();
+//   cache_manager->convert_fid2bfid(device_id, total_keys, static_cast<int>(total_length));
 
-  int64_t total_bytes = dedup_size * feature_pull_size_;
-  void* total_values_gpu =
-      dev.pull_push_tensor.mutable_data<void>(total_bytes, place);
-
-  pull_boxps_timer.Resume();
-
-  int ret = boxps_ptr_->PullSparseGPU(d_merged_keys,
-                                      reinterpret_cast<void*>(total_values_gpu),
-                                      static_cast<int>(dedup_size), device_id);
-  PADDLE_ENFORCE_EQ(ret, 0, platform::errors::PreconditionNotMet(
-                                "PullSparseGPU failed in BoxPS."));
+  pull_boxps_timer.Start();
+  boxps_ptr_->PullSparseGPU(reinterpret_cast<uint64_t*>(total_keys), total_values_xpu,
+      static_cast<int>(total_length), device_id);
   pull_boxps_timer.Pause();
 
-  dev.copy_values_timer.Resume();
-  this->CopyForPullCPU(place, keys, values, total_values_gpu, slot_lens,
-                       slot_num, key2slot, hidden_size, expand_embed_dim,
-                       total_length, total_dims, skip_offset, expand_only,
-                       d_restore_idx);
-  dev.copy_values_timer.Pause();
+  VLOG(3) << "Begin Copy result to tensor, total_length[" << total_length
+          << "]";
 
-  all_timer.Pause();
+  boxps::FeaturePullOffset* pull_offset = nullptr;
+  if (dev.pull_offset.memory_size() == 0) {
+    pull_offset = dev.pull_offset.mutable_data<boxps::FeaturePullOffset>(
+        sizeof(boxps::FeaturePullOffset), place);
+    xpu_memcpy(pull_offset, &pull_info_, sizeof(boxps::FeaturePullOffset),
+                    XPU_HOST_TO_DEVICE);
+  } else {
+    pull_offset = dev.pull_offset.data<boxps::FeaturePullOffset>();
+  }
+
+  float** xpu_values = dev.values_ptr_tensor.mutable_data<float*>(
+        static_cast<int>(values.size() * sizeof(float*)), place);
+  xpu_memcpy(xpu_values, values.data(), values.size() * sizeof(float*),
+                  XPU_HOST_TO_DEVICE);
+
+  box_wrapper_kernel_->CopyForPull(place, xpu_keys, xpu_values, total_values_xpu,
+                      pull_offset, slot_lens, slot_num, key2slot, hidden_size,
+                      expand_embed_dim, total_length, total_dims, skip_offset,
+                      expand_only);
+#endif
 }
 
 void BoxWrapper::PullSparseCase(const paddle::platform::Place& place,
@@ -277,11 +372,14 @@ void BoxWrapper::PullSparseCase(const paddle::platform::Place& place,
                                 const int hidden_size,
                                 const int expand_embed_dim,
                                 const int skip_offset, bool expand_only) {
-  if (!platform::is_gpu_place(place)) {
+  if (platform::is_cpu_place(place)) {
     PullSparseCaseCPU(place, keys, values, slot_lengths, hidden_size,
                       expand_embed_dim, skip_offset, expand_only);
-  } else {
+  } else if (platform::is_gpu_place(place)) {
     PullSparseCaseGPU(place, keys, values, slot_lengths, hidden_size,
+                      expand_embed_dim, skip_offset, expand_only);
+  } else {
+    PullSparseCaseXPU(place, keys, values, slot_lengths, hidden_size,
                       expand_embed_dim, skip_offset, expand_only);
   }
 }

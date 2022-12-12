@@ -839,6 +839,11 @@ void BoxWrapper::GetFeatureOffsetInfo(void) {
   PADDLE_ENFORCE_EQ(feature_push_size_ % sizeof(float), 0,
                     platform::errors::PreconditionNotMet(
                         "feature push size must sizeof(float) number."));
+#ifdef PADDLE_WITH_XPU_KP
+  box_wrapper_kernel_->GetFeatureInfo(pull_info_, feature_pull_size_,
+      push_info_, feature_push_size_, embedx_dim_, expand_embed_dim_,
+      pull_embedx_scale_);
+#endif
 }
 
 //============================== other =====================================

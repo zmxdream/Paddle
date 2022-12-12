@@ -47,6 +47,7 @@ limitations under the License. */
 #include "paddle/fluid/platform/timer.h"
 #include "paddle/fluid/string/string_helper.h"
 #include "paddle/fluid/framework/fleet/metrics.h"
+#include "paddle/fluid/framework/fleet/box_wrapper_kernel.h"
 #define BUF_SIZE 1024 * 1024
 
 DECLARE_int32(fix_dayid);
@@ -365,6 +366,9 @@ class BoxWrapper {
   BoxWrapper() {
     fprintf(stdout, "init box wrapper\n");
     boxps::MPICluster::Ins();
+#ifdef PADDLE_WITH_XPU_KP
+    box_wrapper_kernel_ = std::make_unique<BoxWrapperKernel>();
+#endif
   }
   void SetDatasetName(const std::string& name) {}
   void SetInputTableDim(size_t dim) { input_table_dim_ = dim; }
@@ -387,6 +391,14 @@ class BoxWrapper {
                          const std::vector<float*>& values,
                          const std::vector<int64_t>& slot_lengths,
                          const int hidden_size, const int expand_embed_dim,
+                         const int skip_offset, bool expand_only);
+
+  void PullSparseCaseXPU(const paddle::platform::Place& place,
+                         const std::vector<const uint64_t*>& keys,
+                         const std::vector<float*>& values,
+                         const std::vector<int64_t>& slot_lengths,
+                         const int hidden_size,
+                         const int expand_embed_dim,
                          const int skip_offset, bool expand_only);
 
   void PullSparseCaseCPU(const paddle::platform::Place& place,
@@ -715,6 +727,9 @@ class BoxWrapper {
   std::map<std::string, float> lr_map_;
   size_t input_table_dim_ = 0;
   int gpu_num_ = GetDeviceCount();
+#ifdef PADDLE_WITH_XPU_KP
+  std::unique_ptr<BoxWrapperKernel> box_wrapper_kernel_;
+#endif
 
  public:
   static std::shared_ptr<boxps::PaddleShuffler> data_shuffle_;
