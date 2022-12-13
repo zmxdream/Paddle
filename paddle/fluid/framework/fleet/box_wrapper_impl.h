@@ -362,6 +362,8 @@ void BoxWrapper::PullSparseCaseXPU(const paddle::platform::Place& place,
                       pull_offset, slot_lens, slot_num, key2slot, hidden_size,
                       expand_embed_dim, total_length, total_dims, skip_offset,
                       expand_only);
+
+  all_timer.Pause();
 #endif
 }
 
@@ -483,6 +485,77 @@ void BoxWrapper::PushSparseGradCaseGPU(
 #endif
 }
 
+void BoxWrapper::PushSparseGradCaseXPU(const paddle::platform::Place& place,
+    const std::vector<const uint64_t*>& keys,
+    const std::vector<const float*>& grad_values,
+    const std::vector<int64_t>& slot_lengths, const int hidden_size,
+    const int expand_embed_dim, const int batch_size, const int skip_offset,
+    bool expand_only) {
+#ifdef PADDLE_WITH_XPU_KP
+  int device_id = place.GetDeviceId();
+  DeviceBoxData& dev = device_caches_[device_id];
+
+  platform::Timer& all_timer = dev.all_push_timer;
+  platform::Timer& push_boxps_timer = dev.boxps_push_timer;
+
+  all_timer.Resume();
+
+  int64_t total_length = dev.total_key_length;
+  int64_t total_bytes = total_length * feature_push_size_;
+  void* total_grad_values_xpu =
+      dev.pull_push_tensor.mutable_data<void>(total_bytes, place);
+
+  uint32_t* total_keys =
+      reinterpret_cast<uint32_t*>(dev.keys_tensor.data<int32_t>());
+  int* total_dims = reinterpret_cast<int*>(dev.dims_tensor.data<int>());
+  int slot_num = static_cast<int>(slot_lengths.size());
+
+  if (!dev.d_slot_vector.IsInitialized()) {
+    int* buf_slot_vector = reinterpret_cast<int*>(
+        dev.d_slot_vector.mutable_data<int>({slot_num, 1}, place));
+    xpu_memcpy(buf_slot_vector, slot_vector_.data(),
+                    slot_num * sizeof(int), XPU_HOST_TO_DEVICE);
+  }
+  boxps::FeaturePushOffset* push_offset = nullptr;
+  if (dev.push_offset.memory_size() == 0) {
+    push_offset = dev.push_offset.mutable_data<boxps::FeaturePushOffset>(
+        sizeof(boxps::FeaturePushOffset), place);
+    xpu_memcpy(push_offset, &push_info_, sizeof(boxps::FeaturePushOffset),
+        XPU_HOST_TO_DEVICE);
+  } else {
+    push_offset = dev.push_offset.data<boxps::FeaturePushOffset>();
+  }
+
+  auto slot_lengths_lod = slot_lengths;
+  for (size_t i = 1; i < slot_lengths_lod.size(); i++) {
+    slot_lengths_lod[i] += slot_lengths_lod[i - 1];
+  }
+  const int64_t* slot_lens =
+      reinterpret_cast<int64_t*>(dev.slot_lens.data<int64_t>());
+  const int* d_slot_vector = dev.d_slot_vector.data<int>();
+  const int* key2slot = reinterpret_cast<int*>(dev.keys2slot.data<int>());
+  float** xpu_values = dev.values_ptr_tensor.data<float*>();
+  xpu_memcpy(xpu_values, grad_values.data(),
+                  grad_values.size() * sizeof(float*), XPU_HOST_TO_DEVICE);
+  box_wrapper_kernel_->CopyForPush(place, xpu_values, total_grad_values_xpu,
+      push_offset, total_length, 0, slot_lengths, slot_lengths_lod,
+      d_slot_vector, slot_lens, slot_num, hidden_size, expand_embed_dim,
+      batch_size, total_dims, key2slot, skip_offset, expand_only);
+
+  push_boxps_timer.Resume();
+  int ret = boxps_ptr_->PushSparseGPU(
+      reinterpret_cast<uint64_t*>(total_keys),
+      reinterpret_cast<void*>(total_grad_values_xpu),
+      static_cast<int>(total_length), device_id);
+  PADDLE_ENFORCE_EQ(ret, 0, platform::errors::PreconditionNotMet(
+                              "PushSparseXPU failed in BoxPS."));
+  push_boxps_timer.Pause();
+
+  all_timer.Pause();
+
+#endif
+}
+
 void BoxWrapper::PushSparseGradCaseCPU(
     const paddle::platform::Place& place,
     const std::vector<const uint64_t*>& keys,
@@ -544,12 +617,16 @@ void BoxWrapper::PushSparseGradCase(
     const std::vector<int64_t>& slot_lengths, const int hidden_size,
     const int expand_embed_dim, const int batch_size, const int skip_offset,
     bool expand_only) {
-  if (!platform::is_gpu_place(place)) {
+  if (platform::is_cpu_place(place)) {
     PushSparseGradCaseCPU(place, keys, grad_values, slot_lengths, hidden_size,
                           expand_embed_dim, batch_size, skip_offset,
                           expand_only);
-  } else {
+  } else if (platform::is_gpu_place(place)) {
     PushSparseGradCaseGPU(place, keys, grad_values, slot_lengths, hidden_size,
+                          expand_embed_dim, batch_size, skip_offset,
+                          expand_only);
+  } else {
+    PushSparseGradCaseXPU(place, keys, grad_values, slot_lengths, hidden_size,
                           expand_embed_dim, batch_size, skip_offset,
                           expand_only);
   }
