@@ -11,7 +11,7 @@ set(XPU_RT_LIB_NAME "libxpurt.so")
 if(NOT DEFINED XPU_BASE_URL)
   set(XPU_BASE_URL_WITHOUT_DATE
       "https://baidu-kunlun-product.cdn.bcebos.com/KL-SDK/klsdk-dev")
-  set(XPU_BASE_URL "${XPU_BASE_URL_WITHOUT_DATE}/20221130")
+  set(XPU_BASE_URL "${XPU_BASE_URL_WITHOUT_DATE}/2022130")
 else()
   set(XPU_BASE_URL "${XPU_BASE_URL}")
 endif()
@@ -20,8 +20,7 @@ endif()
 if(NOT DEFINED XPU_XDNN_BASE_URL)
   set(XPU_XDNN_BASE_URL_WITHOUT_DATE
       "https://klx-sdk-release-public.su.bcebos.com/xdnn/dev")
-  #set(XPU_XDNN_BASE_URL "${XPU_XDNN_BASE_URL_WITHOUT_DATE}/20220919")
-  set(XPU_XDNN_BASE_URL "${XPU_XDNN_BASE_URL_WITHOUT_DATE}/20221130")
+  set(XPU_XDNN_BASE_URL "${XPU_XDNN_BASE_URL_WITHOUT_DATE}/20221209")
 else()
   set(XPU_XDNN_BASE_URL "${XPU_XDNN_BASE_URL}")
 endif()
@@ -105,7 +104,7 @@ if(WITH_BOX_PS)
         CACHE STRING "" FORCE)
     #"https://klx-sdk-release-public.su.bcebos.com/xdnn/release/2.6.0.1/${XPU_XDNN_DIR_NAME}.tar.gz"
     set(XPU_XDNN_URL
-        "https://klx-sdk-release-public.su.bcebos.com/xdnn_train/dev/20221130/${XPU_XDNN_DIR_NAME}.tar.gz"
+        "https://klx-sdk-release-public.su.bcebos.com/xdnn_train/dev/20221209/${XPU_XDNN_DIR_NAME}.tar.gz"
         CACHE STRING "" FORCE)
 endif()
 
