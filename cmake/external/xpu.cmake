@@ -5,8 +5,9 @@ endif()
 include(ExternalProject)
 set(XPU_PROJECT "extern_xpu")
 set(XPU_API_LIB_NAME "libxpuapi.so")
-SET(XPU_API_PLUGIN_NAME  "libxpuplugin.so")
+set(XPU_API_PLUGIN_NAME  "libxpuplugin.so")
 set(XPU_RT_LIB_NAME "libxpurt.so")
+set(XPU_RT_ALIAS_LIB_NAME "libxpurt.so.1")
 
 if(NOT DEFINED XPU_BASE_URL)
   set(XPU_BASE_URL_WITHOUT_DATE
@@ -115,8 +116,9 @@ set(XPU_INC_DIR "${THIRD_PARTY_PATH}/install/xpu/include")
 set(XPU_LIB_DIR "${THIRD_PARTY_PATH}/install/xpu/lib")
 
 set(XPU_API_LIB "${XPU_LIB_DIR}/${XPU_API_LIB_NAME}")
-SET(XPU_API_PLUGIN "${XPU_LIB_DIR}/${XPU_API_PLUGIN_NAME}")
+set(XPU_API_PLUGIN "${XPU_LIB_DIR}/${XPU_API_PLUGIN_NAME}")
 set(XPU_RT_LIB "${XPU_LIB_DIR}/${XPU_RT_LIB_NAME}")
+set(XPU_RT_ALIAS_LIB "${XPU_LIB_DIR}/${XPU_RT_ALIAS_LIB_NAME}")
 
 set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_RPATH}" "${XPU_INSTALL_DIR}/lib")
 

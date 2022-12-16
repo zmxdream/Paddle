@@ -3151,6 +3151,10 @@ int SlotPaddleBoxDataFeed::Next() {
   if (offset_index_ >= static_cast<int>(batch_offsets_.size())) {
     return 0;
   }
+#ifdef WITH_XPU_KP
+  auto box_ptr = paddle::framework::BoxWrapper::GetInstance();
+  box_ptr->PrepareNextBatch(this->place_.GetDeviceId());
+#endif
   auto& batch = batch_offsets_[offset_index_++];
   if (enable_pv_merge_) {
     // join phase : output_pv_channel to consume_pv_channel

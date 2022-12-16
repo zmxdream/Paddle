@@ -848,6 +848,17 @@ void BoxWrapper::GetFeatureOffsetInfo(void) {
 
 //============================== other =====================================
 
+#ifdef WITH_XPU_KP
+void BoxWrapper::SetDataFuncForCacheManager(int batch_num,
+    std::function<void(int, std::vector<std::pair<uint64_t*, int>>*)> data_func) {
+  boxps_ptr_->SetDataFuncForCacheManager(data_func);
+}
+
+int BoxWrapper::PrepareNextBatch(int dev_id) {
+  return boxps_ptr_->PrepareNextBatch(dev_id);
+}
+#endif
+
 boxps::PSAgentBase* BoxWrapper::GetAgent() {
   boxps::PSAgentBase* p_agent = nullptr;
   std::lock_guard<std::mutex> lock(mutex_);
