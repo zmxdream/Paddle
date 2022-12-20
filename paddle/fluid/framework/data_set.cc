@@ -2813,15 +2813,17 @@ void PadBoxSlotDataset::PrepareTrain(void) {
     }
   }
 
-#ifdef WITH_XPU_KP
+#ifdef PADDLE_WITH_XPU_KP
   // TODO(dingjie02): async call build_batch_fidseq
   using BatchData = std::vector<std::pair<uint64_t*, int>>;
-  auto data_func = [this, &] (int batch_idx, BatchData * out_data) {
+  VLOG(0) << "PadBoxSlotDataset::PrepareTrain offset size:" << offset.size()
+          << ", thread_num:" << thread_num_;
+  auto data_func = [this, offset] (int batch_idx, BatchData * out_data) {
     BatchData & batch_data = *out_data;
     batch_data.clear();
     int offset_idx = batch_idx * thread_num_;
     CHECK(offset_idx + thread_num_ < (int)offset.size());
-    for (size_t j = 0; j < thread_num_; j++) {
+    for (int j = 0; j < thread_num_; j++) {
       auto & offset_pair = offset[offset_idx + j];
       for (int k = 0; k < offset_pair.second; k++) {
         auto & rec = input_records_[offset_pair.first + k];

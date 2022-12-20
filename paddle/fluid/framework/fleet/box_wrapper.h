@@ -506,7 +506,7 @@ class BoxWrapper {
                    uint64_t* total_keys, const int64_t* slot_lengths_lod,
                    int slot_num, int total_len, int* key2slot);
 
-#ifdef WITH_XPU_KP
+#ifdef PADDLE_WITH_XPU_KP
   void SetDataFuncForCacheManager(int batch_num,
       std::function<void(int, std::vector<std::pair<uint64_t*, int>>*)> data_func);
   int PrepareNextBatch(int dev_id);

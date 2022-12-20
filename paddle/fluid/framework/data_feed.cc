@@ -3151,7 +3151,7 @@ int SlotPaddleBoxDataFeed::Next() {
   if (offset_index_ >= static_cast<int>(batch_offsets_.size())) {
     return 0;
   }
-#ifdef WITH_XPU_KP
+#ifdef PADDLE_WITH_XPU_KP
   auto box_ptr = paddle::framework::BoxWrapper::GetInstance();
   box_ptr->PrepareNextBatch(this->place_.GetDeviceId());
 #endif
