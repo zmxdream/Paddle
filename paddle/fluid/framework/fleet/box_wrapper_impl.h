@@ -532,15 +532,27 @@ void BoxWrapper::PushSparseGradCaseXPU(const paddle::platform::Place& place,
   }
   const int64_t* slot_lens =
       reinterpret_cast<int64_t*>(dev.slot_lens.data<int64_t>());
-  const int* d_slot_vector = dev.d_slot_vector.data<int>();
-  const int* key2slot = reinterpret_cast<int*>(dev.keys2slot.data<int>());
+  const int* slot_vector = dev.d_slot_vector.data<int>();
+  // const int* key2slot = reinterpret_cast<int*>(dev.keys2slot.data<int>());
   float** xpu_values = dev.values_ptr_tensor.data<float*>();
   xpu_memcpy(xpu_values, grad_values.data(),
                   grad_values.size() * sizeof(float*), XPU_HOST_TO_DEVICE);
-  box_wrapper_kernel_->CopyForPush(place, xpu_values, total_grad_values_xpu,
-      push_offset, total_length, 0, slot_lengths, slot_lengths_lod,
-      d_slot_vector, slot_lens, slot_num, hidden_size, expand_embed_dim,
-      batch_size, total_dims, key2slot, skip_offset, expand_only);
+
+  int size = total_length;
+  auto gm_src = memory::Alloc(place, size * hidden_size * sizeof(float));
+  float* gm_src_ptr = reinterpret_cast<float*>(gm_src->ptr());
+  auto dev_ctx = platform::DeviceContextPool::Instance().Get(place);
+  auto ctx_xpu = static_cast<platform::XPUDeviceContext*>(dev_ctx)->x_context();
+
+  for (int i = 0; i < slot_num; i++) {
+    int offset = i ? slot_lengths_lod[i - 1] : 0;
+    xpu::copy<float>(ctx_xpu, xpu_values[i], gm_src_ptr + offset * hidden_size,
+        slot_lengths[i] * hidden_size);
+  }
+
+  box_wrapper_kernel_->CopyForPush(place, gm_src_ptr, total_grad_values_xpu,
+      push_offset, total_length, slot_vector, slot_lens, slot_num,
+      hidden_size, batch_size, total_dims, skip_offset);
 
   push_boxps_timer.Resume();
   int ret = boxps_ptr_->PushSparseGPU(
