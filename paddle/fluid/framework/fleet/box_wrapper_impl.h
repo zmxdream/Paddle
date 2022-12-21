@@ -362,6 +362,15 @@ void BoxWrapper::PullSparseCaseXPU(const paddle::platform::Place& place,
                       pull_offset, slot_lens, slot_num, key2slot, hidden_size,
                       expand_embed_dim, total_length, total_dims, skip_offset,
                       expand_only);
+  // box_wrapper_kernel_->CopyForPull(place,
+  //                                  pull_offset,
+  //                                  total_dims,
+  //                                  xpu_values,
+  //                                  total_keys,//useless
+  //                                  total_values_xpu,
+  //                                  total_length,
+  //                                  hidden_size,
+  //                                  skip_offset);
 
   all_timer.Pause();
 #endif
