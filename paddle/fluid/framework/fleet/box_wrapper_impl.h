@@ -327,7 +327,7 @@ void BoxWrapper::PullSparseCaseXPU(const paddle::platform::Place& place,
 
   box_wrapper_kernel_->CopyKeys(place, xpu_keys, total_keys, slot_lens,
                   static_cast<int>(slot_lengths.size()),
-                  static_cast<int>(total_length));
+                  static_cast<int>(total_length), key2slot);
   VLOG(3) << "Begin call PullSparseXPU in BoxPS, dev: " << device_id
             << " len: " << total_length;
 
@@ -336,7 +336,7 @@ void BoxWrapper::PullSparseCaseXPU(const paddle::platform::Place& place,
 //   cache_manager->convert_fid2bfid(device_id, total_keys, static_cast<int>(total_length));
 
   pull_boxps_timer.Start();
-  boxps_ptr_->PullSparseGPU(reinterpret_cast<uint64_t*>(total_keys), total_values_xpu,
+  boxps_ptr_->PullSparseXPU(total_keys, total_values_xpu,
       static_cast<int>(total_length), device_id);
   pull_boxps_timer.Pause();
 
@@ -542,7 +542,7 @@ void BoxWrapper::PushSparseGradCaseXPU(const paddle::platform::Place& place,
   const int64_t* slot_lens =
       reinterpret_cast<int64_t*>(dev.slot_lens.data<int64_t>());
   const int* slot_vector = dev.d_slot_vector.data<int>();
-  // const int* key2slot = reinterpret_cast<int*>(dev.keys2slot.data<int>());
+  const int* key2slot = reinterpret_cast<int*>(dev.keys2slot.data<int>());
   float** xpu_values = dev.values_ptr_tensor.data<float*>();
   xpu_memcpy(xpu_values, grad_values.data(),
                   grad_values.size() * sizeof(float*), XPU_HOST_TO_DEVICE);
@@ -561,11 +561,10 @@ void BoxWrapper::PushSparseGradCaseXPU(const paddle::platform::Place& place,
 
   box_wrapper_kernel_->CopyForPush(place, gm_src_ptr, total_grad_values_xpu,
       push_offset, total_length, slot_vector, slot_lens, slot_num,
-      hidden_size, batch_size, total_dims, skip_offset);
+      hidden_size, batch_size, total_dims, skip_offset, key2slot);
 
   push_boxps_timer.Resume();
-  int ret = boxps_ptr_->PushSparseGPU(
-      reinterpret_cast<uint64_t*>(total_keys),
+  int ret = boxps_ptr_->PushSparseXPU(total_keys,
       reinterpret_cast<void*>(total_grad_values_xpu),
       static_cast<int>(total_length), device_id);
   PADDLE_ENFORCE_EQ(ret, 0, platform::errors::PreconditionNotMet(

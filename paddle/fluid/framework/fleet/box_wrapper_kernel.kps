@@ -45,10 +45,15 @@ struct EmbedxNormalOp {
   }
 };
 
+template <typename T>
+__device__ void set_byfloat(float* dest, const T& val) {
+  (*reinterpret_cast<T*>(dest)) = val;
+}
+
 __global__ void CopyKeysKernel(unsigned long long* src_keys,
                                uint32_t* dest_total_keys,
                                const long long* len, int slot_num,
-                               int total_len) {
+                               int total_len, int* key2slots) {
   int cid = core_id();
   int ncores = core_num();
   if (cid >= ncores) {
@@ -80,6 +85,7 @@ __global__ void CopyKeysKernel(unsigned long long* src_keys,
           local_slot_keys_uint32[m] = (uint32_t)local_slot_keys[m];
       }
       mfence();
+      LM2GM(&i, key2slots + dest_len + k, sizeof(int));
       LM2GM(local_slot_keys_uint32, dest_total_keys + dest_len + k,
             real_read_len * sizeof(uint32_t));
     }
@@ -89,7 +95,7 @@ __global__ void CopyKeysKernel(unsigned long long* src_keys,
 void BoxWrapperKernel::CopyKeys(const paddle::platform::Place& place,
                             uint64_t** origin_keys, uint32_t* total_keys,
                             const int64_t* gpu_len, int slot_num,
-                            int total_len) {
+                            int total_len, int* key2slots) {
   XPUStream stream = nullptr;
   auto dev_ctx = platform::DeviceContextPool::Instance().Get(place);
   stream = static_cast<platform::XPUDeviceContext*>(dev_ctx)
@@ -98,7 +104,7 @@ void BoxWrapperKernel::CopyKeys(const paddle::platform::Place& place,
   unsigned long long* o_keys =
       reinterpret_cast<unsigned long long*>(origin_keys);
   const long long* c_len = (const long long*)gpu_len;
-  CopyKeysKernel<<<2, 64, stream>>>(o_keys, total_keys, c_len, slot_num, total_len);
+  CopyKeysKernel<<<2, 64, stream>>>(o_keys, total_keys, c_len, slot_num, total_len, key2slots);
   xpu_wait(stream);
 }
 
@@ -326,20 +332,84 @@ void BoxWrapperKernel::CopyForPull(
   xpu_wait(stream);
 }
 
-__global__ void push_copy(float* gm_src_ptr,
-    void* total_grad_values_xpu,
+__global__ void PushCopy(float* src_vals,
+    float* dest_vals,
     boxps::FeaturePushOffset* push_offset,
+    const int push_float_num,
     const int total_length,
-    const int* slots,
-    const long long* slot_lens,
-    const int slot_num,
     const int hidden_size,
     const int batch_size,
     const int* total_dims,
     const int skip_offset,
-    const int cvm_offset) {
-    // TODO:
+    const int cvm_offset,
+    const int* key2slot) {
+    int cid = core_id();
+    int ncores = core_num();
+    if (cid >= ncores) {
+      return;
+    }
+    int thread_id = cluster_id() * ncores + cid;
+    int nthreads = cluster_num() * ncores;
 
+    const int buf_length = 50; // max 2048 float
+    int per_thread_len = roundup_div(total_length, nthreads);
+    int per_thread_loop_count = roundup_div(per_thread_len, buf_length);
+    int per_thread_per_loop_len =
+      roundup_div(per_thread_len, per_thread_loop_count);
+
+    __local__ float lm_src_vals[buf_length * hidden_size];
+    __local__ float lm_dest_vals[buf_length * push_float_num];
+    __local__ int lm_total_dims[buf_length];
+    __local__ int lm_key2slot[buf_length];
+    boxps::FeaturePushOffset info;
+
+    GM2LM(push_offset, &info, sizeof(boxps::FeaturePushOffset));
+
+    float scale = -1. * batch_size;
+    for (int i = thread_id; i < per_thread_loop_count * nthreads; i += nthreads) {
+      int gm_offset = i * per_thread_per_loop_len;
+      if (gm_offset >= total_length)
+        return;
+
+      GM2LM(src_vals + gm_offset * hidden_size, lm_src_vals,
+              per_thread_per_loop_len * hidden_size * sizeof(float));
+      GM2LM(dest_vals + gm_offset * push_float_num, lm_dest_vals,
+              per_thread_per_loop_len * push_float_num * sizeof(float));
+      GM2LM(total_dims + gm_offset, lm_total_dims,
+              per_thread_per_loop_len * sizeof(int));
+      GM2LM(key2slot + gm_offset, lm_key2slot,
+              per_thread_per_loop_len * sizeof(int));
+
+      int count_per_loop =
+        min(per_thread_per_loop_len, total_length - gm_offset);
+
+      for (int j = 0; j < count_per_loop; j++) {
+          float* dest_val = lm_dest_vals + j * push_float_num;
+          set_byfloat<int>(dest_val + info.slot, lm_key2slot[j]);
+
+          float* optr = reinterpret_cast<float*>(&dest_val[info.show]);
+          float* src_val = reinterpret_cast<float*>(lm_src_vals + j * hidden_size);
+
+          for (int k = 0; k < skip_offset; ++k) {
+              optr[k] = 1.0;
+          }
+          for (int k = 0; k < cvm_offset; ++k) {
+              optr[k + skip_offset] = src_val[k];
+          }
+          for (int k = 0; k < info.embed_num; ++k) {
+              dest_val[info.embed_g + k] *= -1. * batch_size;
+          }
+          if (lm_total_dims[j] & 0x01) {
+              for (int k = 0; k < hidden_size - cvm_offset; ++k) {
+                  dest_val[info.embedx_g + k] = src_val[cvm_offset + k] * -1. * batch_size;
+              }
+          } else {
+              for (int k = 0; k < hidden_size - cvm_offset; ++k) {
+                  dest_val[info.embedx_g + k] = 0;
+              }
+          }
+      }
+  }
 }
 
 void BoxWrapperKernel::CopyForPush(
@@ -354,7 +424,8 @@ void BoxWrapperKernel::CopyForPush(
     const int hidden_size,
     const int batch_size,
     const int* total_dims,
-    const int skip_offset) {
+    const int skip_offset,
+    const int* key2slot) {
   auto dev_ctx = platform::DeviceContextPool::Instance().Get(place);
   auto stream = static_cast<platform::XPUDeviceContext*>(dev_ctx)
                ->x_context()
@@ -363,11 +434,12 @@ void BoxWrapperKernel::CopyForPush(
   const int cvm_offset = cvm_offset_ - skip_offset;
 
   const int c_total_length = static_cast<const int>(total_length);
-  const long long* c_slot_lens = reinterpret_cast<const long long*>(slot_lens);
+  float* push_grad_values = reinterpret_cast<float*>(total_grad_values_xpu);
 
-  push_copy<<<8, 64, stream>>>(gm_src_ptr, total_grad_values_xpu, push_offset,
-      c_total_length, slots, c_slot_lens, slot_num, hidden_size, batch_size,
-      total_dims, skip_offset, cvm_offset);
+  // TODO: slots, slot_lens, slot_num can be removed?
+  PushCopy<<<8, 64, stream>>>(gm_src_ptr, push_grad_values, push_offset,
+      push_float_num_, c_total_length, hidden_size, batch_size, total_dims,
+      skip_offset, cvm_offset, key2slot);
 
   xpu_wait(stream);
 }

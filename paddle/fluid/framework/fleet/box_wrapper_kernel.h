@@ -29,7 +29,7 @@ void GetFeatureInfo(boxps::FeaturePullOffset &pull_info,
 void CopyKeys(const paddle::platform::Place& place,
                             uint64_t** origin_keys, uint32_t* total_keys,
                             const int64_t* xpu_len, int slot_num,
-                            int total_len);
+                            int total_len, int* key2slot);
 
 void CopyForPull(
     const paddle::platform::Place& place, uint64_t** xpu_keys,
@@ -64,7 +64,8 @@ void CopyForPush(
     const int hidden_size,
     const int batch_size,
     const int* total_dims,
-    const int skip_offset);
+    const int skip_offset,
+    const int* key2slot);
 
 private:
   size_t feature_pull_size_ = 0;
