@@ -2822,7 +2822,10 @@ void PadBoxSlotDataset::PrepareTrain(void) {
     BatchData & batch_data = *out_data;
     batch_data.clear();
     int offset_idx = batch_idx * thread_num_;
-    CHECK(offset_idx + thread_num_ < (int)offset.size());
+    CHECK(offset_idx + thread_num_ <= (int)offset.size())
+            << "offset_idx:" << offset_idx
+            << ", thread_num_:" << thread_num_
+            << "offset.size:" << offset.size();
     for (int j = 0; j < thread_num_; j++) {
       auto & offset_pair = offset[offset_idx + j];
       for (int k = 0; k < offset_pair.second; k++) {

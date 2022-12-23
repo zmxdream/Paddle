@@ -24,6 +24,9 @@
 #include "paddle/fluid/platform/collective_helper.h"
 #include "paddle/fluid/platform/device/gpu/gpu_info.h"
 #endif
+#if defined(PADDLE_WITH_XPU_KP)
+#include "paddle/fluid/platform/collective_helper.h"
+#endif
 
 DECLARE_bool(use_gpu_replica_cache);
 DECLARE_int32(gpu_replica_cache_dim);
@@ -912,6 +915,15 @@ void BoxWrapper::InitializeGPUAndLoadModel(
         lr_map_[e.first + ".b_0"] = e.second;
       }
     }
+#if defined(PADDLE_WITH_XPU_KP)
+    std::vector<void*> bkcl_ctx_vec(gpu_num_, nullptr);
+    for (int i = 0; i < gpu_num_; ++i) {
+        auto place = platform::XPUPlace(i);
+        auto comm = platform::BKCLCommContext::Instance().Get(0, place);
+        bkcl_ctx_vec[i] = static_cast<void*>(comm->comm());
+    }
+    boxps_ptr_->SetBKCLDefaultContext(bkcl_ctx_vec);
+#endif
   }
 }
 
