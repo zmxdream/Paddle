@@ -21,9 +21,8 @@ limitations under the License. */
 
 #include "paddle/fluid/framework/fleet/box_wrapper_kernel.h"
 #include "paddle/fluid/platform/device_context.h"
-// #include "paddle/fluid/framework/lod_tensor.h"
 #include "xpu/kernel/cluster_header.h"  // NOLINT
-//#include "xpu/kernel/debug.h"           // NOLINT
+// #include "xpu/kernel/debug.h"           // NOLINT
 #include "xpu/kernel/math.h"            // NOLINT
 #include "xpu/kernel/simd.h"
 
@@ -273,6 +272,9 @@ void BoxWrapperKernel::CopyForPull(
 //                                    const int hidden_size,
 //                                    const int skip_offset,
 //                                    const uint32_t* xpu_restore_idx) {
+  // TODO: for test
+  return;
+
   uint64_t* total_keys_xpu = nullptr;
   auto dev_ctx = platform::DeviceContextPool::Instance().Get(place);
   auto stream = static_cast<platform::XPUDeviceContext*>(dev_ctx)
@@ -351,7 +353,7 @@ __global__ void PushCopy(float* src_vals,
     int thread_id = cluster_id() * ncores + cid;
     int nthreads = cluster_num() * ncores;
 
-    const int buf_length = 50; // max 2048 float
+    const int buf_length = 40; // max 2048 float
     int per_thread_len = roundup_div(total_length, nthreads);
     int per_thread_loop_count = roundup_div(per_thread_len, buf_length);
     int per_thread_per_loop_len =
