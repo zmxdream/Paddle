@@ -994,7 +994,7 @@ const std::vector<double> BoxWrapper::GetContinueMetricMsg(
                     metric_lists_.end(),
                     platform::errors::InvalidArgument(
                         "The metric name you provided is not registered."));
-  std::vector<float> metric_return_values_(5, 0.0);
+  std::vector<double> metric_return_values_(5, 0.0);
   auto* continue_cal_ = iter->second->GetCalculator();
   continue_cal_->computeContinueMsg();
   metric_return_values_[0] = continue_cal_->mae();
