@@ -759,6 +759,7 @@ class BoxWrapper {
                   int max_batch_size = 0,
                   const std::string& sample_scale_varname = "");
   const std::vector<double> GetMetricMsg(const std::string& name);
+  const std::vector<double> GetContinueMetricMsg(const std::string& name);
   // pcoc qvalue tensor
   LoDTensor& GetQTensor(int device) { return device_caches_[device].qvalue; }
   void PrintSyncTimer(int device, double train_span);
