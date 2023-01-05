@@ -24,18 +24,25 @@
 #include <boxps_extends.h>
 #endif
 
-#if defined(PADDLE_WITH_PSLIB) || defined(PADDLE_WITH_PSCORE) || defined(PADDLE_WITH_BOX_PS)
+#if defined(PADDLE_WITH_PSLIB) || defined(PADDLE_WITH_PSCORE) || \
+    defined(PADDLE_WITH_BOX_PS)
 namespace paddle {
 namespace framework {
 
 std::shared_ptr<Metric> Metric::s_instance_ = nullptr;
 
 void BasicAucCalculator::add_unlock_data(double pred, int label) {
-  PADDLE_ENFORCE_GE(pred, 0.0,
-      platform::errors::PreconditionNotMet("pred should be greater than 0, pred=%f", pred));
-  PADDLE_ENFORCE_LE(pred, 1.0,
-      platform::errors::PreconditionNotMet("pred should be lower than 1, pred=%f", pred));
-  PADDLE_ENFORCE_EQ(label * label, label,
+  PADDLE_ENFORCE_GE(pred,
+                    0.0,
+                    platform::errors::PreconditionNotMet(
+                        "pred should be greater than 0, pred=%f", pred));
+  PADDLE_ENFORCE_LE(pred,
+                    1.0,
+                    platform::errors::PreconditionNotMet(
+                        "pred should be lower than 1, pred=%f", pred));
+  PADDLE_ENFORCE_EQ(
+      label * label,
+      label,
       platform::errors::PreconditionNotMet(
           "label must be equal to 0 or 1, but its value is: %d", label));
 
@@ -46,12 +53,20 @@ void BasicAucCalculator::add_unlock_data(double pred, int label) {
   ++_table[label][pos];
 }
 
-void BasicAucCalculator::add_unlock_data(double pred, int label, float sample_scale) {
-  PADDLE_ENFORCE_GE(pred, 0.0,
-      platform::errors::PreconditionNotMet("pred should be greater than 0, pred=%f", pred));
-  PADDLE_ENFORCE_LE(pred, 1.0,
-      platform::errors::PreconditionNotMet("pred should be lower than 1, pred=%f", pred));
-  PADDLE_ENFORCE_EQ(label * label, label,
+void BasicAucCalculator::add_unlock_data(double pred,
+                                         int label,
+                                         float sample_scale) {
+  PADDLE_ENFORCE_GE(pred,
+                    0.0,
+                    platform::errors::PreconditionNotMet(
+                        "pred should be greater than 0, pred=%f", pred));
+  PADDLE_ENFORCE_LE(pred,
+                    1.0,
+                    platform::errors::PreconditionNotMet(
+                        "pred should be lower than 1, pred=%f", pred));
+  PADDLE_ENFORCE_EQ(
+      label * label,
+      label,
       platform::errors::PreconditionNotMet(
           "label must be equal to 0 or 1, but its value is: %d", label));
 
@@ -62,19 +77,26 @@ void BasicAucCalculator::add_unlock_data(double pred, int label, float sample_sc
   _table[label][pos] += sample_scale;
 }
 
-void BasicAucCalculator::add_unlock_data_with_float_label(double pred, double label) {
-  PADDLE_ENFORCE_GE(pred, 0.0, platform::errors::PreconditionNotMet(
-                                   "pred should be greater than 0"));
-  PADDLE_ENFORCE_LE(pred, 1.0, platform::errors::PreconditionNotMet(
-                                   "pred should be lower than 1"));
+void BasicAucCalculator::add_unlock_data_with_float_label(double pred,
+                                                          double label) {
+  PADDLE_ENFORCE_GE(
+      pred,
+      0.0,
+      platform::errors::PreconditionNotMet("pred should be greater than 0"));
+  PADDLE_ENFORCE_LE(
+      pred,
+      1.0,
+      platform::errors::PreconditionNotMet("pred should be lower than 1"));
 
   int pos = static_cast<int>(pred * _table_size);
   PADDLE_ENFORCE_GE(
-      pos, 0,
+      pos,
+      0,
       platform::errors::PreconditionNotMet(
           "pos must be equal or greater than 0, but its value is: %d", pos));
   PADDLE_ENFORCE_LT(
-      pos, _table_size,
+      pos,
+      _table_size,
       platform::errors::PreconditionNotMet(
           "pos must be less than table_size, but its value is: %d", pos));
   _local_abserr += fabs(pred - label);
@@ -84,10 +106,20 @@ void BasicAucCalculator::add_unlock_data_with_float_label(double pred, double la
   _table[1][pos] += label;
 }
 
-void BasicAucCalculator::add_data(
-        const float* d_pred, const int64_t* d_label,
-        int batch_size, const paddle::platform::Place& place_pred,
-        const paddle::platform::Place& place_label) {
+void BasicAucCalculator::add_unlock_data_with_continue_label(double pred,
+                                                             double label) {
+  _local_abserr += fabs(pred - label);
+  _local_sqrerr += (pred - label) * (pred - label);
+  _local_pred += pred;
+  _local_label += label;
+  ++_local_total_num;
+}
+
+void BasicAucCalculator::add_data(const float* d_pred,
+                                  const int64_t* d_label,
+                                  int batch_size,
+                                  const paddle::platform::Place& place_pred,
+                                  const paddle::platform::Place& place_label) {
   thread_local std::vector<float> h_pred;
   thread_local std::vector<int64_t> h_label;
   const float* add_pred = d_pred;
@@ -109,8 +141,10 @@ void BasicAucCalculator::add_data(
 }
 
 void BasicAucCalculator::add_sample_data(
-    const float* d_pred, const int64_t* d_label,
-    const std::vector<float>& d_sample_scale, int batch_size,
+    const float* d_pred,
+    const int64_t* d_label,
+    const std::vector<float>& d_sample_scale,
+    int batch_size,
     const paddle::platform::Place& place_pred,
     const paddle::platform::Place& place_label) {
   thread_local std::vector<float> h_pred;
@@ -136,7 +170,8 @@ void BasicAucCalculator::add_sample_data(
 // add mask data
 void BasicAucCalculator::add_mask_data(const float* d_pred,
                                        const int64_t* d_label,
-                                       const int64_t* d_mask, int batch_size,
+                                       const int64_t* d_mask,
+                                       int batch_size,
                                        const paddle::platform::Place& place_pred,
                                        const paddle::platform::Place& place_label,
                                        const paddle::platform::Place& place_mask) {
@@ -169,10 +204,12 @@ void BasicAucCalculator::add_mask_data(const float* d_pred,
   }
 }
 // add float mask data
-void BasicAucCalculator::add_float_mask_data(const float* d_pred,
-                                             const float* d_label,
-                                             const int64_t* d_mask, int batch_size,
-                                             const paddle::platform::Place& place) {
+void BasicAucCalculator::add_float_mask_data(
+    const float* d_pred,
+    const float* d_label,
+    const int64_t* d_mask,
+    int batch_size,
+    const paddle::platform::Place& place) {
   if (platform::is_gpu_place(place) || platform::is_xpu_place(place)) {
     thread_local std::vector<float> h_pred;
     thread_local std::vector<float> h_label;
@@ -201,6 +238,41 @@ void BasicAucCalculator::add_float_mask_data(const float* d_pred,
   }
 }
 
+// add continue mask data
+void BasicAucCalculator::add_continue_mask_data(
+    const float* d_pred,
+    const float* d_label,
+    const int64_t* d_mask,
+    int batch_size,
+    const paddle::platform::Place& place) {
+  if (platform::is_gpu_place(place) || platform::is_xpu_place(place)) {
+    thread_local std::vector<float> h_pred;
+    thread_local std::vector<float> h_label;
+    thread_local std::vector<int64_t> h_mask;
+    h_pred.resize(batch_size);
+    h_label.resize(batch_size);
+    h_mask.resize(batch_size);
+
+    SyncCopyD2H(h_pred.data(), d_pred, batch_size);
+    SyncCopyD2H(h_label.data(), d_label, batch_size);
+    SyncCopyD2H(h_mask.data(), d_mask, batch_size);
+
+    std::lock_guard<std::mutex> lock(_table_mutex);
+    for (int i = 0; i < batch_size; ++i) {
+      if (h_mask[i]) {
+        add_unlock_data_with_continue_label(h_pred[i], h_label[i]);
+      }
+    }
+  } else {
+    std::lock_guard<std::mutex> lock(_table_mutex);
+    for (int i = 0; i < batch_size; ++i) {
+      if (d_mask[i]) {
+        add_unlock_data_with_continue_label(d_pred[i], d_label[i]);
+      }
+    }
+  }
+}
+
 void BasicAucCalculator::init(int table_size, int max_batch_size) {
   set_table_size(table_size);
   set_max_batch_size(max_batch_size);
@@ -220,6 +292,8 @@ void BasicAucCalculator::reset() {
   _local_abserr = 0;
   _local_sqrerr = 0;
   _local_pred = 0;
+  _local_label = 0;
+  _loacl_total_num = 0;
 }
 
 void BasicAucCalculator::compute() {
@@ -273,7 +347,8 @@ void BasicAucCalculator::compute() {
     boxps::MPICluster::Ins().allreduce_sum(local_err, 3);
 #elif defined(PADDLE_WITH_GLOO)
     // allreduce sum
-    std::vector<double> local_err_temp{_local_abserr, _local_sqrerr, _local_pred};
+    std::vector<double> local_err_temp{
+        _local_abserr, _local_sqrerr, _local_pred};
     auto local_err = gloo_wrapper->AllReduce(local_err_temp, "sum");
 #else
     // allreduce sum
@@ -294,9 +369,8 @@ void BasicAucCalculator::compute() {
   calculate_bucket_error(table[0], table[1]);
 }
 
-void BasicAucCalculator::calculate_bucket_error(
-    const double *neg_table,
-    const double *pos_table) {
+void BasicAucCalculator::calculate_bucket_error(const double* neg_table,
+                                                const double* pos_table) {
   double last_ctr = -1;
   double impression_sum = 0;
   double ctr_sum = 0.0;
@@ -486,6 +560,58 @@ BasicAucCalculator::WuaucRocData BasicAucCalculator::computeSingelUserAuc(
     auc = -1;
   }
   return {tp, fp, auc};
+}
+
+void BasicAucCalculator::computeContinueMsg() {
+  int node_size = 1;
+#ifdef PADDLE_WITH_BOX_PS
+  node_size = boxps::MPICluster::Ins().size();
+#elif defined(PADDLE_WITH_GLOO)
+  auto gloo_wrapper = paddle::framework::GlooWrapper::GetInstance();
+  if (!gloo_wrapper->IsInitialized()) {
+    VLOG(0) << "GLOO is not inited";
+    gloo_wrapper->Init();
+  }
+  std::vector<double> pair_table;
+  node_size = gloo_wrapper->Size();
+#endif
+  if (node_size > 1) {
+#ifdef PADDLE_WITH_BOX_PS
+    // allreduce sum
+    double local_err[5] = {_local_abserr,
+                           _local_sqrerr,
+                           _local_pred,
+                           _loacl_lable,
+                           _local_total_num};
+    boxps::MPICluster::Ins().allreduce_sum(local_err, 5);
+#elif defined(PADDLE_WITH_GLOO)
+    // allreduce sum
+    std::vector<double> local_err_temp{_local_abserr,
+                                       _local_sqrerr,
+                                       _local_pred,
+                                       _loacl_lable,
+                                       _local_total_num};
+    auto local_err = gloo_wrapper->AllReduce(local_err_temp, "sum");
+#else
+    // allreduce sum
+    double local_err[5] = {_local_abserr,
+                           _local_sqrerr,
+                           _local_pred,
+                           _loacl_lable,
+                           _local_total_num};
+#endif
+    _mae = local_err[0] / _local_total_num;
+    _rmse = sqrt(local_err[1] / _local_total_num);
+    _predicted_value = local_err[2] / _local_total_num;
+    _actual_value = local_err[3] / _local_total_num;
+  } else {
+    _mae = _local_abserr / _local_total_num;
+    _rmse = sqrt(_local_sqrerr / _local_total_num);
+    _predicted_value = _local_pred / _local_total_num;
+    _actual_value = _loacl_lable / _local_total_num;
+  }
+
+  _size = _local_total_num;
 }
 
 }  // namespace framework
