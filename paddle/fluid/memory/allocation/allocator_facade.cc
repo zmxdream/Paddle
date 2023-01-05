@@ -1233,7 +1233,7 @@ void AllocatorFacade::RemoveMemoryPoolOfCUDAGraph(int64_t id) {
 // return real used, total is in alloc, available is in free
 size_t AllocatorFacade::GetTotalMemInfo(const platform::Place& place,
                                         size_t* total, size_t* available) {
-  return m_->GetAllocator(place, /* A non-zero num to choose allocator_ */ 1)
+  return GetPrivate()->GetAllocator(place, /* A non-zero num to choose allocator_ */ 1)
       ->GetTotalMemInfo(total, available);
 }
 #endif

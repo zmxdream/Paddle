@@ -198,34 +198,69 @@ class InputTable {
 };
 class DCacheBuffer {
  public:
-  DCacheBuffer() : buf_(nullptr) {}
-  ~DCacheBuffer() {}
+  DCacheBuffer() : d_buf_(nullptr), total_bytes_(0), buf_(nullptr) {}
+  ~DCacheBuffer() {
+#ifdef PADDLE_WITH_CUDA
+    if (d_buf_ != nullptr) {
+      cudaFree(d_buf_);
+      d_buf_ = nullptr;
+    }
+#endif
+  }
   /**
    * @Brief get data
    */
   template <typename T>
   T* mutable_data(const size_t total_bytes,
                   const paddle::platform::Place& place) {
-    if (buf_ == nullptr) {
-      buf_ = memory::AllocShared(place, total_bytes);
-    } else if (buf_->size() < total_bytes) {
-      buf_.reset();
-      buf_ = memory::AllocShared(place, total_bytes);
+#ifdef PADDLE_WITH_CUDA
+    if (platform::is_gpu_place(place)) {
+      if (d_buf_ == nullptr) {
+        total_bytes_ = total_bytes;
+        cudaMalloc(&d_buf_, total_bytes);
+      } else if (total_bytes_ < total_bytes) {
+        total_bytes_ = total_bytes;
+        cudaFree(d_buf_);
+        cudaMalloc(&d_buf_, total_bytes);
+      }
+      return reinterpret_cast<T*>(d_buf_);
+    } else {
+#endif
+      if (buf_ == nullptr) {
+        buf_ = memory::AllocShared(place, total_bytes);
+      } else if (buf_->size() < total_bytes) {
+        buf_.reset();
+        buf_ = memory::AllocShared(place, total_bytes);
+      }
+      return reinterpret_cast<T*>(buf_->ptr());
+#ifdef PADDLE_WITH_CUDA
     }
-    return reinterpret_cast<T*>(buf_->ptr());
+#endif
   }
   template <typename T>
   T* data() {
+#ifdef PADDLE_WITH_CUDA
+    if (d_buf_ != nullptr) {
+      return reinterpret_cast<T*>(d_buf_);
+    }
+#endif
     return reinterpret_cast<T*>(buf_->ptr());
   }
   size_t memory_size() {
-    if (buf_ == nullptr) {
+    if (buf_ == nullptr && d_buf_ == nullptr) {
       return 0;
     }
+#ifdef PADDLE_WITH_CUDA
+    if (d_buf_ != nullptr) {
+      return total_bytes_;
+    }
+#endif
     return buf_->size();
   }
 
  private:
+  void* d_buf_ = nullptr;
+  size_t total_bytes_ = 0;
   std::shared_ptr<memory::Allocation> buf_ = nullptr;
 };
 class MetricMsg {
@@ -322,19 +357,20 @@ class MetricMsg {
 };
 class BoxWrapper {
   struct DeviceBoxData {
-    LoDTensor keys_tensor;
-    LoDTensor dims_tensor;
+    DCacheBuffer keys_tensor;
+    DCacheBuffer dims_tensor;
     DCacheBuffer pull_push_tensor;
     DCacheBuffer keys_ptr_tensor;
     DCacheBuffer values_ptr_tensor;
 
-    LoDTensor slot_lens;
-    LoDTensor d_slot_vector;
-    LoDTensor keys2slot;
-    LoDTensor qvalue;
+    DCacheBuffer slot_lens;
+    DCacheBuffer d_slot_vector;
+    DCacheBuffer keys2slot;
 
     DCacheBuffer pull_offset;
     DCacheBuffer push_offset;
+
+    LoDTensor qvalue;
 
     platform::Timer all_pull_timer;
     platform::Timer boxps_pull_timer;
@@ -345,6 +381,7 @@ class BoxWrapper {
     platform::Timer pull_dedup_timer;
     platform::Timer copy_keys_timer;
     platform::Timer copy_values_timer;
+	platform::Timer copy_push_timer;
 
     int64_t total_key_length = 0;
     int64_t dedup_key_length = 0;
@@ -359,6 +396,7 @@ class BoxWrapper {
       pull_dedup_timer.Reset();
       copy_keys_timer.Reset();
       copy_values_timer.Reset();
+	  copy_push_timer.Reset();
     }
     double GpuMemUsed(void) {
       size_t total = 0;
@@ -731,6 +769,12 @@ class BoxWrapper {
   // merge model interface
   int MergeModel(const std::string& path) {
     return boxps_ptr_->MergeModel(path);
+  }
+  void PrintDeviceInfo(double span) {
+    for (int i = 0; i < gpu_num_; ++i) {
+      PrintSyncTimer(i, span);
+    }
+    boxps_ptr_->CheckNeedLimitMem();
   }
   // get device id
   int GetPlaceDeviceId(const paddle::platform::Place& place) {
