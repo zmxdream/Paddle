@@ -818,24 +818,6 @@ class Metric {
 #endif
   }
 
-  const std::vector<float> GetContinueMetricMsg(const std::string& name) {
-    const auto iter = metric_lists_.find(name);
-    PADDLE_ENFORCE_NE(iter,
-                      metric_lists_.end(),
-                      platform::errors::InvalidArgument(
-                          "The metric name you provided is not registered."));
-    std::vector<float> metric_return_values_(5, 0.0);
-    auto* continue_cal_ = iter->second->GetCalculator();
-    continue_cal_->computeContinueMsg();
-    metric_return_values_[0] = continue_cal_->mae();
-    metric_return_values_[1] = continue_cal_->rmse();
-    metric_return_values_[2] = continue_cal_->actual_value();
-    metric_return_values_[3] = continue_cal_->predicted_value();
-    metric_return_values_[4] = continue_cal_->size();
-    continue_cal_->reset();
-    return metric_return_values_;
-  }
-
  private:
   static std::shared_ptr<Metric> s_instance_;
 
