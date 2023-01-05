@@ -287,7 +287,7 @@ void BasicAucCalculator::reset() {
   _local_sqrerr = 0;
   _local_pred = 0;
   _local_label = 0;
-  _loacl_total_num = 0;
+  _local_total_num = 0;
 }
 
 void BasicAucCalculator::compute() {
@@ -572,7 +572,7 @@ void BasicAucCalculator::computeContinueMsg() {
     double local_err[5] = {_local_abserr,
                            _local_sqrerr,
                            _local_pred,
-                           _loacl_lable,
+                           _local_label,
                            _local_total_num};
     boxps::MPICluster::Ins().allreduce_sum(local_err, 5);
 #elif defined(PADDLE_WITH_GLOO)
@@ -580,7 +580,7 @@ void BasicAucCalculator::computeContinueMsg() {
     std::vector<double> local_err_temp{_local_abserr,
                                        _local_sqrerr,
                                        _local_pred,
-                                       _loacl_lable,
+                                       _local_label,
                                        _local_total_num};
     auto local_err = gloo_wrapper->AllReduce(local_err_temp, "sum");
 #else
@@ -588,7 +588,7 @@ void BasicAucCalculator::computeContinueMsg() {
     double local_err[5] = {_local_abserr,
                            _local_sqrerr,
                            _local_pred,
-                           _loacl_lable,
+                           _local_label,
                            _local_total_num};
 #endif
     _mae = local_err[0] / _local_total_num;
@@ -599,7 +599,7 @@ void BasicAucCalculator::computeContinueMsg() {
     _mae = _local_abserr / _local_total_num;
     _rmse = sqrt(_local_sqrerr / _local_total_num);
     _predicted_value = _local_pred / _local_total_num;
-    _actual_value = _loacl_lable / _local_total_num;
+    _actual_value = _local_label / _local_total_num;
   }
 
   _size = _local_total_num;
