@@ -947,7 +947,7 @@ void BoxWrapper::InitMetric(const std::string& method,
                                                  bucket_size,
                                                  mode_collect_in_gpu,
                                                  max_batch_size));
-  } else if (method == "ContinueMaskAucCalculator") {
+  } else if (method == "ContinueMaskCalculator") {
     metric_lists_.emplace(name,
                           new ContinueMaskMetricMsg(label_varname,
                                                     pred_varname,
@@ -960,7 +960,7 @@ void BoxWrapper::InitMetric(const std::string& method,
     PADDLE_THROW(platform::errors::Unimplemented(
         "PaddleBox only support AucCalculator, MultiTaskAucCalculator, "
         "CmatchRankAucCalculator, MaskAucCalculator, "
-        "ContinueMaskAucCalculator, "
+        "ContinueMaskCalculator, "
         "FloatMaskAucCalculator and CmatchRankMaskAucCalculator"));
   }
   metric_name_list_.emplace_back(name);
