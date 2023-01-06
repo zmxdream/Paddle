@@ -1542,29 +1542,38 @@ def rank_attention(input,
     rank_param.stop_gradient = False
 
     output = helper.create_variable_for_type_inference(dtype)
-    input_help = helper.create_variable_for_type_inference(
-        dtype=dtype, stop_gradient=True)
-    param_help = helper.create_variable_for_type_inference(
-        dtype=dtype, stop_gradient=True)
-    ins_rank = helper.create_variable_for_type_inference(
-        dtype=dtype, stop_gradient=True)
-
+    # input_help = helper.create_variable_for_type_inference(
+    #     dtype=dtype, stop_gradient=True)
+    # param_help = helper.create_variable_for_type_inference(
+    #     dtype=dtype, stop_gradient=True)
+    # ins_rank = helper.create_variable_for_type_inference(
+    #     dtype=dtype, stop_gradient=True)
+    #
+    # helper.append_op(
+    #     type="rank_attention",
+    #     inputs={
+    #         "X": input,
+    #         "RankOffset": rank_offset,
+    #         "RankParam": rank_param
+    #     },
+    #     outputs={
+    #         "Out": output,
+    #         "InputHelp": input_help,
+    #         "ParamHelp": param_help,
+    #         "InsRank": ins_rank
+    #     },
+    #
+    #     attrs={"MaxRank": max_rank,
+    #            "MaxSize": max_size})
     helper.append_op(
-        type="rank_attention",
+        type="rank_attention2",
         inputs={
             "X": input,
             "RankOffset": rank_offset,
-            "RankParam": rank_param
+            "RankParam": rank_param,
         },
-        outputs={
-            "Out": output,
-            "InputHelp": input_help,
-            "ParamHelp": param_help,
-            "InsRank": ins_rank
-        },
-
-        attrs={"MaxRank": max_rank,
-               "MaxSize": max_size})
+        outputs={"Out": output, },
+        attrs={"MaxRank": max_rank})
 
     return output
 
