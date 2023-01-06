@@ -914,7 +914,7 @@ void BoxWrapper::InitMetric(const std::string& method,
                                                  bucket_size,
                                                  mode_collect_in_gpu,
                                                  max_batch_size));
-  } else if (method == "ContinueMaskAucCalculator") {
+  } else if (method == "ContinueMaskCalculator") {
     metric_lists_.emplace(name,
                           new ContinueMaskMetricMsg(label_varname,
                                                     pred_varname,
@@ -927,7 +927,7 @@ void BoxWrapper::InitMetric(const std::string& method,
     PADDLE_THROW(platform::errors::Unimplemented(
         "PaddleBox only support AucCalculator, MultiTaskAucCalculator, "
         "CmatchRankAucCalculator, MaskAucCalculator, "
-        "ContinueMaskAucCalculator, "
+        "ContinueMaskCalculator, "
         "FloatMaskAucCalculator and CmatchRankMaskAucCalculator"));
   }
   metric_name_list_.emplace_back(name);
@@ -961,7 +961,7 @@ const std::vector<double> BoxWrapper::GetContinueMetricMsg(
                     metric_lists_.end(),
                     platform::errors::InvalidArgument(
                         "The metric name you provided is not registered."));
-  std::vector<float> metric_return_values_(5, 0.0);
+  std::vector<double> metric_return_values_(5, 0.0);
   auto* continue_cal_ = iter->second->GetCalculator();
   continue_cal_->computeContinueMsg();
   metric_return_values_[0] = continue_cal_->mae();
