@@ -1498,7 +1498,8 @@ def rank_attention(input,
                    rank_param_shape,
                    rank_param_attr,
                    max_rank=3,
-                   max_size=0):
+                   max_size=0,
+                   enable_input_bp=False):
     """
     **Rank Attention layer**
     This Op can calculate rank attention between input and rank_param, and 
@@ -1511,6 +1512,7 @@ def rank_attention(input,
         rank_para_shape: The shape of rank_param.
         rank_param_attr: Attribute initializer of rank_param.
         max_rank: The max rank of input's ranks.
+        enable_input_bp: Enable Back Propagation of input.
     Returns:
         Variable: A Tensor with the same data type as input's.
     Examples:
@@ -1564,7 +1566,8 @@ def rank_attention(input,
         },
 
         attrs={"MaxRank": max_rank,
-               "MaxSize": max_size})
+               "MaxSize": max_size,
+               "EnableInputBp": enable_input_bp})
 
     return output
 

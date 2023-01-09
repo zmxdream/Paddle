@@ -103,9 +103,13 @@ class RankAttentionGradOp : public framework::OperatorWithKernel {
     PADDLE_ENFORCE_EQ(
         ctx->HasInput("InsRank"), true,
         platform::errors::InvalidArgument("Input(InsRank) should not be null"));
+    PADDLE_ENFORCE_EQ(ctx->HasInput("ParamHelp"), true,
+                      platform::errors::InvalidArgument(
+                          "Input(ParamHelp) should not be null"));
 
     ctx->SetOutputDim(framework::GradVarName("RankParam"),
                       ctx->GetInputDim("RankParam"));
+    ctx->SetOutputDim(framework::GradVarName("X"), ctx->GetInputDim("X"));
   }
 
  protected:
@@ -136,6 +140,8 @@ class RankAttentionOpMaker : public framework::OpProtoAndCheckerMaker {
         .SetDefault(3);
     AddAttr<int>("MaxSize", "(int, default 0) max rank of rank_attention_Op")
         .SetDefault(0);
+    AddAttr<bool>("EnableInputBp", "(bool, default false) input bp switch of rank_attention_Op")
+        .SetDefault(false);
     AddComment(R"DOC(
 RankAttention Operator.
 This Op can calculate rank attention between input and rank_param, 
@@ -158,11 +164,14 @@ class RankAttentionGradOpMaker : public framework::SingleGradOpMaker<T> {
     op->SetInput("RankOffset", this->Input("RankOffset"));
     op->SetInput("RankParam", this->Input("RankParam"));
     op->SetInput("InputHelp", this->Output("InputHelp"));
+    op->SetInput("ParamHelp", this->Output("ParamHelp"));
     op->SetInput(framework::GradVarName("Out"), this->OutputGrad("Out"));
     op->SetInput("InsRank", this->Output("InsRank"));
 
     op->SetOutput(framework::GradVarName("RankParam"),
                   this->InputGrad("RankParam"));
+    op->SetOutput(framework::GradVarName("X"),
+                  this->InputGrad("X"));
     op->SetAttrMap(this->Attrs());
   }
 };
