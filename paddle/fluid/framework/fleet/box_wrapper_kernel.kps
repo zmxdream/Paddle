@@ -20,6 +20,7 @@ limitations under the License. */
 #include <numeric>
 
 #include "paddle/fluid/memory/memcpy.h"
+#include "paddle/fluid/platform/device/xpu/enforce_xpu.h"
 #include "paddle/fluid/framework/fleet/box_wrapper_kernel.h"
 #include "paddle/fluid/platform/device_context.h"
 #include "xpu/kernel/cluster_header.h"  // NOLINT
@@ -251,14 +252,18 @@ inline void FeaturePullCopy(const paddle::platform::Place& place,
   //   r, XPU_SUCCESS,
   //   platform::errors::External("XPU pull_copy kernel return wrong value[%d %s]",
   //                               r, XPUAPIErrorMsg[r]));
-  // for (int i = 0; i < slot_num; i++) {
-  //   int slot_len = i ? slot_lens[i] - slot_lens[i - 1] : slot_lens[0];
-  //   int offset = i ? slot_lens[i-1] : 0;
-  //   xpu::copy<float>(ctx_xpu, dst_vals + offset * hidden_size, xpu_values[i], slot_len * hidden_size);
-  //   // PADDLE_ENFORCE_XDNN_SUCCESS(
-  //   //   xpu::copy<float>(ctx_xpu, dst_vals + offset * hidden_size, xpu_values[i],
-  //   //     slot_len * hidden_size), "copy");
-  // }
+  for (int i = 0; i < slot_num; i++) {
+    int slot_len = i ? slot_lens[i] - slot_lens[i - 1] : slot_lens[0];
+    int offset = i ? slot_lens[i-1] : 0;
+    if (xpu_values[i] == nullptr || slot_len == 0)
+      continue;
+    PADDLE_ENFORCE_XDNN_SUCCESS(
+        xpu::copy<float>(ctx_xpu,
+                         dst_vals + offset * hidden_size,
+                         xpu_values[i],
+                         slot_len * hidden_size),
+        "xpu::copy");
+  }
 }
 
 void BoxWrapperKernel::CopyForPull(

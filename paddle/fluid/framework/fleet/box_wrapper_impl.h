@@ -356,8 +356,8 @@ void BoxWrapper::PullSparseCaseXPU(const paddle::platform::Place& place,
   xpu_memcpy(xpu_values, values.data(), values.size() * sizeof(float*),
                   XPU_HOST_TO_DEVICE);
 
-  box_wrapper_kernel_->CopyForPull(place, xpu_keys, xpu_values, total_values_xpu,
-                      pull_offset, slot_lens, slot_num, key2slot, hidden_size,
+  box_wrapper_kernel_->CopyForPull(place, xpu_keys, (float**)values.data(), total_values_xpu,
+                      pull_offset, slot_lengths_lod.data(), slot_num, key2slot, hidden_size,
                       expand_embed_dim, total_length, total_dims, skip_offset,
                       expand_only);
   // box_wrapper_kernel_->CopyForPull(place,
