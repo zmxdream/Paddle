@@ -19,6 +19,7 @@ limitations under the License. */
 #include <memory>
 #include <numeric>
 
+#include "paddle/fluid/memory/memcpy.h"
 #include "paddle/fluid/framework/fleet/box_wrapper_kernel.h"
 #include "paddle/fluid/platform/device_context.h"
 #include "xpu/kernel/cluster_header.h"  // NOLINT
@@ -218,8 +219,15 @@ inline void FeaturePullCopy(const paddle::platform::Place& place,
   auto dst_vals_tmp =
     memory::Alloc(place, total_length * sizeof(float) * hidden_size);
   dst_vals = reinterpret_cast<float*>(dst_vals_tmp->ptr());
+  auto d_op_tmp = memory::Alloc(place, sizeof(TEmbedxOp));
+  TEmbedxOp* d_op = reinterpret_cast<TEmbedxOp*>(d_op_tmp->ptr());
+  memory::Copy(place,
+               d_op,
+               platform::CPUPlace(),
+               op,
+               sizeof(TEmbedxOp));
 
-  PullCopy<TEmbedxOp><<<8, 64>>>(op,
+  PullCopy<TEmbedxOp><<<8, 64>>>(d_op,
                                 scale,
                                 info,
                                 total_dims,
@@ -272,9 +280,6 @@ void BoxWrapperKernel::CopyForPull(
 //                                    const int hidden_size,
 //                                    const int skip_offset,
 //                                    const uint32_t* xpu_restore_idx) {
-  // TODO: for test
-  return;
-
   uint64_t* total_keys_xpu = nullptr;
   auto dev_ctx = platform::DeviceContextPool::Instance().Get(place);
   auto stream = static_cast<platform::XPUDeviceContext*>(dev_ctx)
