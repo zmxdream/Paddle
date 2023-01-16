@@ -951,54 +951,61 @@ elseif(WITH_PSLIB)
          fleet_executor
          ${BRPC_DEP})
 else()
+  set(ADDITIONAL_DEPS "")
+  if(WITH_XPU_KP)
+    xpu_library(data_feed_xpu_kernel SRCS data_feed_xpu_kernel_helper.h data_feed.kps DEPS device_context)
+    set(ADDITIONAL_DEPS ${ADDITIONAL_DEPS} data_feed_xpu_kernel)
+  endif()
   cc_library(
     executor
     SRCS executor.cc
-         multi_trainer.cc
-         pipeline_trainer.cc
-         dataset_factory.cc
-         dist_multi_trainer.cc
-         trainer_factory.cc
-         trainer.cc
-         data_feed_factory.cc
-         heterxpu_trainer.cc
-         data_feed.cc
-         device_worker.cc
-         hogwild_worker.cc
-         hetercpu_worker.cc
-         ps_gpu_worker.cc
-         ps_gpu_trainer.cc
-         downpour_worker.cc
-         downpour_worker_opt.cc
-         data_feed.cu
-         pull_dense_worker.cc
-         section_worker.cc
-         device_worker_factory.cc
-         data_set.cc
-         boxps_trainer.cc
-         boxps_worker.cc
+        multi_trainer.cc
+        pipeline_trainer.cc
+        dataset_factory.cc
+        dist_multi_trainer.cc
+        trainer_factory.cc
+        trainer.cc
+        data_feed_factory.cc
+        heterxpu_trainer.cc
+        data_feed.cc
+        device_worker.cc
+        hogwild_worker.cc
+        hetercpu_worker.cc
+        ps_gpu_worker.cc
+        ps_gpu_trainer.cc
+        downpour_worker.cc
+        downpour_worker_opt.cc
+        data_feed.cu
+        pull_dense_worker.cc
+        section_worker.cc
+        device_worker_factory.cc
+        data_set.cc
+        boxps_trainer.cc
+        boxps_worker.cc
     DEPS op_registry
-         device_context
-         scope
-         framework_proto
-         data_feed_proto
-         heter_service_proto
-         trainer_desc_proto
-         glog
-         lod_rank_table
-         fs
-         shell
-         fleet_wrapper
-         heter_wrapper
-         ps_gpu_wrapper
-         box_wrapper
-         lodtensor_printer
-         feed_fetch_method
-         graph_to_program_pass
-         variable_helper
-         timer
-         monitor
-         fleet_executor)
+        device_context
+        scope
+        framework_proto
+        data_feed_proto
+        heter_service_proto
+        trainer_desc_proto
+        glog
+        lod_rank_table
+        fs
+        shell
+        fleet_wrapper
+        heter_wrapper
+        ps_gpu_wrapper
+        box_wrapper
+        lodtensor_printer
+        feed_fetch_method
+        graph_to_program_pass
+        variable_helper
+        timer
+        monitor
+        fleet_executor
+        ${ADDITIONAL_DEPS}
+        )
 endif()
 
 target_link_libraries(executor while_op_helper executor_gc_helper

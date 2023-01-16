@@ -49,6 +49,11 @@ limitations under the License. */
 #endif
 #include "paddle/fluid/framework/threadpool.h"
 
+#if defined(PADDLE_WITH_XPU_KP)
+#include "paddle/fluid/platform/device_context.h"
+#include "data_feed_xpu_kernel_helper.h"
+#endif
+
 DECLARE_int32(record_pool_max_size);
 DECLARE_int32(slotpool_thread_num);
 DECLARE_int32(padbox_record_pool_max_size);
@@ -470,10 +475,12 @@ class CustomParser {
   }
 };
 
+#ifndef PADDLE_WITH_XPU_KP
 struct UsedSlotGpuType {
   int is_uint64_value;
   int slot_value_idx;
 };
+#endif
 
 struct SlotPvInstanceObject {
   std::vector<SlotRecord> ads;
@@ -487,7 +494,7 @@ using SlotPvInstance = SlotPvInstanceObject*;
 inline SlotPvInstance make_slotpv_instance() {
   return new SlotPvInstanceObject();
 }
-#if defined(PADDLE_WITH_CUDA) && defined(_LINUX)
+#if defined(PADDLE_WITH_CUDA) && defined(_LINUX) || defined(PADDLE_WITH_XPU_KP)
 struct BatchCPUValue {
   std::vector<int> h_uint64_lens;
   std::vector<uint64_t> h_uint64_keys;
@@ -593,13 +600,20 @@ class MiniBatchGpuPack {
       return;
     }
     T* data = buf->mutable_data<T>({static_cast<int64_t>(size), 1}, place_);
+
+#if defined(PADDLE_WITH_CUDA) && defined(_LINUX)
     CUDA_CHECK(cudaMemcpyAsync(data, val, size * sizeof(T),
                                cudaMemcpyHostToDevice, stream_));
+#elif defined(PADDLE_WITH_XPU_KP)
+    platform::MemcpySyncH2D(data, val, size * sizeof(T), this->place_);
+#endif
   }
 
  private:
   paddle::platform::Place place_;
+# if defined(PADDLE_WITH_CUDA) && defined(_LINUX)
   cudaStream_t stream_;
+#endif
   BatchGPUValue value_;
   BatchCPUValue buf_;
   int ins_num_ = 0;
@@ -2036,7 +2050,7 @@ class SlotPaddleBoxDataFeed : public DataFeed {
  public:
   SlotPaddleBoxDataFeed() { finish_start_ = false; }
   virtual ~SlotPaddleBoxDataFeed() {
-#if defined(PADDLE_WITH_CUDA) && defined(_LINUX)
+#if defined(PADDLE_WITH_CUDA) && defined(_LINUX) || defined(PADDLE_WITH_XPU_KP) && !defined(CPU_DATA_FEED)
     if (pack_ != nullptr) {
       LOG(WARNING) << "gpu: "
                    << thread_id_
@@ -2076,14 +2090,14 @@ class SlotPaddleBoxDataFeed : public DataFeed {
     current_phase_ = current_phase;
   }
   virtual const std::string& GetLineId(int idx) const {
-#if defined(PADDLE_WITH_CUDA) && defined(_LINUX)
+#if defined(PADDLE_WITH_CUDA) && defined(_LINUX) || defined(PADDLE_WITH_XPU_KP) && !defined(CPU_DATA_FEED)
     return pack_->get_lineid(idx);
 #else
     return ins_record_ptr_[idx]->ins_id_;
 #endif
   }
   virtual int GetCurBatchSize() {
-#if defined(PADDLE_WITH_CUDA)
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_XPU_KP) && !defined(CPU_DATA_FEED)
     return pack_->ins_num();
 #else
     return batch_ins_num_;
@@ -2183,7 +2197,7 @@ class SlotPaddleBoxDataFeed : public DataFeed {
   int float_use_slot_size_ = 0;
   int uint64_use_slot_size_ = 0;
 
-#if defined(PADDLE_WITH_CUDA) && defined(_LINUX)
+#if defined(PADDLE_WITH_CUDA) && defined(_LINUX) || defined(PADDLE_WITH_XPU_KP) && !defined(CPU_DATA_FEED)
   MiniBatchGpuPack* pack_ = nullptr;
 #else
   std::vector<SlotRecord> pv_ins_vec_;
