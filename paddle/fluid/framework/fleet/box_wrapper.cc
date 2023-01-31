@@ -917,10 +917,12 @@ void BoxWrapper::InitializeGPUAndLoadModel(
     }
 #if defined(PADDLE_WITH_XPU_KP)
     std::vector<void*> bkcl_ctx_vec(gpu_num_, nullptr);
-    for (int i = 0; i < gpu_num_; ++i) {
-        auto place = platform::XPUPlace(i);
-        auto comm = platform::BKCLCommContext::Instance().Get(0, place);
-        bkcl_ctx_vec[i] = static_cast<void*>(comm->comm());
+    if (gpu_num_ > 1) {
+        for (int i = 0; i < gpu_num_; ++i) {
+            auto place = platform::XPUPlace(i);
+            auto comm = platform::BKCLCommContext::Instance().Get(0, place);
+            bkcl_ctx_vec[i] = static_cast<void*>(comm->comm());
+        }
     }
     boxps_ptr_->SetBKCLDefaultContext(bkcl_ctx_vec);
 #endif
