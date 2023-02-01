@@ -157,6 +157,9 @@ void BindBoxWrapper(py::module* m) {
       .def("print_device_info",
            &framework::BoxWrapper::PrintDeviceInfo,
            py::call_guard<py::gil_scoped_release>());
+      .def("merge_multi_models", 
+           &framework::BoxWrapper::MergeMultiModels,
+           py::call_guard<py::gil_scoped_release>());
 }  // end BoxWrapper
 void BindBoxFileMgr(py::module* m) {
   py::class_<framework::BoxFileMgr, std::shared_ptr<framework::BoxFileMgr>>(
