@@ -246,12 +246,12 @@ class AllocatorFacadePrivate {
         // reasons. Since most Alloc calls are for default stream in
         // application, treating it separately can avoid lots of overhead of
         // acquiring default stream and applying read-write lock.
-//        if (FLAGS_use_stream_safe_cuda_allocator) {
-//          if (LIKELY(!IsCUDAGraphCapturing())) {
-//            WrapStreamSafeCUDAAllocatorForDefault();
-//          }
-//          is_stream_safe_cuda_allocator_used_ = true;
-//        }
+        if (FLAGS_use_stream_safe_cuda_allocator) {
+          if (LIKELY(!IsCUDAGraphCapturing())) {
+            WrapStreamSafeCUDAAllocatorForDefault();
+          }
+          is_stream_safe_cuda_allocator_used_ = true;
+        }
 
         InitNaiveBestFitCUDAPinnedAllocator();
 #endif
