@@ -22,6 +22,9 @@ limitations under the License. */
 #include "paddle/fluid/platform/device/xpu/bkcl_helper.h"
 #endif
 #include "paddle/fluid/platform/collective_helper.h"
+#if defined(PADDLE_WITH_BOX_PS)
+#include "paddle/fluid/framework/fleet/box_wrapper.h"
+#endif
 namespace paddle {
 namespace operators {
 
@@ -58,12 +61,19 @@ class CAllReduceXOpKernel : public framework::OpKernel<T> {
     auto place = ctx.GetPlace();
     auto dev_ctx = paddle::platform::DeviceContextPool::Instance().Get(place);
 
+#if defined(PADDLE_WITH_BOX_PS)
+    int device_id = place.GetDeviceId();
+    auto box_ptr = paddle::framework::BoxWrapper::GetInstance();
+    box_ptr->DenseNcclTimer(device_id, false, 0x03);
+#endif
+
 #if defined(PADDLE_WITH_NCCL)
     auto comm = platform::NCCLCommContext::Instance().Get(ring_id, place);
-    cudaStream_t stream = nullptr;
-    if (ctx.Attr<bool>("use_calc_stream")) {
-      stream = dynamic_cast<phi::GPUContext *>(dev_ctx)->stream();
-    } else {
+    cudaStream_t stream = dynamic_cast<phi::GPUContext *>(dev_ctx)->stream();
+#if defined(PADDLE_WITH_BOX_PS)
+    PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
+#endif
+    if (!ctx.Attr<bool>("use_calc_stream")) {
       stream = comm->stream();
     }
 #elif defined(PADDLE_WITH_XPU_BKCL)
@@ -71,10 +81,16 @@ class CAllReduceXOpKernel : public framework::OpKernel<T> {
     XPUStream stream = static_cast<platform::XPUDeviceContext*>(dev_ctx)
                        ->x_context()
                        ->xpu_stream;
+#if defined(PADDLE_WITH_BOX_PS)
+    PADDLE_ENFORCE_XPU_SUCCESS(xpu_wait(stream));
+#endif
 #else
     PADDLE_THROW("PaddlePaddle should compile with NCCL OR XPU.");
 #endif
 
+#if defined(PADDLE_WITH_BOX_PS)
+    box_ptr->DenseNcclTimer(device_id, true, 0x02);
+#endif
     // Init the output as input
     for (size_t i = 0; i < in_tensors.size(); ++i) {
       auto &out_tensor = out_tensors[i];
@@ -133,6 +149,15 @@ class CAllReduceXOpKernel : public framework::OpKernel<T> {
     }
 #if defined(PADDLE_WITH_NCCL)
     PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclGroupEnd());
+#endif
+
+#if defined(PADDLE_WITH_BOX_PS)
+#if defined(PADDLE_WITH_NCCL)
+    PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
+#else
+    PADDLE_ENFORCE_XPU_SUCCESS(xpu_wait(stream));
+#endif
+    box_ptr->DenseNcclTimer(device_id, true, 0x01);
 #endif
   }
 };
