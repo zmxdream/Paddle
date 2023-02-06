@@ -695,6 +695,10 @@ class BoxWrapper {
     }
     boxps_ptr_->CheckNeedLimitMem();
   }
+  // merge multi models interface
+  int MergeMultiModels(const std::string& path, const std::string& update_type, const int& model_index) {
+    return boxps_ptr_->MergeMultiModels(path, update_type, model_index);
+  }
   // get device id
   int GetPlaceDeviceId(const paddle::platform::Place& place) {
     if (platform::is_gpu_place(place)) {
