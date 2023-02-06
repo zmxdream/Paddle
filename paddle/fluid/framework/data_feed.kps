@@ -108,6 +108,140 @@ __global__ void FillSlotValueOffsetPadBoxKernel(const int ins_num,
     }
     int thread_id = ncores * cluster_id() + cid;
     int nthreads = ncores * cluster_num();
+
+    __local__ unsigned long long local_slot_value_offsets[2];
+    __local__ int local_offsets[2];
+    __local__ UsedSlotGpuType tmp_slot_info;
+
+    int col_num = ins_num + 1;
+    int uint64_cols = uint64_slot_size + 1;
+    int float_cols = float_slot_size + 1;
+
+    for (int slot_idx = thread_id; slot_idx < used_slot_num; slot_idx += nthreads) {
+        int value_off = slot_idx * col_num;
+        unsigned long long temp_slot_value_offset = 0;
+        mfence();
+        LM2GM(&temp_slot_value_offset, slot_value_offsets + value_off, sizeof(unsigned long long));
+
+        GM2LM(used_slots + slot_idx, &tmp_slot_info, sizeof(UsedSlotGpuType));
+        if (tmp_slot_info.is_uint64_value) {
+            for (int k = 0; k < ins_num; ++k) {
+                int pos = k * uint64_cols + tmp_slot_info.slot_value_idx;
+                GM2LM(uint64_offsets + pos, local_offsets, 2 * sizeof(int));
+                int num = local_offsets[1] - local_offsets[0];
+
+                GM2LM(slot_value_offsets + value_off + k, local_slot_value_offsets, 2 * sizeof(unsigned long long));
+                local_slot_value_offsets[1] = local_slot_value_offsets[0] + num;
+                mfence();
+                LM2GM(local_slot_value_offsets + 1, slot_value_offsets + value_off + k + 1, sizeof(unsigned long long));
+            }
+        } else {
+            for (int k = 0; k < ins_num; ++k) {
+                int pos = k * float_cols + tmp_slot_info.slot_value_idx;
+                GM2LM(float_offsets + pos, local_offsets, 2 * sizeof(int));
+                int num = local_offsets[1] - local_offsets[0];
+
+                GM2LM(slot_value_offsets + value_off + k, local_slot_value_offsets, 2 * sizeof(unsigned long long));
+                local_slot_value_offsets[1] = local_slot_value_offsets[0] + num;
+                mfence();
+                LM2GM(local_slot_value_offsets + 1, slot_value_offsets + value_off + k + 1, sizeof(unsigned long long));
+            }
+        }
+    }
+}
+
+__global__ void CopyForTensorPadBoxKernel(const int used_slot_num, const int ins_num,
+                                          unsigned long long *dest,
+                                          const unsigned long long *slot_value_offsets,
+                                          const unsigned long long *uint64_feas,
+                                          const int *uint64_offsets,
+                                          const int *uint64_ins_lens,
+                                          const int uint64_slot_size,
+                                          const float *float_feas,
+                                          const int *float_offsets,
+                                          const int *float_ins_lens,
+                                          const int float_slot_size,
+                                          const UsedSlotGpuType *used_slots) {
+
+    int cid = core_id();
+    int ncores = core_num();
+    if (cid >= ncores) {
+        return;
+    }
+    int thread_id = ncores * cluster_id() + cid;
+    int nthreads = ncores * cluster_num();
+
+    __local__ char local_feasign_buffer[2];
+    __local__ UsedSlotGpuType tmp_slot_info;
+    __local__ int local_old_begin_idx;
+    __local__ unsigned long long value_offset;
+    __local__ int old_offsets[2];
+    __local__ unsigned long long local_dest;
+
+    int col_num = ins_num + 1;
+    int uint64_cols = uint64_slot_size + 1;
+    int float_cols = float_slot_size + 1;
+
+    for (int i = thread_id; i < used_slot_num * ins_num; i += nthreads) {
+        int slot_idx = i / ins_num;
+        int ins_idx = i % ins_num;
+
+        GM2LM(&slot_value_offsets[slot_idx * col_num + ins_idx], &value_offset, sizeof(unsigned long long)); // offsets in final
+        GM2LM(&used_slots[slot_idx], &tmp_slot_info, sizeof(UsedSlotGpuType));
+        if (tmp_slot_info.is_uint64_value) {
+            GM2LM(&dest[slot_idx], &local_dest, sizeof(unsigned long long)); // copy for dst addr of slot[slot_idx]
+            _global_ptr_ uint64_t *up = reinterpret_cast<_global_ptr_ uint64_t *>(local_dest);
+
+            int index = tmp_slot_info.slot_value_idx + uint64_cols * ins_idx;
+
+            GM2LM(&uint64_offsets[index], old_offsets, sizeof(int) * 2);
+            int old_off = old_offsets[0];
+            int num = old_offsets[1] - old_off; // num of ins-slot
+
+            GM2LM(&uint64_ins_lens[ins_idx], &local_old_begin_idx, sizeof(int));
+            int uint64_value_offset = local_old_begin_idx;
+
+            for (int k = 0; k < num; ++k) {
+                GM2LM(uint64_feas + k + old_off + uint64_value_offset, local_feasign_buffer, sizeof(uint64_t));
+                LM2GM(local_feasign_buffer, up + k + value_offset, sizeof(uint64_t));
+            }
+        } else {
+            GM2LM(&dest[slot_idx], &local_dest, sizeof(float)); // copy for dst addr of slot[slot_idx]
+            _global_ptr_ float *fp = reinterpret_cast<_global_ptr_ float *>(local_dest);
+
+            int index = tmp_slot_info.slot_value_idx + float_cols * ins_idx;
+
+            GM2LM(&float_offsets[index], old_offsets, sizeof(int) * 2);
+            int old_off = old_offsets[0];
+            int num = old_offsets[1] - old_off; // num of ins-slot
+
+            GM2LM(&float_ins_lens[ins_idx], &local_old_begin_idx, sizeof(int));
+            int float_value_offset = local_old_begin_idx;
+
+            for (int k = 0; k < num; ++k) {
+                GM2LM(float_feas + k + old_off + float_value_offset, local_feasign_buffer, sizeof(float));
+                LM2GM(local_feasign_buffer, fp + k + value_offset, sizeof(float));
+            }
+        }
+    }
+}
+
+#if 0
+__global__ void FillSlotValueOffsetPadBoxKernel(const int ins_num,
+                                                const int used_slot_num,
+                                                unsigned long long* slot_value_offsets,
+                                                const int *uint64_offsets,
+                                                const int uint64_slot_size,
+                                                const int *float_offsets,
+                                                const int float_slot_size,
+                                                const UsedSlotGpuType *used_slots) {
+    int cid = core_id();
+    int ncores = core_num();
+    if (cid >= ncores) {
+        return;
+    }
+    int thread_id = ncores * cluster_id() + cid;
+    int nthreads = ncores * cluster_num();
     const int buf_size = 512;
     __local__ unsigned long long local_slot_value_offsets[buf_size];
     __local__ int local_offsets[2];
@@ -115,7 +249,7 @@ __global__ void FillSlotValueOffsetPadBoxKernel(const int ins_num,
 
     int uint64_cols = uint64_slot_size + 1;
     int float_cols = float_slot_size + 1;
-    
+
     for (int slot = thread_id; slot < used_slot_num; slot += nthreads) {
         GM2LM(&used_slots[slot], &tmp_slot_info, sizeof(UsedSlotGpuType));
         int loop_len = min(ins_num, buf_size);
@@ -152,19 +286,19 @@ __global__ void FillSlotValueOffsetPadBoxKernel(const int ins_num,
     }
 }
 
-__global__ void CopyForTensorPadBoxKernel(const int used_slot_num, const int ins_num, 
-                                          unsigned long long *dest, 
-                                          const unsigned long long *slot_value_offsets, 
-                                          const unsigned long long *uint64_feas, 
-                                          const int *uint64_offsets, 
+__global__ void CopyForTensorPadBoxKernel(const int used_slot_num, const int ins_num,
+                                          unsigned long long *dest,
+                                          const unsigned long long *slot_value_offsets,
+                                          const unsigned long long *uint64_feas,
+                                          const int *uint64_offsets,
                                           const int *uint64_ins_lens,
-                                          const int uint64_slot_size, 
-                                          const float *float_feas, 
-                                          const int *float_offsets, 
+                                          const int uint64_slot_size,
+                                          const float *float_feas,
+                                          const int *float_offsets,
                                           const int *float_ins_lens,
-                                          const int float_slot_size, 
+                                          const int float_slot_size,
                                           const UsedSlotGpuType *used_slots) {
-    
+
     int cid = core_id();
     int ncores = core_num();
     if (cid >= ncores) {
@@ -190,7 +324,7 @@ __global__ void CopyForTensorPadBoxKernel(const int used_slot_num, const int ins
         int ins_idx = i % ins_num;
         GM2LM(&used_slots[slot_idx], &tmp_slot_info, sizeof(UsedSlotGpuType));
         GM2LM(&slot_value_offsets[slot_idx * col_num + ins_idx], &value_offset, sizeof(unsigned long long)); // offsets in final
-        
+
         if (tmp_slot_info.is_uint64_value) {
             int index = tmp_slot_info.slot_value_idx + uint64_cols * ins_idx;
             GM2LM(&uint64_ins_lens[ins_idx], &local_old_begin_idx, sizeof(int));
@@ -214,11 +348,11 @@ __global__ void CopyForTensorPadBoxKernel(const int used_slot_num, const int ins
                 int actual_len = min(buf_size, (num - j) * sizeof(float));
                 GM2LM(float_feas + old_offsets[0] + j + local_old_begin_idx, local_feasign_buffer, actual_len);
                 LM2GM(local_feasign_buffer, reinterpret_cast<_global_ptr_ float *>(local_dest + (value_offset + j) * sizeof(float)), actual_len);
-            }         
+            }
         }
     }
 }
-
+#endif
 
 void DataFeedPdboxXpuKernelHelper::CopyRankOffset(const paddle::platform::Place& place, int *dest, const int ins_num,
                                            const int pv_num, const int max_rank,
@@ -248,8 +382,8 @@ void DataFeedPdboxXpuKernelHelper::FillSlotValueOffset(const paddle::platform::P
     auto dev_ctx = platform::DeviceContextPool::Instance().Get(place);
     stream = static_cast<platform::XPUDeviceContext*>(dev_ctx)
                 ->x_context()
-                ->xpu_stream;   
-    FillSlotValueOffsetPadBoxKernel<<<4, 64, stream>>>(ins_num, used_slot_num, slot_value_offsets, 
+                ->xpu_stream;
+    FillSlotValueOffsetPadBoxKernel<<<8, 64, stream>>>(ins_num, used_slot_num, slot_value_offsets,
         uint64_offsets, uint64_slot_size, float_offsets, float_slot_size, used_slots);
     xpu_wait(stream);
 }
@@ -274,10 +408,10 @@ void DataFeedPdboxXpuKernelHelper::CopyForTensor(const paddle::platform::Place& 
     stream = static_cast<platform::XPUDeviceContext*>(dev_ctx)
                 ->x_context()
                 ->xpu_stream;
-    CopyForTensorPadBoxKernel<<<4, 64, stream>>>(used_slot_num, ins_num, dest, slot_value_offsets, uint64_feas, 
-        uint64_offsets, uint64_ins_lens, uint64_slot_size, float_feas, float_offsets, 
+    CopyForTensorPadBoxKernel<<<8, 64, stream>>>(used_slot_num, ins_num, dest, slot_value_offsets, uint64_feas,
+        uint64_offsets, uint64_ins_lens, uint64_slot_size, float_feas, float_offsets,
         float_ins_lens, float_slot_size, used_slots);
-    
+
     xpu_wait(stream);
 }
 
