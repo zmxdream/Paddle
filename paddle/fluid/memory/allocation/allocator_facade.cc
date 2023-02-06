@@ -90,7 +90,7 @@ PADDLE_DEFINE_EXPORTED_bool(use_virtual_memory_auto_growth,
 // the old single-stream CUDA allocator. It will be removed
 // after StreamSafeCudaAllocator has been fully tested.
 PADDLE_DEFINE_EXPORTED_bool(use_stream_safe_cuda_allocator,
-                            true,
+                            false,
                             "Enable StreamSafeCUDAAllocator");
 
 PADDLE_DEFINE_EXPORTED_bool(use_cuda_managed_memory,
