@@ -93,6 +93,7 @@ __global__ void CopyRankOffsetKernel(int* mat,
     }
 }
 
+#if 0
 __global__ void FillSlotValueOffsetPadBoxKernel(const int ins_num,
                                                 const int used_slot_num,
                                                 unsigned long long* slot_value_offsets,
@@ -206,7 +207,7 @@ __global__ void CopyForTensorPadBoxKernel(const int used_slot_num, const int ins
                 LM2GM(local_feasign_buffer, up + k + value_offset, sizeof(uint64_t));
             }
         } else {
-            GM2LM(&dest[slot_idx], &local_dest, sizeof(float)); // copy for dst addr of slot[slot_idx]
+            GM2LM(&dest[slot_idx], &local_dest, sizeof(unsigned long long));
             _global_ptr_ float *fp = reinterpret_cast<_global_ptr_ float *>(local_dest);
 
             int index = tmp_slot_info.slot_value_idx + float_cols * ins_idx;
@@ -226,7 +227,9 @@ __global__ void CopyForTensorPadBoxKernel(const int used_slot_num, const int ins
     }
 }
 
-#if 0
+#endif
+
+// #if 0
 __global__ void FillSlotValueOffsetPadBoxKernel(const int ins_num,
                                                 const int used_slot_num,
                                                 unsigned long long* slot_value_offsets,
@@ -252,35 +255,36 @@ __global__ void FillSlotValueOffsetPadBoxKernel(const int ins_num,
 
     for (int slot = thread_id; slot < used_slot_num; slot += nthreads) {
         GM2LM(&used_slots[slot], &tmp_slot_info, sizeof(UsedSlotGpuType));
-        int loop_len = min(ins_num, buf_size);
         int st_idx = (ins_num + 1) * slot;
         unsigned long long tot_ins = 0;
         local_slot_value_offsets[0] = 0;
         mfence();
         LM2GM(local_slot_value_offsets, slot_value_offsets + st_idx, sizeof(unsigned long long));
         if (tmp_slot_info.is_uint64_value) {
-            for (int i = 1; i <= ins_num; i += loop_len) {
+            for (int i = 0; i < ins_num; i += buf_size) {
+                int loop_len = min(ins_num - i, buf_size);
                 for (int k = i; k < i + loop_len; ++k) {
-                    int pos = (k - 1) * uint64_cols + tmp_slot_info.slot_value_idx;
+                    int pos = k * uint64_cols + tmp_slot_info.slot_value_idx;
                     GM2LM(uint64_offsets + pos, local_offsets, 2 * sizeof(int));
                     int num = local_offsets[1] - local_offsets[0];
                     mfence();
                     tot_ins += num;
                     local_slot_value_offsets[k - i] = tot_ins;
                 }
-                LM2GM(local_slot_value_offsets, slot_value_offsets + st_idx + i, loop_len * sizeof(unsigned long long));
+                LM2GM(local_slot_value_offsets, slot_value_offsets + st_idx + i + 1, loop_len * sizeof(unsigned long long));
             }
         } else {
-            for (int i = 1; i <= ins_num; i += loop_len) {
+            for (int i = 0; i < ins_num; i += buf_size) {
+                int loop_len = min(ins_num - i, buf_size);
                 for (int k = i; k < i + loop_len; ++k) {
-                    int pos = (k - 1) * float_cols + tmp_slot_info.slot_value_idx;
+                    int pos = k * float_cols + tmp_slot_info.slot_value_idx;
                     GM2LM(float_offsets + pos, local_offsets, 2 * sizeof(int));
                     int num = local_offsets[1] - local_offsets[0];
                     mfence();
                     tot_ins += num;
                     local_slot_value_offsets[k - i] = tot_ins;
                 }
-                LM2GM(local_slot_value_offsets, slot_value_offsets + st_idx + i, loop_len * sizeof(unsigned long long));
+                LM2GM(local_slot_value_offsets, slot_value_offsets + st_idx + i + 1, loop_len * sizeof(unsigned long long));
             }
         }
     }
@@ -331,11 +335,12 @@ __global__ void CopyForTensorPadBoxKernel(const int used_slot_num, const int ins
             GM2LM(&uint64_offsets[index], old_offsets, sizeof(int) * 2);
             int num = old_offsets[1] - old_offsets[0]; // num of ins-slot
             GM2LM(&dest[slot_idx], &local_dest, sizeof(unsigned long long)); // copy for dst addr of slot[slot_idx]
+            _global_ptr_ uint64_t *up = reinterpret_cast<_global_ptr_ uint64_t *>(local_dest);
             int step_len = buf_size / sizeof(unsigned long long);
             for (int j = 0; j < num; j += step_len) {
                 int actual_len = min(buf_size, (num - j) * sizeof(unsigned long long));
                 GM2LM(uint64_feas + old_offsets[0] + j + local_old_begin_idx, local_feasign_buffer, actual_len);
-                LM2GM(local_feasign_buffer, reinterpret_cast<_global_ptr_ unsigned long long *>(local_dest + (value_offset + j) * sizeof(unsigned long long)), actual_len);
+                LM2GM(local_feasign_buffer, up + value_offset + j, actual_len);
             }
         } else {
             int index = tmp_slot_info.slot_value_idx + float_cols * ins_idx;
@@ -343,16 +348,17 @@ __global__ void CopyForTensorPadBoxKernel(const int used_slot_num, const int ins
             GM2LM(&float_offsets[index], old_offsets, sizeof(int) * 2);
             int num = old_offsets[1] - old_offsets[0]; // num of ins-slot
             GM2LM(&dest[slot_idx], &local_dest, sizeof(unsigned long long)); // copy for dst addr of slot[slot_idx]
+            _global_ptr_ float *fp = reinterpret_cast<_global_ptr_ float *>(local_dest);
             int step_len = buf_size / sizeof(float);
             for (int j = 0; j < num; j += step_len) {
                 int actual_len = min(buf_size, (num - j) * sizeof(float));
                 GM2LM(float_feas + old_offsets[0] + j + local_old_begin_idx, local_feasign_buffer, actual_len);
-                LM2GM(local_feasign_buffer, reinterpret_cast<_global_ptr_ float *>(local_dest + (value_offset + j) * sizeof(float)), actual_len);
+                LM2GM(local_feasign_buffer, fp + value_offset + j, actual_len);
             }
         }
     }
 }
-#endif
+// #endif
 
 void DataFeedPdboxXpuKernelHelper::CopyRankOffset(const paddle::platform::Place& place, int *dest, const int ins_num,
                                            const int pv_num, const int max_rank,

@@ -55,7 +55,7 @@ option(WITH_WIN_DUMP_DBG "Compile with windows core dump debug mode" OFF)
 option(WITH_ASCEND "Compile PaddlePaddle with ASCEND" OFF)
 option(WITH_ROCM "Compile PaddlePaddle with ROCM platform" OFF)
 option(WITH_IPU "Compile PaddlePaddle with Graphcore IPU" OFF)
-option(WITH_CPU_DATA_FEED "Compile PaddlePaddle with cpu datafeed" ON)
+option(WITH_CPU_DATA_FEED "Compile PaddlePaddle with cpu datafeed" OFF)
 # NOTE(zhiqiu): WITH_ASCEND_CL can be compile on x86_64, so we can set WITH_ASCEND=OFF and WITH_ASCEND_CL=ON
 # to develop some acl related functionality on x86
 option(WITH_ASCEND_CL "Compile PaddlePaddle with ASCEND CL" ${WITH_ASCEND})
