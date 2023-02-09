@@ -510,6 +510,7 @@ class BoxWrapper {
   void SetDataFuncForCacheManager(int batch_num,
       std::function<void(int, std::vector<std::pair<uint64_t*, int>>*)> data_func);
   int PrepareNextBatch(int dev_id);
+  std::vector<uint64_t> & GetFid2SginMap() { return *fid2sign_map_; }
 #endif
 
   boxps::PSAgentBase* GetAgent();
@@ -741,6 +742,7 @@ class BoxWrapper {
   size_t input_table_dim_ = 0;
   int gpu_num_ = GetDeviceCount();
 #ifdef PADDLE_WITH_XPU_KP
+  std::vector<uint64_t> * fid2sign_map_;
   std::unique_ptr<BoxWrapperKernel> box_wrapper_kernel_;
 #endif
 

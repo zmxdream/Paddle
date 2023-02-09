@@ -2112,7 +2112,9 @@ class SlotPaddleBoxDataFeed : public DataFeed {
   void AddBatchOffset(const std::pair<int, int>& off) {
     batch_offsets_.push_back(off);
   }
-  void GetUsedSlotIndex(std::vector<int>* used_slot_index);
+  void GetUsedSlotIndex(
+      std::vector<int>* used_slot_index,
+      std::vector<std::string>* used_slot_name = nullptr);
   // expand values
   void ExpandSlotRecord(SlotRecord* ins);
   // pack

@@ -3115,12 +3115,17 @@ inline bool is_slot_values(const std::string &slot) {
   return true;
 }
 void SlotPaddleBoxDataFeed::GetUsedSlotIndex(
-    std::vector<int>* used_slot_index) {
+    std::vector<int>* used_slot_index, std::vector<std::string>* used_slot_name) {
   auto boxps_ptr = BoxWrapper::GetInstance();
   // get feasigns that FeedPass doesn't need
   const std::unordered_set<std::string>& slot_name_omited_in_feedpass_ =
       boxps_ptr->GetOmitedSlot();
-  used_slot_index->clear();
+  if (used_slot_index != nullptr) {
+    used_slot_index->clear();
+  }
+  if (used_slot_name != nullptr) {
+    used_slot_name->clear();
+  }
   for (int i = 0; i < use_slot_size_; ++i) {
     auto& info = used_slots_info_[i];
     if (info.type[0] != 'u') {
@@ -3131,7 +3136,12 @@ void SlotPaddleBoxDataFeed::GetUsedSlotIndex(
     }
     if (slot_name_omited_in_feedpass_.find(info.slot) ==
         slot_name_omited_in_feedpass_.end()) {
-      used_slot_index->push_back(info.slot_value_idx);
+      if (used_slot_index != nullptr) {
+          used_slot_index->push_back(info.slot_value_idx);
+      }
+      if (used_slot_name != nullptr) {
+          used_slot_name->push_back(info.slot);
+      }
     }
   }
 }
@@ -3172,7 +3182,6 @@ int SlotPaddleBoxDataFeed::Next() {
     return this->batch_size_;
   } else {
     this->batch_size_ = batch.second;
-    VLOG(0) << "start batch: " << offset_index_ << ", tot_batch: " << batch_offsets_.size() << ", batch_size: " << this->batch_size_;
     batch_timer_.Resume();
     PutToFeedSlotVec(&records_[batch.first], this->batch_size_);
 #if defined(PADDLE_WITH_CUDA) && defined(_LINUX)
