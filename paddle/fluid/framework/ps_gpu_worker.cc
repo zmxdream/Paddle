@@ -366,9 +366,7 @@ void PSGPUWorker::TrainFiles() {
   device_reader_->Start();
   int cur_batch;
   int batch_cnt = 0;
-
   int graph_batch_size = 0;
-
   platform::SetDeviceId(place_.GetDeviceId());
 
   // async infershape
@@ -414,7 +412,6 @@ void PSGPUWorker::TrainFiles() {
       }));
     }
   }
-
   while (true) {
     auto thread_scope = thread_scope_;
     TaskData cur_task;
@@ -439,6 +436,7 @@ void PSGPUWorker::TrainFiles() {
       }
       thread_scope = cur_task.scope;
       auto pack = cur_task.pack;
+      // get insid from pack
       device_reader_->SetInsIdVec(pack);
 
       // tensor share buffer
@@ -514,7 +512,6 @@ void PSGPUWorker::TrainFiles() {
             }
             op_or_cuda_graph.cudagraph = platform::EndCUDAGraphCapture();
           }
-
           platform::RecordEvent op_type_record_event(
               op_or_cuda_graph.name, platform::TracerEventType::Operator, 1);
           op_or_cuda_graph.cudagraph->Replay();

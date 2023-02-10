@@ -753,6 +753,12 @@ class InMemoryDataset(DatasetBase):
         if self.use_ps_gpu and core._is_compiled_with_heterps():
             self.psgpu.set_date(year, month, day)
 
+    def set_multi_task_num(self, multi_task_num=1):
+       """
+       Set multi task num
+       """
+       self.dataset.set_multi_task_num(multi_task_num)
+
     @deprecated(
         since="2.0.0",
         update_to="paddle.distributed.InMemoryDataset.load_into_memory")

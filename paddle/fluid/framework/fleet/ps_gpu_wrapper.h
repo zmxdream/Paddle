@@ -270,6 +270,8 @@ class PSGPUWrapper {
                              : config["nonclk_coeff"];
     float clk_coeff =
         (config.find("clk_coeff") == config.end()) ? 1.0 : config["clk_coeff"];
+
+    // lr config settings
     float min_bound = (config.find("min_bound") == config.end())
                           ? -10000.0
                           : config["min_bound"];
@@ -311,6 +313,13 @@ class PSGPUWrapper {
     this->SetEmbedxSGD(mf_create_thresholds, mf_learning_rate,
                         mf_initial_g2sum, mf_initial_range, mf_min_bound,
                          mf_max_bound);
+
+    VLOG(0) << "GPUOptimizer Config:\n" << "lr: min_bound:" << min_bound
+            << " max_bound:" << max_bound << " learning_rate:" << learning_rate
+            << " initial_g2sum:" << initial_g2sum << " initial_range:" << initial_range
+            << "\nmf: min_bound:" << mf_min_bound << " max_bound:" << max_bound
+            << " learning_rate:" << mf_learning_rate << " initial_g2sum:" << mf_initial_g2sum
+            << " initial_range:" << mf_initial_range << " create_thresholds:" << mf_create_thresholds;
        
   }
 
@@ -428,6 +437,11 @@ class PSGPUWrapper {
   std::shared_ptr<paddle::ps::AfsReader> OpenReader(
       const std::string& filename) {
     return afs_handler_.open_reader(filename);
+  }
+
+  std::shared_ptr<paddle::ps::AfsWriter> OpenWriter(
+      const std::string& filename) {
+    return afs_handler_.open_writer(filename);
   }
 
   void InitAfsApi(const std::string& fs_name, const std::string& fs_user,

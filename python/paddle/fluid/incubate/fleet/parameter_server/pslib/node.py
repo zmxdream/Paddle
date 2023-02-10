@@ -410,6 +410,7 @@ class DownpourServer(Server):
                 strategy.get(prefix + 'sparse_learning_rate', 0.05)
             sgd.adagrad.initial_range = \
                 strategy.get(prefix + 'sparse_initial_range', 1e-4)
+            # check
             if prefix == "embed_":
                 sgd.adagrad.initial_range = 0
             sgd.adagrad.initial_g2sum = strategy.get(

@@ -107,21 +107,22 @@ void PSGPUWrapper::PreBuildTask(std::shared_ptr<HeterContext> gpu_task) {
   platform::Timer timeline;
   timeline.Start();
   int device_num = heter_devices_.size();
-  if (!multi_mf_dim_) {
-    gpu_task->init(thread_keys_shard_num_, device_num);
-  } else {
+//   if (!multi_mf_dim_) {
+//    gpu_task->init(thread_keys_shard_num_, device_num);
+//  } else {
     gpu_task->init(thread_keys_shard_num_, device_num, multi_mf_dim_);
-  }
+//  }
 
   std::vector<std::thread> threads;
 
   // data should be in input channel
-  if (!multi_mf_dim_) {
-    thread_keys_.resize(thread_keys_thread_num_);
-    for (int i = 0; i < thread_keys_thread_num_; i++) {
-      thread_keys_[i].resize(thread_keys_shard_num_);
-    }
-  } else {
+ // if (!multi_mf_dim_) {
+ //   thread_keys_.resize(thread_keys_thread_num_);
+ //   for (int i = 0; i < thread_keys_thread_num_; i++) {
+ //     thread_keys_[i].resize(thread_keys_shard_num_);
+ //   }
+//  } else {
+
     thread_dim_keys_.resize(thread_keys_thread_num_);
     for (int i = 0; i < thread_keys_thread_num_; i++) {
       thread_dim_keys_[i].resize(thread_keys_shard_num_);
@@ -129,7 +130,8 @@ void PSGPUWrapper::PreBuildTask(std::shared_ptr<HeterContext> gpu_task) {
         thread_dim_keys_[i][j].resize(multi_mf_dim_);
       }
     }
-  }
+
+ // }
 
   dataset_mutex_.lock();
   Dataset* cur_dataset = dataset_pipe_.front();
@@ -994,7 +996,6 @@ void PSGPUWrapper::BeginPass() {
     PADDLE_THROW(
         platform::errors::Fatal("[BeginPass] current task is not ended."));
   }
-
   build_task();
   timer.Pause();
 

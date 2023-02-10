@@ -414,6 +414,8 @@ class CustomParser {
   virtual ~CustomParser() {}
   virtual void Init(const std::vector<SlotConf>& slots) = 0;
   virtual bool Init(const std::vector<AllSlotInfo>& slots) = 0;
+  virtual bool PreLoad(const std::vector<AllSlotInfo>& slots) { return true;}
+  virtual void Reset() {}
   virtual void ParseOneInstance(const char* str, Record* instance) = 0;
   virtual int ParseInstance(int len, const char* str,
                             std::vector<Record>* instances) {
@@ -932,6 +934,14 @@ class DataFeed {
   virtual void LoadIntoMemory() {
     PADDLE_THROW(platform::errors::Unimplemented(
         "This function(LoadIntoMemory) is not implemented."));
+  }
+  virtual void BeginLoadIntoMemory() {
+    PADDLE_THROW(platform::errors::Unimplemented(
+        "This function(BeginLoadIntoMemory) is not implemented."));
+  }
+  virtual void EndLoadIntoMemory() {
+    PADDLE_THROW(platform::errors::Unimplemented(
+        "This function(EndLoadIntoMemory) is not implemented."));
   }
   virtual void SetPlace(const paddle::platform::Place& place) {
     place_ = place;
@@ -1589,7 +1599,12 @@ class SlotRecordInMemoryDataFeed : public InMemoryDataFeed<SlotRecord> {
 
   virtual void Init(const DataFeedDesc& data_feed_desc);
   virtual void LoadIntoMemory();
+  virtual void EndLoadIntoMemory();
+  virtual void BeginLoadIntoMemory();
   void ExpandSlotRecord(SlotRecord* ins);
+  uint64_t GetRecordTaskId(const paddle::framework::DataFeedDesc& data_feed_desc, 
+                           const SlotRecord& record);
+
   virtual void SetInsIdVec(MiniBatchGpuPack* pack) {
     if (parse_ins_id_) {
       size_t ins_num = pack->ins_num(); 
