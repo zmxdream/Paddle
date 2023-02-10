@@ -125,14 +125,14 @@ class DownpourServer(Server):
             support_accessor_class = [
                 'DownpourFeatureValueAccessor', 'DownpourCtrAccessor', 'DownpourCtrDymfAccessor',
                 'DownpourSparseValueAccessor', 'DownpourCtrDoubleAccessor',
-                'DownpourUnitAccessor', 'DownpourDoubleUnitAccessor'
+                'DownpourUnitAccessor', 'DownpourDoubleUnitAccessor', 'DownpourCtrDoubleDymfAccessor'
             ]
             if strategy.get('sparse_accessor_class') is not None:
                 accessor_class = strategy.get('sparse_accessor_class')
                 if accessor_class not in support_accessor_class:
                     raise ValueError(
                         "support sparse_accessor_class: ['DownpourFeatureValueAccessor', 'DownpourCtrAccessor', 'DownpourCtrDymfAccessor', \
-                        'DownpourSparseValueAccessor', 'DownpourCtrDoubleAccessor'], \
+                        'DownpourSparseValueAccessor', 'DownpourCtrDoubleAccessor', 'DownpourCtrDoubleDymfAccessor'], \
                             but actual %s" % (accessor_class))
             else:
                 accessor_class = 'DownpourCtrAccessor'
@@ -258,7 +258,8 @@ class DownpourServer(Server):
                 table2.deconverter = deconverter
             elif accessor_class == 'DownpourUnitAccessor' \
                       or accessor_class == 'DownpourDoubleUnitAccessor' \
-                      or accessor_class == 'DownpourCtrDymfAccessor':
+                      or accessor_class == 'DownpourCtrDymfAccessor' \
+                      or accessor_class == 'DownpourCtrDoubleDymfAccessor':
                 self.add_sparse_table_common_config(table, strategy)
                 self.add_sparse_optimizer(table.accessor.embed_sgd_param,
                                           strategy, "embed_")
@@ -447,6 +448,8 @@ class DownpourServer(Server):
             'sparse_delta_keep_days', 16)
         table.accessor.downpour_accessor_param.delete_after_unseen_days = strategy.get(
             'sparse_delete_after_unseen_days', 30)
+        table.accessor.downpour_accessor_param.ssd_unseenday_threshold = strategy.get(
+            'sparse_ssd_unseenday_threshold', 1)
         table.accessor.downpour_accessor_param.show_click_decay_rate = strategy.get(
             'sparse_show_click_decay_rate', 0.98)
         table.accessor.downpour_accessor_param.delete_threshold = strategy.get(

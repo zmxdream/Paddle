@@ -456,7 +456,7 @@ void PSGPUWorker::TrainFiles() {
     if (cur_batch <= 0) {
       break;
     }
-
+    device_reader_->SetCurBatchSize(cur_batch);
     total_ins_num += cur_batch;
 
     if (shape_check_flag_.load()) {
