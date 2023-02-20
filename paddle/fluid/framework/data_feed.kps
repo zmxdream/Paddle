@@ -1,7 +1,7 @@
 #ifdef PADDLE_WITH_XPU_KP
 #include "paddle/fluid/framework/data_feed_xpu_kernel_helper.h"
 #include "xpu/kernel/cluster_header.h"
-#include "xpu/kernel/debug.h"
+// #include "xpu/kernel/debug.h"
 #include "xpu/kernel/math.h"
 
 namespace paddle {
@@ -267,10 +267,10 @@ __global__ void FillSlotValueOffsetPadBoxKernel(const int ins_num,
                     int pos = k * uint64_cols + tmp_slot_info.slot_value_idx;
                     GM2LM(uint64_offsets + pos, local_offsets, 2 * sizeof(int));
                     int num = local_offsets[1] - local_offsets[0];
-                    mfence();
                     tot_ins += num;
                     local_slot_value_offsets[k - i] = tot_ins;
                 }
+                mfence();
                 LM2GM(local_slot_value_offsets, slot_value_offsets + st_idx + i + 1, loop_len * sizeof(unsigned long long));
             }
         } else {
@@ -280,10 +280,10 @@ __global__ void FillSlotValueOffsetPadBoxKernel(const int ins_num,
                     int pos = k * float_cols + tmp_slot_info.slot_value_idx;
                     GM2LM(float_offsets + pos, local_offsets, 2 * sizeof(int));
                     int num = local_offsets[1] - local_offsets[0];
-                    mfence();
                     tot_ins += num;
                     local_slot_value_offsets[k - i] = tot_ins;
                 }
+                mfence();
                 LM2GM(local_slot_value_offsets, slot_value_offsets + st_idx + i + 1, loop_len * sizeof(unsigned long long));
             }
         }

@@ -3159,13 +3159,19 @@ bool SlotPaddleBoxDataFeed::Start() {
 }
 
 int SlotPaddleBoxDataFeed::Next() {
+  next_timer_.Resume();
   this->CheckStart();
   if (offset_index_ >= static_cast<int>(batch_offsets_.size())) {
     return 0;
   }
 #ifdef PADDLE_WITH_XPU_KP
   auto box_ptr = paddle::framework::BoxWrapper::GetInstance();
-  box_ptr->PrepareNextBatch(this->place_.GetDeviceId());
+  // box_ptr->PrepareNextBatch(this->place_.GetDeviceId());
+  
+  std::future<int> prepare_next_batch_rt = std::async(std::launch::async, [this]() {
+    auto box_ptr = paddle::framework::BoxWrapper::GetInstance();
+    return box_ptr->PrepareNextBatch(this->place_.GetDeviceId());
+  });
 #endif
   auto& batch = batch_offsets_[offset_index_++];
   if (enable_pv_merge_) {
@@ -3192,6 +3198,9 @@ int SlotPaddleBoxDataFeed::Next() {
     }
 #endif
     batch_timer_.Pause();
+    CHECK(prepare_next_batch_rt.get() == 0);
+    next_timer_.Pause();
+
     return this->batch_size_;
   }
 }

@@ -2054,6 +2054,7 @@ class SlotPaddleBoxDataFeed : public DataFeed {
     if (pack_ != nullptr) {
       LOG(WARNING) << "gpu: "
                    << thread_id_
+                   << ", Next total time: " << next_timer_.ElapsedSec()
                    << ", pack batch total time: " << batch_timer_.ElapsedSec()
                    << "[copy:" << pack_->trans_time_span()
                    << ",fill:" << fill_timer_.ElapsedSec()
@@ -2214,6 +2215,7 @@ class SlotPaddleBoxDataFeed : public DataFeed {
   std::vector<UsedSlotInfo> used_slots_info_;
   std::string parser_so_path_;
 
+  platform::Timer next_timer_;
   platform::Timer batch_timer_;
   platform::Timer fill_timer_;
   platform::Timer offset_timer_;
