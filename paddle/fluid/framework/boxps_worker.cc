@@ -507,6 +507,10 @@ void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
   // init var and copy persistable
   int grad_var_num = 0;
   int var_num = 0;
+  int persistable_num = 0;
+  int share_var_num = 0;
+  int64_t share_persistable_len = 0;
+  int64_t total_persistable_len = 0;
   for (auto& var : sorted_var) {
     std::string name = var->Name();
     if (!var->Persistable()) {
@@ -534,10 +538,10 @@ void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
       const LoDTensor& root_tensor =
           root_scope_->FindVar(name)->Get<LoDTensor>();
       LoDTensor* gpu_tensor = thread_scope_->Var(name)->GetMutable<LoDTensor>();
+      size_t len = root_tensor.numel();
       if (sync_mode_ > 0) {
         if (CheckNeedParam(var)) {
           auto dim = root_tensor.dims();
-          size_t len = root_tensor.numel();
           gpu_tensor->ShareDataWith(param_sync_.Slice(offset, offset + len))
               .Resize(dim);
           offset += len;
@@ -546,15 +550,23 @@ void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
         if (async_param_name_.find(name) != async_param_name_.end()) {
           VLOG(3) << "device[" << device_id_ << "] Persistable var name " << name;
           auto dim = root_tensor.dims();
-          size_t len = root_tensor.numel();
           gpu_tensor->ShareDataWith(param_async_.Slice(offset, offset + len))
               .Resize(dim);
           offset += len;
           var_num += 1;
         }
       }
-      TensorCopy(*static_cast<const Tensor*>(&root_tensor), place_,
-                 static_cast<Tensor*>(gpu_tensor));
+      ++persistable_num;
+      total_persistable_len += len;
+      if (!gpu_tensor->initialized() && place_ == root_tensor.place()) {
+        auto dim = root_tensor.dims();
+        gpu_tensor->ShareDataWith(root_tensor).Resize(dim);
+        ++share_var_num;
+        share_persistable_len += len;
+      } else {
+        TensorCopy(*static_cast<const Tensor*>(&root_tensor), place_,
+            static_cast<Tensor*>(gpu_tensor));
+      }
     }
   }
   if (sync_mode_ > 0) {
@@ -566,6 +578,16 @@ void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
             << " grad_var_num: " << grad_var_num;
     CHECK(offset <= param_async_.numel());
     CHECK(grad_offset <= grad_async_.numel());
+  }
+  if (share_var_num > 0) {
+    VLOG(0) << "device[" << device_id_ << "] persistable total num ["
+        << persistable_num << ","
+        << total_persistable_len
+        << "," << total_persistable_len / 262144.0
+        << "MB], share persistable num ["
+        << share_var_num << ","
+        << share_persistable_len
+        << "," << share_persistable_len / 262144.0 << "MB]";
   }
 }
 void BoxPSWorker::SyncParam(void) {
