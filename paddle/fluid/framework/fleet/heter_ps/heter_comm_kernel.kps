@@ -18,7 +18,7 @@ limitations under the License. */
 #if defined(PADDLE_WITH_XPU_KP)
 #include <xpu/runtime.h>
 #include "xpu/kernel/cluster_header.h"
-#include "xpu/kernel/debug.h"  // NOLINT
+//#include "xpu/kernel/debug.h"  // NOLINT
 #include "xpu/kernel/math.h"
 #include "xpu/kernel/simd.h"
 #endif
