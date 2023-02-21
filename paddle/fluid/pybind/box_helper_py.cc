@@ -154,7 +154,10 @@ void BindBoxWrapper(py::module* m) {
       .def("merge_model",
            &framework::BoxWrapper::MergeModel,
            py::call_guard<py::gil_scoped_release>())
-      .def("merge_multi_models", 
+      .def("print_device_info",
+           &framework::BoxWrapper::PrintDeviceInfo,
+           py::call_guard<py::gil_scoped_release>())
+      .def("merge_multi_models",
            &framework::BoxWrapper::MergeMultiModels,
            py::call_guard<py::gil_scoped_release>());
 }  // end BoxWrapper

@@ -259,7 +259,7 @@ void BasicAucCalculator::reset() {
   _local_sqrerr = 0;
   _local_pred = 0;
   _local_label = 0;
- _local_total_num = 0;
+  _local_total_num = 0;
 }
 
 void BasicAucCalculator::compute() {

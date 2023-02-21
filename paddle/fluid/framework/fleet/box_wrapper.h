@@ -39,6 +39,7 @@ limitations under the License. */
 
 #include "paddle/fluid/framework/data_feed.h"
 #include "paddle/fluid/framework/data_set.h"
+#include "paddle/fluid/framework/fleet/metrics.h"
 #include "paddle/fluid/framework/lod_tensor.h"
 #include "paddle/fluid/framework/scope.h"
 #include "paddle/fluid/framework/tensor_util.h"
@@ -46,7 +47,6 @@ limitations under the License. */
 #include "paddle/fluid/platform/place.h"
 #include "paddle/fluid/platform/timer.h"
 #include "paddle/fluid/string/string_helper.h"
-#include "paddle/fluid/framework/fleet/metrics.h"
 #define BUF_SIZE 1024 * 1024
 
 DECLARE_int32(fix_dayid);
@@ -90,11 +90,13 @@ class GpuReplicaCache {
       cudaMalloc(&d_embs_.back(), h_emb_count_ * emb_dim_ * sizeof(float));
       auto place = platform::CUDAPlace(i);
       auto stream = dynamic_cast<phi::GPUContext*>(
-              platform::DeviceContextPool::Instance().Get(place))
-              ->stream();
-      cudaMemcpyAsync(d_embs_.back(), h_emb_.data(),
+                        platform::DeviceContextPool::Instance().Get(place))
+                        ->stream();
+      cudaMemcpyAsync(d_embs_.back(),
+                      h_emb_.data(),
                       h_emb_count_ * emb_dim_ * sizeof(float),
-                      cudaMemcpyHostToDevice, stream);
+                      cudaMemcpyHostToDevice,
+                      stream);
 #else
       PADDLE_THROW(phi::errors::Unimplemented("not supported platform."));
 #endif
@@ -146,7 +148,9 @@ class InputTable {
     return it->second;
   }
 
-  void LookupInput(uint64_t* keys, float* values, uint64_t num,
+  void LookupInput(uint64_t* keys,
+                   float* values,
+                   uint64_t num,
                    size_t device_id) {
     std::vector<uint64_t> d_keys;
     std::vector<float> d_values;
@@ -154,7 +158,9 @@ class InputTable {
     d_values.resize(num * dim_);
 #if defined(PADDLE_WITH_CUDA)
     cudaSetDevice(device_id);
-    cudaMemcpy(d_keys.data(), keys, d_keys.size() * sizeof(uint64_t),
+    cudaMemcpy(d_keys.data(),
+               keys,
+               d_keys.size() * sizeof(uint64_t),
                cudaMemcpyDeviceToHost);
 #else
     PADDLE_THROW(phi::errors::Unimplemented("not supported platform."));
@@ -163,7 +169,9 @@ class InputTable {
       memcpy(&d_values[i * dim_], &table_[d_keys[i]], dim_ * sizeof(float));
     }
 #if defined(PADDLE_WITH_CUDA)
-    cudaMemcpy(values, d_values.data(), d_values.size() * sizeof(float),
+    cudaMemcpy(values,
+               d_values.data(),
+               d_values.size() * sizeof(float),
                cudaMemcpyHostToDevice);
 #else
     PADDLE_THROW(phi::errors::Unimplemented("not supported platform."));
@@ -189,42 +197,80 @@ class InputTable {
 };
 class DCacheBuffer {
  public:
-  DCacheBuffer() : buf_(nullptr) {}
-  ~DCacheBuffer() {}
+  DCacheBuffer() : d_buf_(nullptr), total_bytes_(0), buf_(nullptr) {}
+  ~DCacheBuffer() {
+#ifdef PADDLE_WITH_CUDA
+    if (d_buf_ != nullptr) {
+      cudaFree(d_buf_);
+      d_buf_ = nullptr;
+    }
+#endif
+  }
   /**
    * @Brief get data
    */
   template <typename T>
   T* mutable_data(const size_t total_bytes,
                   const paddle::platform::Place& place) {
-    if (buf_ == nullptr) {
-      buf_ = memory::AllocShared(place, total_bytes);
-    } else if (buf_->size() < total_bytes) {
-      buf_.reset();
-      buf_ = memory::AllocShared(place, total_bytes);
+#ifdef PADDLE_WITH_CUDA
+    if (platform::is_gpu_place(place)) {
+      if (d_buf_ == nullptr) {
+        total_bytes_ = total_bytes;
+        cudaMalloc(&d_buf_, total_bytes);
+      } else if (total_bytes_ < total_bytes) {
+        total_bytes_ = total_bytes;
+        cudaFree(d_buf_);
+        cudaMalloc(&d_buf_, total_bytes);
+      }
+      return reinterpret_cast<T*>(d_buf_);
+    } else {
+#endif
+      if (buf_ == nullptr) {
+        buf_ = memory::AllocShared(place, total_bytes);
+      } else if (buf_->size() < total_bytes) {
+        buf_.reset();
+        buf_ = memory::AllocShared(place, total_bytes);
+      }
+      return reinterpret_cast<T*>(buf_->ptr());
+#ifdef PADDLE_WITH_CUDA
     }
-    return reinterpret_cast<T*>(buf_->ptr());
+#endif
   }
   template <typename T>
   T* data() {
+#ifdef PADDLE_WITH_CUDA
+    if (d_buf_ != nullptr) {
+      return reinterpret_cast<T*>(d_buf_);
+    }
+#endif
     return reinterpret_cast<T*>(buf_->ptr());
   }
   size_t memory_size() {
-    if (buf_ == nullptr) {
+    if (buf_ == nullptr && d_buf_ == nullptr) {
       return 0;
     }
+#ifdef PADDLE_WITH_CUDA
+    if (d_buf_ != nullptr) {
+      return total_bytes_;
+    }
+#endif
     return buf_->size();
   }
 
  private:
+  void* d_buf_ = nullptr;
+  size_t total_bytes_ = 0;
   std::shared_ptr<memory::Allocation> buf_ = nullptr;
 };
 class MetricMsg {
  public:
   MetricMsg() {}
-  MetricMsg(const std::string& label_varname, const std::string& pred_varname,
-            int metric_phase, int bucket_size = 1000000,
-            bool mode_collect_in_gpu = false, int max_batch_size = 0,
+  MetricMsg(const std::string& label_varname,
+            const std::string& pred_varname,
+            int metric_phase,
+            int bucket_size = 1000000,
+            bool mode_collect_in_gpu = false,
+            int max_batch_size = 0,
             const std::string& sample_scale_varname = "")
       : label_varname_(label_varname),
         pred_varname_(pred_varname),
@@ -245,7 +291,8 @@ class MetricMsg {
     const float* pred_data = NULL;
     get_data<int64_t>(exe_scope, label_varname_, &label_data, &label_len);
     get_data<float>(exe_scope, pred_varname_, &pred_data, &pred_len);
-    PADDLE_ENFORCE_EQ(label_len, pred_len,
+    PADDLE_ENFORCE_EQ(label_len,
+                      pred_len,
                       platform::errors::PreconditionNotMet(
                           "the predict data length should be consistent with "
                           "the label data length"));
@@ -253,34 +300,41 @@ class MetricMsg {
     if (!sample_scale_varname_.empty()) {
       get_data<float>(exe_scope, sample_scale_varname_, &sample_scale_data);
       PADDLE_ENFORCE_EQ(
-          label_len, sample_scale_data.size(),
+          label_len,
+          sample_scale_data.size(),
           platform::errors::PreconditionNotMet(
               "lable size [%lu] and sample_scale_data[%lu] should be same",
-              label_len, sample_scale_data.size()));
-      calculator->add_sample_data(pred_data, label_data, sample_scale_data,
-                                  label_len, place);
+              label_len,
+              sample_scale_data.size()));
+      calculator->add_sample_data(
+          pred_data, label_data, sample_scale_data, label_len, place);
     } else {
       calculator->add_data(pred_data, label_data, label_len, place);
     }
   }
   template <class T = float>
-  static void get_data(const Scope* exe_scope, const std::string& varname,
-                       const T** data, int* len) {
+  static void get_data(const Scope* exe_scope,
+                       const std::string& varname,
+                       const T** data,
+                       int* len) {
     auto* var = exe_scope->FindVar(varname.c_str());
     PADDLE_ENFORCE_NOT_NULL(
-        var, platform::errors::NotFound("Error: var %s is not found in scope.",
-                                        varname.c_str()));
+        var,
+        platform::errors::NotFound("Error: var %s is not found in scope.",
+                                   varname.c_str()));
     auto& gpu_tensor = var->Get<LoDTensor>();
     *data = gpu_tensor.data<T>();
     *len = gpu_tensor.numel();
   }
   template <class T = float>
-  static void get_data(const Scope* exe_scope, const std::string& varname,
+  static void get_data(const Scope* exe_scope,
+                       const std::string& varname,
                        std::vector<T>* data) {
     auto* var = exe_scope->FindVar(varname.c_str());
     PADDLE_ENFORCE_NOT_NULL(
-        var, platform::errors::NotFound("Error: var %s is not found in scope.",
-                                        varname.c_str()));
+        var,
+        platform::errors::NotFound("Error: var %s is not found in scope.",
+                                   varname.c_str()));
     auto& gpu_tensor = var->Get<LoDTensor>();
     auto* gpu_data = gpu_tensor.data<T>();
     auto len = gpu_tensor.numel();
@@ -302,19 +356,20 @@ class MetricMsg {
 };
 class BoxWrapper {
   struct DeviceBoxData {
-    LoDTensor keys_tensor;
-    LoDTensor dims_tensor;
+    DCacheBuffer keys_tensor;
+    DCacheBuffer dims_tensor;
     DCacheBuffer pull_push_tensor;
     DCacheBuffer keys_ptr_tensor;
     DCacheBuffer values_ptr_tensor;
 
-    LoDTensor slot_lens;
-    LoDTensor d_slot_vector;
-    LoDTensor keys2slot;
-    LoDTensor qvalue;
+    DCacheBuffer slot_lens;
+    DCacheBuffer d_slot_vector;
+    DCacheBuffer keys2slot;
 
     DCacheBuffer pull_offset;
     DCacheBuffer push_offset;
+
+    LoDTensor qvalue;
 
     platform::Timer all_pull_timer;
     platform::Timer boxps_pull_timer;
@@ -325,6 +380,7 @@ class BoxWrapper {
     platform::Timer pull_dedup_timer;
     platform::Timer copy_keys_timer;
     platform::Timer copy_values_timer;
+    platform::Timer copy_push_timer;
 
     int64_t total_key_length = 0;
     int64_t dedup_key_length = 0;
@@ -339,6 +395,7 @@ class BoxWrapper {
       pull_dedup_timer.Reset();
       copy_keys_timer.Reset();
       copy_values_timer.Reset();
+      copy_push_timer.Reset();
     }
     double GpuMemUsed(void) {
       size_t total = 0;
@@ -379,88 +436,124 @@ class BoxWrapper {
                       const std::vector<const uint64_t*>& keys,
                       const std::vector<float*>& values,
                       const std::vector<int64_t>& slot_lengths,
-                      const int hidden_size, const int expand_embed_dim,
-                      const int skip_offset, bool expand_only);
+                      const int hidden_size,
+                      const int expand_embed_dim,
+                      const int skip_offset,
+                      bool expand_only);
 
   void PullSparseCaseGPU(const paddle::platform::Place& place,
                          const std::vector<const uint64_t*>& keys,
                          const std::vector<float*>& values,
                          const std::vector<int64_t>& slot_lengths,
-                         const int hidden_size, const int expand_embed_dim,
-                         const int skip_offset, bool expand_only);
+                         const int hidden_size,
+                         const int expand_embed_dim,
+                         const int skip_offset,
+                         bool expand_only);
 
   void PullSparseCaseCPU(const paddle::platform::Place& place,
                          const std::vector<const uint64_t*>& keys,
                          const std::vector<float*>& values,
                          const std::vector<int64_t>& slot_lengths,
-                         const int hidden_size, const int expand_embed_dim,
-                         const int skip_offset, bool expand_only);
+                         const int hidden_size,
+                         const int expand_embed_dim,
+                         const int skip_offset,
+                         bool expand_only);
 
   void PullSparse(const paddle::platform::Place& place,
                   const std::vector<const uint64_t*>& keys,
                   const std::vector<float*>& values,
                   const std::vector<int64_t>& slot_lengths,
-                  const int hidden_size, const int expand_embed_dim,
-                  const int skip_offset, bool expand_only);
+                  const int hidden_size,
+                  const int expand_embed_dim,
+                  const int skip_offset,
+                  bool expand_only);
 
   void PushSparseGradCase(const paddle::platform::Place& place,
                           const std::vector<const uint64_t*>& keys,
                           const std::vector<const float*>& grad_values,
                           const std::vector<int64_t>& slot_lengths,
-                          const int hidden_size, const int expand_embed_dim,
-                          const int batch_size, const int skip_offset,
+                          const int hidden_size,
+                          const int expand_embed_dim,
+                          const int batch_size,
+                          const int skip_offset,
                           bool expand_only);
   void PushSparseGradCaseGPU(const paddle::platform::Place& place,
                              const std::vector<const uint64_t*>& keys,
                              const std::vector<const float*>& grad_values,
                              const std::vector<int64_t>& slot_lengths,
-                             const int hidden_size, const int expand_embed_dim,
-                             const int batch_size, const int skip_offset,
+                             const int hidden_size,
+                             const int expand_embed_dim,
+                             const int batch_size,
+                             const int skip_offset,
                              bool expand_only);
 
   void PushSparseGradCaseCPU(const paddle::platform::Place& place,
                              const std::vector<const uint64_t*>& keys,
                              const std::vector<const float*>& grad_values,
                              const std::vector<int64_t>& slot_lengths,
-                             const int hidden_size, const int expand_embed_dim,
-                             const int batch_size, const int skip_offset,
+                             const int hidden_size,
+                             const int expand_embed_dim,
+                             const int batch_size,
+                             const int skip_offset,
                              bool expand_only);
 
   void PushSparseGrad(const paddle::platform::Place& place,
                       const std::vector<const uint64_t*>& keys,
                       const std::vector<const float*>& grad_values,
                       const std::vector<int64_t>& slot_lengths,
-                      const int hidden_size, const int expand_embed_dim,
-                      const int batch_size, const int skip_offset,
+                      const int hidden_size,
+                      const int expand_embed_dim,
+                      const int batch_size,
+                      const int skip_offset,
                       bool expand_only);
 
-  void CopyForPull(const paddle::platform::Place& place, uint64_t** gpu_keys,
-                   float** gpu_values, void* total_values_gpu,
+  void CopyForPull(const paddle::platform::Place& place,
+                   uint64_t** gpu_keys,
+                   float** gpu_values,
+                   void* total_values_gpu,
                    boxps::FeaturePullOffset* pull_offset,
-                   const int64_t* slot_lens, const int slot_num,
-                   const int* key2slot, const int hidden_size,
-                   const int expand_embed_dim, const int64_t total_length,
-                   int* total_dims, const int skip_offset, bool expand_only,
+                   const int64_t* slot_lens,
+                   const int slot_num,
+                   const int* key2slot,
+                   const int hidden_size,
+                   const int expand_embed_dim,
+                   const int64_t total_length,
+                   int* total_dims,
+                   const int skip_offset,
+                   bool expand_only,
                    const uint32_t* gpu_restore_idx = nullptr);
 
   void CopyForPullCPU(const paddle::platform::Place& place,
                       const std::vector<const uint64_t*>& keys,
-                      const std::vector<float*>& values, void* total_values_gpu,
-                      const int64_t* slot_lens, const int slot_num,
-                      const int* key2slot, const int hidden_size,
-                      const int expand_embed_dim, const int64_t total_length,
-                      int* total_dims, const int skip_offset, bool expand_only,
+                      const std::vector<float*>& values,
+                      void* total_values_gpu,
+                      const int64_t* slot_lens,
+                      const int slot_num,
+                      const int* key2slot,
+                      const int hidden_size,
+                      const int expand_embed_dim,
+                      const int64_t total_length,
+                      int* total_dims,
+                      const int skip_offset,
+                      bool expand_only,
                       const uint32_t* gpu_restore_idx = nullptr);
 
-  void CopyForPush(const paddle::platform::Place& place, float** grad_values,
+  void CopyForPush(const paddle::platform::Place& place,
+                   float** grad_values,
                    void* total_grad_values_gpu,
                    boxps::FeaturePushOffset* push_offset,
-                   const int64_t total_length, const int64_t dedup_length,
-                   const int* slots, const int64_t* slot_lens,
-                   const int slot_num, const int hidden_size,
-                   const int expand_embed_dim, const int batch_size,
-                   const int* total_dims, const int* key2slot,
-                   const int skip_offset, bool expand_only,
+                   const int64_t total_length,
+                   const int64_t dedup_length,
+                   const int* slots,
+                   const int64_t* slot_lens,
+                   const int slot_num,
+                   const int hidden_size,
+                   const int expand_embed_dim,
+                   const int batch_size,
+                   const int* total_dims,
+                   const int* key2slot,
+                   const int skip_offset,
+                   bool expand_only,
                    const uint32_t* gpu_sort_idx = nullptr,
                    const uint32_t* gpu_sort_offset = nullptr,
                    const uint32_t* gpu_sort_lens = nullptr,
@@ -468,29 +561,43 @@ class BoxWrapper {
 
   void CopyForPushCPU(const paddle::platform::Place& place,
                       const std::vector<const float*>& grad_values,
-                      void* total_grad_values_gpu, const int* slots,
-                      const int64_t* slot_lens, const int slot_num,
-                      const int hidden_size, const int expand_embed_dim,
-                      const int64_t total_length, const int batch_size,
-                      const int* total_dims, const int* key2slot,
-                      const int skip_offset, bool expand_only,
+                      void* total_grad_values_gpu,
+                      const int* slots,
+                      const int64_t* slot_lens,
+                      const int slot_num,
+                      const int hidden_size,
+                      const int expand_embed_dim,
+                      const int64_t total_length,
+                      const int batch_size,
+                      const int* total_dims,
+                      const int* key2slot,
+                      const int skip_offset,
+                      bool expand_only,
                       const uint32_t* gpu_sort_idx = nullptr,
                       const uint32_t* gpu_sort_offset = nullptr,
                       const uint32_t* gpu_sort_lens = nullptr);
 
-  void CopyKeys(const paddle::platform::Place& place, uint64_t** origin_keys,
-                uint64_t* total_keys, const int64_t* gpu_len, int slot_num,
-                int total_len, int* key2slot);
+  void CopyKeys(const paddle::platform::Place& place,
+                uint64_t** origin_keys,
+                uint64_t* total_keys,
+                const int64_t* gpu_len,
+                int slot_num,
+                int total_len,
+                int* key2slot);
   // copy cpu keys
   void CopyCPUKeys(const paddle::platform::Place& place,
                    const std::vector<const uint64_t*>& keys,
-                   uint64_t* total_keys, const int64_t* slot_lengths_lod,
-                   int slot_num, int total_len, int* key2slot);
+                   uint64_t* total_keys,
+                   const int64_t* slot_lengths_lod,
+                   int slot_num,
+                   int total_len,
+                   int* key2slot);
 
   boxps::PSAgentBase* GetAgent();
   void RelaseAgent(boxps::PSAgentBase* agent);
   void InitializeGPUAndLoadModel(
-      const char* conf_file, const std::vector<int>& slot_vector,
+      const char* conf_file,
+      const std::vector<int>& slot_vector,
       const std::vector<std::string>& slot_omit_in_feedpass,
       const std::string& model_path,
       const std::map<std::string, float>& lr_map);
@@ -508,14 +615,17 @@ class BoxWrapper {
 
   static std::shared_ptr<BoxWrapper> GetInstance() {
     PADDLE_ENFORCE_EQ(
-        s_instance_ == nullptr, false,
+        s_instance_ == nullptr,
+        false,
         platform::errors::PreconditionNotMet(
             "GetInstance failed in BoxPs, you should use SetInstance firstly"));
     return s_instance_;
   }
 
   static std::shared_ptr<BoxWrapper> SetInstance(
-      int embedx_dim = 8, int expand_embed_dim = 0, int feature_type = 0,
+      int embedx_dim = 8,
+      int expand_embed_dim = 0,
+      int feature_type = 0,
       float pull_embedx_scale = 1.0) {
     static std::mutex mutex;
     std::lock_guard<std::mutex> lock(mutex);
@@ -547,12 +657,18 @@ class BoxWrapper {
     return s_instance_;
   }
 
-  bool SyncDense(cudaStream_t stream, const int size, const void* sendbuf,
-                 void* recvbuf, const int deviceid = 0,
+  bool SyncDense(cudaStream_t stream,
+                 const int size,
+                 const void* sendbuf,
+                 void* recvbuf,
+                 const int deviceid = 0,
                  bool allgather = false) {
-    return boxps_ptr_->SyncDense(
-        stream, size, reinterpret_cast<const char*>(sendbuf),
-        reinterpret_cast<char*>(recvbuf), deviceid, allgather);
+    return boxps_ptr_->SyncDense(stream,
+                                 size,
+                                 reinterpret_cast<const char*>(sendbuf),
+                                 reinterpret_cast<char*>(recvbuf),
+                                 deviceid,
+                                 allgather);
   }
 
   void DenseNcclTimer(const int deviceid, bool pause, int flag = 1) {
@@ -576,15 +692,18 @@ class BoxWrapper {
     }
   }
 
-  void InitAfsAPI(const std::string& fs_name, const std::string& fs_ugi,
+  void InitAfsAPI(const std::string& fs_name,
+                  const std::string& fs_ugi,
                   const std::string& conf_path) {
     file_manager_.reset(boxps::PaddleFileMgr::New());
     auto split = fs_ugi.find(",");
     std::string user = fs_ugi.substr(0, split);
     std::string pwd = fs_ugi.substr(split + 1);
     bool ret = file_manager_->initialize(fs_name, user, pwd, conf_path);
-    PADDLE_ENFORCE_EQ(ret, true, platform::errors::PreconditionNotMet(
-                                     "Called AFSAPI Init Interface Failed."));
+    PADDLE_ENFORCE_EQ(ret,
+                      true,
+                      platform::errors::PreconditionNotMet(
+                          "Called AFSAPI Init Interface Failed."));
     use_afs_api_ = true;
   }
 
@@ -629,13 +748,17 @@ class BoxWrapper {
   const std::map<std::string, float> GetLRMap() const { return lr_map_; }
   std::map<std::string, MetricMsg*>& GetMetricList() { return metric_lists_; }
 
-  void InitMetric(const std::string& method, const std::string& name,
+  void InitMetric(const std::string& method,
+                  const std::string& name,
                   const std::string& label_varname,
                   const std::string& pred_varname,
                   const std::string& cmatch_rank_varname,
-                  const std::string& mask_varname, int metric_phase,
-                  const std::string& cmatch_rank_group, bool ignore_rank,
-                  int bucket_size = 1000000, bool mode_collect_in_gpu = false,
+                  const std::string& mask_varname,
+                  int metric_phase,
+                  const std::string& cmatch_rank_group,
+                  bool ignore_rank,
+                  int bucket_size = 1000000,
+                  bool mode_collect_in_gpu = false,
                   int max_batch_size = 0,
                   const std::string& sample_scale_varname = "");
   const std::vector<double> GetMetricMsg(const std::string& name);
@@ -651,8 +774,16 @@ class BoxWrapper {
   int MergeModel(const std::string& path) {
     return boxps_ptr_->MergeModel(path);
   }
+  void PrintDeviceInfo(double span) {
+    for (int i = 0; i < gpu_num_; ++i) {
+      PrintSyncTimer(i, span);
+    }
+    boxps_ptr_->CheckNeedLimitMem();
+  }
   // merge multi models interface
-  int MergeMultiModels(const std::string& path, const std::string& update_type, const int& model_index) {
+  int MergeMultiModels(const std::string& path,
+                       const std::string& update_type,
+                       const int& model_index) {
     return boxps_ptr_->MergeMultiModels(path, update_type, model_index);
   }
   // get device id
@@ -674,14 +805,17 @@ class BoxWrapper {
   void GetFeatureOffsetInfo(void);
   // execute func
   void ExecuteFunc(const paddle::platform::Place& place,
-      const size_t &num, std::function<void(const size_t &)> func) {
+                   const size_t& num,
+                   std::function<void(const size_t&)> func) {
     boxps_ptr_->ExecuteFunc(GetPlaceDeviceId(place), num, func);
   }
   // execute func
   void ExecRangeFunc(const paddle::platform::Place& place,
-        const size_t &num, std::function<void(const size_t &, const size_t &)> func) {
+                     const size_t& num,
+                     std::function<void(const size_t&, const size_t&)> func) {
     boxps_ptr_->ExecRangeFunc(GetPlaceDeviceId(place), num, func);
   }
+
  private:
   static cudaStream_t stream_list_[MAX_GPU_NUM];
   static std::shared_ptr<BoxWrapper> s_instance_;
@@ -727,7 +861,8 @@ class BoxWrapper {
   // Auc Runner
  public:
   void InitializeAucRunner(std::vector<std::vector<std::string>> slot_eval,
-                           int thread_num, int pool_size,
+                           int thread_num,
+                           int pool_size,
                            std::vector<std::string> slot_list) {
     //    PADDLE_ENFORCE_EQ(FLAGS_padbox_auc_runner_mode, true,
     //                      platform::errors::InvalidArgument(
@@ -835,7 +970,8 @@ class BoxFileMgr {
  public:
   BoxFileMgr();
   ~BoxFileMgr();
-  bool init(const std::string& fs_name, const std::string& fs_ugi,
+  bool init(const std::string& fs_name,
+            const std::string& fs_ugi,
             const std::string& conf_path);
   void destory(void);
   std::vector<std::string> list_dir(const std::string& path);
@@ -1041,8 +1177,10 @@ class BoxHelper {
   }
 #ifdef PADDLE_WITH_BOX_PS
   // notify boxps to feed this pass feasigns from SSD to memory
-  static void FeedPassThread(const std::deque<Record>& t, int begin_index,
-                             int end_index, boxps::PSAgentBase* p_agent,
+  static void FeedPassThread(const std::deque<Record>& t,
+                             int begin_index,
+                             int end_index,
+                             boxps::PSAgentBase* p_agent,
                              const std::unordered_set<int>& index_map,
                              int thread_id) {
     p_agent->AddKey(0ul, thread_id);
@@ -1082,7 +1220,8 @@ class BoxHelper {
         box_ptr->GetOmitedSlot();
     std::unordered_set<int> slot_id_omited_in_feedpass_;
     const auto& all_readers = dataset_->GetReaders();
-    PADDLE_ENFORCE_GT(all_readers.size(), 0,
+    PADDLE_ENFORCE_GT(all_readers.size(),
+                      0,
                       platform::errors::PreconditionNotMet(
                           "Readers number must be greater than 0."));
     const auto& all_slots_name = all_readers[0]->GetAllSlotAlias();
@@ -1104,9 +1243,13 @@ class BoxHelper {
     size_t begin = 0;
     for (size_t i = 0; i < tnum; i++) {
       threads.push_back(
-          std::thread(FeedPassThread, std::ref(pass_data), begin,
-                      begin + len_per_thread + (i < remain ? 1 : 0), p_agent,
-                      std::ref(slot_id_omited_in_feedpass_), i));
+          std::thread(FeedPassThread,
+                      std::ref(pass_data),
+                      begin,
+                      begin + len_per_thread + (i < remain ? 1 : 0),
+                      p_agent,
+                      std::ref(slot_id_omited_in_feedpass_),
+                      i));
       begin += len_per_thread + (i < remain ? 1 : 0);
     }
     for (size_t i = 0; i < tnum; ++i) {

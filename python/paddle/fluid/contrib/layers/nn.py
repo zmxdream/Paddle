@@ -1550,7 +1550,6 @@ def rank_attention(input,
         dtype=dtype, stop_gradient=True)
     ins_rank = helper.create_variable_for_type_inference(
         dtype=dtype, stop_gradient=True)
-
     helper.append_op(
         type="rank_attention",
         inputs={
@@ -1564,7 +1563,6 @@ def rank_attention(input,
             "ParamHelp": param_help,
             "InsRank": ins_rank
         },
-
         attrs={"MaxRank": max_rank,
                "MaxSize": max_size,
                "EnableInputBp": enable_input_bp})
