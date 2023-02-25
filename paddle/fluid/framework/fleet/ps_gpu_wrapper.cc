@@ -995,7 +995,7 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
         accessor_wrapper_ptr->GetFeatureValueSize(mf_dim);
     auto& mem_pool = this->mem_pools_[i * this->multi_mf_dim_ + j];
 
-    VLOG(0) << "build dymf mem pool with device:" << i << " dim:" << mf_dim << ", len:" << len << " feature_value_size:" << feature_value_size;
+    VLOG(0) << "build dymf hbm pool with device:" << i << " dim:" << mf_dim << ", len:" << len << " feature_value_size:" << feature_value_size;
 
     platform::CUDADeviceGuard guard(resource_->dev_id(i));
     this->hbm_pools_[i * this->multi_mf_dim_ + j] = new HBMMemoryPool(mem_pool);
@@ -1148,7 +1148,8 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
     threads.clear();
 
     // tmp test build mfdim 8 first and then 64 end
-    threads.resize(device_num);
+    threads.resize(device_num * multi_mf_dim_);
+    /*
     for (int i = 0; i < device_num; i++) {
       threads[i] = std::thread(build_dymf_hbm_pool, i, 0);
     }
@@ -1157,6 +1158,15 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
     }
     for (int i = 0; i < device_num; i++) {
       threads[i] = std::thread(build_dymf_hbm_pool, i, 1);
+    }
+    for (std::thread& t : threads) {
+      t.join();
+    }
+    */
+    for (int i = 0; i < device_num; i++) {
+      for (int j = 0; j < multi_mf_dim_; j++) {
+        threads[i + j * device_num] = std::thread(build_dymf_hbm_pool, i, j);
+      }
     }
     for (std::thread& t : threads) {
       t.join();
