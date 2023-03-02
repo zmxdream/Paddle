@@ -55,7 +55,7 @@ public:
 	}
 	start_index += lod_size;
     }
-    int r = xpu::sequence_sum_pool_cvm_grad<T>(xpu_context, dy_data, cvm_data,
+    int r = xpu::sequence_sum_pool_cvm_concat_grad<T>(xpu_context, dy_data, cvm_data,
                                cpu_dx_list, cpu_lodx,
                                item_size, batch_size, n, dy_offset, use_cvm);
      PADDLE_ENFORCE_EQ(r, xpu::Error_t::SUCCESS,
@@ -113,7 +113,7 @@ public:
         }
 	lod_index += x_lod.size();
     }
-    int r = xpu::sequence_sum_pool_cvm<T>(xpu_context, cpu_x_addr_vec, y_data, cpu_lodx,
+    int r = xpu::sequence_sum_pool_cvm_concat<T>(xpu_context, cpu_x_addr_vec, y_data, cpu_lodx,
                     bs, x0_dims[1], 0.00f, slot_num, use_cvm);
     PADDLE_ENFORCE_EQ(r, xpu::Error_t::SUCCESS,
                      platform::errors::External(
