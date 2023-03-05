@@ -43,15 +43,15 @@ __global__ void FillSlotValueOffsetKernel(
   int float_cols = float_slot_size + 1;
 
   CUDA_KERNEL_LOOP(slot_idx, used_slot_num) {
-    int value_off = slot_idx * col_num;
-    slot_value_offsets[value_off] = 0;
+    int value_off = slot_idx * col_num; // 同一个slot的所有ins放在一起
+    slot_value_offsets[value_off] = 0;  // 第一个数值是0
 
     auto &info = used_slots[slot_idx];
     if (info.is_uint64_value) {
       for (int k = 0; k < ins_num; ++k) {
         int pos = k * uint64_cols + info.slot_value_idx;
         int num = uint64_offsets[pos + 1] - uint64_offsets[pos];
-        PADDLE_ENFORCE(num >= 0, "The number of slot size must be ge 0.");
+        PADDLE_ENFORCE(num >= 0, "The number of slot  size must be ge 0.");
         slot_value_offsets[value_off + k + 1] =
             slot_value_offsets[value_off + k] + num;
       }
@@ -66,7 +66,7 @@ __global__ void FillSlotValueOffsetKernel(
     }
   }
 }
-
+// slot_value_offsets变成slot为主,一个batch的数据的slot offset连续存放
 void SlotRecordInMemoryDataFeed::FillSlotValueOffset(
     const int ins_num, const int used_slot_num, size_t *slot_value_offsets,
     const int *uint64_offsets, const int uint64_slot_size,
@@ -87,6 +87,7 @@ __global__ void CopyForTensorKernel(
     const int uint64_slot_size, const float *float_feas,
     const int *float_offsets, const int *float_ins_lens,
     const int float_slot_size, const UsedSlotGpuType *used_slots) {
+
   int col_num = ins_num + 1;
   int uint64_cols = uint64_slot_size + 1;
   int float_cols = float_slot_size + 1;
@@ -97,16 +98,23 @@ __global__ void CopyForTensorKernel(
 
     uint32_t value_offset = slot_value_offsets[slot_idx * col_num + ins_idx];
     auto &info = used_slots[slot_idx];
+
     if (info.is_uint64_value) {
+
       uint64_t *up = reinterpret_cast<uint64_t *>(dest[slot_idx]);
+
       int index = info.slot_value_idx + uint64_cols * ins_idx;
       int old_off = uint64_offsets[index];
       int num = uint64_offsets[index + 1] - old_off;
       PADDLE_ENFORCE(num >= 0, "The number of slot size must be ge 0.");
       int uint64_value_offset = uint64_ins_lens[ins_idx];
+      
+      // up是填充满的
+      // 只保存有这个slot的 feasigns 的ins的feasign,没有填充0 
       for (int k = 0; k < num; ++k) {
         up[k + value_offset] = uint64_feas[k + old_off + uint64_value_offset];
       }
+
     } else {
       float *fp = reinterpret_cast<float *>(dest[slot_idx]);
       int index = info.slot_value_idx + float_cols * ins_idx;

@@ -22,6 +22,7 @@ namespace phi {
 using StreamId = uint64_t;
 class Stream final {
  public:
+  Stream() {}
   explicit Stream(StreamId id) : id_(id) {}
   StreamId id() const { return id_; }
 

@@ -40,7 +40,8 @@ class HeterPs : public HeterPsBase {
                         size_t len, size_t feature_value_size, size_t chunk_size, int stream_num) override;
   virtual void set_nccl_comm_and_size(
       const std::vector<ncclComm_t>& inner_comms,
-      const std::vector<ncclComm_t>& inter_comms, int comm_size) override;
+      const std::vector<ncclComm_t>& inter_comms, int comm_size, int rank_id) override;
+  virtual void set_thread_keys_shard_num(const int& thread_keys_shard_num) override;
   virtual void set_trans_inter_comm(const std::vector<ncclComm_t>& trans_inter_comms);
   virtual void set_multi_mf_dim(int multi_mf_dim, int max_mf_dim) override;
   virtual void end_pass() override;

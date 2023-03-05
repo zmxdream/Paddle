@@ -125,7 +125,11 @@ __global__ void dy_mf_search_kernel<TableContainer<FeatureKey, float*>, CommonFe
       float* input = it->second;
       gpu_accessor.FillPullDvals(cur, input, blockDim.x, k);
     } else {
+      // === all2all模式
+      // key如果不为0且不在当前机器,那么就是在其他机器，所以不打印pull miss key
+      // 上面的解释有问题,all2all不会出现上面的情况,allgather才会
       if (keys[i] != 0 && k == 0) printf("pull miss key: %llu",keys[i]);
+      // == all2all模式
       if (keys[i] == 0 && k == 0) { // check
         uint64_t offset = i * pull_feature_value_size;
         float* cur = (float*)(vals + offset);

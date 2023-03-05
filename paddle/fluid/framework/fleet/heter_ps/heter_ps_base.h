@@ -41,7 +41,8 @@ class HeterPsBase {
   virtual int get_index_by_devid(int devid) = 0;
   virtual void set_nccl_comm_and_size(
       const std::vector<ncclComm_t>& inner_comms,
-      const std::vector<ncclComm_t>& inter_comms, int comm_size) = 0;
+      const std::vector<ncclComm_t>& inter_comms, int comm_size, int rank_id) = 0;
+  virtual void set_thread_keys_shard_num(const int& thread_keys_shard_num) = 0;
   virtual void set_trans_inter_comm(const std::vector<ncclComm_t>& trans_inter_comms) = 0;
   virtual void set_multi_mf_dim(int multi_mf_dim, int max_mf_dim) = 0;
   virtual void end_pass() = 0;

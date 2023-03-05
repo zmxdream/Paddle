@@ -2047,14 +2047,17 @@ void SlotRecordInMemoryDataFeed::Init(const DataFeedDesc& data_feed_desc) {
   used_slots_info_.resize(use_slot_size_);
 
   feed_vec_.resize(used_slots_info_.size());
+
   const int kEstimatedFeasignNumPerSlot = 5;  // Magic Number
   for (size_t i = 0; i < all_slot_num; i++) {
     batch_float_feasigns_.push_back(std::vector<float>());
     batch_uint64_feasigns_.push_back(std::vector<uint64_t>());
     batch_float_feasigns_[i].reserve(default_batch_size_ *
                                      kEstimatedFeasignNumPerSlot);
+
     batch_uint64_feasigns_[i].reserve(default_batch_size_ *
                                       kEstimatedFeasignNumPerSlot);
+
     offset_.push_back(std::vector<size_t>());
     offset_[i].reserve(default_batch_size_ +
                        1);  // Each lod info will prepend a zero
@@ -2062,6 +2065,7 @@ void SlotRecordInMemoryDataFeed::Init(const DataFeedDesc& data_feed_desc) {
   visit_.resize(all_slot_num, false);
   pipe_command_ = data_feed_desc.pipe_command();
   finish_init_ = true;
+
   input_type_ = data_feed_desc.input_type();
   size_t pos = pipe_command_.find(".so");
   if (pos != std::string::npos) {
@@ -2621,10 +2625,15 @@ bool SlotRecordInMemoryDataFeed::Start() {
   pack_is_end_.store(false);
   thread_count_.store(pack_thread_num_);
   pack_threads_.reserve(pack_thread_num_);
+
   for (int i = 0; i < pack_thread_num_; i++) {
+
     pack_threads_.emplace_back(std::thread([this]() -> void {
       while (!stop_token_.load()) {
+
+        //拿到一个batch
         uint64_t offset_index = pack_offset_index_.fetch_add(1);
+
         if (offset_index >= batch_offsets_.size()) {
           int thread_num = thread_count_.fetch_sub(1);
           if (thread_num == 1) {
@@ -2633,7 +2642,7 @@ bool SlotRecordInMemoryDataFeed::Start() {
           return;
         }
         auto* pack = free_pack_queue_.Pop();
-
+         
         auto& batch = batch_offsets_[offset_index];
         auto offset = batch.first;
         auto batch_size = batch.second;
@@ -2644,6 +2653,7 @@ bool SlotRecordInMemoryDataFeed::Start() {
         using_pack_queue_.Push(pack);
       }
     }));
+
   }
 
 
@@ -2676,9 +2686,11 @@ int SlotRecordInMemoryDataFeed::Next() {
 
 #if defined(PADDLE_WITH_CUDA) && defined(PADDLE_WITH_HETERPS)
 void SlotRecordInMemoryDataFeed::BuildSlotBatchGPU(const int ins_num, MiniBatchGpuPack* pack) {
+
   int offset_cols_size = (ins_num + 1);
   // slot总数 = 样本数 * 每个样本的slot数
   size_t slot_total_num = (use_slot_size_ * offset_cols_size);
+
   // 创建保存全部slot-offset的bytes buffer
   pack->resize_gpu_slot_offsets(slot_total_num * sizeof(size_t));
 
@@ -2699,8 +2711,10 @@ void SlotRecordInMemoryDataFeed::BuildSlotBatchGPU(const int ins_num, MiniBatchG
 
   HostBuffer<size_t>& offsets = pack->offsets();
   offsets.resize(slot_total_num);
+
   HostBuffer<void*>& h_tensor_ptrs = pack->h_tensor_ptrs();
   h_tensor_ptrs.resize(use_slot_size_);
+
   // alloc gpu memory
   pack->resize_tensor();
 
@@ -2732,9 +2746,12 @@ void SlotRecordInMemoryDataFeed::BuildSlotBatchGPU(const int ins_num, MiniBatchG
       }
     }
 
+    // 第j个slot的batch slot offset信息
     size_t* off_start_ptr = &offsets[j * offset_cols_size];
 
+    // total feasigns
     int total_instance = static_cast<int>(off_start_ptr[offset_cols_size - 1]);
+
     CHECK(total_instance >= 0) << "slot idx:" << j
                                << ", total instance:" << total_instance;
     auto& info = used_slots_info_[j];
@@ -2742,7 +2759,7 @@ void SlotRecordInMemoryDataFeed::BuildSlotBatchGPU(const int ins_num, MiniBatchG
     // fill slot value with default value 0
     if (info.type[0] == 'f') {  // float
       if (total_instance > 0) {
-        h_tensor_ptrs[j] = float_tensor.data<float>() + float_offset;
+        h_tensor_ptrs[j] = float_tensor.data<float>() + float_offset; // 每个slot里,一个batch的feasign连续存放 
         float_offset += total_instance;
       } else {
         h_tensor_ptrs[j] = pack->float_tensor_vec()[float_zero_slot_index].mutable_data<float>({total_instance, 1},
@@ -2759,7 +2776,8 @@ void SlotRecordInMemoryDataFeed::BuildSlotBatchGPU(const int ins_num, MiniBatchG
         uint64_zero_slot_index++;
       }
     }
-  }
+    }
+
   void** dest_gpu_p = reinterpret_cast<void**>(pack->slot_buf_ptr());
   CUDA_CHECK(cudaMemcpyAsync(dest_gpu_p, h_tensor_ptrs.data(),
                         use_slot_size_ * sizeof(void*),
@@ -2822,6 +2840,9 @@ void SlotRecordInMemoryDataFeed::PackToScope(MiniBatchGpuPack* pack, const Scope
             static_cast<int64_t>(uint64_offset),
             static_cast<int64_t>(uint64_offset + total_instance)));
         feed->Resize({total_instance, 1});
+
+        // VLOG(0) << "slot idx:" << j << "dims0:" << feed->dims()[0] << "total_instance:" << total_instance;
+
         uint64_offset += total_instance;
       } else {
         feed->ShareDataWith(pack->uint64_tensor_vec()[uint64_zero_slot_index++]);
@@ -2929,11 +2950,16 @@ void MiniBatchGpuPack::pack_all_data(const SlotRecord* ins_vec, int num) {
   int uint64_total_num = 0;
   int float_total_num = 0;
 
+
+  // lens表示什么??
+  // lod信息
+  //
   buf_.h_uint64_lens.resize(num + 1);
   buf_.h_uint64_lens[0] = 0;
   buf_.h_float_lens.resize(num + 1);
   buf_.h_float_lens[0] = 0;
 
+  // 保存每个样本的uint64 feasign数和float feasign数
   for (int i = 0; i < num; ++i) {
     auto r = ins_vec[i];
     uint64_total_num += r->slot_uint64_feasigns_.slot_values.size();
@@ -2943,6 +2969,10 @@ void MiniBatchGpuPack::pack_all_data(const SlotRecord* ins_vec, int num) {
   }
 
   int uint64_cols = (used_uint64_num_ + 1);
+
+  // 每个样本的uint64 feasigns是连续存放的
+  // 每个样本的uint64 offset也是连续存放的
+  //
   buf_.h_uint64_offset.resize(uint64_cols * num);
   buf_.h_uint64_keys.resize(uint64_total_num);
 
@@ -2953,6 +2983,7 @@ void MiniBatchGpuPack::pack_all_data(const SlotRecord* ins_vec, int num) {
   size_t fea_num = 0;
   uint64_total_num = 0;
   float_total_num = 0;
+
   for (int i = 0; i < num; ++i) {
     auto r = ins_vec[i];
     auto& uint64_feasigns = r->slot_uint64_feasigns_;
@@ -2962,6 +2993,7 @@ void MiniBatchGpuPack::pack_all_data(const SlotRecord* ins_vec, int num) {
              uint64_feasigns.slot_values.data(), fea_num * sizeof(uint64_t));
     }
     uint64_total_num += fea_num;
+
     // copy uint64 offset
     memcpy(&buf_.h_uint64_offset[i * uint64_cols],
            uint64_feasigns.slot_offsets.data(), sizeof(int) * uint64_cols);
@@ -3071,7 +3103,7 @@ void MiniBatchGpuPack::pack_instance(const SlotRecord* ins_vec, int num) {
   } else {  // only float
     pack_float_data(ins_vec, num);
   }
-  // to gpu
+  // to gpa
   transfer_to_gpu();
 }
 

@@ -104,6 +104,7 @@ struct SlotValues {
   }
   void add_slot_feasigns(const std::vector<std::vector<T>>& slot_feasigns,
                          uint32_t fea_num) {
+    std::cout << "add slot feasigns:" << fea_num << std::endl;
     slot_values.reserve(fea_num);
     int slot_num = static_cast<int>(slot_feasigns.size());
     slot_offsets.resize(slot_num + 1);
@@ -113,9 +114,15 @@ struct SlotValues {
       uint32_t num = static_cast<uint32_t>(slot_val.size());
       if (num > 0) {
         slot_values.insert(slot_values.end(), slot_val.begin(), slot_val.end());
-      }
+      } 
+      else {// for debug
+        slot_values.emplace_back(0);
+        VLOG(0) << "new version , add 0";
+      } 
     }
     slot_offsets[slot_num] = slot_values.size();
+
+    std::cout << "slot_values size:" << slot_values.size() << std::endl;;
   }
   void clear(bool shrink) {
     slot_offsets.clear();

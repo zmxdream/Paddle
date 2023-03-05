@@ -50,6 +50,11 @@ class SequencePoolOp : public framework::OperatorWithKernel {
         } else {
           cur_batch_size = x_tensor.dims()[0];
         }
+
+        // if (x_lod.size() > 0) {
+        //  VLOG(0) << "dim0:" << x_tensor.dims()[0] << ", dim1:" << x_tensor.dims()[1] << "lod0:" << x_lod[0].size() - 1;
+        //}
+
         if (batch_size == -1) {
           batch_size = cur_batch_size;
         } else {

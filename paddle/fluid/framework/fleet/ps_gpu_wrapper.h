@@ -146,6 +146,32 @@ class PSGPUWrapper {
     // mg_time_1 = std::vector<double>(8, 0.0);
   }
 
+  // ======== all2all ========
+  // 和pslib分机器对齐
+  // copied from pslib
+  int32_t sparse_local_shard_num(uint32_t shard_num, uint32_t server_num) {
+    if (shard_num % server_num == 0) {
+      return shard_num / server_num;
+    }
+    size_t local_shard_num = shard_num / server_num + 1;
+    return local_shard_num;
+  }
+
+  // shard分机器
+  int PartitionShardForRank(const uint64_t& shard_id) {
+    int rank_id = shard_id  / sparse_local_shard_num(thread_keys_shard_num_, node_size_);
+    return rank_id;
+  }
+
+  // feasign分机器
+  int PartitionKeyForRank(const uint64_t& key) {
+    int shard_id = key % thread_keys_shard_num_;
+    int rank_id = shard_id  / sparse_local_shard_num(thread_keys_shard_num_, node_size_);
+    return rank_id;
+  }
+
+  // ======== all2all ========
+
   void PullSparse(const paddle::platform::Place& place, const int table_id,
                   const std::vector<const uint64_t*>& keys,
                   const std::vector<float*>& values,
@@ -265,6 +291,7 @@ class PSGPUWrapper {
                                               inter_ncclids_[i], gloo->Rank());
         }
 
+        rank_id_ = gloo->Rank();
         node_size_ = gloo->Size();
 
         // for trans inter comm
@@ -342,7 +369,7 @@ class PSGPUWrapper {
   void InitializeGPUServer(std::unordered_map<std::string, float>& config) {
     // set sparse shard num
     int sparse_shard_num = (config.find("sparse_shard_num") == config.end())
-                               ? 37
+                              ? 37
                                : config["sparse_shard_num"];
     thread_keys_shard_num_ = sparse_shard_num;
     VLOG(0) << "GPUPS set sparse shard num: " << thread_keys_shard_num_;
@@ -369,7 +396,8 @@ class PSGPUWrapper {
     }
 
     VLOG(0) << "set hbm_thread_pool size: " << hbm_thread_pool_.size()
-            << " set pull_thread_pool size: " << pull_thread_pool_.size(); 
+            << " set pull_thread_pool size: " << pull_thread_pool_.size()
+            << " set uniq_thread_pool size:" << uniq_thread_pool_.size();
 
     float nonclk_coeff = (config.find("nonclk_coeff") == config.end())
                              ? 1.0
@@ -475,6 +503,7 @@ class PSGPUWrapper {
     }
     std::cout << " end wrapper " <<std::endl;
     VLOG(0) << "get slot desc";
+    // 2,3,4.... 210
     slot_offset_vector_.clear();
     for (auto& slot : slot_vector_) {
       for (size_t i = 0; i < slots_vec.size(); ++i) {
@@ -585,6 +614,7 @@ class PSGPUWrapper {
   // std::vector<double> mg_time_1;
 
   int multi_node_{0};
+  int rank_id_;
   int node_size_;
   uint64_t table_id_;
   std::vector<ncclComm_t> inner_comms_;

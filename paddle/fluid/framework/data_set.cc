@@ -316,6 +316,7 @@ static int compute_thread_batch_nccl(
   // split data avg by thread num
   compute_batch_num(total_instance_num, minibatch_size, thr_num, &offset);
   thread_avg_batch_num = static_cast<int>(offset.size() / thr_num);
+
 #ifdef PADDLE_WITH_GLOO
   auto gloo_wrapper = paddle::framework::GlooWrapper::GetInstance();
   if (!gloo_wrapper->IsInitialized()) {
@@ -353,10 +354,14 @@ static int compute_thread_batch_nccl(
           need_ins_num));
       return thread_avg_batch_num;
     }
+    
 
+    // = (30 + 1) * 8 = 248
     int need_batch_num = (diff_batch_num + 1) * thr_num;
+
     int offset_split_index = static_cast<int>(offset.size() - thr_num);
     int split_left_num = total_instance_num - offset[offset_split_index].first;
+
     while (split_left_num < need_batch_num) {
       need_batch_num += thr_num;
       offset_split_index -= thr_num;
@@ -375,6 +380,7 @@ static int compute_thread_batch_nccl(
                  << "split begin (" << split_start << ")" << split_start
                  << ", num " << split_left_num;
     thread_avg_batch_num = thread_max_batch_num;
+
   } else {
     LOG(WARNING) << "thread_num " << thr_num << ", ins num "
                  << total_instance_num << ", batch num " << offset.size()
@@ -1752,12 +1758,15 @@ void SlotRecordDataset::PrepareTrain() {
     int default_batch_size =
         reinterpret_cast<SlotRecordInMemoryDataFeed*>(readers_[0].get())
             ->GetDefaultBatchSize();
+
     VLOG(1) << "thread_num: " << thread_num_
             << " memory size: " << total_ins_num
             << " default batch_size: " << default_batch_size;
+
     compute_thread_batch_nccl(thread_num_, total_ins_num, default_batch_size,
                               &offset);
     VLOG(1) << "offset size: " << offset.size();
+
     for (int i = 0; i < thread_num_; i++) {
       reinterpret_cast<SlotRecordInMemoryDataFeed*>(readers_[i].get())
           ->SetRecord(&input_records_[0]);

@@ -70,7 +70,11 @@ HeterPs<GPUAccessor, GPUOptimizer>::~HeterPs() {}
 template <typename GPUAccessor, template<typename T> class GPUOptimizer>
 void HeterPs<GPUAccessor, GPUOptimizer>::pull_sparse(int num, FeatureKey* d_keys, float* d_vals,
                           size_t len) {
+  // if (multi_node_ <= 0) {
   comm_->pull_sparse(num, d_keys, d_vals, len);
+  // } else {
+  //   comm_->pull_sparse_multi_node(num, d_keys, d_vals, len);
+  // }
 }
 
 // template <typename GPUAccessor, template<typename T> class GPUOptimizer>
@@ -127,19 +131,23 @@ void HeterPs::push_sparse(int num, FeatureKey* d_keys,
 template <typename GPUAccessor, template<typename T> class GPUOptimizer>
 void HeterPs<GPUAccessor, GPUOptimizer>::push_sparse(int num, FeatureKey* d_keys,
                                                     float* d_grads, size_t len) {
-  if (multi_node_ <= 0) {
+  // if (multi_node_ <= 0) {
     comm_->push_sparse(num, d_keys, d_grads, len, opt_);
-  } else {
-    // check
-    comm_->push_sparse_multi_node(num, d_keys, d_grads, len, opt_);
-  }
+  // } else {
+  //   // check
+  //   comm_->push_sparse_multi_node(num, d_keys, d_grads, len, opt_);
+  // }
 }
 
 template <typename GPUAccessor, template<typename T> class GPUOptimizer>
 void HeterPs<GPUAccessor, GPUOptimizer>::set_nccl_comm_and_size(const std::vector<ncclComm_t>& inner_comms,
                                      const std::vector<ncclComm_t>& inter_comms,
-                                     int comm_size) { // node_size??
-  comm_->set_nccl_comm_and_size(inner_comms, inter_comms, comm_size);
+                                     int comm_size, int rank_id) { // node_size??
+  comm_->set_nccl_comm_and_size(inner_comms, inter_comms, comm_size, rank_id);
+}
+template <typename GPUAccessor, template<typename T> class GPUOptimizer>
+void HeterPs<GPUAccessor, GPUOptimizer>::set_thread_keys_shard_num(const int& thread_keys_shard_num) {
+  comm_->set_thread_keys_shard_num(thread_keys_shard_num);
 }
 
 template <typename GPUAccessor, template<typename T> class GPUOptimizer>

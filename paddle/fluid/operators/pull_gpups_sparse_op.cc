@@ -49,7 +49,10 @@ class PullGpuPSSparseOp : public framework::OperatorWithKernel {
                             "Shape error in %lu id, the last dimension of the "
                             "'Ids' tensor must be 1.",
                             i));
+
+
       auto out_dim = phi::vectorize(phi::slice_ddim(ids_dims, 0, ids_rank - 1));
+      // VLOG(0) << "after slice, nid:" << i << ",ids_dims0:" << ids_dims[0] << ", ids_dims1:" << ids_dims[1];
       out_dim.push_back(embedding_size);
       outs_dims[i] = phi::make_ddim(out_dim);
     }
