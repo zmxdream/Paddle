@@ -339,7 +339,7 @@ class MetricMsg {
     auto* gpu_data = gpu_tensor.data<T>();
     auto len = gpu_tensor.numel();
     data->resize(len);
-    SyncCopyD2H(data->data(), gpu_data, len);
+    SyncCopyD2H(data->data(), gpu_data, len, gpu_tensor.place());
   }
   static inline std::pair<int, int> parse_cmatch_rank(uint64_t x) {
     // first 32 bit store cmatch and second 32 bit store rank
@@ -815,7 +815,10 @@ class BoxWrapper {
                      std::function<void(const size_t&, const size_t&)> func) {
     boxps_ptr_->ExecRangeFunc(GetPlaceDeviceId(place), num, func);
   }
-
+  // get slot vector
+  const std::vector<int>& GetSlotVector(void) {
+    return slot_vector_;
+  }
  private:
   static cudaStream_t stream_list_[MAX_GPU_NUM];
   static std::shared_ptr<BoxWrapper> s_instance_;
