@@ -2725,9 +2725,9 @@ void SlotRecordInMemoryDataFeed::BuildSlotBatchGPU(const int ins_num) {
 
   size_t* d_slot_offsets = reinterpret_cast<size_t*>(pack_->gpu_slot_offsets());
 
-  HostBuffer<size_t>& offsets = pack_->offsets();
+  auto& offsets = pack_->offsets();
   offsets.resize(slot_total_num);
-  HostBuffer<void*>& h_tensor_ptrs = pack_->h_tensor_ptrs();
+  auto& h_tensor_ptrs = pack_->h_tensor_ptrs();
   h_tensor_ptrs.resize(use_slot_size_);
   // alloc gpu memory
   pack_->resize_tensor();
@@ -3126,6 +3126,7 @@ void SlotPaddleBoxDataFeed::GetUsedSlotIndex(
   if (used_slot_name != nullptr) {
     used_slot_name->clear();
   }
+  const std::vector<int>& slot_ids = boxps_ptr->GetSlotVector();
   for (int i = 0; i < use_slot_size_; ++i) {
     auto& info = used_slots_info_[i];
     if (info.type[0] != 'u') {
@@ -3134,14 +3135,20 @@ void SlotPaddleBoxDataFeed::GetUsedSlotIndex(
     if (!is_slot_values(info.slot)) {
       continue;
     }
-    if (slot_name_omited_in_feedpass_.find(info.slot) ==
+    if (slot_name_omited_in_feedpass_.find(info.slot) !=
         slot_name_omited_in_feedpass_.end()) {
-      if (used_slot_index != nullptr) {
-          used_slot_index->push_back(info.slot_value_idx);
-      }
-      if (used_slot_name != nullptr) {
-          used_slot_name->push_back(info.slot);
-      }
+      continue;
+    }
+    int slot_id = atoi(info.slot.c_str());
+    if (slot_ids.end() ==
+        std::find(slot_ids.begin(), slot_ids.end(), slot_id)){
+      continue;
+    }
+    if (used_slot_index != nullptr) {
+        used_slot_index->push_back(info.slot_value_idx);
+    }
+    if (used_slot_name != nullptr) {
+        used_slot_name->push_back(info.slot);
     }
   }
 }
@@ -3469,12 +3476,17 @@ void SlotPaddleBoxDataFeed::BuildSlotBatchGPU(const int ins_num) {
   int64_t uint64_offset = 0;
   offset_timer_.Pause();
 
+  auto stream = dynamic_cast<phi::GPUContext*>(
+            platform::DeviceContextPool::Instance().Get(this->place_))
+            ->stream();
+
   copy_timer_.Resume();
   // copy index
 #if defined(PADDLE_WITH_CUDA)
-  CUDA_CHECK(cudaMemcpy(offsets.data(), d_slot_offsets,
+  CUDA_CHECK(cudaMemcpyAsync(offsets.data(), d_slot_offsets,
                         slot_total_num * sizeof(size_t),
-                        cudaMemcpyDeviceToHost));
+                        cudaMemcpyDeviceToHost, stream));
+  cudaStreamSynchronize(stream);
 #elif defined(PADDLE_WITH_XPU_KP)
   platform::MemcpySyncD2H(offsets.data(), d_slot_offsets, slot_total_num * sizeof(size_t), this->place_);
 #endif
@@ -3544,9 +3556,9 @@ void SlotPaddleBoxDataFeed::BuildSlotBatchGPU(const int ins_num) {
   trans_timer_.Resume();
   void** dest_gpu_p = reinterpret_cast<void**>(pack_->slot_buf_ptr());
 #if defined(PADDLE_WITH_CUDA)
-  CUDA_CHECK(cudaMemcpy(dest_gpu_p, h_tensor_ptrs.data(),
+  CUDA_CHECK(cudaMemcpyAsync(dest_gpu_p, h_tensor_ptrs.data(),
                         use_slot_size_ * sizeof(void*),
-                        cudaMemcpyHostToDevice));
+                        cudaMemcpyHostToDevice, stream));
 
   CopyForTensor(
       ins_num, use_slot_size_, dest_gpu_p, pack_->gpu_slot_offsets(),

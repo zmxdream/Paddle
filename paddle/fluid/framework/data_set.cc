@@ -2008,11 +2008,13 @@ void PadBoxSlotDataset::CheckThreadPool(void) {
   } else {  // shuffle
     VLOG(0) << "pass id=" << pass_id_ << ", use shuffle by random id";
   }
-  VLOG(0) << "pass id=" << pass_id_ << ", shuffle disable: " << disable_shuffle_
-          << ", polling disable: " << disable_polling_;
   used_fea_index_.clear();
   auto feed_obj = reinterpret_cast<SlotPaddleBoxDataFeed*>(readers_[0].get());
   feed_obj->GetUsedSlotIndex(&used_fea_index_);
+
+  VLOG(0) << "pass id=" << pass_id_ << ", shuffle disable: " << disable_shuffle_
+            << ", polling disable: " << disable_polling_
+            << ", slot num=" << used_fea_index_.size();
 
   // read ins thread
   thread_pool_ = GetThreadPool(thread_num_);

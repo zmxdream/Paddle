@@ -167,7 +167,7 @@ std::set<std::string> BoxPSAsynDenseTable::Init(
       const LoDTensor& root_tensor = root_scope.FindVar(e)->Get<LoDTensor>();
       const float* gpu_lr = root_tensor.data<float>();
       if (platform::is_gpu_place(root_tensor.place()) || platform::is_xpu_place(root_tensor.place())) {
-        SyncCopyD2H(&base_lr_, gpu_lr, 1);
+        SyncCopyD2H(&base_lr_, gpu_lr, 1, root_tensor.place());
       } else {
         base_lr_ = *gpu_lr;
       }
