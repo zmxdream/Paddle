@@ -309,9 +309,9 @@ void BoxWrapper::PullSparseCaseXPU(const paddle::platform::Place& place,
       dev.keys2slot.mutable_data<int>({total_length, 1}, place));
 
   // construct slot_level lod info
-  auto slot_lengths_lod = slot_lengths;
-  for (size_t i = 1; i < slot_lengths_lod.size(); i++) {
-    slot_lengths_lod[i] += slot_lengths_lod[i - 1];
+  std::vector<int64_t> slot_lengths_lod(slot_num + 1, 0);
+  for (int i = 1; i <= slot_num ; i++) {
+    slot_lengths_lod[i] = slot_lengths_lod[i - 1] + slot_lengths[i - 1];
   }
 
   int* total_dims = reinterpret_cast<int*>(
@@ -355,21 +355,10 @@ void BoxWrapper::PullSparseCaseXPU(const paddle::platform::Place& place,
         static_cast<int>(values.size() * sizeof(float*)), place);
   xpu_memcpy(xpu_values, values.data(), values.size() * sizeof(float*),
                   XPU_HOST_TO_DEVICE);
-
   box_wrapper_kernel_->CopyForPull(place, xpu_keys, (float**)values.data(), total_values_xpu,
                       pull_offset, slot_lengths_lod.data(), slot_num, key2slot, hidden_size,
                       expand_embed_dim, total_length, total_dims, skip_offset,
                       expand_only);
-  // box_wrapper_kernel_->CopyForPull(place,
-  //                                  pull_offset,
-  //                                  total_dims,
-  //                                  xpu_values,
-  //                                  total_keys,//useless
-  //                                  total_values_xpu,
-  //                                  total_length,
-  //                                  hidden_size,
-  //                                  skip_offset);
-
   all_timer.Pause();
 #endif
 }
@@ -544,8 +533,7 @@ void BoxWrapper::PushSparseGradCaseXPU(const paddle::platform::Place& place,
   float** xpu_values = dev.values_ptr_tensor.data<float*>();
   xpu_memcpy(xpu_values, grad_values.data(),
                   grad_values.size() * sizeof(float*), XPU_HOST_TO_DEVICE);
-  int size = total_length;
-  auto gm_src = memory::Alloc(place, size * hidden_size * sizeof(float));
+  auto gm_src = memory::Alloc(place, total_length * hidden_size * sizeof(float));
   float* gm_src_ptr = reinterpret_cast<float*>(gm_src->ptr());
   auto dev_ctx = platform::DeviceContextPool::Instance().Get(place);
   auto ctx_xpu = static_cast<platform::XPUDeviceContext*>(dev_ctx)->x_context();
@@ -554,9 +542,11 @@ void BoxWrapper::PushSparseGradCaseXPU(const paddle::platform::Place& place,
     xpu::copy<float>(ctx_xpu, grad_values[i], gm_src_ptr + offset * hidden_size,
         slot_lengths[i] * hidden_size);
   }
+
   box_wrapper_kernel_->CopyForPush(place, gm_src_ptr, total_grad_values_xpu,
       push_offset, total_length, slot_vector, slot_lens, slot_num,
       hidden_size, batch_size, total_dims, skip_offset, key2slot);
+
   push_boxps_timer.Resume();
   int ret = boxps_ptr_->PushSparseXPU(total_keys,
       reinterpret_cast<void*>(total_grad_values_xpu),
