@@ -238,6 +238,15 @@ class MetricMsg {
 
   int MetricPhase() const { return metric_phase_; }
   BasicAucCalculator* GetCalculator() { return calculator; }
+  inline phi::Place GetVarPlace(const paddle::framework::Scope *exe_scope, const std::string &varname) {
+    auto* var = exe_scope->FindVar(varname.c_str());
+    PADDLE_ENFORCE_NOT_NULL(
+        var, platform::errors::NotFound("Error: var %s is not found in scope.",
+                                        varname.c_str()));
+    auto& gpu_tensor = var->Get<LoDTensor>();
+    auto place = gpu_tensor.place();
+    return place;
+  }
   virtual void add_data(const Scope* exe_scope,
                         const paddle::platform::Place& place) {
     int label_len = 0;
@@ -250,6 +259,8 @@ class MetricMsg {
                       platform::errors::PreconditionNotMet(
                           "the predict data length should be consistent with "
                           "the label data length"));
+    auto pre_var_place = GetVarPlace(exe_scope, pred_varname_);
+    auto label_var_place = GetVarPlace(exe_scope, label_varname_);
     std::vector<float> sample_scale_data;
     if (!sample_scale_varname_.empty()) {
       get_data<float>(exe_scope, sample_scale_varname_, &sample_scale_data);
@@ -259,9 +270,9 @@ class MetricMsg {
               "lable size [%lu] and sample_scale_data[%lu] should be same",
               label_len, sample_scale_data.size()));
       calculator->add_sample_data(pred_data, label_data, sample_scale_data,
-                                  label_len, place);
+                                  label_len, pre_var_place, label_var_place);
     } else {
-      calculator->add_data(pred_data, label_data, label_len, place);
+      calculator->add_data(pred_data, label_data, label_len, pre_var_place, label_var_place);
     }
   }
   template <class T = float>

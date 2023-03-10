@@ -462,6 +462,15 @@ class MaskMetricMsg : public MetricMsg {
     calculator->init(bucket_size, max_batch_size);
   }
   virtual ~MaskMetricMsg() {}
+  inline phi::Place GetVarPlace(const paddle::framework::Scope *exe_scope, const std::string &varname) {
+    auto* var = exe_scope->FindVar(varname.c_str());
+    PADDLE_ENFORCE_NOT_NULL(
+        var, platform::errors::NotFound("Error: var %s is not found in scope.",
+                                        varname.c_str()));
+    auto& gpu_tensor = var->Get<LoDTensor>();
+    auto place = gpu_tensor.place();
+    return place;
+  }
   void add_data(const Scope* exe_scope,
                 const paddle::platform::Place& place) override {
     int label_len = 0;
@@ -479,8 +488,11 @@ class MaskMetricMsg : public MetricMsg {
                       platform::errors::PreconditionNotMet(
                           "the predict data length should be consistent with "
                           "the label data length"));
+    auto pre_var_place = GetVarPlace(exe_scope, pred_varname_);
+    auto label_var_place = GetVarPlace(exe_scope, label_varname_);
+    auto mask_var_place = GetVarPlace(exe_scope, mask_varname_);
     auto cal = GetCalculator();
-    cal->add_mask_data(pred_data, label_data, mask_data, label_len, place);
+    cal->add_mask_data(pred_data, label_data, mask_data, label_len, pre_var_place, label_var_place, mask_var_place);
   }
 
  protected:
