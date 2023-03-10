@@ -398,6 +398,26 @@ template <typename T>
     char* d_allgather_vals;
     std::shared_ptr<memory::Allocation> allgather_keys_mem;
     std::shared_ptr<memory::Allocation> allgather_vals_mem;
+
+
+    void alloc_allgather_trans(const size_t& len,
+                         const size_t& max_part_size,
+                         const size_t& value_bytes = sizeof(GradType),
+                         const int copy_mode = 0) {
+      d_merged_allgather_trans_keys = alloc_cache<KeyType>(len, trans_allgather_keys_mem, (copy_mode & COPY_KEY));
+      d_merged_allgather_trans_vals = alloc_cache<char>(len * value_bytes, trans_allgather_vals_mem, (copy_mode & COPY_VAL));
+      trans_max_part_size = max_part_size;
+    }
+
+    size_t trans_max_part_size;
+    KeyType* d_merged_allgather_trans_keys;
+    char* d_merged_allgather_trans_vals;
+    std::shared_ptr<memory::Allocation> trans_allgather_keys_mem;
+    std::shared_ptr<memory::Allocation> trans_allgather_vals_mem;
+
+
+
+
     // === all2all ===
    void init_pull(const size_t& len) {
       pull_res.h_recv_fea_num = len;
@@ -722,6 +742,16 @@ void scale_grad(const size_t& len,
                                         KeyType* d_out_keys,
                                         char* d_out_vals,
                                         const cudaStream_t& stream);
+  void send_gradient_by_allgather_trans(const int &gpu_id,
+                                        const int &nccl_rank_id,
+                                        const int &nccl_node_size,
+                                        const size_t &value_bytes,
+                                        const size_t &max_part_size,
+                                        const char *d_in_keys,
+                                        char *d_out_keys,
+                                        const char *d_in_vals,
+                                        char *d_out_vals,
+                                        const cudaStream_t &stream);
 
  void pull_one_table(const int gpu_id,
                       KeyType* d_keys,
