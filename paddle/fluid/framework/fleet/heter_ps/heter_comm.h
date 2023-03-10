@@ -119,32 +119,6 @@ class HeterComm {
   HeterComm(const HeterComm&) = delete;
   HeterComm& operator=(const HeterComm&) = delete;
 
-/*
- // ======== all2all ========
-  // 和pslib分机器对齐
-  // copied from pslib
-  __device__ int32_t sparse_local_shard_num(uint32_t shard_num, uint32_t server_num) {
-    if (shard_num % server_num == 0) {
-      return shard_num / server_num;
-    }
-    size_t local_shard_num = shard_num / server_num + 1;
-    return local_shard_num;
-  }
-
-  // shard分机器
-  __device__ int PartitionShardForRank(const uint64_t& shard_id) {
-    int rank_id = shard_id  / sparse_local_shard_num(thread_keys_shard_num_, node_size_);
-    return rank_id;
-  }
-
-  // feasign分机器
-  __device__ int PartitionKeyForRank(const uint64_t& key) {
-    int shard_id = key % thread_keys_shard_num_;
-    int rank_id = shard_id  / sparse_local_shard_num(thread_keys_shard_num_, node_size_);
-    return rank_id;
-  }
-*/
-
   void set_thread_keys_shard_num(const int& thread_keys_shard_num) {
     thread_keys_shard_num_ = thread_keys_shard_num;
   }
@@ -170,7 +144,6 @@ class HeterComm {
   void merge_grad(int gpu_num, KeyType* d_keys, GradType* d_grads, float* mf,
                   size_t len, int& uniq_len);
   void pull_sparse(int num, KeyType* d_keys, ValType* d_vals, size_t len);
-  // void pull_sparse_multi_node(int num, KeyType* d_keys, ValType* d_vals, size_t len);
   void build_ps(int num, KeyType* h_keys, ValType* h_vals, size_t len,
                 size_t chunk_size, int stream_num);
   void build_ps(int num, KeyType* h_keys, char* pool, size_t len, size_t feature_value_size,
@@ -183,35 +156,9 @@ class HeterComm {
   void push_sparse(int num, KeyType* d_keys, GradType* d_grads, size_t len,
                    Sgd& sgd);  // NOLINT
 
-  // template <typename Sgd>
-  // void push_sparse_multi_node(int num, KeyType* d_keys, GradType* d_grads,
-  //                             size_t len, Sgd& sgd);  // NOLINT
-
   template <typename Sgd>
   void update_one_table(int num, KeyType* d_keys, GradType* d_grads, size_t len,
                         Sgd& sgd);  // NOLINT
-
-
-/*
-  int gather_one_node_grad(int num, KeyType* d_keys, GradType* d_grads,
-                           int len);
-  
-  int gather_one_node_grad_v2(int num, KeyType* d_keys, GradType* d_grads,
-                           int len);
-
-
-  int gather_multi_node_grad(int num, KeyType* d_keys, GradType* d_grads,
-                             int len);
-
-  int gather_multi_node_grad_v2(
-    int gpu_num, KeyType* d_keys, GradType* d_grads, int len);
-  int gather_multi_node_grad_v3(
-    int gpu_num, KeyType* d_keys, GradType* d_grads, int len);
-  int gather_multi_node_grad_v4(
-    int gpu_num, KeyType* d_keys, GradType* d_grads, int len);
-  int gather_multi_node_grad_v5(
-    int gpu_num, KeyType* d_keys, GradType* d_grads, int len);
-*/
 
 
   void set_sparse_sgd(const OptimizerConfig& optimizer_config);
@@ -244,7 +191,7 @@ class HeterComm {
   }
 
   bool need_transfer(int send_id, int receive_id) {
-    return ((send_id / 4 != receive_id / 4) && (send_id + 4) % 8 != receive_id);
+    return ((send_id / 4 != receive_id / 4) && (send_id + 4) % device_num_ != receive_id);
   }
 
   // void dump_to_cpu(int index);
@@ -273,7 +220,7 @@ class HeterComm {
                         uint32_t* d_restore_idx,
                         const cudaStream_t& stream);
 
-  int get_transfer_devid(int send_id) { return (send_id + 4) % 8; }
+  int get_transfer_devid(int send_id) { return (send_id + 4) % device_num_; } // 0->4, 1->5, 2->6, 3->7, 4->0, 5->1, 6->2, 7->3
 
 
 template <typename T>
@@ -355,12 +302,7 @@ template <typename T>
   };
 
   struct LocalStorage {
-    LocalStorage() {}
-
-    // void init(size_t size, int dev_id) {
-    //  place_ = platform::CUDAPlace(dev_id);
-    //  alloc(size, true);
-    // }
+    LocalStorage() { sem_wait = std::make_unique<Semaphore>(); }
 
     void init(int device_num, int dev_id, phi::Stream stream) {
       place_ = platform::CUDAPlace(dev_id);
@@ -369,63 +311,7 @@ template <typename T>
       stream_ = stream;
     }
 
-/*
-    void reset() {
-      all_keys_mem.reset();
-      all_grads_mem.reset();
-      local_keys_mem.reset();
-      local_grads_mem.reset();
-
-    }
-
-
-    // int feanum_{1800 * 2048};
-    // storage_[i].init(feanum_, resource_->dev_id(i), grad_type_size_);
-    void init(size_t size, int dev_id, size_t grad_type_size) {
-      place_ = platform::CUDAPlace(dev_id);
-      grad_type_size_ = grad_type_size;
-      alloc(size, true);
-    }
-
-    void alloc(size_t size, bool force = false) {
-
-      // VLOG(0) << "yxf local storage alloc size: " << size << " force: " << force;
-      // VLOG(0) << "yxf LocalStorage alloc grad size: " << grad_type_size_;
-
-      if (force || size > all_keys_mem->size()) {
-        // VLOG(0) << "yxf11 LocalStorage alloc grad size: " << grad_type_size_;
-        all_keys_mem.reset();
-        // VLOG(0) << "yxf22 LocalStorage alloc grad size: " << grad_type_size_;
-        all_grads_mem.reset();
-        // VLOG(0) << "yxf33 LocalStorage alloc grad size: " << grad_type_size_;
-        all_keys_mem = memory::AllocShared(place_, size * sizeof(KeyType));
-
-        // VLOG(0) << "yxf LocalStorage alloc grad size: " << grad_type_size_;
-        all_grads_mem = memory::AllocShared(place_, size * grad_type_size_);
-
-        all_keys = reinterpret_cast<KeyType*>(all_keys_mem->ptr());
-
-        all_grads = reinterpret_cast<GradType*>(all_grads_mem->ptr());
-
-      }
-      if (force || size > local_keys_mem->size()) {
-
-        local_keys_mem.reset();
-        local_grads_mem.reset();
-
-        local_keys_mem = memory::AllocShared(place_, size * sizeof(KeyType));
-
-        // VLOG(0) << "yxf LocalStorage111 alloc grad size: " << grad_type_size_;
-        local_grads_mem = memory::AllocShared(place_, size * grad_type_size_);
-
-        local_keys = reinterpret_cast<KeyType*>(local_keys_mem->ptr());
-        local_grads = reinterpret_cast<GradType*>(local_grads_mem->ptr());
-
-      }
-
-    }
-*/
-
+    // 这块stream确认下
     template <typename T>
     T* alloc_cache(const size_t& len,
                    std::shared_ptr<memory::Allocation>& alloc,  // NOLINT
@@ -500,101 +386,19 @@ template <typename T>
       d_merged_vals = all_grads;
       d_merged_push_vals = local_grads;
     }
-/*
-    void alloc_for_inter_copy(size_t size, bool force = false) {
-      // VLOG(0) << "yxf LocalStorage222 alloc grad size: " << size << " local mem size: " << local_keys_mem->size();
 
-      if (force || size * sizeof(KeyType) > local_keys_mem->size()) {
-
-        local_keys_mem.reset();
-        local_grads_mem.reset();
-
-        local_keys_mem = memory::AllocShared(place_, size * sizeof(KeyType));
-
-        VLOG(0) << "yxf LocalStorage111 alloc grad size: " << size * grad_type_size_;
-
-        local_grads_mem = memory::AllocShared(place_, size * grad_type_size_);
-
-        local_keys = reinterpret_cast<KeyType*>(local_keys_mem->ptr());
-        local_grads = reinterpret_cast<GradType*>(local_grads_mem->ptr());
-
-      }
-
+    void alloc_allgather(const size_t& len,
+                         const size_t& value_bytes = sizeof(GradType),
+                         const int copy_mode = 0) {
+      d_allgather_keys = alloc_cache<KeyType>(len, allgather_keys_mem, (copy_mode & COPY_KEY));
+      d_allgather_vals = alloc_cache<char>(len * value_bytes, allgather_vals_mem, (copy_mode & COPY_VAL));
     }
 
-    void alloc_for_multi_node_nccl(size_t size, bool force = false) {
-      if (force || size > all_keys_mem->size()) {
-        all_keys_mem.reset();
-        all_grads_mem.reset();
-        all_keys_mem = memory::AllocShared(place_, size * sizeof(KeyType));
-        // VLOG(0) << "yxf LocalStorage111 alloc grad size: " << grad_type_size_;
-        all_grads_mem = memory::AllocShared(place_, size * grad_type_size_);
-        all_keys = reinterpret_cast<KeyType*>(all_keys_mem->ptr());
-        all_grads = reinterpret_cast<GradType*>(all_grads_mem->ptr());
-      }
-    }
-
-    void alloc_for_data_transfer(size_t size, bool force = false) {
-      if (force || size > all_keys_mem->size()) {
-        all_keys_mem.reset();
-        all_grads_mem.reset();
-        all_keys_mem = memory::AllocShared(place_, size * sizeof(KeyType));
-        // VLOG(0) << "yxf LocalStorage111 alloc grad size: " << grad_type_size_;
-        all_grads_mem = memory::AllocShared(place_, size * grad_type_size_);
-        all_keys = reinterpret_cast<KeyType*>(all_keys_mem->ptr());
-        all_grads = reinterpret_cast<GradType*>(all_grads_mem->ptr());
-      }
-    }
-
-    void alloc_for_data_transfer_nccl(size_t size, bool force = false) {
-      if (force || size > local_keys_mem->size()) {
-        local_keys_mem.reset();
-        local_grads_mem.reset();
-        local_keys_mem = memory::AllocShared(place_, size * sizeof(KeyType));
-        // VLOG(0) << "yxf LocalStorage111 alloc grad size: " << grad_type_size_;
-        local_grads_mem = memory::AllocShared(place_, size * grad_type_size_);
-        local_keys = reinterpret_cast<KeyType*>(local_keys_mem->ptr());
-        local_grads = reinterpret_cast<GradType*>(local_grads_mem->ptr());
-      }
-    }
-
-    void alloc_in_transfer(size_t size, bool force = false) {
-      VLOG(0) << "yxf::alloc in trans: size: " << size << " mem size: " << trans_all_keys_mem->size();
-      if (force || size > trans_all_keys_mem->size()) {
-        trans_all_keys_mem.reset();
-        trans_all_grads_mem.reset();
-        trans_all_keys_mem = memory::AllocShared(place_, size * sizeof(KeyType));
-        // VLOG(0) << "yxf LocalStorage111 alloc grad size: " << grad_type_size_;
-        trans_all_grads_mem = memory::AllocShared(place_, size * grad_type_size_);
-        trans_all_keys = reinterpret_cast<KeyType*>(trans_all_keys_mem->ptr());
-        trans_all_grads = reinterpret_cast<GradType*>(trans_all_grads_mem->ptr());
-      }
-    }
-
-*/
+    KeyType* d_allgather_keys;
+    char* d_allgather_vals;
+    std::shared_ptr<memory::Allocation> allgather_keys_mem;
+    std::shared_ptr<memory::Allocation> allgather_vals_mem;
     // === all2all ===
-/*
-    void init_pull(const size_t& len) {
-      pull_res.h_recv_fea_num = len;
-      local_pull_idx = memory::AllocShared(place_, len * sizeof(uint32_t));
-      pull_res.d_restore_keys_idx = reinterpret_cast<uint32_t*>(local_pull_idx->ptr());
-      
-    }
-    void init_shard(const size_t& len, const size_t& node_size) {
-      local_shard_idx = memory::AllocShared(place_, len * sizeof(uint32_t));
-      shard_res.d_local_idx_parted = reinterpret_cast<uint32_t*>(local_shard_idx->ptr());
-      d_node_size_buf = memory::AllocShared(place_, node_size * node_size * sizeof(uint32_t));
-      shard_res.d_node_size_ptr = reinterpret_cast<uint32_t*>(d_node_size_buf->ptr());
-      shard_res.resize_part_size(node_size);
-    }
-    void init_inner(const size_t& len, const int& device_num) {
-      local_inner_idx = memory::AllocShared(place_, len * sizeof(uint32_t));
-      inner_res.d_idx = reinterpret_cast<uint32_t*>(local_inner_idx->ptr());
-      inner_offset = memory::AllocShared(place_, device_num * 2 * sizeof(uint32_t));
-      inner_res.d_offset_ptr = reinterpret_cast<uint32_t*>(inner_offset->ptr());
-      inner_res.resize(device_num);
-    }
-*/
    void init_pull(const size_t& len) {
       pull_res.h_recv_fea_num = len;
       pull_res.d_restore_keys_idx = alloc_cache<uint32_t>(len, local_pull_idx);
@@ -612,13 +416,14 @@ template <typename T>
           alloc_cache<uint32_t>(device_num * 2, inner_offset);
       inner_res.resize(device_num);
     }
-    // void init_trans(const size_t& fea_num, const size_t& value_bytes) {
-    //   d_merged_trans_keys = alloc_cache<KeyType>(fea_num * 2, trans_keys_buff);
-    //   d_merged_push_trans_keys = &d_merged_trans_keys[fea_num];
-    //   d_merged_trans_vals =
-    //       alloc_cache<char>(fea_num * 2 * value_bytes, trans_vals_buff);
-    //   d_merged_push_trans_vals = &d_merged_trans_vals[fea_num * value_bytes];
-    // }
+    
+    void init_trans(const size_t& fea_num, const size_t& value_bytes) {
+       d_merged_trans_keys = alloc_cache<KeyType>(fea_num * 2, trans_keys_buff);
+       d_merged_push_trans_keys = &d_merged_trans_keys[fea_num];
+       d_merged_trans_vals =
+           alloc_cache<char>(fea_num * 2 * value_bytes, trans_vals_buff);
+       d_merged_push_trans_vals = &d_merged_trans_vals[fea_num * value_bytes];
+    }
 
 
 
@@ -656,11 +461,18 @@ template <typename T>
     KeyType* local_keys;
     char* local_grads;
 
-    std::shared_ptr<memory::Allocation> trans_all_keys_mem;
-    std::shared_ptr<memory::Allocation> trans_all_grads_mem;
+    // inner trans comm and stream buffer
+    size_t h_trans_size;
+    size_t h_trans_offset;
 
-    KeyType* trans_all_keys;
-    GradType* trans_all_grads;
+    // node trans comm and stream buffer
+    std::unique_ptr<Semaphore> sem_wait;
+    std::shared_ptr<memory::Allocation> trans_keys_buff = nullptr;
+    std::shared_ptr<memory::Allocation> trans_vals_buff = nullptr;
+    KeyType* d_merged_trans_keys = nullptr;
+    char* d_merged_trans_vals = nullptr;
+    KeyType* d_merged_push_trans_keys = nullptr;
+    char* d_merged_push_trans_vals = nullptr;
 
     size_t grad_type_size_;
 
@@ -717,6 +529,7 @@ template <typename T>
                             size_t* h_part_sizes,
                             const int& shard_num,
                             const cudaStream_t& stream);
+
   size_t send_data_by_all2all(const int& gpu_id,
                               const int& nccl_node_size,
                               const int& nccl_rank_id,
@@ -727,6 +540,24 @@ template <typename T>
                               const size_t* h_recv_part_offsets,
                               const char* d_send_buff,
                               char* d_rev_buff,
+                              const cudaStream_t& stream);
+  void send_data_by_allgather(const int& gpu_id,
+                              const int& nccl_node_size,
+                              const int& nccl_rank_id,
+                              const int& value_bytes,
+                              const size_t max_part_size,
+                              const char* d_send_buff,
+                              char* d_rev_buff,
+                              const cudaStream_t& stream);
+  void send_key_data_by_allgather(const int& gpu_id,
+                              const int& nccl_node_size,
+                              const int& nccl_rank_id,
+                              const int& value_bytes,
+                              const size_t max_part_size,
+                              const char* d_send_key_buff,
+                              char* d_recv_key_buff,
+                              const char* d_send_val_buff,
+                              char* d_recv_val_buff,
                               const cudaStream_t& stream);
 
   // size_t gather_sparse_keys_by_all2all(const int& gpu_id,
@@ -827,6 +658,12 @@ void scale_grad(const size_t& len,
                            GradType* d_grads,
                            const size_t& len,
                            Sgd& sgd);  // NOLINT
+  template <typename Sgd>
+  void push_sparse_allgather(const int& gpu_id,
+                             KeyType* d_keys,
+                             GradType* d_grads,
+                             const size_t& len,
+                             Sgd& sgd);  // NOLINT
   size_t merge_grads(const int& gpu_id,
                     const size_t& len,
                     const KeyType* d_in_keys,
@@ -850,7 +687,41 @@ void scale_grad(const size_t& len,
                                            char* d_out_vals,
                                            char* d_tmp_vals,
                                            const cudaStream_t& stream);
+  size_t gather_sparse_gradient_by_allgather(const int& gpu_id,
+                                           const size_t& push_size,
+                                           const KeyType* d_keys,
+                                           const char* d_push_vals,
+                                           const size_t& value_bytes,
+                                           KeyType* d_out_keys,
+                                           KeyType* d_tmp_keys,
+                                           char* d_out_vals,
+                                           char* d_tmp_vals,
+                                           const cudaStream_t& stream);
 
+  size_t send_keys_by_all2all_trans(const int& gpu_id,
+                                    const int& rank_id,
+                                    const int& node_size,
+                                    const size_t& fea_size,
+                                    const KeyType* d_in_keys,
+                                    KeyType* d_out_keys,
+                                    const cudaStream_t& stream);
+  size_t send_vals_by_all2all_trans(const int& gpu_id,
+                                    const int& rank_id,
+                                    const int& node_size,
+                                    const char* d_in_vals,
+                                    char* d_out_vals,
+                                    const size_t& value_bytes,
+                                    const cudaStream_t& stream);
+  size_t send_gradient_by_all2all_trans(const int& gpu_id,
+                                        const int& rank_id,
+                                        const int& node_size,
+                                        const size_t& fea_size,
+                                        const KeyType* d_keys,
+                                        const char* d_push_vals,
+                                        const size_t& value_bytes,
+                                        KeyType* d_out_keys,
+                                        char* d_out_vals,
+                                        const cudaStream_t& stream);
 
  void pull_one_table(const int gpu_id,
                       KeyType* d_keys,
@@ -891,6 +762,8 @@ void scale_grad(const size_t& len,
   int device_num_ = 8;
   int multi_node_{1};
   int rank_id_{0};
+  
+  GpuRDMAChecker* rdma_checker_ = nullptr;
   std::vector<ncclComm_t> nccl_inner_comms_;
   std::vector<ncclComm_t> nccl_inter_comms_;
   std::vector<ncclComm_t> nccl_trans_inter_comms_;

@@ -46,6 +46,34 @@ class GPUResource {
   std::vector<gpuStream_t> comm_streams_;
 };
 
+#if defined(PADDLE_WITH_CUDA)
+class GpuRDMAChecker {
+ public:
+  static GpuRDMAChecker* get(int device_num);
+
+ public:
+  explicit GpuRDMAChecker(int device_num);
+  // rdma
+  bool need_rdma_trans(void);
+  bool is_device_support_rdma(int devid);
+  // device num
+  int device_num(void) { return device_num_; }
+  // topo_aware
+  bool topo_aware(void) { return topo_aware_; }
+
+ private:
+  bool check_device_status(const int& device_count,
+                           std::vector<int>* gpu_status);
+
+ private:
+  int device_num_ = 0;
+  bool topo_aware_ = false;
+  // rdma
+  bool rdma_trans_ = false;
+  std::vector<int> rdma_status_;
+};
+#endif
+
 class HeterPsResource {
  public:
   HeterPsResource(const std::vector<int>& dev_ids);
@@ -62,7 +90,7 @@ class HeterPsResource {
 
   int multi_node() {return multi_node_;}
 
-  void enable_multi_node(int rank) {
+void enable_multi_node(int rank) {
     multi_node_ = 1;
     node_rank_ = rank;
   }

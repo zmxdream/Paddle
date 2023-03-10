@@ -562,6 +562,12 @@ HeterComm<KeyType, ValType, GradType, GPUAccessor>::HeterComm(
   gpu_accessor_ = gpu_accessor;
 
   multi_node_ = resource_->multi_node();
+#if defined(PADDLE_WITH_CUDA)
+  rdma_checker_ = GpuRDMAChecker::get(device_num_);
+  topo_aware_ = rdma_checker_->topo_aware();
+  topo_aware_ = false;
+#endif
+
   max_mf_dim_ = resource->max_mf_dim();
   auto accessor_wrapper_ptr =
       GlobalAccessorFactory::GetInstance().GetAccessorWrapper();
@@ -699,6 +705,7 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::init_path() {
         auto& nodes = path_[i][j].nodes_;
         int from = resource_->dev_id(i);
         int to = resource_->dev_id(j);
+
         int transfer_id = i;
         if (need_transfer(from, to)) {
           transfer_id = resource_->get_index_by_devid(get_transfer_devid(from));
@@ -713,8 +720,10 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::init_path() {
         }
         nodes.push_back(Node());
         Node& node = nodes.back();
-        node.in_stream = resource_->comm_stream(i, transfer_id);
-        node.out_stream = resource_->comm_stream(transfer_id, i);
+        // node.in_stream = resource_->comm_stream(i, transfer_id);
+        // node.out_stream = resource_->comm_stream(transfer_id, i);
+        node.in_stream = resource_->comm_stream(transfer_id, j);
+        node.out_stream = resource_->comm_stream(j, transfer_id);
         node.key_storage = NULL;
         node.val_storage = NULL;
         node.sync = 0;
@@ -1981,7 +1990,6 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_inner_keys_p2p(
     return;
   }
 
-  /*
   // need transfer
   for (int i = 0; i < gpu_num; ++i) {
     size_t data_len = res.h_part_sizes[i];
@@ -1991,6 +1999,9 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_inner_keys_p2p(
     size_t &offset = res.h_offsets[i];
     // printf("[%d->%d->%d]send keys offset: %ld, len: %ld\n", gpu_id,
     // trans_id, i, offset, data_len);
+    // 比如0和4之间不需要transfer
+    // 0->5需要transfer?? 可能是后面多机通信需要
+    // 如果不需要trans,那就直接拷贝到目标gpu卡 
     if (!need_transfer(gpu_id, i)) {
       PADDLE_ENFORCE_GPU_SUCCESS(cudaMemcpyPeerAsync(res.d_remote_keys[i],
                                                      i,
@@ -2000,6 +2011,11 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_inner_keys_p2p(
                                                      stream));
       continue;
     }
+
+    // 单个机器上的,为啥要transfer??
+    // 先拷贝到对应的trans id的显存,再拷贝到目标卡的显存
+    // 这个操作有点不太理解,可能是后面多机通信需要用,先拷贝一份.
+    // 通过trans id卡中转下....不太明白在a100机器全互联情况下,有这个必要吗 
     PADDLE_ENFORCE_GPU_SUCCESS(cudaMemcpyPeerAsync(res.d_trans_keys,
                                                    trans_id,
                                                    &res.d_keys_parted[offset],
@@ -2014,7 +2030,6 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_inner_keys_p2p(
                                                    stream));
   }
   PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
-  */
 
 }
 
@@ -2095,7 +2110,7 @@ size_t HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_inter_keys_by_
     res.h_offsets[i] = shard_send_offset;
     shard_send_offset += res.h_part_sizes[i];
     if (max_part_size < res.h_part_sizes[i]) {
-      max_part_size = res.h_part_sizes[i];
+      max_part_size = res.h_part_sizes[i]; // max_part_size保存的是gpu_id卡发送到其他卡中最大的那部分size
     }
   }
   // shard_recv_offset保存的是每张卡分配到gpuid卡上的key数量之和
@@ -2105,14 +2120,14 @@ size_t HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_inter_keys_by_
       std::max(shard_recv_offset, static_cast<size_t>(fea_size));
   int trans_id = -1;
 
-  // if (topo_aware_ && device_num_ > 4) {
-  //   trans_id = get_transfer_devid(gpu_id);
-  //   storage_[trans_id].h_trans_size = max_part_size;
-  //   // barrier wait all set trans length [0-4, 1-5, 3-7, 2-6]
-  //   h_barrier.wait();
-  //   my_cache.h_trans_offset = trans_need_size;
-  //   trans_need_size += my_cache.h_trans_size;
-  // }
+  if (topo_aware_ && device_num_ > 4) {
+     trans_id = get_transfer_devid(gpu_id);
+     storage_[trans_id].h_trans_size = max_part_size;
+     // barrier wait all set trans length [0-4, 1-5, 3-7, 2-6]
+     h_barrier.wait();
+     my_cache.h_trans_offset = trans_need_size;
+     trans_need_size += my_cache.h_trans_size; // 接收的size + 其他卡trans过来的size
+  }
   my_cache.alloc(trans_need_size, max_type_size_);
 
   // barrier wait all hbm malloc size
@@ -2123,11 +2138,11 @@ size_t HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_inter_keys_by_
     auto &cache = storage_[i];
     size_t &recv_offset = cache.h_recv_offsets[gpu_id]; // gpu_id卡分配到第i张卡的key的起始地址
     res.d_remote_keys[i] = &cache.d_merged_keys[recv_offset];
-    // if (trans_id >= 0) {
-    //   // set transfer buffer
-    //   auto &trans_cache = storage_[trans_id];
-    //   res.d_trans_keys = &trans_cache.d_merged_keys[trans_cache.h_trans_offset];
-    // }
+    if (trans_id >= 0) {
+       // set transfer buffer
+       auto &trans_cache = storage_[trans_id];
+       res.d_trans_keys = &trans_cache.d_merged_keys[trans_cache.h_trans_offset]; // 如果要拷贝的话, 拷贝到其他卡的开始地址
+    }
   }
   // 那我们的目标就是填充res.d_remote_keys
  
@@ -2135,9 +2150,6 @@ size_t HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_inter_keys_by_
   // barrier wait set buffer ptr
   h_barrier.wait();
 
-
-
-  
   gather_inner_keys_p2p(
       fea_size, d_keys, res, gpu_id, device_num_, trans_id, stream);
 
@@ -2170,10 +2182,9 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::partition_shard_keys(
     const KeyType *d_keys,
     uint32_t *d_idx_parted,
     KeyType *d_keys_parted,
-    size_t *h_part_sizes,
+    size_t* h_part_sizes,
     const int &shard_num,
     const cudaStream_t &stream) {
-
 
   int dev_id = resource_->dev_id(gpu_id);
   platform::CUDAPlace place = platform::CUDAPlace(dev_id);
@@ -2215,8 +2226,6 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::partition_shard_keys(
 
   auto d_temp_storage = memory::Alloc(place, temp_storage_bytes);
   
-
-  
   // auto d_temp_storage =
   //    memory::Alloc(place,
   //                  temp_storage_bytes,
@@ -2257,6 +2266,67 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::partition_shard_keys(
       h_part_sizes[i] = h_right - h_left + 1;
     }
   }
+}
+
+template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
+void HeterComm<KeyType, ValType, GradType, GPUAccessor>::send_data_by_allgather(
+    const int &gpu_id,
+    const int &nccl_node_size,
+    const int &nccl_rank_id,
+    const int &value_bytes,
+    const size_t max_part_size,
+    const char *d_send_buff,
+    char *d_rev_buff,
+    const cudaStream_t &stream) {
+  auto &comm = nccl_inter_comms_[gpu_id];
+  size_t rank_offset = nccl_rank_id * max_part_size * value_bytes;
+  auto nccl_stream = resource_->comm_stream(gpu_id, 0);
+  PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclGroupStart());
+  PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclAllGather(
+      (const void *)(d_send_buff + rank_offset),
+      reinterpret_cast<void *>(d_rev_buff),
+      max_part_size * value_bytes,
+      ncclInt8,
+      comm,
+      nccl_stream));
+  PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclGroupEnd());
+  PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(nccl_stream));
+}
+
+
+template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
+void HeterComm<KeyType, ValType, GradType, GPUAccessor>::send_key_data_by_allgather(
+    const int &gpu_id,
+    const int &nccl_node_size,
+    const int &nccl_rank_id,
+    const int &value_bytes,
+    const size_t max_part_size,
+    const char *d_send_key_buff,
+    char *d_recv_key_buff,
+    const char *d_send_val_buff,
+    char *d_recv_val_buff,
+    const cudaStream_t &stream) {
+  auto &comm = nccl_inter_comms_[gpu_id];
+  size_t val_rank_offset = nccl_rank_id * max_part_size * value_bytes;
+  size_t key_rank_offset = nccl_rank_id * max_part_size * sizeof(KeyType);
+  auto nccl_stream = resource_->comm_stream(gpu_id, 0);
+  PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclGroupStart());
+  PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclAllGather(
+      (const void *)(d_send_key_buff + key_rank_offset),
+      reinterpret_cast<void *>(d_recv_key_buff),
+      max_part_size * sizeof(KeyType),
+      ncclInt8,
+      comm,
+      nccl_stream));
+  PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclAllGather(
+      (const void *)(d_send_val_buff + val_rank_offset),
+      reinterpret_cast<void *>(d_recv_val_buff),
+      max_part_size * value_bytes,
+      ncclInt8,
+      comm,
+      nccl_stream));
+  PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclGroupEnd());
+  PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(nccl_stream));
 }
 
 template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
@@ -2326,6 +2396,7 @@ size_t HeterComm<KeyType, ValType, GradType, GPUAccessor>::send_data_by_all2all(
 
   return total_fea_num;
 }
+
 
 template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
 size_t HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_sparse_keys_by_all2all(
@@ -2410,21 +2481,22 @@ size_t HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_sparse_keys_by
   cache.alloc(remote_size, max_type_size_, HeterCommType::COPY_KEY);
 
   size_t total_fea_num = 0;
+
   // if (rdma_checker_->need_rdma_trans()) {
-  //  total_fea_num = send_keys_by_all2all_trans(
+  //    total_fea_num = send_keys_by_all2all_trans(
   //      gpu_id, rank_id_, node_size_, fea_size, d_tmp_keys, d_out_keys, stream);
   // } else {
-  total_fea_num = send_data_by_all2all(gpu_id,
-                                       node_size_,
-                                       rank_id_,
-                                       sizeof(KeyType),
-                                       h_local_part_sizes,
-                                       h_local_part_offsets,
-                                       h_remote_part_sizes,
-                                       h_remote_part_offsets,
-                                       (const char *)(d_tmp_keys),
-                                       (char *)(d_out_keys),
-                                       stream);
+      total_fea_num = send_data_by_all2all(gpu_id,
+                                           node_size_,
+                                           rank_id_,
+                                           sizeof(KeyType),
+                                           h_local_part_sizes,
+                                           h_local_part_offsets,
+                                           h_remote_part_sizes,
+                                           h_remote_part_offsets,
+                                           (const char *)(d_tmp_keys),
+                                           (char *)(d_out_keys),
+                                           stream);
   // }
   PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
 
@@ -2495,16 +2567,18 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::
   auto h_remote_part_offsets = res.h_remote_part_offsets.data();
 
   size_t total_fea_num = 0;
-  // if (rdma_checker_->need_rdma_trans()) {
-  //   total_fea_num =
-  //       send_vals_by_all2all_trans(gpu_id,
-  //                                 rank_id_,
-  //                                  node_size_,
-  //                                  d_in_vals,
-  //                                  reinterpret_cast<char *>(d_tmp_vals),
-  //                                  value_bytes,
-  //                                  stream);
-  // } else {
+/*
+  if (rdma_checker_->need_rdma_trans()) {
+     total_fea_num =
+         send_vals_by_all2all_trans(gpu_id,
+                                    rank_id_,
+                                    node_size_,
+                                    d_in_vals,
+                                    reinterpret_cast<char *>(d_tmp_vals),
+                                    value_bytes,
+                                    stream);
+  } else {
+*/
     // send local device
     // 把数据发送回原来的机器,接收后的数据存储在d_tmp_vals
     total_fea_num = send_data_by_all2all(gpu_id,
@@ -2647,9 +2721,9 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::
 
   auto &res = my_cache.inner_res;
   int trans_id = -1;
-  // if (topo_aware_ && device_num_ > 4) {
-  //   trans_id = get_transfer_devid(gpu_id);
-  // }
+  if (topo_aware_ && device_num_ > 4) {
+     trans_id = get_transfer_devid(gpu_id);
+  }
   // my_cache.inner_barrier_.Resume();
   // barrier wait set buffer ptr
   h_barrier.wait();
@@ -2659,13 +2733,13 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::
     auto &cache = storage_[i];
     size_t &recv_offset = cache.h_recv_offsets[gpu_id]; // gpu_id卡发送到第i张卡的key的开始位置
     res.d_remote_vals[i] = &cache.d_merged_push_vals[recv_offset * value_bytes];
-    // if (trans_id >= 0) {
-    //   // set transfer buffer
-    //   auto &trans_cache = storage_[trans_id];
-    //   res.d_trans_vals =
-    //       &trans_cache
-    //            .d_merged_push_vals[trans_cache.h_trans_offset * value_bytes];
-    // }
+    if (trans_id >= 0) {
+       // set transfer buffer
+       auto &trans_cache = storage_[trans_id];
+       res.d_trans_vals =
+           &trans_cache
+                .d_merged_push_vals[trans_cache.h_trans_offset * value_bytes];
+    }
   }
 
 
@@ -3521,15 +3595,14 @@ size_t HeterComm<KeyType, ValType, GradType, GPUAccessor>::
 
   // if (topo_aware_ && device_num_ > 4) {
   //   trans_id = get_transfer_devid(gpu_id);
-  //   storage_[trans_id].h_trans_size = max_part_size;
+  //    storage_[trans_id].h_trans_size = max_part_size;
   //   // barrier wait all set trans length [0-4, 1-5, 3-7, 2-6]
-  //   barrier_.wait();
+  //   h_barrier.wait();
   //   my_cache.h_trans_offset = trans_need_size;
   //   trans_need_size += my_cache.h_trans_size;
-  // }
+  //}
 
   my_cache.alloc(trans_need_size, max_type_size_);
-  // my_cache.inner_barrier_.Resume();
   // barrier wait all hbm malloc size
   h_barrier.wait();
   // my_cache.inner_barrier_.Pause();
@@ -3545,7 +3618,7 @@ size_t HeterComm<KeyType, ValType, GradType, GPUAccessor>::
     //   res.d_trans_keys = &trans_cache.d_merged_keys[trans_cache.h_trans_offset];
     //   res.d_trans_vals =
     //       &trans_cache.d_merged_vals[trans_cache.h_trans_offset * value_bytes];
-    // }
+    //}
   }
   res.d_keys_parted = my_cache.d_merged_push_keys;
   res.d_vals_parted = my_cache.d_merged_push_vals;
@@ -3571,17 +3644,17 @@ size_t HeterComm<KeyType, ValType, GradType, GPUAccessor>::
   // 把梯度分shard以后需要Merge
   // 拷贝完以后,my_cache.d_merged_keys和d_merged_vals已经有从其他卡拷贝过来的key和梯度了
   // total_push_size是merge以后的长度
+  // 去重完以后的都在my_cache.d_merged_push_keys和my_cache.d_merged_push_vals
   size_t total_push_size = merge_grads(gpu_id,
-                                      shard_recv_offset,
-                                      my_cache.d_merged_keys,
-                                      my_cache.d_merged_push_keys,
-                                      my_cache.d_merged_vals,
-                                      my_cache.d_merged_push_vals,
-                                      stream);
+                                       shard_recv_offset,
+                                       my_cache.d_merged_keys,
+                                       my_cache.d_merged_push_keys,
+                                       my_cache.d_merged_vals,
+                                       my_cache.d_merged_push_vals,
+                                       stream);
 
   return total_push_size;
 }
-
 
 // 把gradient all2all发送到其他机器
 template <typename KeyType,
@@ -3629,8 +3702,8 @@ size_t HeterComm<KeyType, ValType, GradType, GPUAccessor>::
                                              all_shard_part_size * sizeof(int),
                                              cudaMemcpyHostToDevice,
                                              stream));
+  PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
 
-  // my_cache.node_barrier_.Resume();
   auto &comm = nccl_inter_comms_[gpu_id];
   auto nccl_stream = resource_->comm_stream(gpu_id, 0);
   PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclGroupStart());
@@ -3640,8 +3713,9 @@ size_t HeterComm<KeyType, ValType, GradType, GPUAccessor>::
       node_size_,
       ncclInt,
       comm,
-      stream));
+      nccl_stream));
   PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclGroupEnd());
+  PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(nccl_stream));
 
   PADDLE_ENFORCE_GPU_SUCCESS(cudaMemcpyAsync(&h_push_fea_sizes[0],
                                              res.d_node_size_ptr,
@@ -3675,18 +3749,20 @@ size_t HeterComm<KeyType, ValType, GradType, GPUAccessor>::
       stream);
 
   size_t total_send_recv = 0;
-  // if (rdma_checker_->need_rdma_trans()) {
-  //   total_send_recv = send_gradient_by_all2all_trans(gpu_id,
-  //                                                   rank_id_,
-  //                                                    node_size_,
-  //                                                   fea_size,
-  //                                                   d_tmp_keys,
-  //                                                   d_tmp_vals,
-  //                                                   value_bytes,
-  //                                                   d_out_keys,
-  //                                                   d_out_vals,
-  //                                                   stream);
-  // } else {
+/*
+  if (rdma_checker_->need_rdma_trans()) {
+     total_send_recv = send_gradient_by_all2all_trans(gpu_id,
+                                                      rank_id_,
+                                                      node_size_,
+                                                      fea_size,
+                                                      d_tmp_keys,
+                                                      d_tmp_vals,
+                                                      value_bytes,
+                                                      d_out_keys,
+                                                      d_out_vals,
+                                                      stream);
+  } else {
+*/
     // send local device
     total_send_recv = send_data_by_all2all(gpu_id,
                                            node_size_,
@@ -3716,6 +3792,270 @@ size_t HeterComm<KeyType, ValType, GradType, GPUAccessor>::
   return total_recv_fea_num;
 }
 
+// 把gradient all2all发送到其他机器
+template <typename KeyType,
+          typename ValType,
+          typename GradType,
+          typename GPUAccessor>
+size_t HeterComm<KeyType, ValType, GradType, GPUAccessor>::
+    gather_sparse_gradient_by_allgather(const int &gpu_id,
+                                        const size_t &fea_size, // gpuid卡上分device排序去重以后的长度
+                                        const KeyType *d_keys, // d_merged_push_keys
+                                        const char *d_push_vals, // d_merged_push_vals
+                                        const size_t &value_bytes, // grad_type_size_
+                                        KeyType *d_out_keys, // d_merged_push_keys
+                                        KeyType *d_tmp_keys, // d_merged_keys
+                                        char *d_out_vals,  // d_merged_push_vals
+                                        char *d_tmp_vals,  // d_merged_vals
+                                        const cudaStream_t &stream) {
+  auto &my_cache = storage_[gpu_id];
+  my_cache.init_shard(fea_size, node_size_);
+  auto &res = my_cache.shard_res;
+
+  size_t *h_local_part_sizes = res.h_local_part_sizes.data();
+  size_t *h_local_part_offsets = res.h_local_part_offsets.data();
+  uint32_t *h_push_fea_sizes = res.h_push_fea_sizes.data();
+
+  partition_shard_keys(gpu_id,
+                       fea_size,
+                       d_keys,
+                       res.d_local_idx_parted,
+                       d_tmp_keys,
+                       h_local_part_sizes,
+                       node_size_,
+                       stream);
+
+  int all_shard_part_size = node_size_ * node_size_;
+  h_local_part_offsets[0] = 0;
+  for (int i = 0; i < node_size_; i++) {
+    int offset = rank_id_ * node_size_ + i;
+    h_push_fea_sizes[offset] = h_local_part_sizes[i];
+    h_local_part_offsets[i + 1] =
+        h_local_part_offsets[i] + h_local_part_sizes[i];
+  }
+  CHECK(fea_size==h_local_part_offsets[node_size_]);
+  PADDLE_ENFORCE_GPU_SUCCESS(cudaMemcpyAsync(res.d_node_size_ptr,
+                                             &h_push_fea_sizes[0],
+                                             all_shard_part_size * sizeof(int),
+                                             cudaMemcpyHostToDevice,
+                                             stream));
+  PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
+
+  auto &comm = nccl_inter_comms_[gpu_id];
+  auto nccl_stream = resource_->comm_stream(gpu_id, 0);
+  PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclGroupStart());
+  PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclAllGather(
+      (const void *)(&res.d_node_size_ptr[rank_id_ * node_size_]),
+      reinterpret_cast<void *>(res.d_node_size_ptr),
+      node_size_,
+      ncclInt,
+      comm,
+      nccl_stream));
+  PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclGroupEnd());
+  PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(nccl_stream));
+
+  PADDLE_ENFORCE_GPU_SUCCESS(cudaMemcpyAsync(&h_push_fea_sizes[0],
+                                             res.d_node_size_ptr,
+                                             all_shard_part_size * sizeof(int),
+                                             cudaMemcpyDeviceToHost,
+                                             stream));
+  PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
+  // my_cache.node_barrier_.Pause();
+
+  size_t *h_remote_part_sizes = res.h_remote_part_sizes.data();
+  size_t *h_remote_part_offsets = res.h_remote_part_offsets.data();
+
+  std::vector<size_t> gpu_id_offsets(node_size_, 0);
+  size_t merge_num = 0;
+  size_t max_part_size = fea_size;
+  for (int i = 0; i < all_shard_part_size; i++) {
+    if (i % node_size_ == 0) {
+      if (i && (merge_num > max_part_size)) max_part_size = merge_num;
+      merge_num = 0;
+    }
+    if (i % node_size_ == rank_id_) {
+      gpu_id_offsets[i / node_size_] = merge_num; 
+    }
+    merge_num += h_push_fea_sizes[i];
+  }
+  if (merge_num > max_part_size) max_part_size = merge_num;
+
+  h_remote_part_offsets[0] = 0;
+  
+  for (int i = 0; i < node_size_; i++) {
+    int offset = node_size_ * i + rank_id_;
+    int recv_num = h_push_fea_sizes[offset];
+    h_remote_part_sizes[i] = recv_num;
+    h_remote_part_offsets[i + 1] = h_remote_part_offsets[i] + recv_num;
+  }
+
+  size_t total_recv_fea_num = h_remote_part_offsets[node_size_];
+
+  my_cache.alloc(total_recv_fea_num, max_type_size_, HeterCommType::COPY_ALL);
+  my_cache.alloc_allgather(max_part_size * node_size_, max_type_size_);
+
+  // copy keys & gradients
+  size_t key_rank_offset = rank_id_ * max_part_size * sizeof(KeyType);
+  size_t val_rank_offset = rank_id_ * max_part_size * value_bytes;
+  CHECK(my_cache.allgather_keys_mem->size()>= node_size_ * max_part_size * sizeof(KeyType));
+  CHECK(my_cache.allgather_vals_mem->size()>= node_size_ * max_part_size * value_bytes);
+
+  PADDLE_ENFORCE_GPU_SUCCESS(cudaMemcpyAsync((char*)my_cache.d_allgather_keys + key_rank_offset,
+                                             d_tmp_keys,
+                                             fea_size * sizeof(KeyType),
+                                             cudaMemcpyDeviceToDevice,
+                                             stream));
+  // 这个同步应该可以去掉
+  PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
+
+  // fill shard vals
+  // d_merged_push_vals根据node id排序,放到Merged_vals
+  gather_vals(
+      reinterpret_cast<float *>(d_tmp_vals),         // out
+      reinterpret_cast<const float *>(d_push_vals),  // in
+      res.d_local_idx_parted,
+      fea_size,
+      value_bytes,
+      stream);
+  PADDLE_ENFORCE_GPU_SUCCESS(cudaMemcpyAsync((char*)my_cache.d_allgather_vals + val_rank_offset,
+                                             d_tmp_vals,
+                                             fea_size * value_bytes,
+                                             cudaMemcpyDeviceToDevice,
+                                             stream));
+  PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
+
+  size_t total_send_recv = 0;
+/*
+  if (rdma_checker_->need_rdma_trans()) {
+     total_send_recv = send_gradient_by_all2all_trans(gpu_id,
+                                                      rank_id_,
+                                                      node_size_,
+                                                      fea_size,
+                                                      d_tmp_keys,
+                                                      d_tmp_vals,
+                                                      value_bytes,
+                                                      d_out_keys,
+                                                      d_out_vals,
+                                                      stream);
+  } else {
+*/
+
+
+
+    // send local device
+/*
+                      send_data_by_allgather(gpu_id,
+                                             node_size_,
+                                             rank_id_,
+                                             sizeof(KeyType),
+                                             max_part_size,
+                                             (const char *)(my_cache.d_allgather_keys),
+                                             reinterpret_cast<char *>(my_cache.d_allgather_keys), // d_merged_push_keys
+                                             stream);
+    send_data_by_allgather(gpu_id,
+                           node_size_,
+                           rank_id_,
+                           value_bytes,
+                           max_part_size,
+                           (const char *)(my_cache.d_allgather_vals),
+                           reinterpret_cast<char *>(my_cache.d_allgather_vals), // d_merged_push_vals
+                           stream);
+*/
+    send_key_data_by_allgather(gpu_id,
+                               node_size_,
+                               rank_id_,
+                               value_bytes,
+                               max_part_size,
+                               (const char *)(my_cache.d_allgather_keys),
+                               reinterpret_cast<char *>(my_cache.d_allgather_keys), // d_merged_push_keys
+                               (const char *)(my_cache.d_allgather_vals),
+                               reinterpret_cast<char *>(my_cache.d_allgather_vals), // d_merged_push_vals
+                               stream);
+
+   // VLOG(0) << "gpu_id:" << gpu_id << ", max_part_size:" << max_part_size << ", h_push_fea_sizes:" << h_push_fea_sizes[0] << " " << h_push_fea_sizes[1] << " " << h_push_fea_sizes[2] << " " << h_push_fea_sizes[3] << ", gpu_id_offsets[0]:" << gpu_id_offsets[0] << ", gpu_id_offsets[1]:" << gpu_id_offsets[1];
+
+
+   // copy to d_out_keys & d_out_vals
+   for (int i = 0; i < node_size_; i++) {
+     size_t start = i * max_part_size + gpu_id_offsets[i];
+     char* key_start = (char*)my_cache.d_allgather_keys + start * sizeof(KeyType);
+     char* val_start = (char*)my_cache.d_allgather_vals + start * value_bytes;
+     PADDLE_ENFORCE_GPU_SUCCESS(cudaMemcpyAsync(d_out_keys + h_remote_part_offsets[i],
+                                                key_start,
+                                                h_remote_part_sizes[i] * sizeof(KeyType),
+                                                cudaMemcpyDeviceToDevice,
+                                                stream));
+  
+     PADDLE_ENFORCE_GPU_SUCCESS(cudaMemcpyAsync(d_out_vals + h_remote_part_offsets[i] * value_bytes,
+                                                val_start,
+                                                h_remote_part_sizes[i] * value_bytes,
+                                                cudaMemcpyDeviceToDevice,
+                                                stream));
+   }
+
+  // }
+  PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
+
+  return total_recv_fea_num;
+}
+
+template <typename KeyType, typename ValType, typename GradType, typename GPUAccessor>
+template <typename Sgd>
+void HeterComm<KeyType, ValType, GradType, GPUAccessor>::push_sparse_allgather(
+    const int& gpu_id, KeyType* d_keys, GradType* d_grads, const size_t& len,
+    Sgd& sgd) {  // NOLINT
+
+  if (len == 0) {
+    return;
+  }
+
+  platform::Timer time_line;
+  time_line.Start();
+  auto &my_cache = storage_[gpu_id];
+  auto stream = resource_->local_stream(gpu_id, 0);
+  // size_t value_bytes = grad_type_size_;
+
+  size_t inter_push_len =
+        gather_inter_gradient_by_copy(gpu_id,
+                                      len,
+                                      d_keys,
+                                      reinterpret_cast<void *>(d_grads),
+                                      grad_type_size_,
+                                      stream);
+
+  size_t node_push_len =
+          gather_sparse_gradient_by_allgather(gpu_id,
+                                              inter_push_len,
+                                              my_cache.d_merged_push_keys,
+                                              my_cache.d_merged_push_vals,
+                                              grad_type_size_,
+                                              my_cache.d_merged_push_keys,
+                                              my_cache.d_merged_keys,
+                                              my_cache.d_merged_push_vals,
+                                              my_cache.d_merged_vals,
+                                              stream);
+
+  size_t uniq_len = merge_grads(gpu_id,
+                               node_push_len,
+                               my_cache.d_merged_push_keys,  // in
+                               my_cache.d_merged_keys,       // out
+                               my_cache.d_merged_push_vals,  // in
+                               my_cache.d_merged_vals,       // out 
+                               stream);
+
+  update_one_table(gpu_id,
+                   my_cache.d_merged_keys,
+                   reinterpret_cast<GradType *>(my_cache.d_merged_vals),
+                   uniq_len,
+                   sgd);
+
+
+}
+
+
+
+
+
 template <typename KeyType,
           typename ValType,
           typename GradType,
@@ -3731,7 +4071,7 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::push_sparse_all2all(
     return;
   }
   auto &my_cache = storage_[gpu_id];
-  // my_cache.all2all_span_.Resume();
+  // my_cache.all2all_span_.Resume(:;
 
   auto stream = resource_->local_stream(gpu_id, 0);
   // tracker
@@ -3749,12 +4089,12 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::push_sparse_all2all(
 
   // scale grad
   // 这里为啥要scale下??
-  scale_grad(len,
-             reinterpret_cast<char *>(d_grads),
-             grad_type_size_,
-             max_mf_dim_,
-             stream,
-             gpu_accessor_);
+  // scale_grad(len,
+  //            reinterpret_cast<char *>(d_grads),
+  //            grad_type_size_,
+  //            max_mf_dim_,
+  //            stream,
+  //            gpu_accessor_);
 
   // size_t inter_push_len = 0;
   // size_t node_push_len = 0;
@@ -3933,7 +4273,8 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::push_sparse(int gpu_num
   }
 
   if (multi_node_) {
-    push_sparse_all2all(gpu_num, d_keys, d_grads, len, sgd);
+    // push_sparse_all2all(gpu_num, d_keys, d_grads, len, sgd);
+    push_sparse_allgather(gpu_num, d_keys, d_grads, len, sgd);
     return;
   }
 
@@ -5568,6 +5909,356 @@ int HeterComm<KeyType, ValType, GradType, GPUAccessor>::dedup_keys_and_fillidx(
 //  platform::CUDADeviceGuard guard(dev_id);
 //  tables_[index]->dump_to_cpu(dev_id, stream);
 //}
+
+// ===== 二跳通信优化======
+template <typename KeyType,
+          typename ValType,
+          typename GradType,
+          typename GPUAccessor>
+size_t HeterComm<KeyType, ValType, GradType, GPUAccessor>::send_keys_by_all2all_trans(
+    const int &gpu_id,
+    const int &nccl_rank_id,
+    const int &nccl_node_size,
+    const size_t &fea_size,
+    const KeyType *d_in_keys,
+    KeyType *d_out_keys,
+    const cudaStream_t &stream) {
+
+  size_t total_fea_num = 0;
+  auto &my_cache = storage_[gpu_id];
+
+  // 如果设备不支持rdma???
+  //  
+  if (!rdma_checker_->is_device_support_rdma(gpu_id)) {
+    int trans_id = get_transfer_devid(gpu_id);
+    auto &trans = storage_[trans_id];
+
+    // gpu id卡和trans_id卡同步一下??
+    // wait node alloc hbm
+    // 如果设备没有和rdma直接连接的话
+    //  
+    trans.sem_wait->post(); // trans_id卡往下走
+    my_cache.sem_wait->wait(); // 等待trans id卡
+
+    // 从其他机器拷贝以后,分到当前机器当前gpu卡的key数
+    const size_t &recv_size =
+        my_cache.shard_res.h_remote_part_offsets[nccl_node_size];
+
+    size_t need_len = std::max(fea_size, recv_size);
+
+    
+    // 为啥要分配2倍??
+    CHECK(trans.trans_keys_buff->size() >= need_len * sizeof(KeyType) * 2);
+
+    // p2p copy
+    PADDLE_ENFORCE_GPU_SUCCESS(cudaMemcpyPeerAsync(trans.d_merged_trans_keys,
+                                                   trans_id,
+                                                   d_in_keys,
+                                                   gpu_id,
+                                                   fea_size * sizeof(KeyType),
+                                                   stream));
+    PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
+   
+    // 上面把feasign拷贝到trans id卡上
+
+
+    // wait node data ok
+    trans.sem_wait->post();
+
+    // 等待trans id卡通信完毕
+    my_cache.sem_wait->wait();
+
+    // p2p copy
+    PADDLE_ENFORCE_GPU_SUCCESS(
+        cudaMemcpyPeerAsync(d_out_keys,
+                            gpu_id,
+                            trans.d_merged_push_trans_keys,
+                            trans_id,
+                            recv_size * sizeof(KeyType),
+                            stream));
+    PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
+
+  } else {
+
+    my_cache.sem_wait->wait();
+    int trans_id = get_transfer_devid(gpu_id);
+    auto &trans = storage_[trans_id];
+
+    // alloc trans mem
+    size_t trans_len =
+        std::max(trans.shard_res.h_local_part_offsets[nccl_node_size],
+                 trans.shard_res.h_remote_part_offsets[nccl_node_size]);
+    // trans id卡的发送和接收都要通过本gpu id卡
+    // trans_len就是h_local_part_offsets和h_remote_part_offset中取最大
+    my_cache.init_trans(trans_len, max_type_size_);
+
+    // 分配好显存唤醒trans id卡
+    trans.sem_wait->post();
+
+    // trans id卡已经把feasign拷贝到本卡上了
+    my_cache.sem_wait->wait();
+
+    // send local device
+    total_fea_num =
+        send_data_by_all2all(gpu_id,
+                             nccl_node_size,
+                             nccl_rank_id,
+                             sizeof(KeyType),
+                             my_cache.shard_res.h_local_part_sizes.data(),
+                             my_cache.shard_res.h_local_part_offsets.data(),
+                             my_cache.shard_res.h_remote_part_sizes.data(),
+                             my_cache.shard_res.h_remote_part_offsets.data(),
+                             reinterpret_cast<const char *>(d_in_keys),
+                             reinterpret_cast<char *>(d_out_keys),
+                             stream);
+    // send trans device
+    total_fea_num += send_data_by_all2all(
+        gpu_id,
+        nccl_node_size,
+        nccl_rank_id,
+        sizeof(KeyType),
+        trans.shard_res.h_local_part_sizes.data(),
+        trans.shard_res.h_local_part_offsets.data(),
+        trans.shard_res.h_remote_part_sizes.data(),
+        trans.shard_res.h_remote_part_offsets.data(),
+        reinterpret_cast<const char *>(my_cache.d_merged_trans_keys),
+        reinterpret_cast<char *>(my_cache.d_merged_push_trans_keys),
+        stream);
+    PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
+
+    trans.sem_wait->post();
+  }
+  return total_fea_num;
+}
+template <typename KeyType,
+          typename ValType,
+          typename GradType,
+          typename GPUAccessor>
+size_t
+HeterComm<KeyType, ValType, GradType, GPUAccessor>::send_vals_by_all2all_trans(
+    const int &gpu_id,
+    const int &nccl_rank_id,
+    const int &nccl_node_size,
+    const char *d_in_vals,
+    char *d_out_vals,
+    const size_t &value_bytes,
+    const cudaStream_t &stream) {
+  auto &my_cache = storage_[gpu_id];
+  auto h_local_part_sizes = my_cache.shard_res.h_local_part_sizes.data();
+  auto h_local_part_offsets = my_cache.shard_res.h_local_part_offsets.data();
+  auto h_remote_part_sizes = my_cache.shard_res.h_remote_part_sizes.data();
+  auto h_remote_part_offsets = my_cache.shard_res.h_remote_part_offsets.data();
+
+  size_t total_fea_num = 0;
+  if (!rdma_checker_->is_device_support_rdma(gpu_id)) {
+    int trans_id = get_transfer_devid(gpu_id);
+    auto &trans = storage_[trans_id];
+
+    const size_t &send_size = h_remote_part_offsets[nccl_node_size];
+    // p2p copy
+    PADDLE_ENFORCE_GPU_SUCCESS(cudaMemcpyPeerAsync(trans.d_merged_trans_vals,
+                                                   trans_id,
+                                                   d_in_vals,
+                                                   gpu_id,
+                                                   send_size * value_bytes,
+                                                   stream));
+    PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
+
+    // wait node data ok
+    // 把数据拷贝到trans id卡,然后唤醒trans id卡
+    trans.sem_wait->post();
+
+
+    // 等待trans id卡通信完成
+    my_cache.sem_wait->wait();
+
+    const size_t &recv_size = h_local_part_offsets[nccl_node_size];
+    // p2p copy
+    PADDLE_ENFORCE_GPU_SUCCESS(
+        cudaMemcpyPeerAsync(d_out_vals,
+                            gpu_id,
+                            trans.d_merged_push_trans_vals,
+                            trans_id,
+                            recv_size * value_bytes,
+                            stream));
+    PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
+
+
+  } else {
+
+    // 等待trans id卡把数据拷贝过来
+    my_cache.sem_wait->wait();
+    int trans_id = get_transfer_devid(gpu_id);
+    auto &trans = storage_[trans_id];
+
+    // send local device
+    total_fea_num =
+        send_data_by_all2all(gpu_id,
+                             nccl_node_size,
+                             nccl_rank_id,
+                             value_bytes,
+                             h_remote_part_sizes,
+                             h_remote_part_offsets,
+                             h_local_part_sizes,
+                             h_local_part_offsets,
+                             reinterpret_cast<const char *>(d_in_vals),
+                             reinterpret_cast<char *>(d_out_vals),
+                             stream);
+    // send trans device
+    total_fea_num += send_data_by_all2all(
+        gpu_id,
+        nccl_node_size,
+        nccl_rank_id,
+        value_bytes,
+        trans.shard_res.h_remote_part_sizes.data(),
+        trans.shard_res.h_remote_part_offsets.data(),
+        trans.shard_res.h_local_part_sizes.data(),
+        trans.shard_res.h_local_part_offsets.data(),
+        reinterpret_cast<const char *>(my_cache.d_merged_trans_vals),
+        reinterpret_cast<char *>(my_cache.d_merged_push_trans_vals),
+        stream);
+    PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
+    trans.sem_wait->post();
+  }
+  return total_fea_num;
+}
+template <typename KeyType,
+          typename ValType,
+          typename GradType,
+          typename GPUAccessor>
+size_t HeterComm<KeyType, ValType, GradType, GPUAccessor>::
+    send_gradient_by_all2all_trans(const int &gpu_id,
+                                   const int &nccl_rank_id,
+                                   const int &nccl_node_size,
+                                   const size_t &fea_size,
+                                   const KeyType *d_in_keys,
+                                   const char *d_in_vals,
+                                   const size_t &value_bytes,
+                                   KeyType *d_out_keys,
+                                   char *d_out_vals,
+                                   const cudaStream_t &stream) {
+  auto &my_cache = storage_[gpu_id];
+  size_t total_send_recv = 0;
+  if (!rdma_checker_->is_device_support_rdma(gpu_id)) {
+    int trans_id = get_transfer_devid(gpu_id);
+    auto &trans = storage_[trans_id];
+
+    // wait node alloc hbm
+    //    trans.sem_wait->post();
+    //    my_cache.sem_wait->wait();
+    const size_t &recv_total_size =
+        my_cache.shard_res.h_remote_part_offsets[nccl_node_size];
+
+
+    size_t need_len = std::max(fea_size, recv_total_size);
+    CHECK(trans.trans_keys_buff->size() >= need_len * sizeof(KeyType) * 2);
+
+    // p2p copy
+    PADDLE_ENFORCE_GPU_SUCCESS(cudaMemcpyPeerAsync(trans.d_merged_trans_keys,
+                                                   trans_id,
+                                                   d_in_keys,
+                                                   gpu_id,
+                                                   fea_size * sizeof(KeyType),
+                                                   stream));
+    PADDLE_ENFORCE_GPU_SUCCESS(cudaMemcpyPeerAsync(trans.d_merged_trans_vals,
+                                                   trans_id,
+                                                   d_in_vals,
+                                                   gpu_id,
+                                                   fea_size * value_bytes,
+                                                   stream));
+    PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
+
+    // wait node data ok
+    trans.sem_wait->post();
+    my_cache.sem_wait->wait();
+
+    // p2p copy
+    PADDLE_ENFORCE_GPU_SUCCESS(
+        cudaMemcpyPeerAsync(d_out_keys,
+                            gpu_id,
+                            trans.d_merged_push_trans_keys,
+                            trans_id,
+                            recv_total_size * sizeof(KeyType),
+                            stream));
+    PADDLE_ENFORCE_GPU_SUCCESS(
+        cudaMemcpyPeerAsync(d_out_vals,
+                            gpu_id,
+                            trans.d_merged_push_trans_vals,
+                            trans_id,
+                            recv_total_size * value_bytes,
+                            stream));
+    PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
+  } else {
+    // copy local rank id data
+    my_cache.sem_wait->wait();
+    int trans_id = get_transfer_devid(gpu_id);
+    auto &trans = storage_[trans_id];
+
+    //    size_t trans_len =
+    //    std::max(trans.shard_res.h_local_part_offsets[nccl_node_size],
+    //            trans.shard_res.h_remote_part_offsets[nccl_node_size]);
+    //    // alloc mem
+    //    my_cache.init_trans(trans_len, value_bytes);
+    //
+    //    trans.sem_wait->post();
+    //    my_cache.sem_wait->wait();
+
+    // send local device
+    total_send_recv =
+        send_data_by_all2all(gpu_id,
+                             nccl_node_size,
+                             nccl_rank_id,
+                             sizeof(KeyType),
+                             my_cache.shard_res.h_local_part_sizes.data(),
+                             my_cache.shard_res.h_local_part_offsets.data(),
+                             my_cache.shard_res.h_remote_part_sizes.data(),
+                             my_cache.shard_res.h_remote_part_offsets.data(),
+                             reinterpret_cast<const char *>(d_in_keys),
+                             reinterpret_cast<char *>(d_out_keys),
+                             stream);
+    send_data_by_all2all(gpu_id,
+                         nccl_node_size,
+                         nccl_rank_id,
+                         value_bytes,
+                         my_cache.shard_res.h_local_part_sizes.data(),
+                         my_cache.shard_res.h_local_part_offsets.data(),
+                         my_cache.shard_res.h_remote_part_sizes.data(),
+                         my_cache.shard_res.h_remote_part_offsets.data(),
+                         reinterpret_cast<const char *>(d_in_vals),
+                         reinterpret_cast<char *>(d_out_vals),
+                         stream);
+    // send trans device
+    total_send_recv += send_data_by_all2all(
+        gpu_id,
+        nccl_node_size,
+        nccl_rank_id,
+        sizeof(KeyType),
+        trans.shard_res.h_local_part_sizes.data(),
+        trans.shard_res.h_local_part_offsets.data(),
+        trans.shard_res.h_remote_part_sizes.data(),
+        trans.shard_res.h_remote_part_offsets.data(),
+        reinterpret_cast<const char *>(my_cache.d_merged_trans_keys),
+        reinterpret_cast<char *>(my_cache.d_merged_push_trans_keys),
+        stream);
+    send_data_by_all2all(
+        gpu_id,
+        nccl_node_size,
+        nccl_rank_id,
+        value_bytes,
+        trans.shard_res.h_local_part_sizes.data(),
+        trans.shard_res.h_local_part_offsets.data(),
+        trans.shard_res.h_remote_part_sizes.data(),
+        trans.shard_res.h_remote_part_offsets.data(),
+        reinterpret_cast<const char *>(my_cache.d_merged_trans_vals),
+        reinterpret_cast<char *>(my_cache.d_merged_push_trans_vals),
+        stream);
+    PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
+    trans.sem_wait->post();
+  }
+  return total_send_recv;
+}
+// ===== 二跳通信优化======
+
 
 }  // end namespace framework
 }  // end namespace paddle
