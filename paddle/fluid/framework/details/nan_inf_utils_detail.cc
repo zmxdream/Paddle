@@ -384,7 +384,7 @@ void CheckVarHasNanOrInf(const std::string& op_type,
         var_name));
 #endif
     return;
-  } else if (platform::is_xpu_place(tensor->place())) {
+  } else if (platform::is_xpu_place(tensor->place()) || platform::is_xpul3_place(tensor->place())) {
 #ifdef PADDLE_WITH_XPU
     if (framework::TransToProtoVarType(tensor->dtype()) !=
         proto::VarType::FP32) {

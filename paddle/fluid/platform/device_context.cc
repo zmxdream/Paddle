@@ -150,6 +150,13 @@ platform::DeviceContext* DeviceContextPool::Get(const platform::Place& place) {
 
   auto it = ptr->find(place);
   if (it == ptr->end()) {
+#ifdef PADDLE_WITH_XPU
+    XPUPlace xpu_place = XPUPlace(place);
+    it = ptr->find(xpu_place);
+    if (it != ptr->end()) {
+      return it->second.get().get();
+    }
+#endif
     PADDLE_THROW(platform::errors::Unimplemented(
         "Place %s is not supported. Please check that your paddle compiles "
         "with WITH_GPU, WITH_XPU, WITH_IPU, WITH_MLU or WITH_ASCEND_CL option "

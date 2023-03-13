@@ -84,6 +84,111 @@ void MemcpySyncD2D(void* dst,
       dst, dst_place, src, src_place, count, *dev_ctx);
 }
 
+void MemcpySyncH2D(void* dst,
+                   const void* src,
+                   size_t count,
+                   const platform::XPUL3Place& dst_place) {
+  platform::DeviceContextPool& pool = platform::DeviceContextPool::Instance();
+  auto* dev_ctx = pool.GetByPlace(dst_place);
+  dev_ctx->Wait();
+  phi::backends::xpu::MemcpySyncH2D(dst, src, count, dst_place, *dev_ctx);
+}
+
+void MemcpySyncD2H(void* dst,
+                   const void* src,
+                   size_t count,
+                   const platform::XPUL3Place& src_place) {
+  platform::DeviceContextPool& pool = platform::DeviceContextPool::Instance();
+  auto* dev_ctx = pool.GetByPlace(src_place);
+  dev_ctx->Wait();
+  phi::backends::xpu::MemcpySyncD2H(dst, src, count, src_place, *dev_ctx);
+}
+
+// if src.device == dst.device and you need sync , after call this function,
+// need to call xpu_wait()
+void MemcpySyncD2D(void* dst,
+                   const platform::XPUL3Place& dst_place,
+                   const void* src,
+                   const platform::XPUL3Place& src_place,
+                   size_t count) {
+  platform::DeviceContextPool& pool = platform::DeviceContextPool::Instance();
+  auto* dev_ctx = pool.GetByPlace(src_place);
+  phi::backends::xpu::MemcpySyncD2D(
+      dst, dst_place, src, src_place, count, *dev_ctx);
+}
+void MemcpySyncD2D(void* dst,
+                   const platform::XPUPlace& dst_place,
+                   const void* src,
+                   const platform::XPUL3Place& src_place,
+                   size_t count) {
+  platform::DeviceContextPool& pool = platform::DeviceContextPool::Instance();
+  auto* dev_ctx = pool.GetByPlace(src_place);
+  phi::backends::xpu::MemcpySyncD2D(
+      dst, dst_place, src, src_place, count, *dev_ctx);
+}
+void MemcpySyncD2D(void* dst,
+                   const platform::XPUL3Place& dst_place,
+                   const void* src,
+                   const platform::XPUPlace& src_place,
+                   size_t count) {
+  platform::DeviceContextPool& pool = platform::DeviceContextPool::Instance();
+  auto* dev_ctx = pool.GetByPlace(src_place);
+  phi::backends::xpu::MemcpySyncD2D(
+      dst, dst_place, src, src_place, count, *dev_ctx);
+}
+
+void MemcpySyncH2D(void* dst,
+                   const void* src,
+                   size_t count,
+                   const platform::Place& dst_place) {
+  if (dst_place.GetType() == phi::AllocationType::XPUL3) {
+    platform::XPUL3Place place_dst(dst_place.GetDeviceId());
+    MemcpySyncH2D(dst, src, count, place_dst);
+  } else if(dst_place.GetType() == phi::AllocationType::XPU) {
+    platform::XPUPlace place_dst(dst_place.GetDeviceId());
+    MemcpySyncH2D(dst, src, count, place_dst);
+  }
+}
+
+void MemcpySyncD2H(void* dst,
+                   const void* src,
+                   size_t count,
+                   const platform::Place& src_place) {
+  if (src_place.GetType() == phi::AllocationType::XPUL3) {
+    platform::XPUL3Place place_src(src_place.GetDeviceId());
+    MemcpySyncD2H(dst, src, count, place_src);
+  } else if(src_place.GetType() == phi::AllocationType::XPU) {
+    platform::XPUPlace place_src(src_place.GetDeviceId());
+    MemcpySyncD2H(dst, src, count, place_src);
+  }
+}
+
+// if src.device == dst.device and you need sync , after call this function,
+// need to call xpu_wait()
+void MemcpySyncD2D(void* dst,
+                   const platform::Place& dst_place,
+                   const void* src,
+                   const platform::Place& src_place,
+                   size_t count) {
+  if (src_place.GetType() == phi::AllocationType::XPUL3 && src_place.GetType() == phi::AllocationType::XPU) {
+    platform::XPUL3Place place_src(src_place.GetDeviceId());
+    platform::XPUPlace place_dst(dst_place.GetDeviceId());
+    MemcpySyncD2D(dst, place_dst, src, place_src, count);
+  } else if (src_place.GetType() == phi::AllocationType::XPU && src_place.GetType() == phi::AllocationType::XPUL3) {
+    platform::XPUPlace place_src(src_place.GetDeviceId());
+    platform::XPUL3Place place_dst(dst_place.GetDeviceId());
+    MemcpySyncD2D(dst, place_dst, src, place_src, count);
+  } else if (src_place.GetType() == phi::AllocationType::XPU && src_place.GetType() == phi::AllocationType::XPU) {
+    platform::XPUPlace place_src(src_place.GetDeviceId());
+    platform::XPUPlace place_dst(dst_place.GetDeviceId());
+    MemcpySyncD2D(dst, place_dst, src, place_src, count);
+  } else if (src_place.GetType() == phi::AllocationType::XPUL3 && src_place.GetType() == phi::AllocationType::XPUL3) {
+    platform::XPUL3Place place_src(src_place.GetDeviceId());
+    platform::XPUL3Place place_dst(dst_place.GetDeviceId());
+    MemcpySyncD2D(dst, place_dst, src, place_src, count);
+  }
+}
+
 void XPUStreamSync(xpuStream stream) {
   PADDLE_ENFORCE_XDNN_SUCCESS(xpu_wait(stream), "xpu_wait");
 }

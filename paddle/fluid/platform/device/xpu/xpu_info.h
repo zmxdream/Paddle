@@ -62,6 +62,42 @@ void MemcpySyncD2D(void *dst,
                    const void *src,
                    const platform::XPUPlace &src_place,
                    size_t count);
+void MemcpySyncH2D(void *dst,
+                   const void *src,
+                   size_t count,
+                   const platform::XPUL3Place &dst_place);
+void MemcpySyncD2H(void *dst,
+                   const void *src,
+                   size_t count,
+                   const platform::XPUL3Place &src_place);
+void MemcpySyncD2D(void *dst,
+                   const platform::XPUL3Place &dst_place,
+                   const void *src,
+                   const platform::XPUL3Place &src_place,
+                   size_t count);
+void MemcpySyncD2D(void *dst,
+                   const platform::XPUPlace &dst_place,
+                   const void *src,
+                   const platform::XPUL3Place &src_place,
+                   size_t count);
+void MemcpySyncD2D(void *dst,
+                   const platform::XPUL3Place &dst_place,
+                   const void *src,
+                   const platform::XPUPlace &src_place,
+                   size_t count);
+void MemcpySyncH2D(void *dst,
+                   const void *src,
+                   size_t count,
+                   const platform::Place &dst_place);
+void MemcpySyncD2H(void *dst,
+                   const void *src,
+                   size_t count,
+                   const platform::Place &src_place);
+void MemcpySyncD2D(void *dst,
+                   const platform::Place &dst_place,
+                   const void *src,
+                   const platform::Place &src_place,
+                   size_t count);
 
 //! Blocks until stream has completed all operations.
 void XPUStreamSync(xpuStream stream);

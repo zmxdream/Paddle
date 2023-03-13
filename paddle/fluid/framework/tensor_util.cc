@@ -109,14 +109,14 @@ void TensorCopyImpl(const TENSOR& src,
   }
 #endif
 #ifdef PADDLE_WITH_XPU
-  else if (platform::is_xpu_place(src_place) &&  // NOLINT
+  else if ((platform::is_xpu_place(src_place) || platform::is_xpul3_place(src_place)) &&  // NOLINT
            platform::is_cpu_place(dst_place)) {
     memory::Copy(dst_place, dst_ptr, src_place, src_ptr, size);
   } else if (platform::is_cpu_place(src_place) &&
-             platform::is_xpu_place(dst_place)) {
+             (platform::is_xpu_place(dst_place) || platform::is_xpul3_place(dst_place))) {
     memory::Copy(dst_place, dst_ptr, src_place, src_ptr, size);
-  } else if (platform::is_xpu_place(src_place) &&
-             platform::is_xpu_place(dst_place)) {
+  } else if ((platform::is_xpu_place(src_place) || platform::is_xpul3_place(src_place)) &&
+             (platform::is_xpu_place(dst_place) || platform::is_xpul3_place(dst_place))) {
     if (src_ptr == dst_ptr) {
       VLOG(3) << "Skip copy the same data async from " << src_place << " to "
               << dst_place;
@@ -508,16 +508,22 @@ void TensorCopySync(const Tensor& src,
   }
 #endif
 #ifdef PADDLE_WITH_XPU
-  else if (platform::is_xpu_place(src_place) &&  // NOLINT
+  else if ((platform::is_xpu_place(src_place) || platform::is_xpul3_place(src_place)) &&  // NOLINT
            platform::is_cpu_place(dst_place)) {
+    // if(src_place.device==0){
+    //   std::cout<<"[hsq] going to memory::Copy in TensorCopySync"<<std::endl;
+    // }
     memory::Copy(dst_place, dst_ptr, src_place, src_ptr, size);
+    // if(src_place.device==0){
+    //   std::cout<<"[hsq] end of memory::Copy in TensorCopySync"<<std::endl;
+    // }
   }                                              // NOLINT
   else if (platform::is_cpu_place(src_place) &&  // NOLINT
-           platform::is_xpu_place(dst_place)) {
+           (platform::is_xpu_place(dst_place) || platform::is_xpul3_place(dst_place))) {
     memory::Copy(dst_place, dst_ptr, src_place, src_ptr, size);
   }                                              // NOLINT
-  else if (platform::is_xpu_place(src_place) &&  // NOLINT
-           platform::is_xpu_place(dst_place)) {
+  else if ((platform::is_xpu_place(src_place) || platform::is_xpul3_place(src_place)) &&  // NOLINT
+           (platform::is_xpu_place(dst_place) || platform::is_xpul3_place(dst_place))) {
     if (src_ptr == dst_ptr) {
       VLOG(3) << "Skip copy the same data async from " << src_place << " to "
               << dst_place;
