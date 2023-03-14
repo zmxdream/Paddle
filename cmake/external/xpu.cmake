@@ -105,7 +105,7 @@ if(WITH_BOX_PS)
         CACHE STRING "" FORCE)
     #"https://klx-sdk-release-public.su.bcebos.com/xdnn/release/2.6.0.1/${XPU_XDNN_DIR_NAME}.tar.gz"
     set(XPU_XDNN_URL
-        "https://klx-sdk-release-public.su.bcebos.com/xdnn_train/dev/paddlebox/20230309/${XPU_XDNN_DIR_NAME}.tar.gz"
+        "https://klx-sdk-release-public.su.bcebos.com/xdnn_train/dev/paddlebox/20230314/${XPU_XDNN_DIR_NAME}.tar.gz"
         CACHE STRING "" FORCE)
 endif()
 
