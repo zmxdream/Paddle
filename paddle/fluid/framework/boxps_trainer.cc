@@ -89,7 +89,7 @@ void BoxPSTrainer::Initialize(const TrainerDesc& trainer_desc,
 }
 
 void BoxPSTrainer::InitOtherEnv(const ProgramDesc& main_program) {
-  if (need_dump_field_) {
+  if (need_dump_field_ || need_dump_param_) {
     InitDumpEnv();
   }
   VLOG(3) << "init other env done.";
@@ -252,7 +252,7 @@ void BoxPSTrainer::Finalize() {
     // must be after train thread, otherwise the ps_buffer_ will be closed first
     dense_table_->Finalize();
   }
-  if (need_dump_field_) {
+  if (need_dump_field_ || need_dump_param_) {
     FinalizeDumpEnv();
   }
   DumpParameters();
