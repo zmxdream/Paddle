@@ -980,6 +980,8 @@ PADDLE_DEFINE_EXPORTED_bool(lineid_have_extend_info, false,
 PADDLE_DEFINE_EXPORTED_bool(dump_filed_same_as_aibox, false,
             "if true , will change dump format from abc.tmp0:2:1:1 into "
             "abc:1:1, which same as aibox");
+PADDLE_DEFINE_EXPORTED_bool(padbox_dataset_disable_random_update, false,
+            "if true ,will feed & update data with the same sequence");
 
 PADDLE_DEFINE_EXPORTED_bool(
     gpugraph_enable_hbm_table_collision_stat,

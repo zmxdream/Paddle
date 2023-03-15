@@ -280,8 +280,9 @@ void BoxWrapper::PullSparseCaseXPU(const paddle::platform::Place& place,
 #ifdef PADDLE_WITH_XPU_KP
   auto dev_ctx = platform::DeviceContextPool::Instance().Get(place);
   auto ctx_xpu = static_cast<platform::XPUDeviceContext*>(dev_ctx)->x_context();
-  phi::Place l3_place =
-    static_cast<platform::XPUDeviceContext*>(dev_ctx)->GetL3Place();
+  // TODO: shiqing need to check
+  //phi::Place l3_place =
+  //  static_cast<platform::XPUDeviceContext*>(dev_ctx)->GetL3Place();
   int device_id = place.GetDeviceId();
   DeviceBoxData& dev = device_caches_[device_id];
 
@@ -302,8 +303,10 @@ void BoxWrapper::PullSparseCaseXPU(const paddle::platform::Place& place,
 
   VLOG(3) << "Begin copy keys, key_num[" << total_length << "]";
   LoDTensor& total_keys_tensor = dev.keys_tensor;
+  //uint32_t* total_keys = reinterpret_cast<uint32_t*>(
+  //    total_keys_tensor.mutable_data<int32_t>({total_length, 1}, l3_place));
   uint32_t* total_keys = reinterpret_cast<uint32_t*>(
-      total_keys_tensor.mutable_data<int32_t>({total_length, 1}, l3_place));
+      total_keys_tensor.mutable_data<int32_t>({total_length, 1}, place));
   int* key2slot = nullptr;
   key2slot = reinterpret_cast<int*>(
       dev.keys2slot.mutable_data<int>({total_length, 1}, place));

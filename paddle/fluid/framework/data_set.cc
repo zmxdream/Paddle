@@ -1944,6 +1944,8 @@ PadBoxSlotDataset::PadBoxSlotDataset() {
     thread_num = FLAGS_padbox_dataset_merge_thread_num;
   }
   merge_thread_num_ = thread_num;
+
+  disable_shuffle_ = disable_random_update_ ? disable_random_update_ : disable_shuffle_;
 }
 PadBoxSlotDataset::~PadBoxSlotDataset() {}
 // create input channel and output channel
@@ -2226,7 +2228,10 @@ void PadBoxSlotDataset::PreLoadIntoMemory() {
   }
 
   read_ins_ref_ = thread_num_;
-  for (int64_t i = 0; i < thread_num_; ++i) {
+  if (disable_random_update_) {
+    read_ins_ref_ = 1;
+  }
+  for (int64_t i = 0; i < read_ins_ref_; ++i) {
     wait_futures_.emplace_back(thread_pool_->Run([this, i]() {
       platform::Timer timer;
       timer.Start();
@@ -2794,8 +2799,10 @@ void PadBoxSlotDataset::PrepareTrain(void) {
           ->AddBatchOffset(offset[i]);
     }
   } else {
-    std::shuffle(input_records_.begin(), input_records_.end(),
-                 BoxWrapper::LocalRandomEngine());
+    if (!disable_random_update_) {
+        std::shuffle(input_records_.begin(), input_records_.end(),
+                     BoxWrapper::LocalRandomEngine());
+    }
     // 分数据到各线程里面
     int batchsize = reinterpret_cast<SlotPaddleBoxDataFeed*>(readers_[0].get())
                         ->GetBatchSize();

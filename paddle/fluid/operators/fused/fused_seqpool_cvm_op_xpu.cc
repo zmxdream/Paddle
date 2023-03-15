@@ -145,8 +145,8 @@ class FusedSeqpoolCVMGradOpXPUKernel : public framework::OpKernel<T> {
     auto cvm_offset = ctx.Attr<int>("cvm_offset");
     int slot_num = dxs.size();
     auto xpu_context = ctx.template device_context<DeviceContext>().x_context();
-    // auto place = ctx.GetPlace();
-    phi::Place l3_place = ctx.template device_context<DeviceContext>().GetL3Place();
+    auto place = ctx.GetPlace();
+    //phi::Place l3_place = ctx.template device_context<DeviceContext>().GetL3Place();
     // T* dy_data = const_cast<T*>(dOut->data<T>());
     T* cvm_data = const_cast<T*>(cvm->data<T>());
     int batch_size = dOut[0]->dims()[0];
@@ -161,7 +161,8 @@ class FusedSeqpoolCVMGradOpXPUKernel : public framework::OpKernel<T> {
     for (int k = 0; k < slot_num; k++) {
         auto dx = dxs[k];
         auto dy = dOut[k];
-        T* dx_data = dx->mutable_data<T>(l3_place);
+        //T* dx_data = dx->mutable_data<T>(l3_place);
+        T* dx_data = dx->mutable_data<T>(place);
         // T* dy_data = dy->mutable_data<T>(l3_place);
         T* dy_data = const_cast<T*>(dy->data<T>());
         auto lod = dx->lod();
