@@ -61,6 +61,8 @@ class GraphGpuWrapper {
   void upload_batch(int table_type, int slice_num, int slot_num);
   std::vector<GpuPsCommGraphFea> get_sub_graph_fea(
       std::vector<std::vector<uint64_t>>& node_ids, int slot_num);    // NOLINT
+  std::vector<GpuPsCommGraphFea> get_sub_graph_slot_fea(
+      std::vector<std::vector<uint64_t>>& node_ids, int slot_num);    // NOLINT
   void build_gpu_graph_fea(GpuPsCommGraphFea& sub_graph_fea, int i);  // NOLINT
   void add_table_feat_conf(std::string table_name,
                            std::string feat_name,
@@ -155,13 +157,13 @@ class GraphGpuWrapper {
   std::vector<int> slot_feature_num_map() const;
   void set_feature_separator(std::string ch);
   void set_slot_feature_separator(std::string ch);
-  int get_feature_of_nodes(int gpu_id,
-                           uint64_t* d_walk,
-                           uint64_t* d_offset,
-                           uint32_t size,
-                           int slot_num,
-                           int* d_slot_feature_num_map,
-                           int fea_num_per_node);
+  // int get_feature_of_nodes(int gpu_id,
+  //                         uint64_t* d_walk,
+  //                         uint64_t* d_offset,
+  //                         uint32_t size,
+  //                         int slot_num,
+  //                         int* d_slot_feature_num_map,
+  //                         int fea_num_per_node);
   int get_feature_info_of_nodes(
       int gpu_id,
       uint64_t* d_nodes,

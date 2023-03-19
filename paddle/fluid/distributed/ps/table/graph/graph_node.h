@@ -28,6 +28,57 @@
 namespace paddle {
 namespace distributed {
 
+enum FEATYPE{
+  INT64 = 0,
+  INT32,
+  DOUBLE,
+  FLOAT
+};
+
+
+struct Feature {
+  char* feature;
+  uint32_t dtype;
+  uint32_t shape;
+  Feature(){}
+  Feature(char* fea, uint32_t dtype, uint32_t shape):feature(fea), dtype(dtype), shape(shape) {}
+ /*
+  static int get_bytes(const uint32_t& dtype) {
+    switch(dtype) {
+      case FEATYPE::INT64:
+        return 8;
+        break;
+      case FEATYPE::INT32:
+        return 4;
+        break;
+      case FEATYPE::DOUBLE:
+        return 8;
+        break;
+      case FEATYPE::FLOAT:
+        return 4;
+        break;
+    }
+   }
+   static int get_val_types() {
+     return FEATYPE::FLOAT - FEATYPE::INT64 + 1;
+   }
+   static int get_idx(const uint32_t& dtype) {
+     return (dtype - FEATYPE::INT64);
+   }
+   
+   static int get_bytes(int idx) {
+       get_bytes(FEATYPE::INT64 + idx);
+   }
+*/
+
+  __host__ __device__ Feature& operator=(const Feature& fea) {
+    this->feature = fea.feature; 
+    this->shape = fea.shape;
+    this->dtype = fea.dtype;
+    return *this; 
+  }
+};
+
 class Node {
  public:
   Node() {}
@@ -61,7 +112,21 @@ class Node {
                               std::vector<uint8_t> &slot_id) const {  // NOLINT
     return 0;
   }
+  virtual int get_feature_ids(int slot_idx,
+                              std::vector<Feature> &feature_id,      // NOLINT
+                              std::vector<uint8_t> &slot_id,
+                              std::vector<uint64_t> & bytes_size) const {  // NOLINT
+    return 0;
+  }
+  virtual int get_slot_feature_ids(int slot_idx,
+                                   std::vector<Feature> &feature_id,      // NOLINT
+                                   std::vector<uint8_t> &slot_id,
+                                   std::vector<uint64_t> & bytes_size) const {  // NOLINT
+    return 0;
+  }
   virtual void set_feature(int idx, const std::string &str) {}
+  virtual void set_feature_shape(int idx, const int32_t & shape) {}
+  virtual void set_feature_dtype(int idx, const std::string &dtype) {}
   virtual void set_feature_size(int size) {}
   virtual void shrink_to_fit() {}
   virtual int get_feature_size() { return 0; }
@@ -187,6 +252,176 @@ class FeatureNode : public Node {
     return num;
   }
 
+  virtual int get_feature_ids(int slot_idx,
+                              std::vector<Feature> &feature_id,      // NOLINT
+                              std::vector<uint8_t> &slot_id,
+                              std::vector<uint64_t> &bytes_size) const {  // NOLINT
+    errno = 0;
+    size_t num = 0;
+    if (slot_idx < static_cast<int>(this->feature.size())) {
+      const std::string &s = this->feature[slot_idx]; // 对于没有数据的,s.size() == 0
+      auto& dtype = this->feature_dtype[slot_idx];
+      auto& shape = this->feature_shape[slot_idx]; // 对于uint64,是1?
+      
+      if (dtype == "feasign" || dtype == "int64") {
+        const uint64_t *feas = (const uint64_t *)(s.c_str());
+        num = s.length() / sizeof(uint64_t);
+        CHECK((s.length() % sizeof(uint64_t)) == 0)
+            << "bad feature_item: [" << s << "]";
+        for (size_t i = 0; i < num; ++i) {
+          // feature_id.push_back(feas[i]);
+          // construct Feature
+          // Feature fea;
+          // fea.dtype = FEATYPE::INT64;
+          // fea.shape = shape;
+          // fea.feature = (char*)feas[i];
+          slot_id.push_back(slot_idx);
+          // feature_id.push_back(fea);
+          bytes_size.push_back(shape * sizeof(uint64_t));
+          feature_id.emplace_back((char*)feas[i], FEATYPE::INT64, shape);
+        }
+      } else if (dtype == "int32"){
+        const int32_t *feas = (const int32_t *)(s.c_str());
+        num = s.length() / sizeof(int32_t);
+        CHECK((s.length() % sizeof(int32_t)) == 0)
+            << "bad feature_item: [" << s << "]";
+        for (size_t i = 0; i < num; ++i) {
+          // feature_id.push_back(feas[i]);
+          // construct Feature
+          // Feature fea;
+          // fea.dtype = FEATYPE::INT32;
+          // fea.shape = shape;
+          // fea.feature = (char*)feas[i];
+          slot_id.push_back(slot_idx);
+          bytes_size.push_back(shape * sizeof(int32_t));
+          // feature_id.push_back(fea);
+          feature_id.emplace_back((char*)(feas + i), FEATYPE::INT32, shape);
+        }
+
+      } else if (dtype == "float64") {
+        const double *feas = (const double *)(s.c_str());
+        size_t dense_vals = s.length() / sizeof(double);
+        CHECK((s.length() % sizeof(double)) == 0)
+            << "bad feature_item: [" << s << "]";
+        CHECK(dense_vals == (size_t)shape)
+            << "bad feature_item: [" << s << "]";
+        // for (size_t i = 0; i < dense_vals; ++i) {
+        //  // feature_id.push_back(feas[i]);
+        //  // construct Feature
+        //  Feature fea;
+        //  fea.dtype = dtype;
+        //  fea.shape = shape;
+        //  fea.feature = (char*)feas[i];
+        //  slot_id.push_back(slot_idx);
+        //  feature_id.push_back(fea);
+        // }
+        // Feature fea;
+        // fea.dtype = FEATYPE::DOUBLE;
+        // fea.shape = shape;
+        // fea.feture = (char*)feas
+        slot_id.push_back(slot_idx);
+        bytes_size.push_back(shape * sizeof(double));
+        feature_id.emplace_back((char*)feas, FEATYPE::DOUBLE, shape);
+        num = 1;
+      } else if (dtype == "float32") {
+        const float *feas = (const float *)(s.c_str());
+        auto dense_vals = s.length() / sizeof(float);
+        CHECK((s.length() % sizeof(float)) == 0)
+            << "bad feature_item: [" << s << "]";
+        CHECK(dense_vals == (size_t)shape)
+            << "bad feature_item: [" << s << "]";
+        // for (size_t i = 0; i < dense_vals; ++i) {
+        //  // feature_id.push_back(feas[i]);
+        //  // construct Feature
+        //  Feature fea;
+        //  fea.dtype = dtype;
+        //  fea.shape = shape;
+        //  fea.feature = (char*)feas[i];
+        //  slot_id.push_back(slot_idx);
+        //  feature_id.push_back(fea);
+        // }
+        // Feature fea;
+        // fea.dtype = FEATYPE::FLOAT;
+        // fea.shape = shape;
+        // fea.feture = (char*)feas
+        slot_id.push_back(slot_idx);
+        bytes_size.push_back(shape * sizeof(float));
+        feature_id.emplace_back((char*)feas, FEATYPE::FLOAT, shape);
+        num = 1;
+      }
+    }
+    PADDLE_ENFORCE_EQ(
+        errno,
+        0,
+        paddle::platform::errors::InvalidArgument(
+            "get_feature_ids get errno should be 0, but got %d.", errno));
+    return num;
+  }
+
+
+
+  virtual int get_slot_feature_ids(int slot_idx,
+                              std::vector<Feature> &feature_id,      // NOLINT
+                              std::vector<uint8_t> &slot_id,
+                              std::vector<uint64_t> &bytes_size) const {  // NOLINT
+    errno = 0;
+    size_t num = 0;
+    if (slot_idx < static_cast<int>(this->feature.size())) {
+      const std::string &s = this->feature[slot_idx]; // 对于没有数据的,s.size() == 0
+      auto& dtype = this->feature_dtype[slot_idx];
+      auto& shape = this->feature_shape[slot_idx]; // 对于uint64,是1?
+      
+      if (dtype == "feasign" || dtype == "int64") {
+        const uint64_t *feas = (const uint64_t *)(s.c_str());
+        num = s.length() / sizeof(uint64_t);
+        CHECK((s.length() % sizeof(uint64_t)) == 0)
+            << "bad feature_item: [" << s << "]";
+        for (size_t i = 0; i < num; ++i) {
+          // feature_id.push_back(feas[i]);
+          // construct Feature
+          // Feature fea;
+          // fea.dtype = FEATYPE::INT64;
+          // fea.shape = shape;
+          // fea.feature = (char*)feas[i];
+          slot_id.push_back(slot_idx);
+          // feature_id.push_back(fea);
+          bytes_size.push_back(shape * sizeof(uint64_t));
+          feature_id.emplace_back((char*)feas[i], FEATYPE::INT64, shape);
+        }
+      } else if (dtype == "int32"){
+        const int32_t *feas = (const int32_t *)(s.c_str());
+        num = s.length() / sizeof(int32_t);
+        CHECK((s.length() % sizeof(int32_t)) == 0)
+            << "bad feature_item: [" << s << "]";
+        for (size_t i = 0; i < num; ++i) {
+          // feature_id.push_back(feas[i]);
+          // construct Feature
+          // Feature fea;
+          // fea.dtype = FEATYPE::INT32;
+          // fea.shape = shape;
+          // fea.feature = (char*)feas[i];
+          slot_id.push_back(slot_idx);
+          bytes_size.push_back(shape * sizeof(int32_t));
+          // feature_id.push_back(fea);
+          feature_id.emplace_back((char*)(feas + i), FEATYPE::INT32, shape);
+        }
+      }
+    }
+    PADDLE_ENFORCE_EQ(
+        errno,
+        0,
+        paddle::platform::errors::InvalidArgument(
+            "get_feature_ids get errno should be 0, but got %d.", errno));
+    return num;
+  }
+
+
+
+
+
+
+
+
   virtual std::string *mutable_feature(int idx) {
     if (idx >= static_cast<int>(this->feature.size())) {
       this->feature.resize(idx + 1);
@@ -200,7 +435,23 @@ class FeatureNode : public Node {
     }
     this->feature[idx] = str;
   }
-  virtual void set_feature_size(int size) { this->feature.resize(size); }
+  virtual void set_feature_size(int size) { 
+      this->feature.resize(size);
+      this->feature_dtype.resize(size);
+      this->feature_shape.resize(size);
+  }
+  virtual void set_feature_shape(int idx, const int32_t & shape) {
+    if (idx >= static_cast<int>(this->feature_shape.size())) {
+      this->feature_shape.resize(idx + 1);
+    }
+    this->feature_shape[idx] = shape;
+  }
+  virtual void set_feature_dtype(int idx, const std::string &dtype) {
+    if (idx >= static_cast<int>(this->feature_dtype.size())) {
+      this->feature_dtype.resize(idx + 1);
+    }
+    this->feature_dtype[idx] = dtype;
+  }
   virtual int get_feature_size() { return this->feature.size(); }
   virtual void shrink_to_fit() {
     feature.shrink_to_fit();
@@ -282,6 +533,9 @@ class FeatureNode : public Node {
 
  protected:
   std::vector<std::string> feature;
+  std::vector<int32_t> feature_shape;
+  std::vector<std::string> feature_dtype;
+  
 };
 
 }  // namespace distributed

@@ -2009,8 +2009,13 @@ void SlotRecordInMemoryDataFeed::Init(const DataFeedDesc& data_feed_desc) {
   PADDLE_ENFORCE(data_feed_desc.has_multi_slot_desc(),
                  platform::errors::PreconditionNotMet(
                      "Multi_slot_desc has not been set in data_feed_desc"));
+
+
+
+
   paddle::framework::MultiSlotDesc multi_slot_desc =
       data_feed_desc.multi_slot_desc();
+
   SetBatchSize(data_feed_desc.batch_size());
   size_t all_slot_num = multi_slot_desc.slots_size();
 
@@ -2022,6 +2027,8 @@ void SlotRecordInMemoryDataFeed::Init(const DataFeedDesc& data_feed_desc) {
 
   float_total_dims_size_ = 0;
   float_total_dims_without_inductives_.clear();
+
+
   for (size_t i = 0; i < all_slot_num; ++i) {
     const auto& slot = multi_slot_desc.slots(i);
     all_slots_[i] = slot.name();
@@ -2053,6 +2060,9 @@ void SlotRecordInMemoryDataFeed::Init(const DataFeedDesc& data_feed_desc) {
       }
 
       use_slots_.push_back(slot.name());
+      // adapt for dense feature
+      use_slots_type_.push_back(slot.type());
+      // TODO(zhangminxu): test shape for dense feature
 
       if (slot.is_dense()) {
         for (int j = 0; j < slot.shape_size(); ++j) {
@@ -2079,6 +2089,7 @@ void SlotRecordInMemoryDataFeed::Init(const DataFeedDesc& data_feed_desc) {
   used_slots_info_.resize(use_slot_size_);
 
   feed_vec_.resize(used_slots_info_.size());
+
   const int kEstimatedFeasignNumPerSlot = 5;  // Magic Number
   for (size_t i = 0; i < all_slot_num; i++) {
     batch_float_feasigns_.push_back(std::vector<float>());
@@ -2112,6 +2123,7 @@ void SlotRecordInMemoryDataFeed::Init(const DataFeedDesc& data_feed_desc) {
 #if defined(PADDLE_WITH_GPU_GRAPH) && defined(PADDLE_WITH_HETERPS)
   gpu_graph_data_generator_.SetConfig(data_feed_desc);
 #endif
+
   if (gpu_graph_mode_) {
     train_mode_ = true;
   } else {
@@ -2670,6 +2682,8 @@ bool SlotRecordInMemoryDataFeed::Start() {
 #endif
 #if defined(PADDLE_WITH_GPU_GRAPH) && defined(PADDLE_WITH_HETERPS)
   gpu_graph_data_generator_.SetFeedVec(feed_vec_);
+  // adapt for dense feature
+  gpu_graph_data_generator_.SetFeedType(use_slots_type_);
 #endif
   return true;
 }

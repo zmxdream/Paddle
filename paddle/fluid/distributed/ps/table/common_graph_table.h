@@ -724,6 +724,8 @@ class GraphTable : public Table {
       int idx, const std::vector<uint64_t> &ids);
   virtual paddle::framework::GpuPsCommGraphFea make_gpu_ps_graph_fea(
       int gpu_id, std::vector<uint64_t> &node_ids, int slot_num);  // NOLINT
+  virtual paddle::framework::GpuPsCommGraphFea make_gpu_ps_graph_slot_fea(
+      int gpu_id, std::vector<uint64_t> &node_ids, int slot_num);  // NOLINT
   int32_t Load_to_ssd(const std::string &path, const std::string &param);
   int64_t load_graph_to_memory_from_ssd(int idx,
                                         std::vector<uint64_t> &ids);  // NOLINT

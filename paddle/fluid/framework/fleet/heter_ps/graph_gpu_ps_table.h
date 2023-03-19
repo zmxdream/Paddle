@@ -58,6 +58,8 @@ class GpuPsGraphTable
     this->graph_table_num_ = graph_table_num;
     this->feature_table_num_ = 1;
     gpu_num = resource_->total_device();
+    mem_pools_.resize(gpu_num); 
+    hbm_pools_.resize(gpu_num); 
     memset(global_device_map, -1, sizeof(global_device_map));
 
     tables_ = std::vector<Table *>(
@@ -139,13 +141,13 @@ class GpuPsGraphTable
                        uint64_t *key,
                        int len,
                        std::shared_ptr<phi::Allocation> node_degree);
-  int get_feature_of_nodes(int gpu_id,
-                           uint64_t *d_walk,
-                           uint64_t *d_offset,
-                           int size,
-                           int slot_num,
-                           int *d_slot_feature_num_map,
-                           int fea_num_per_node);
+  // int get_feature_of_nodes(int gpu_id,
+  //                         uint64_t *d_walk,
+  //                         uint64_t *d_offset,
+  //                         int size,
+  //                         int slot_num,
+  //                         int *d_slot_feature_num_map,
+  //                         int fea_num_per_node);
   int get_feature_info_of_nodes(
       int gpu_id,
       uint64_t *d_nodes,
@@ -174,8 +176,11 @@ class GpuPsGraphTable
                                  int *fea_left,
                                  uint32_t *fea_num_list,
                                  uint32_t *actual_feature_size,
-                                 uint64_t *feature_list,
+                                 Feature *feature_list,
                                  uint8_t *slot_list);
+  void move_feature_to_gpu(const GpuPsCommGraphFea& g,
+                           int gpu_id,
+                           int offset);
   void move_degree_to_source_gpu(
       int gpu_id, int gpu_num, int *h_left, int *h_right, int *node_degree);
   void move_result_to_source_gpu_all_edge_type(int gpu_id,
@@ -208,6 +213,10 @@ class GpuPsGraphTable
   std::vector<std::mutex *> device_mutex_;
   std::condition_variable cv_;
   int cpu_table_status;
+
+  std::vector<MemoryPool*> mem_pools_;
+  std::vector<HBMMemoryPool*> hbm_pools_;
+
 };
 
 };  // namespace framework
