@@ -22,7 +22,10 @@
 #include "paddle/fluid/memory/memory.h"
 #include "paddle/fluid/platform/cuda_device_guard.h"
 #include "paddle/phi/core/enforce.h"
+#include "paddle/fluid/distributed/ps/table/graph/graph_node.h"
 DECLARE_bool(gpugraph_load_node_list_into_hbm);
+
+
 namespace paddle {
 namespace framework {
 struct GpuPsNodeInfo {
@@ -31,6 +34,8 @@ struct GpuPsNodeInfo {
   // this node's neighbor is stored on [neighbor_offset,neighbor_offset +
   // neighbor_size) of int64_t *neighbor_list;
 };
+
+using Feature = ::paddle::distributed::Feature;
 
 struct GpuPsCommGraph {
   uint64_t *node_list;
@@ -399,8 +404,10 @@ struct GpuPsFeaInfo {
 
 struct GpuPsCommGraphFea {
   uint64_t *node_list;     // only locate on host side, the list of node id
-  uint64_t *feature_list;  // locate on both side
+  // uint64_t *feature_list;  // locate on both side
+  Feature *feature_list;  // locate on both side
   uint8_t *slot_id_list;   // locate on both side
+  uint64_t* bytes_offset; // record bytes occupy for each feature
   GpuPsFeaInfo
       *fea_info_list;  // only locate on host side, the list of fea_info
   uint64_t feature_size, node_size, feature_capacity;
@@ -409,19 +416,22 @@ struct GpuPsCommGraphFea {
       : node_list(NULL),
         feature_list(NULL),
         slot_id_list(NULL),
+        bytes_offset(NULL),
         fea_info_list(NULL),
         feature_size(0),
         node_size(0),
         feature_capacity(0) {}
   GpuPsCommGraphFea(uint64_t *node_list_,
-                    uint64_t *feature_list_,
+                    Feature *feature_list_,
                     uint8_t *slot_id_list_,
+                    uint64_t *bytes_offset, 
                     GpuPsFeaInfo *fea_info_list_,
                     uint64_t feature_size_,
                     uint64_t node_size_)
       : node_list(node_list_),
         feature_list(feature_list_),
         slot_id_list(slot_id_list_),
+        bytes_offset(bytes_offset),
         fea_info_list(fea_info_list_),
         feature_size(feature_size_),
         node_size(node_size_) {}
@@ -438,8 +448,10 @@ struct GpuPsCommGraphFea {
     this->feature_size = feature_size;
     this->node_size = node_size;
     this->node_list = new uint64_t[node_size];
-    this->feature_list = new uint64_t[feature_size];
+    // this->feature_list = new uint64_t[feature_size];
+    this->feature_list = new Feature[feature_size];
     this->slot_id_list = new uint8_t[feature_size];
+    this->bytes_offset = new uint64_t[feature_size + 1];
     this->fea_info_list = new GpuPsFeaInfo[node_size];
   }
   void release_on_cpu() {
@@ -451,14 +463,17 @@ struct GpuPsCommGraphFea {
     DEL_PTR_ARRAY(node_list);
     DEL_PTR_ARRAY(feature_list);
     DEL_PTR_ARRAY(slot_id_list);
+    DEL_PTR_ARRAY(bytes_offset);
     DEL_PTR_ARRAY(fea_info_list);
   }
   void display_on_cpu() const {
     VLOG(1) << "feature_size = " << feature_size;
     VLOG(1) << "node_size = " << node_size;
-    for (uint64_t i = 0; i < feature_size; i++) {
-      VLOG(1) << "feature_list[" << i << "] = " << feature_list[i];
-    }
+
+    // 先注释,后续重载operator<<
+    // for (uint64_t i = 0; i < feature_size; i++) {
+    //   VLOG(1) << "feature_list[" << i << "] = " << feature_list[i];
+    // }
     for (uint64_t i = 0; i < node_size; i++) {
       VLOG(1) << "node_id[" << node_list[i]
               << "] feature_size = " << fea_info_list[i].feature_size;
@@ -468,7 +483,8 @@ struct GpuPsCommGraphFea {
         if (j > 0) str += ",";
         str += std::to_string(slot_id_list[j + offset]);
         str += ":";
-        str += std::to_string(feature_list[j + offset]);
+        // 临时注释,后续Feature重载operator<<
+        // str += std::to_string(feature_list[j + offset]);
       }
       VLOG(1) << str;
     }
