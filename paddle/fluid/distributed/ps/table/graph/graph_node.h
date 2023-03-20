@@ -42,34 +42,6 @@ struct Feature {
   uint32_t shape;
   Feature(){}
   Feature(char* fea, uint32_t dtype, uint32_t shape):feature(fea), dtype(dtype), shape(shape) {}
- /*
-  static int get_bytes(const uint32_t& dtype) {
-    switch(dtype) {
-      case FEATYPE::INT64:
-        return 8;
-        break;
-      case FEATYPE::INT32:
-        return 4;
-        break;
-      case FEATYPE::DOUBLE:
-        return 8;
-        break;
-      case FEATYPE::FLOAT:
-        return 4;
-        break;
-    }
-   }
-   static int get_val_types() {
-     return FEATYPE::FLOAT - FEATYPE::INT64 + 1;
-   }
-   static int get_idx(const uint32_t& dtype) {
-     return (dtype - FEATYPE::INT64);
-   }
-   
-   static int get_bytes(int idx) {
-       get_bytes(FEATYPE::INT64 + idx);
-   }
-*/
 
   __host__ __device__ Feature& operator=(const Feature& fea) {
     this->feature = fea.feature; 
@@ -370,7 +342,11 @@ class FeatureNode : public Node {
       const std::string &s = this->feature[slot_idx]; // 对于没有数据的,s.size() == 0
       auto& dtype = this->feature_dtype[slot_idx];
       auto& shape = this->feature_shape[slot_idx]; // 对于uint64,是1?
-      
+     
+    
+      VLOG(0) << "slot idx:" << slot_idx << ", dtype:" << dtype << ", shape:" << shape;  
+
+ 
       if (dtype == "feasign" || dtype == "int64") {
         const uint64_t *feas = (const uint64_t *)(s.c_str());
         num = s.length() / sizeof(uint64_t);
