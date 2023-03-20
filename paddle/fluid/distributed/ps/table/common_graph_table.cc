@@ -2586,11 +2586,11 @@ int GraphTable::parse_feature(int idx,
   if (it != feat_id_map[idx].end()) {
     int32_t id = it->second;
     std::string *fea_ptr = node->mutable_feature(id);
-    std::string dtype = this->feat_dtype[idx][id];
     // for slot & dense feature, should check shape
+    std::string dtype = this->feat_dtype[idx][id];
     uint32_t shape = this->feat_shape[idx][id];
-    node->set_feature_shape(idx, shape);   
-    node->set_feature_dtype(idx, dtype);
+    node->set_feature_shape(id, shape);   
+    node->set_feature_dtype(id, dtype);
  
     // TODO(zhangminxu): for dense feature , check shape
     // PADDLE_ENFORCE_EQ(fea_fields.size() == (size_t)shape,
