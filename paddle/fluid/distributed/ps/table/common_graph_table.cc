@@ -71,7 +71,6 @@ int32_t GraphTable::Load_to_ssd(const std::string &path,
 }
 
 
-// 这个传入的node_ids的size是多少??
 paddle::framework::GpuPsCommGraphFea GraphTable::make_gpu_ps_graph_fea(
     int gpu_id, std::vector<uint64_t> &node_ids, int slot_num) {
   size_t shard_num = 64;
@@ -187,7 +186,6 @@ paddle::framework::GpuPsCommGraphFea GraphTable::make_gpu_ps_graph_fea(
 
 
 
-// 这个传入的node_ids的size是多少??
 paddle::framework::GpuPsCommGraphFea GraphTable::make_gpu_ps_graph_slot_fea(
     int gpu_id, std::vector<uint64_t> &node_ids, int slot_num) {
   size_t shard_num = 64;
