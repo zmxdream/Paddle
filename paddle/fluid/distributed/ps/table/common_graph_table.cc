@@ -1993,6 +1993,7 @@ std::pair<uint64_t, uint64_t> GraphTable::parse_node_file(
     if (load_slot) {
       auto node = feature_shards[idx][index]->add_feature_node(id, false);
       if (node != NULL) {
+        node->set_feature_size(feat_name[idx].size());
         for (int i = 2; i < num; ++i) {
           auto &v = vals[i];
           int ret = parse_feature(idx, v.ptr, v.len, node);
