@@ -231,9 +231,9 @@ class FeatureNode : public Node {
     errno = 0;
     size_t num = 0;
     if (slot_idx < static_cast<int>(this->feature.size())) {
-      const std::string &s = this->feature[slot_idx]; // 对于没有数据的,s.size() == 0
+      const std::string &s = this->feature[slot_idx];
       auto& dtype = this->feature_dtype[slot_idx];
-      auto& shape = this->feature_shape[slot_idx]; // 对于uint64,是1?
+      auto& shape = this->feature_shape[slot_idx];
       
       if (dtype == "feasign" || dtype == "int64") {
         const uint64_t *feas = (const uint64_t *)(s.c_str());
@@ -241,14 +241,7 @@ class FeatureNode : public Node {
         CHECK((s.length() % sizeof(uint64_t)) == 0)
             << "bad feature_item: [" << s << "]";
         for (size_t i = 0; i < num; ++i) {
-          // feature_id.push_back(feas[i]);
-          // construct Feature
-          // Feature fea;
-          // fea.dtype = FEATYPE::INT64;
-          // fea.shape = shape;
-          // fea.feature = (char*)feas[i];
           slot_id.push_back(slot_idx);
-          // feature_id.push_back(fea);
           bytes_size.push_back(shape * sizeof(uint64_t));
           feature_id.emplace_back((char*)feas[i], FEATYPE::INT64, shape);
         }
@@ -258,15 +251,8 @@ class FeatureNode : public Node {
         CHECK((s.length() % sizeof(int32_t)) == 0)
             << "bad feature_item: [" << s << "]";
         for (size_t i = 0; i < num; ++i) {
-          // feature_id.push_back(feas[i]);
-          // construct Feature
-          // Feature fea;
-          // fea.dtype = FEATYPE::INT32;
-          // fea.shape = shape;
-          // fea.feature = (char*)feas[i];
           slot_id.push_back(slot_idx);
           bytes_size.push_back(shape * sizeof(int32_t));
-          // feature_id.push_back(fea);
           feature_id.emplace_back((char*)(feas + i), FEATYPE::INT32, shape);
         }
 
@@ -277,20 +263,6 @@ class FeatureNode : public Node {
             << "bad feature_item: [" << s << "]";
         CHECK(dense_vals == (size_t)shape)
             << "bad feature_item: [" << s << "]";
-        // for (size_t i = 0; i < dense_vals; ++i) {
-        //  // feature_id.push_back(feas[i]);
-        //  // construct Feature
-        //  Feature fea;
-        //  fea.dtype = dtype;
-        //  fea.shape = shape;
-        //  fea.feature = (char*)feas[i];
-        //  slot_id.push_back(slot_idx);
-        //  feature_id.push_back(fea);
-        // }
-        // Feature fea;
-        // fea.dtype = FEATYPE::DOUBLE;
-        // fea.shape = shape;
-        // fea.feture = (char*)feas
         slot_id.push_back(slot_idx);
         bytes_size.push_back(shape * sizeof(double));
         feature_id.emplace_back((char*)feas, FEATYPE::DOUBLE, shape);
@@ -302,20 +274,6 @@ class FeatureNode : public Node {
             << "bad feature_item: [" << s << "]";
         CHECK(dense_vals == (size_t)shape)
             << "bad feature_item: [" << s << "]";
-        // for (size_t i = 0; i < dense_vals; ++i) {
-        //  // feature_id.push_back(feas[i]);
-        //  // construct Feature
-        //  Feature fea;
-        //  fea.dtype = dtype;
-        //  fea.shape = shape;
-        //  fea.feature = (char*)feas[i];
-        //  slot_id.push_back(slot_idx);
-        //  feature_id.push_back(fea);
-        // }
-        // Feature fea;
-        // fea.dtype = FEATYPE::FLOAT;
-        // fea.shape = shape;
-        // fea.feture = (char*)feas
         slot_id.push_back(slot_idx);
         bytes_size.push_back(shape * sizeof(float));
         feature_id.emplace_back((char*)feas, FEATYPE::FLOAT, shape);
@@ -330,8 +288,6 @@ class FeatureNode : public Node {
     return num;
   }
 
-
-
   virtual int get_slot_feature_ids(int slot_idx,
                               std::vector<Feature> &feature_id,      // NOLINT
                               std::vector<uint8_t> &slot_id,
@@ -339,10 +295,9 @@ class FeatureNode : public Node {
     errno = 0;
     size_t num = 0;
     if (slot_idx < static_cast<int>(this->feature.size())) {
-      const std::string &s = this->feature[slot_idx]; // 对于没有数据的,s.size() == 0
+      const std::string &s = this->feature[slot_idx];
       auto& dtype = this->feature_dtype[slot_idx];
-      auto& shape = this->feature_shape[slot_idx]; // 对于uint64,是1?
-     
+      auto& shape = this->feature_shape[slot_idx];
     
       VLOG(0) << "slot idx:" << slot_idx << ", dtype:" << dtype << ", shape:" << shape;  
 
@@ -353,14 +308,7 @@ class FeatureNode : public Node {
         CHECK((s.length() % sizeof(uint64_t)) == 0)
             << "bad feature_item: [" << s << "]";
         for (size_t i = 0; i < num; ++i) {
-          // feature_id.push_back(feas[i]);
-          // construct Feature
-          // Feature fea;
-          // fea.dtype = FEATYPE::INT64;
-          // fea.shape = shape;
-          // fea.feature = (char*)feas[i];
           slot_id.push_back(slot_idx);
-          // feature_id.push_back(fea);
           bytes_size.push_back(shape * sizeof(uint64_t));
           feature_id.emplace_back((char*)feas[i], FEATYPE::INT64, shape);
         }
@@ -370,15 +318,8 @@ class FeatureNode : public Node {
         CHECK((s.length() % sizeof(int32_t)) == 0)
             << "bad feature_item: [" << s << "]";
         for (size_t i = 0; i < num; ++i) {
-          // feature_id.push_back(feas[i]);
-          // construct Feature
-          // Feature fea;
-          // fea.dtype = FEATYPE::INT32;
-          // fea.shape = shape;
-          // fea.feature = (char*)feas[i];
           slot_id.push_back(slot_idx);
           bytes_size.push_back(shape * sizeof(int32_t));
-          // feature_id.push_back(fea);
           feature_id.emplace_back((char*)(feas + i), FEATYPE::INT32, shape);
         }
       }
@@ -390,13 +331,6 @@ class FeatureNode : public Node {
             "get_feature_ids get errno should be 0, but got %d.", errno));
     return num;
   }
-
-
-
-
-
-
-
 
   virtual std::string *mutable_feature(int idx) {
     if (idx >= static_cast<int>(this->feature.size())) {

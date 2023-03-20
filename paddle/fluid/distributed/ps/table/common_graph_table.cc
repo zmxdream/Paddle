@@ -70,7 +70,6 @@ int32_t GraphTable::Load_to_ssd(const std::string &path,
   return 0;
 }
 
-
 paddle::framework::GpuPsCommGraphFea GraphTable::make_gpu_ps_graph_fea(
     int gpu_id, std::vector<uint64_t> &node_ids, int slot_num) {
   size_t shard_num = 64;
@@ -184,8 +183,6 @@ paddle::framework::GpuPsCommGraphFea GraphTable::make_gpu_ps_graph_fea(
   return res;
 }
 
-
-
 paddle::framework::GpuPsCommGraphFea GraphTable::make_gpu_ps_graph_slot_fea(
     int gpu_id, std::vector<uint64_t> &node_ids, int slot_num) {
   size_t shard_num = 64;
@@ -238,10 +235,8 @@ paddle::framework::GpuPsCommGraphFea GraphTable::make_gpu_ps_graph_slot_fea(
             x.feature_offset = feature_array[i].size();
             int total_feature_size = 0;
             for (int k = 0; k < slot_num; ++k) {
-
-              auto feature_ids_size = // 对于单个slot特征来说,feature_ids_size是这个slot下的feasign数量,对于dense特征来说就是1
+              auto feature_ids_size =
                   v->get_slot_feature_ids(k, feature_array[i], slot_id_array[i], bytes_size[i]);
-
               if (slot_feature_num_map_[k] < feature_ids_size) {
                 slot_feature_num_map_[k] = feature_ids_size;
               }
@@ -277,7 +272,6 @@ paddle::framework::GpuPsCommGraphFea GraphTable::make_gpu_ps_graph_slot_fea(
   VLOG(1) << "Loaded feature table on cpu, feature_list_size[" << tot_len
           << "] node_ids_size[" << node_ids.size() << "]";
   res.init_on_cpu(tot_len, (unsigned int)node_ids.size(), slot_num);
-
   unsigned int offset = 0, ind = 0;
   res.bytes_offset[0] = 0;
   for (size_t i = 0; i < shard_num; i++) {
@@ -302,10 +296,6 @@ paddle::framework::GpuPsCommGraphFea GraphTable::make_gpu_ps_graph_slot_fea(
   for (size_t i = 0; i < tasks.size(); i++) tasks[i].get();
   return res;
 }
-
-
-
-
 
 paddle::framework::GpuPsCommGraph GraphTable::make_gpu_ps_graph(
     int idx, const std::vector<uint64_t> &ids) {
@@ -699,8 +689,6 @@ void GraphTable::release_graph_node() {
   if (FLAGS_graph_metapath_split_opt) {
     clear_feature_shard();
   } else {
-    // 全显存模式就是把node的feature信息也放到gpu里,所以把feature信息通过upload batch放到gpu以后就clear feature shard了
-    // 
     if (FLAGS_gpugraph_storage_mode != paddle::framework::GpuGraphStorageMode::
                                            MEM_EMB_FEATURE_AND_GPU_GRAPH &&
         FLAGS_gpugraph_storage_mode != paddle::framework::GpuGraphStorageMode::
@@ -2595,9 +2583,6 @@ int GraphTable::parse_feature(int idx,
                                    FLAGS_gpugraph_slot_feasign_max_num);
   std::string name = fields[0].to_string();
   auto it = feat_id_map[idx].find(name);
-
-  // fea_fields保存的是fea1, fea2, fea3, ...fean
-  // 是根据slot来确定解析的,所以如果没有这个slot,对应的string.size()就是0...
   if (it != feat_id_map[idx].end()) {
     int32_t id = it->second;
     std::string *fea_ptr = node->mutable_feature(id);
@@ -3022,9 +3007,7 @@ int32_t GraphTable::Initialize(const GraphParameter &graph) {
   feat_name.resize(node_types.size());
   feat_shape.resize(node_types.size());
   feat_dtype.resize(node_types.size());
-
   VLOG(0) << "got " << node_types.size() << " node types in total";
-
   for (int k = 0; k < node_types.size(); k++) {
     feature_to_id[node_types[k]] = k;
     auto node_type = node_types[k];
@@ -3036,11 +3019,9 @@ int32_t GraphTable::Initialize(const GraphParameter &graph) {
       // auto &f_name = common.attributes()[i];
       // auto &f_shape = common.dims()[i];
       // auto &f_dtype = common.params()[i];
-
       auto &f_name = feature.name()[i];
       auto &f_shape = feature.shape()[i];
       auto &f_dtype = feature.dtype()[i];
-
       feat_name[k].push_back(f_name);
       feat_shape[k].push_back(f_shape);
       feat_dtype[k].push_back(f_dtype);
@@ -3049,7 +3030,6 @@ int32_t GraphTable::Initialize(const GraphParameter &graph) {
               << " shape:" << f_shape << " dtype:" << f_dtype;
     }
   }
-
   // this->table_name = common.table_name();
   // this->table_type = common.name();
   this->table_name = graph.table_name();

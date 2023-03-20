@@ -87,7 +87,6 @@ __global__ void copy_buffer_ac_to_final_place(uint64_t* gpu_buffer,
     i += BLOCK_WARPS;
   }
 }
-// GpuPsInfo里保存了feature size??好像是
 __global__ void get_features_size(GpuPsFeaInfo* fea_info_array,
                                   uint32_t* feature_size,
                                   int n) {
@@ -112,7 +111,6 @@ __global__ void get_features_kernel(GpuPsCommGraphFea graph,
     }
     uint32_t src_offset = fea_info_array[idx].feature_offset;
     uint32_t dst_offset = fea_size_prefix_sum[idx];
-
     for (uint32_t j = 0; j < feature_size; ++j) {
       feature_array[dst_offset + j] = graph.feature_list[src_offset + j];
       slot_array[dst_offset + j] = graph.slot_id_list[src_offset + j];
@@ -121,7 +119,6 @@ __global__ void get_features_kernel(GpuPsCommGraphFea graph,
 }
 */
 
-// graph现在是否可以直接拷贝
 __global__ void get_features_kernel(GpuPsCommGraphFea graph,
                                     GpuPsFeaInfo* fea_info_array,
                                     uint32_t* fea_size_prefix_sum,
@@ -169,9 +166,6 @@ __global__ void get_features_kernel(GpuPsCommGraphFea graph,
 
     uint64_t* feature_start = &(graph.feature_list[src_offset]);
     uint8_t* slot_id_start = &(graph.slot_id_list[src_offset]);
-
-
-
     for (int slot_id = 0, dst_fea_idx = 0, src_fea_idx = 0; slot_id < slot_num;
          slot_id++) {
       int feature_num = slot_feature_num_map[slot_id];
@@ -755,7 +749,6 @@ void GpuPsGraphTable::move_result_to_source_gpu(int start_index,
         CUDA_CHECK(cudaStreamSynchronize(src_node.out_stream));
       }
     }
-
     auto& node = path_[start_index][i].nodes_.front();
     if (fea_num_list[i] > 0) {
       MemcpyPeerAsync(reinterpret_cast<char*>(feature_list + fea_left[i]),
@@ -770,10 +763,8 @@ void GpuPsGraphTable::move_result_to_source_gpu(int start_index,
                           sizeof(Feature) * fea_num_list[i],
                       sizeof(uint8_t) * fea_num_list[i],
                       node.out_stream);
-
     }
     if (shard_len[i] > 0) {
-      // 拷贝每个节点的feature size
       MemcpyPeerAsync(reinterpret_cast<char*>(actual_feature_size + h_left[i]),
                       node.val_storage,
                       sizeof(uint32_t) * shard_len[i],
@@ -969,38 +960,32 @@ __global__ void fill_size(uint32_t* d_actual_size_list,
   }
 }
 
-__global__ void fill_feature_and_slot(uint64_t* dst_feature_list, // 分卡前的
-                                      uint8_t* dst_slot_list,  // 分卡前的
+__global__ void fill_feature_and_slot(uint64_t* dst_feature_list,
+                                      uint8_t* dst_slot_list,
                                       uint32_t* dst_size_prefix_sum_list,
-                                      uint64_t* src_feature_list, // 分卡后的
-                                      uint8_t* src_slot_list,  // 分卡后的
+                                      uint64_t* src_feature_list,
+                                      uint8_t* src_slot_list,
                                       uint32_t* src_size_prefix_sum_list,
                                       uint32_t* src_size_list,
                                       int* idx,
                                       int len) {
   const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
-
   if (i < len) {
-
     uint32_t dst_index = dst_size_prefix_sum_list[idx[i]];
     uint32_t src_index = src_size_prefix_sum_list[i];
-
     for (uint32_t j = 0; j < src_size_list[i]; j++) {
-
       dst_feature_list[dst_index + j] = src_feature_list[src_index + j];
       dst_slot_list[dst_index + j] = src_slot_list[src_index + j];
-
     }
-
   }
 }
 
 
-__global__ void fill_feature_and_slot(Feature* dst_feature_list, // 分卡前的
-                                      uint8_t* dst_slot_list,  // 分卡前的
+__global__ void fill_feature_and_slot(Feature* dst_feature_list,
+                                      uint8_t* dst_slot_list,
                                       uint32_t* dst_size_prefix_sum_list,
-                                      Feature* src_feature_list, // 分卡后的
-                                      uint8_t* src_slot_list,  // 分卡后的
+                                      Feature* src_feature_list,
+                                      uint8_t* src_slot_list,
                                       uint32_t* src_size_prefix_sum_list,
                                       uint32_t* src_size_list,
                                       int* idx,
@@ -1008,17 +993,13 @@ __global__ void fill_feature_and_slot(Feature* dst_feature_list, // 分卡前的
   const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
 
   if (i < len) {
-
     uint32_t dst_index = dst_size_prefix_sum_list[idx[i]];
     uint32_t src_index = src_size_prefix_sum_list[i];
-
     for (uint32_t j = 0; j < src_size_list[i]; j++) {
-      // device端是否适配
       dst_feature_list[dst_index + j] = src_feature_list[src_index + j];
       dst_slot_list[dst_index + j] = src_slot_list[src_index + j];
 
     }
-
   }
 }
 
@@ -1143,8 +1124,6 @@ void GpuPsGraphTable::clear_feature_info(int gpu_id) {
   graph.feature_capacity = 0;
 }
 
-
-// 
 void GpuPsGraphTable::reset_feature_info(int gpu_id,
                                          size_t capacity,
                                          size_t feature_size) {
@@ -1158,35 +1137,29 @@ void GpuPsGraphTable::reset_feature_info(int gpu_id,
   int graph_fea_idx = get_graph_fea_list_offset(gpu_id);
   auto& graph = gpu_graph_fea_list_[graph_fea_idx];
   graph.node_list = NULL;
-
   if (graph.feature_list == NULL) {
     // CUDA_CHECK(cudaMalloc((void**)&graph.feature_list,
     //                      feature_size * sizeof(uint64_t)));
     CUDA_CHECK(cudaMalloc((void**)&graph.feature_list,
                           feature_size * sizeof(Feature)));
-
     CUDA_CHECK(cudaMalloc((void**)&graph.slot_id_list,
                           ALIGN_INT64(feature_size * sizeof(uint8_t))));
     graph.feature_capacity = feature_size;
   } else if (graph.feature_capacity < feature_size) {
     cudaFree(graph.feature_list);
     cudaFree(graph.slot_id_list);
-
     // CUDA_CHECK(cudaMalloc((void**)&graph.feature_list,
     //                      feature_size * sizeof(uint64_t)));
     CUDA_CHECK(cudaMalloc((void**)&graph.feature_list,
                           feature_size * sizeof(Feature)));
-
     CUDA_CHECK(cudaMalloc((void**)&graph.slot_id_list,
                           ALIGN_INT64(feature_size * sizeof(uint8_t))));
     graph.feature_capacity = feature_size;
   } else {
-
     // CUDA_CHECK(cudaMemsetAsync(
     //    graph.feature_list, 0, feature_size * sizeof(uint64_t), stream));
     CUDA_CHECK(cudaMemsetAsync(
         graph.feature_list, 0, feature_size * sizeof(Feature), stream));
-
     CUDA_CHECK(cudaMemsetAsync(
         graph.slot_id_list, 0, feature_size * sizeof(uint8_t), stream));
     cudaStreamSynchronize(stream);
@@ -1214,88 +1187,13 @@ void GpuPsGraphTable::clear_graph_info(int idx) {
   for (int i = 0; i < gpu_num; i++) clear_graph_info(i, idx);
 }
 
-// 首先分配连续内存,然后将数据写入内存,然后整体拷贝到显存,然后让char* feature指向显存
-// 目前不同类型的内存分开存储,是否可以存储在一个连续的显存块上
-// 增加一个bytes_oofset成员 
 void GpuPsGraphTable::move_feature_to_gpu(const GpuPsCommGraphFea& g,
                                           int gpu_id,
                                           int offset) {
  
-    // g.feature_offset???
-    // g.bytes_offset ?? 我感觉可行 
-    // CUDA_CHECK(cudaMemcpyAsync(gpu_graph_fea_list_[offset].feature_list,
-    //                           g.feature_list,
-    //                           g.feature_size * sizeof(uint64_t),
-    //                           cudaMemcpyHostToDevice,
-    //                           stream));
-/*
-  int val_types = Feature::get_val_types();
-  std::vector<std::atomic<size_t>> mem_len(val_types, 0);
-  // 统计每个类型需要的内存量
-  int thread_num = 16;
-  auto get_mem_len = [this, &g, thread_num](int id) {
-    // ============ add for multi-thread ================ 
-    int len = g.feature_size;
-    int len_per_thread = len / thread_num;
-    int remain = len % thread_num;
-    int left = -1, right = -1;
-    
-    int real_len = len_per_thread;
-    if (id < remain) real_len++;
-    
-    if (id < remain) {
-      left = id * (len_per_thread + 1);
-      right = left + real_len;
-    } else {
-      left = remain * (len_per_thread + 1) + (id - remain) * len_per_thread;
-      right = left + real_len;
-    }
-    // ============ add for multi-thread ================ 
-    for(int i =  left; i < right; i++) {
-      int dtype = g.feature_list[i].dtype;
-      int idx = Feature::get_idx(dtype);
-      size_t tmp_len = g.feature_list[i].shape * Feature::get_bytes(dtype);
-      mem_len[idx].fetch_add(tmp_len);
-    }
-  }
-  std::vector<std::thread> threads;
-  threads.resize(thread_num);
-  for(int i = 0; i < thread_num; i++) {
-    threads[i] = std::thread(get_mem_len, i);
-  }
-
-  for (auto& thread: threads) {
-    if (thread.joinable()) thread.join();
-  }
-  
-  threads.clear();
-
-  mem_pools_.resize(val_types);
-  hbm_pools_.resize(val_types);
-  
-  // 创建mem pool
-  // multi-thread process
-  auto build_mem_pool = [this](int i) {
-    if (mem_len[i] == 0) {
-      this->mem_pools_[i] = new MemoryPool(mem_len[i], Feature::get_bytes(i));
-    } else {
-      this->men_pools_[i] == nullptr;
-    }
-  };
-  threads.resize(val_types);
-  for(int i = 0; i < val_types; i++) {
-    threads[i] = std::thread(build_mem_pool, i);
-  }
-
-  for (auto& thread: threads) {
-    if (thread.joinable()) thread.join();
-  }
-  threads.clear();
-*/
 
   std::vector<std::thread> threads;
 
-  // 直接分配到一块连续的显存块上
   if (this->mem_pools_[gpu_id] != nullptr) {
     delete this->mem_pools_[gpu_id];
     this->mem_pools_[gpu_id] = nullptr;
@@ -1303,8 +1201,6 @@ void GpuPsGraphTable::move_feature_to_gpu(const GpuPsCommGraphFea& g,
   }
   this->mem_pools_[gpu_id] = new MemoryPool(g.bytes_offset[g.feature_size], 1);
   int thread_num = 16;
-
-  // 将g.feature_list里的char* feature指向的内存写入到mem_pool 
 
   auto write_feature_mem = [this, &g, thread_num, gpu_id](int id) {
     // ============ add for multi-thread ================ 
@@ -1329,9 +1225,9 @@ void GpuPsGraphTable::move_feature_to_gpu(const GpuPsCommGraphFea& g,
       // int idx = Feature::get_idx(dtype);
       // size_t tmp_len = g.feature_list[i].shape * Feature::get_bytes(dtype);
       char* feat = g.feature_list[i].feature;
-      size_t offset = g.bytes_offset[i]; // 第一个元素应该是0
+      size_t offset = g.bytes_offset[i];
       size_t len = g.bytes_offset[i + 1] - offset;
-      memcpy((char*)(this->mem_pools_[gpu_id]->mem()) + offset, feat, len); // 这个多线程是否没问题? 
+      memcpy((char*)(this->mem_pools_[gpu_id]->mem()) + offset, feat, len);
     }
   };
   threads.resize(thread_num);
@@ -1349,30 +1245,9 @@ void GpuPsGraphTable::move_feature_to_gpu(const GpuPsCommGraphFea& g,
     delete this->hbm_pools_[gpu_id];
     this->hbm_pools_[gpu_id] = nullptr;
   }
-  // 拷贝到显存
   this->hbm_pools_[gpu_id] = new HBMMemoryPool(this->mem_pools_[gpu_id]);
   delete this->mem_pools_[gpu_id];
   this->mem_pools_[gpu_id] = nullptr;
-  /*
-  auto build_hbm_pool = [this](int i) {
-    auto& mem_pool = this->mem_pools_[i];
-    this->hbm_pools_[i] = new HBMMemoryPool(mem_pool);
-    auto& cur_pool = this->hbm_pools_[i];
-
-    delete mem_pool;
-  };
-  threads.resize(val_types);
-  for(int i = 0; i < val_types; i++) {
-    threads[i] = std::thread(build_hbm_pool, i);
-  }
-
-  for (auto& thread: threads) {
-    if (thread.joinable()) thread.join();
-  }
-  threads.clear();
-  */
-
-  // 多线程修改g.feature_list里的char* feature指向显存
 
   auto write_feature_hbm = [this, &g, thread_num, gpu_id](int id) {
     // ============ add for multi-thread ================ 
@@ -1446,8 +1321,6 @@ void GpuPsGraphTable::build_graph_fea_on_single_gpu(const GpuPsCommGraphFea& g,
   }
   if (g.feature_size) {
     auto stream = get_local_stream(gpu_id);
-    // 拷贝适配
-    // 把Feature结构体里的feature解析后拷贝到gpu
     // CUDA_CHECK(cudaMemcpyAsync(gpu_graph_fea_list_[offset].feature_list,
     //                           g.feature_list,
     //                           g.feature_size * sizeof(uint64_t),
@@ -2524,12 +2397,6 @@ NodeQueryResult GpuPsGraphTable::query_node_list(int gpu_id,
   return result;
 }
 
-//      d_feature_size_list_buf_ =
-//          memory::AllocShared(place_, (batch_size_ * 2) * sizeof(uint32_t));
-//      d_feature_size_prefixsum_buf_ =
-//          memory::AllocShared(place_, (batch_size_ * 2 + 1) * sizeof(uint32_t));
-
-// 适配dense特征
 int GpuPsGraphTable::get_feature_info_of_nodes(
     int gpu_id,
     uint64_t* d_nodes,
@@ -2570,9 +2437,6 @@ int GpuPsGraphTable::get_feature_info_of_nodes(
                     node_num * sizeof(uint64_t),
                     phi::Stream(reinterpret_cast<phi::StreamId>(stream)));
   uint64_t* d_shard_keys_ptr = reinterpret_cast<uint64_t*>(d_shard_keys->ptr());
-
-  // key分卡
-
   split_idx_to_shard(
       d_nodes, d_idx_ptr, node_num, d_left_ptr, d_right_ptr, gpu_id, stream);
 
@@ -2598,10 +2462,6 @@ int GpuPsGraphTable::get_feature_info_of_nodes(
                              cudaMemcpyDeviceToHost,
                              stream));
   CUDA_CHECK(cudaStreamSynchronize(stream));
-
-
-  // 把key分卡排序
-
   device_mutex_[gpu_id]->lock();
   int shard_len[total_gpu];  // NOLINT
   void* d_temp_storage[total_gpu];
@@ -2613,14 +2473,10 @@ int GpuPsGraphTable::get_feature_info_of_nodes(
     if (h_left[i] == -1) {
       continue;
     }
-    // 在第i张卡上分配key的空间
     create_storage(gpu_id, i, shard_len[i] * sizeof(uint64_t), 0);
 
     platform::CUDADeviceGuard guard(resource_->dev_id(i));
     auto& node = path_[gpu_id][i].nodes_.back();
-    // 还有这个函数??
-    // 在第i张卡上分配显存,用d_fea_info来保存,现在适配dense特征,应该改成Feature
-    // 如果是用来保存node的feature,应该不是shard_len[i]
     create_tmp_storage(
         d_fea_info[i], gpu_id, i, shard_len[i] * sizeof(uint64_t));
 
@@ -2628,16 +2484,11 @@ int GpuPsGraphTable::get_feature_info_of_nodes(
         d_fea_info[i], 0, shard_len[i] * sizeof(uint64_t), node.in_stream));
     create_tmp_storage(
         d_fea_size[i], gpu_id, i, shard_len[i] * sizeof(uint32_t));
-
-    // size的前缀和
     create_tmp_storage(d_fea_size_prefix_sum[i],
                        gpu_id,
                        i,
                        (shard_len[i] + 1) * sizeof(uint32_t));
 
-
-    // 这个函数的作用就是对d_feas_size[i]求前缀和
-    // 但是这里看着只是求个temp_storage_bytes,因为d_fea_size[i]也没值
     CUDA_CHECK(cub::DeviceScan::InclusiveSum(
         NULL,
         temp_storage_bytes[i],
@@ -2680,28 +2531,16 @@ int GpuPsGraphTable::get_feature_info_of_nodes(
                                reinterpret_cast<uint64_t*>(d_fea_info[i]),
                                static_cast<size_t>(h_right[i] - h_left[i] + 1),
                                resource_->remote_stream(i, gpu_id));
-
-    // d_fea_info[i]保存node.key_storage里每个节点的GpuPsInfo
-
-
     dim3 grid((shard_len[i] - 1) / dim_y + 1);
     dim3 block(1, dim_y);
- 
-    
     get_features_size<<<grid, block, 0, resource_->remote_stream(i, gpu_id)>>>(
         reinterpret_cast<GpuPsFeaInfo*>(d_fea_info[i]),
         reinterpret_cast<uint32_t*>(d_fea_size[i]),
         shard_len[i]);
-
-    // d_fea_size[i]保存了每个key的feature size,没啥问题
-    // 第一个数值是0
     CUDA_CHECK(cudaMemsetAsync(d_fea_size_prefix_sum[i],
                                0,
                                sizeof(uint32_t),
                                resource_->remote_stream(i, gpu_id)));
-
-
-    // 计算前缀和
     CUDA_CHECK(cub::DeviceScan::InclusiveSum(
         d_temp_storage[i],
         temp_storage_bytes[i],
@@ -2718,22 +2557,14 @@ int GpuPsGraphTable::get_feature_info_of_nodes(
       continue;
     }
     auto& node = path_[gpu_id][i].nodes_.back();
-
-    // fea_num_list[i]保存的是所有节点的feature size总和
     CUDA_CHECK(cudaMemcpyAsync(
         &fea_num_list[i],
         reinterpret_cast<uint32_t*>(d_fea_size_prefix_sum[i]) + shard_len[i],
         sizeof(uint32_t),
         cudaMemcpyDeviceToHost,
         resource_->remote_stream(i, gpu_id)));
-
     CUDA_CHECK(cudaStreamSynchronize(
         resource_->remote_stream(i, gpu_id)));  // wait for fea_num_list
-
-    // 为啥 + shard_len[i] % 2
-    // 可以被 sizeof(uint64_t)整除??有什么用???
-
-    // 后面两块存储分别存储实际的feature和每个feeature的slot
     create_storage(gpu_id,
                    i,
                    0,
@@ -2742,8 +2573,6 @@ int GpuPsGraphTable::get_feature_info_of_nodes(
                        fea_num_list[i] * sizeof(uint8_t));
 
     uint32_t* actual_size_array = reinterpret_cast<uint32_t*>(node.val_storage);
-
-    // 拷贝每个节点的feature size
     CUDA_CHECK(cudaMemcpyAsync(actual_size_array,
                                d_fea_size[i],
                                sizeof(uint32_t) * shard_len[i],
@@ -2801,8 +2630,6 @@ int GpuPsGraphTable::get_feature_info_of_nodes(
                     all_fea_num * sizeof(uint8_t),
                     phi::Stream(reinterpret_cast<phi::StreamId>(stream)));
   uint8_t* d_slot_list_ptr = reinterpret_cast<uint8_t*>(slot_list_tmp->ptr());
-
-   // 拷贝每个节点的feature size
   auto size_list_tmp =
       memory::Alloc(place,
                     node_num * sizeof(uint32_t),
@@ -2843,10 +2670,6 @@ int GpuPsGraphTable::get_feature_info_of_nodes(
   d_fea_size_prefix_sum.clear();
   device_mutex_[gpu_id]->unlock();
 
-
-
-
-  // 这个应该是保存了所有node的所有feature&slot
   feature_list =
       memory::Alloc(place,
                     all_fea_num * sizeof(Feature),
@@ -2862,9 +2685,6 @@ int GpuPsGraphTable::get_feature_info_of_nodes(
 
   uint8_t* d_res_slot_list_ptr = reinterpret_cast<uint8_t*>(slot_list->ptr());
 
-
-   // 把每个分卡后节点的feature size列表恢复到分卡前的效果
-   // 这个size_list就保存了d_nodes每个node的feature size
   int grid_size = (node_num - 1) / block_size_ + 1;
   fill_size<<<grid_size, block_size_, 0, stream>>>(
       size_list, d_size_list_ptr, d_idx_ptr, node_num);
@@ -2881,8 +2701,6 @@ int GpuPsGraphTable::get_feature_info_of_nodes(
 
   CUDA_CHECK(cudaStreamSynchronize(stream));
 
-  // ExclusiveSum和InClusiveSum有啥区别??
-  // size_list_prefix_sum第一个元素是0
   CUDA_CHECK(cub::DeviceScan::ExclusiveSum(
       NULL, storage_bytes, size_list, size_list_prefix_sum, node_num, stream));
   CUDA_CHECK(cudaStreamSynchronize(stream));
@@ -2900,9 +2718,6 @@ int GpuPsGraphTable::get_feature_info_of_nodes(
                                            size_list_prefix_sum,
                                            node_num,
                                            stream));
-  // 把前缀和写到size_list_prefix_sum
-
-  // 为啥要把分卡后的前缀后也统计
   CUDA_CHECK(cub::DeviceScan::ExclusiveSum(d_temp_storage_tmp->ptr(),
                                            storage_bytes,
                                            d_size_list_ptr,
@@ -2910,9 +2725,6 @@ int GpuPsGraphTable::get_feature_info_of_nodes(
                                            node_num,
                                            stream));
 
-
-
-  // 把slot和feature还原回原来的顺序
   fill_feature_and_slot<<<grid_size, block_size_, 0, stream>>>(
       d_res_feature_list_ptr,
       d_res_slot_list_ptr,
@@ -2927,9 +2739,6 @@ int GpuPsGraphTable::get_feature_info_of_nodes(
   CUDA_CHECK(cudaStreamSynchronize(stream));
   return all_fea_num;
 }
-// 
-
-
 
 /*
 int GpuPsGraphTable::get_feature_of_nodes(int gpu_id,

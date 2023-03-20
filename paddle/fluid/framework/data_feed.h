@@ -1075,12 +1075,9 @@ class GraphDataGenerator {
   std::vector<int> window_step_;
   BufState buf_state_;
   int batch_size_;
-
   int slot_num_;
-
   // adapt slot&dense feature
   std::vector<std::string> slot_type;
-
   std::vector<int> h_slot_feature_num_map_;
   int fea_num_per_node_;
   int shuffle_seed_;

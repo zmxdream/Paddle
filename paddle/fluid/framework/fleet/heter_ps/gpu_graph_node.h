@@ -24,8 +24,6 @@
 #include "paddle/phi/core/enforce.h"
 #include "paddle/fluid/distributed/ps/table/graph/graph_node.h"
 DECLARE_bool(gpugraph_load_node_list_into_hbm);
-
-
 namespace paddle {
 namespace framework {
 struct GpuPsNodeInfo {

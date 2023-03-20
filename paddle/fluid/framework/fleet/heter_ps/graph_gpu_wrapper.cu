@@ -626,19 +626,15 @@ void GraphGpuWrapper::add_table_feat_conf(std::string table_name,
                                           std::string feat_dtype,
                                           int feat_shape) {
   if (node_to_id.find(table_name) != node_to_id.end()) {
-
     int idx = node_to_id[table_name];
-
     if (table_feat_mapping[idx].find(feat_name) ==
         table_feat_mapping[idx].end()) {
       int res = table_feat_mapping[idx].size();
       table_feat_mapping[idx][feat_name] = res;
     }
-
     int feat_idx = table_feat_mapping[idx][feat_name];
     VLOG(0) << "table_name " << table_name << " mapping id " << idx;
     VLOG(0) << " feat name " << feat_name << " feat id" << feat_idx;
-
     if (feat_idx < table_feat_conf_feat_name[idx].size()) {
       // overide
       table_feat_conf_feat_name[idx][feat_idx] = feat_name;
@@ -651,10 +647,8 @@ void GraphGpuWrapper::add_table_feat_conf(std::string table_name,
       table_feat_conf_feat_shape[idx].push_back(feat_shape);
     }
   }
-
   VLOG(0) << "add conf over";
 }
-
 void GraphGpuWrapper::init_search_level(int level) { search_level = level; }
 
 gpuStream_t GraphGpuWrapper::get_local_stream(int gpuid) {
@@ -669,21 +663,17 @@ void GraphGpuWrapper::init_service() {
   table_proto.set_search_level(search_level);
   table_proto.set_table_name("cpu_graph_table_");
   table_proto.set_use_cache(false);
-
   for (int i = 0; i < id_to_edge.size(); i++)
     table_proto.add_edge_types(id_to_edge[i]);
-
   for (int i = 0; i < id_to_feature.size(); i++) {
     table_proto.add_node_types(id_to_feature[i]);
     auto feat_node = id_to_feature[i];
     ::paddle::distributed::GraphFeature *g_f = table_proto.add_graph_feature();
-
     for (int x = 0; x < table_feat_conf_feat_name[i].size(); x++) {
       g_f->add_name(table_feat_conf_feat_name[i][x]);
       g_f->add_dtype(table_feat_conf_feat_dtype[i][x]);
       g_f->add_shape(table_feat_conf_feat_shape[i][x]);
     }
-
   }
 
   std::shared_ptr<HeterPsResource> resource =
@@ -719,7 +709,6 @@ void GraphGpuWrapper::upload_batch(int table_type,
   debug_gpu_memory_info("upload_batch node start");
   GpuPsGraphTable *g = reinterpret_cast<GpuPsGraphTable *>(graph_table);
   std::vector<std::future<int>> tasks;
-
   for (int i = 0; i < slice_num; i++) {
     tasks.push_back(upload_task_pool->enqueue([&, i, edge_idx, this]() -> int {
       VLOG(0) << "begin make_gpu_ps_graph, node_id[" << i << "]_size["
@@ -754,26 +743,21 @@ void GraphGpuWrapper::upload_batch(int table_type,
   debug_gpu_memory_info("upload_batch feature start");
   GpuPsGraphTable *g = reinterpret_cast<GpuPsGraphTable *>(graph_table);
   std::vector<std::future<int>> tasks;
-
   for (int i = 0; i < slice_num; i++) {
     tasks.push_back(upload_task_pool->enqueue([&, i, this]() -> int {
       VLOG(0) << "begin make_gpu_ps_graph_fea, node_ids[" << i << "]_size["
               << node_ids[i].size() << "]";
-
       GpuPsCommGraphFea sub_graph =
           g->cpu_graph_table_->make_gpu_ps_graph_fea(i, node_ids[i], slot_num);
-
       // sub_graph.display_on_cpu();
       VLOG(0) << "begin build_graph_fea_on_single_gpu, node_ids[" << i
               << "]_size[" << node_ids[i].size() << "]";
       g->build_graph_fea_on_single_gpu(sub_graph, i);
       sub_graph.release_on_cpu();
-
       VLOG(0) << "sub graph fea on gpu " << i << " is built";
       return 0;
     }));
   }
-
   for (size_t i = 0; i < tasks.size(); i++) tasks[i].get();
   // g->build_graph_from_cpu(vec);
   debug_gpu_memory_info("upload_batch feature end");
@@ -796,8 +780,6 @@ std::vector<GpuPsCommGraphFea> GraphGpuWrapper::get_sub_graph_fea(
   for (size_t i = 0; i < tasks.size(); i++) tasks[i].get();
   return sub_graph_feas;
 }
-
-
 
 // get sub_graph_slot_fea
 std::vector<GpuPsCommGraphFea> GraphGpuWrapper::get_sub_graph_slot_fea(
@@ -885,7 +867,7 @@ int GraphGpuWrapper::get_feature_info_of_nodes(
                                   d_nodes,
                                   node_num,
                                   size_list,
-                                  size_list_prefix_sum, //第一个元素是0
+                                  size_list_prefix_sum,
                                   feature_list,
                                   slot_list);
 }
