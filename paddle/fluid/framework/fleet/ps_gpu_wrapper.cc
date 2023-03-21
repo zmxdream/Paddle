@@ -439,6 +439,10 @@ void PSGPUWrapper::add_slot_feature(std::shared_ptr<HeterContext> gpu_task) {
       reinterpret_cast<void*>(new std::vector<GpuPsCommGraphFea>);
   std::vector<GpuPsCommGraphFea>& sub_graph_feas =
       *((std::vector<GpuPsCommGraphFea>*)gpu_task->sub_graph_feas);
+  gpu_task->slot_sub_graph_feas =
+      reinterpret_cast<void*>(new std::vector<GpuPsCommGraphFea>);
+  std::vector<GpuPsCommGraphFea>& slot_sub_graph_feas =
+      *((std::vector<GpuPsCommGraphFea>*)gpu_task->slot_sub_graph_feas);
 #endif
   std::vector<std::vector<uint64_t>> feature_ids(device_num);
   std::vector<Feature*> feature_list(device_num);
@@ -542,11 +546,15 @@ void PSGPUWrapper::add_slot_feature(std::shared_ptr<HeterContext> gpu_task) {
                      SSD_EMB_AND_MEM_FEATURE_GPU_GRAPH) {
     auto gpu_graph_ptr = GraphGpuWrapper::GetInstance();
     // sub_graph_feas = gpu_graph_ptr->get_sub_graph_fea(node_ids, slot_num);
+    slot_sub_graph_feas = gpu_graph_ptr->get_sub_graph_slot_fea(node_ids, slot_num);
     sub_graph_feas = gpu_graph_ptr->get_sub_graph_slot_fea(node_ids, slot_num);
+
     for (size_t i = 0; i < device_num; i++) {
-      feature_list[i] = sub_graph_feas[i].feature_list;
-      feature_list_size[i] = sub_graph_feas[i].feature_size;
+      feature_list[i] = slot_sub_graph_feas[i].feature_list;
+      feature_list_size[i] = slot_sub_graph_feas[i].feature_size;
     }
+
+
   } else {
     VLOG(0) << "FLAGS_gpugraph_storage_mode is not adaptived";
   }
@@ -557,7 +565,8 @@ void PSGPUWrapper::add_slot_feature(std::shared_ptr<HeterContext> gpu_task) {
   for (size_t i = 0; i < device_num; i++) {
     feature_num += feature_list_size[i];
   }
-  VLOG(1) << "feature_num is " << feature_num << " node_num is " << node_num;
+  VLOG(0) << "feature_num is " << feature_num << " node_num is " << node_num;
+
   size_t set_num = thread_keys_shard_num_;
   std::vector<std::unordered_set<uint64_t>> feature_id_set(set_num);
   std::vector<std::mutex> set_mutex(set_num);
@@ -629,6 +638,10 @@ void PSGPUWrapper::add_slot_feature(std::shared_ptr<HeterContext> gpu_task) {
   }
   threads.clear();
   time_stage.Pause();
+
+
+  VLOG(0) << "[debug] before add feature to key";
+
   add_feature_to_set_cost = time_stage.ElapsedSec();
   auto add_feature_to_key = [this,
                              device_num,
@@ -655,10 +668,13 @@ void PSGPUWrapper::add_slot_feature(std::shared_ptr<HeterContext> gpu_task) {
     t.join();
   }
   time_stage.Pause();
+
+
+
   add_feature_to_key_cost = time_stage.ElapsedSec();
   threads.clear();
   timeline.Pause();
-  VLOG(1) << " add_slot_feature costs: " << timeline.ElapsedSec() << " s."
+  VLOG(0) << " add_slot_feature costs: " << timeline.ElapsedSec() << " s."
           << " divide_nodeid_cost " << divide_nodeid_cost
           << " get_feature_id_cost " << get_feature_id_cost
           << " add_feature_to_set_cost " << add_feature_to_set_cost
@@ -679,11 +695,13 @@ void PSGPUWrapper::BuildPull(std::shared_ptr<HeterContext> gpu_task) {
 #endif
   resize_gputask(gpu_task);
 
+  VLOG(0) << "[debug] after resize gpu task";
+
   platform::Timer time_stage;
   time_stage.Start();
   gpu_task->UniqueKeys();
   time_stage.Pause();
-  VLOG(1) << "passid=" << gpu_task->pass_id_
+  VLOG(0) << "passid=" << gpu_task->pass_id_
           << ", BuildPull slot feature uniq and sort cost time: "
           << time_stage.ElapsedSec();
 
@@ -822,7 +840,7 @@ void PSGPUWrapper::BuildPull(std::shared_ptr<HeterContext> gpu_task) {
   }
   task_futures.clear();
   timeline.Pause();
-  VLOG(1) << "passid=" << gpu_task->pass_id_
+  VLOG(0) << "passid=" << gpu_task->pass_id_
           << ", pull sparse from CpuPS into GpuPS total keys " << total_key
           << ", cost " << timeline.ElapsedSec() << " seconds.";
 }
@@ -1474,7 +1492,11 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
     std::vector<GpuPsCommGraphFea>* tmp =
         (std::vector<GpuPsCommGraphFea>*)gpu_task->sub_graph_feas;
     delete tmp;
-    gpu_task->sub_graph_feas = NULL;
+   
+    std::vector<GpuPsCommGraphFea>* slot_tmp =
+        (std::vector<GpuPsCommGraphFea>*)gpu_task->slot_sub_graph_feas;
+    delete slot_tmp;
+    gpu_task->slot_sub_graph_feas = NULL;
   }
 #endif
   stagetime.Pause();
