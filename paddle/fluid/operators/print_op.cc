@@ -91,11 +91,15 @@ class PrintOp : public framework::OperatorBase {
     TensorFormatter formatter;
     const std::string &name =
         Attr<bool>("print_tensor_name") ? printed_var_name : "";
+    const std::string print_file_path = "dev"
+        + std::to_string(place.GetDeviceId())
+        + "." + Attr<std::string>("print_file_path");
     formatter.SetPrintTensorType(Attr<bool>("print_tensor_type"));
     formatter.SetPrintTensorShape(Attr<bool>("print_tensor_shape"));
     formatter.SetPrintTensorLod(Attr<bool>("print_tensor_lod"));
     formatter.SetPrintTensorLayout(Attr<bool>("print_tensor_layout"));
     formatter.SetSummarize(static_cast<int64_t>(Attr<int>("summarize")));
+    formatter.SetPrintFilePath(print_file_path);
     formatter.Print(in_tensor, name, Attr<std::string>("message"));
   }
 
@@ -131,6 +135,9 @@ class PrintOpProtoAndCheckMaker : public framework::OpProtoAndCheckerMaker {
                  std::string(kBackward),
                  std::string(kBoth)});
     AddAttr<bool>("is_forward", "Whether is forward or not").SetDefault(true);
+    AddAttr<std::string>("print_file_path",
+                          "(string, default "") Whether to print the to file.")
+        .SetDefault(std::string(""));
     AddComment(R"DOC(
 Creates a print op that will print when a tensor is accessed.
 
