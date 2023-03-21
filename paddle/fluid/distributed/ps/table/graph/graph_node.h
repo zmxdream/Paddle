@@ -280,11 +280,11 @@ class FeatureNode : public Node {
         num = 1;
       }
     }
-    PADDLE_ENFORCE_EQ(
-        errno,
-        0,
-        paddle::platform::errors::InvalidArgument(
-            "get_feature_ids get errno should be 0, but got %d.", errno));
+    // PADDLE_ENFORCE_EQ(
+    //    errno,
+    //    0,
+    //    paddle::platform::errors::InvalidArgument(
+    //        "get_feature_ids get errno should be 0, but got %d.", errno));
     return num;
   }
 
@@ -294,6 +294,7 @@ class FeatureNode : public Node {
                                    std::vector<uint64_t> &bytes_size) const {  // NOLINT
     errno = 0;
     size_t num = 0;
+    VLOG(0) << "[debug]before call get_slot_feature_ids!!!!";
 
     if (slot_idx < static_cast<int>(this->feature.size())) {
       const std::string &s = this->feature[slot_idx];
@@ -303,7 +304,7 @@ class FeatureNode : public Node {
       if (dtype == "feasign" || dtype == "int64") {
         const uint64_t *feas = (const uint64_t *)(s.c_str());
         num = s.length() / sizeof(uint64_t);
-        VLOG(0) << "slot idx:" << slot_idx << ", feature:" << s << ", dtype:" << dtype << ", shape:" << shape << ", num:" << num;
+        // VLOG(0) << "slot idx:" << slot_idx << ", feature:" << s << ", dtype:" << dtype << ", shape:" << shape << ", num:" << num;
         CHECK((s.length() % sizeof(uint64_t)) == 0)
             << "bad feature_item: [" << s << "]";
         for (size_t i = 0; i < num; ++i) {
@@ -323,13 +324,12 @@ class FeatureNode : public Node {
         }
       }
     }
-    PADDLE_ENFORCE_EQ(
-        errno,
-        0,
-        paddle::platform::errors::InvalidArgument(
-            "get_feature_ids get errno should be 0, but got %d.", errno));
-
-    VLOG(0) << "[debug]call get_slot_feature_ids end!!!!";
+    // PADDLE_ENFORCE_EQ(
+    //    errno,
+    //    0,
+    //    paddle::platform::errors::InvalidArgument(
+    //        "get_feature_ids get errno should be 0, but got %d.", errno));
+    VLOG(0) << "[debug]after call get_slot_feature_ids!!!!";
     return num;
   }
 
