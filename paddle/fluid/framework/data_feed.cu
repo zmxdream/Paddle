@@ -972,7 +972,6 @@ int GraphDataGenerator::GenerateBatch() {
     if (!sage_mode_) {
       FillGraphSlotFeature(total_instance, gpu_graph_training_);
     } else {
-      // 
       FillGraphSlotFeature(uniq_instance_vec_[sage_batch_count_],
                            gpu_graph_training_,
                            final_sage_nodes_vec_[sage_batch_count_]);
@@ -1413,7 +1412,6 @@ int GraphDataGenerator::FillSlotFeature(uint64_t *d_walk, size_t key_num) {
   // 适配dense feature
   // int64_t *slot_tensor_ptr_[slot_num_];
   char* slot_tensor_ptr_[slot_num_];
-
   int64_t *slot_lod_tensor_ptr_[slot_num_];
 
   // 如果fea_num == 0, 还有这种情况??
@@ -1471,7 +1469,6 @@ int GraphDataGenerator::FillSlotFeature(uint64_t *d_walk, size_t key_num) {
   uint8_t *d_slot_list_ptr = reinterpret_cast<uint8_t *>(d_slot_list->ptr());
 
 
-  // 下面干啥的???
   std::shared_ptr<phi::Allocation> d_each_ins_slot_num_inner_prefix =
       memory::AllocShared(place_, (slot_num_ * key_num) * sizeof(uint32_t));
 
@@ -1583,6 +1580,12 @@ int GraphDataGenerator::FillSlotFeature(uint64_t *d_walk, size_t key_num) {
   }
   CUDA_CHECK(cudaStreamSynchronize(train_stream_));
 
+  // std::stringstream ss;
+  // for (int i = 0; i < slot_num_; ++i) {
+  //  ss << feed_type_[i] << " ";
+  // }
+  // VLOG(0) << "gpuid:" << gpuid_ << ", feed_type:" << ss.str() << ", id_offset_of_feed_vec_:" << id_offset_of_feed_vec_;
+
   // 这块得适配
   for (int i = 0; i < slot_num_; ++i) {
     // 判断slot类型
@@ -1610,6 +1613,13 @@ int GraphDataGenerator::FillSlotFeature(uint64_t *d_walk, size_t key_num) {
         i,
         slot_num_,
         key_num);
+
+    VLOG(0) << "before sync gpuid:" << gpuid_ << ", i:" << i << ",each_slot_fea_num:" << each_slot_fea_num[i];
+
+    CUDA_CHECK(cudaStreamSynchronize(train_stream_));
+
+    VLOG(0) << "after sync gpuid:" << gpuid_ << ", i:" << i << ",each_slot_fea_num:" << each_slot_fea_num[i];
+
     // trick for empty tensor
     if (each_slot_fea_num[i] == 0) {
       if (feed_type_[i] == "uint64") {
