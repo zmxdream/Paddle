@@ -1187,16 +1187,13 @@ __global__ void fill_slot_tensor(Feature *feature_list,
   if (i < node_num) {
 
     size_t dst_index = slot_lod_tensor[i];
-    // 索引是否正确
     size_t src_index = feature_size_prefixsum[i] +
                        each_ins_slot_num_inner_prefix[slot_num * i + slot];
-
     int shape = feature_list[src_index].shape;
     for (uint64_t j = 0; j < ins_slot_num[i]; j++) {
       int fea_idx = j / shape;
       slot_tensor[dst_index + j] = *(reinterpret_cast<T*>(feature_list[src_index + fea_idx].feature) + (j % shape));
     }
-
   }
 }
 
@@ -1603,26 +1600,18 @@ int GraphDataGenerator::FillSlotFeature(uint64_t *d_walk, size_t key_num) {
 
   int64_t default_lod = 1;
   for (int i = 0; i < slot_num_; ++i) {
-
-    // ==== 这块适配 === 
     fill_slot_tensor<<<grid, block, 0, train_stream_>>>(
         d_feature_list_ptr,
         d_feature_size_prefixsum_ptr,
         d_each_ins_slot_num_inner_prefix_ptr,
-        ins_slot_num_vecotr[i], // 每个key的feature个数
+        ins_slot_num_vecotr[i],
         slot_lod_tensor_ptr_[i],
         slot_tensor_ptr_[i],
         i,
         slot_num_,
         key_num);
-    // ==== 这块适配 === 
-
     // trick for empty tensor
     if (each_slot_fea_num[i] == 0) {
-      // slot_tensor_ptr_[i] =
-      //    feed_vec_[id_offset_of_feed_vec_ + 2 * i]->mutable_data<int64_t>({1, 1}, this->place_);
-      // CUDA_CHECK(cudaMemsetAsync(
-      //    slot_tensor_ptr_[i], 0, sizeof(uint64_t), train_stream_));
       if (feed_type_[i] == "uint64") {
         slot_tensor_ptr_[i] =
             (char*)(feed_vec_[id_offset_of_feed_vec_ + 2 * i]->mutable_data<int64_t>({1, 1}, this->place_));
@@ -1639,7 +1628,6 @@ int GraphDataGenerator::FillSlotFeature(uint64_t *d_walk, size_t key_num) {
         CUDA_CHECK(cudaMemsetAsync(
             slot_tensor_ptr_[i], 0, sizeof(float), train_stream_));
       }
-
       CUDA_CHECK(cudaMemcpyAsync(
           reinterpret_cast<char *>(slot_lod_tensor_ptr_[i] + key_num),
           &default_lod,
@@ -1647,7 +1635,6 @@ int GraphDataGenerator::FillSlotFeature(uint64_t *d_walk, size_t key_num) {
           cudaMemcpyHostToDevice,
           train_stream_));
     }
-
   }
   CUDA_CHECK(cudaStreamSynchronize(train_stream_));
 

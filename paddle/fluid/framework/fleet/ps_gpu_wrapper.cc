@@ -1587,7 +1587,7 @@ void PSGPUWrapper::build_task() {
   }
   BuildGPUTask(gpu_task);
   timer.Pause();
-  VLOG(1) << "passid=" << gpu_task->pass_id_
+  VLOG(0) << "passid=" << gpu_task->pass_id_
           << ", PrepareGPUTask + BuildGPUTask end, cost time: "
           << timer.ElapsedSec() << "s";
 
