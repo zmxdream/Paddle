@@ -1303,7 +1303,7 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
 #endif
   }
   stagetime.Pause();
-  VLOG(1) << "passid=" << gpu_task->pass_id_ << ", card: "
+  VLOG(0) << "passid=" << gpu_task->pass_id_ << ", card: "
           << " BuildGPUTask create HeterPs_ costs: " << stagetime.ElapsedSec()
           << " s.";
   stagetime.Start();
@@ -1446,7 +1446,7 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
     stagetime.Pause();
     timer.Pause();
 
-    VLOG(1) << "card: " << i
+    VLOG(0) << "card: " << i
             << " BuildGPUTask build_ps total costs: " << timer.ElapsedSec()
             << ", copy: " << stagetime.ElapsedSec() << ", table: " << build_span
             << ", feature: " << build_feature_span
@@ -1473,7 +1473,7 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
   }
   cpu_task_futures.clear();
   stagetime.Pause();
-  VLOG(1) << "passid=" << gpu_task->pass_id_
+  VLOG(0) << "passid=" << gpu_task->pass_id_
           << ", BuildGPUTask build_dynamic_mf_func "
           << " cost " << stagetime.ElapsedSec() << " s.";
   for (int i = 0; i < device_num; i++) {
@@ -1501,7 +1501,7 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
   }
 #endif
   stagetime.Pause();
-  VLOG(1) << "  build_dymf_hbm_pool "
+  VLOG(0) << "  build_dymf_hbm_pool "
           << " cost " << stagetime.ElapsedSec() << " s.";
 }
 

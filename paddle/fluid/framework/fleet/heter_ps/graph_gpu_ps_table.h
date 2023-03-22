@@ -179,8 +179,7 @@ class GpuPsGraphTable
                                  Feature *feature_list,
                                  uint8_t *slot_list);
   void move_feature_to_gpu(const GpuPsCommGraphFea& g,
-                           int gpu_id,
-                           int offset);
+                           int gpu_id);
   void move_degree_to_source_gpu(
       int gpu_id, int gpu_num, int *h_left, int *h_right, int *node_degree);
   void move_result_to_source_gpu_all_edge_type(int gpu_id,

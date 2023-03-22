@@ -87,13 +87,13 @@ class Node {
   virtual int get_feature_ids(int slot_idx,
                               std::vector<Feature> &feature_id,      // NOLINT
                               std::vector<uint8_t> &slot_id,
-                              std::vector<uint64_t> & bytes_size) const {  // NOLINT
+                              std::vector<uint64_t> & bytes_offset) const {  // NOLINT
     return 0;
   }
   virtual int get_slot_feature_ids(int slot_idx,
                                    std::vector<Feature> &feature_id,      // NOLINT
                                    std::vector<uint8_t> &slot_id,
-                                   std::vector<uint64_t> & bytes_size) const {  // NOLINT
+                                   std::vector<uint64_t> & bytes_offset) const {  // NOLINT
     return 0;
   }
   virtual void set_feature(int idx, const std::string &str) {}
@@ -227,7 +227,7 @@ class FeatureNode : public Node {
   virtual int get_feature_ids(int slot_idx,
                               std::vector<Feature> &feature_id,      // NOLINT
                               std::vector<uint8_t> &slot_id,
-                              std::vector<uint64_t> &bytes_size) const {  // NOLINT
+                              std::vector<uint64_t> &bytes_offset) const {  // NOLINT
     errno = 0;
     size_t num = 0;
     if (slot_idx < static_cast<int>(this->feature.size())) {
@@ -242,9 +242,12 @@ class FeatureNode : public Node {
             << "bad feature_item: [" << s << "]";
         for (size_t i = 0; i < num; ++i) {
           slot_id.push_back(slot_idx);
-          bytes_size.push_back(shape * sizeof(uint64_t));
+          uint64_t last_offset = 0;
+          if (!bytes_offset.empty()) {last_offset = bytes_offset.back();}
+          bytes_offset.push_back(last_offset + shape * sizeof(uint64_t));
           feature_id.emplace_back((char*)(feas + i), FEATYPE::INT64, shape);
         }
+        // VLOG(0) << "num:" << num << ", offset back:" << bytes_offset.back();
       } else if (dtype == "int32"){
         const int32_t *feas = (const int32_t *)(s.c_str());
         num = s.length() / sizeof(int32_t);
@@ -252,7 +255,9 @@ class FeatureNode : public Node {
             << "bad feature_item: [" << s << "]";
         for (size_t i = 0; i < num; ++i) {
           slot_id.push_back(slot_idx);
-          bytes_size.push_back(shape * sizeof(int32_t));
+          uint64_t last_offset = 0;
+          if (!bytes_offset.empty()) {last_offset = bytes_offset.back();}
+          bytes_offset.push_back(last_offset + shape * sizeof(int32_t));
           feature_id.emplace_back((char*)(feas + i), FEATYPE::INT32, shape);
         }
 
@@ -264,7 +269,9 @@ class FeatureNode : public Node {
         CHECK(dense_vals == (size_t)shape)
             << "bad feature_item: [" << s << "]";
         slot_id.push_back(slot_idx);
-        bytes_size.push_back(shape * sizeof(double));
+        uint64_t last_offset = 0;
+        if (!bytes_offset.empty()) {last_offset = bytes_offset.back();}
+        bytes_offset.push_back(last_offset + shape * sizeof(double));
         feature_id.emplace_back((char*)feas, FEATYPE::DOUBLE, shape);
         num = 1;
       } else if (dtype == "float32") {
@@ -275,7 +282,9 @@ class FeatureNode : public Node {
         CHECK(dense_vals == (size_t)shape)
             << "bad feature_item: [" << s << "]";
         slot_id.push_back(slot_idx);
-        bytes_size.push_back(shape * sizeof(float));
+        uint64_t last_offset = 0;
+        if (!bytes_offset.empty()) {last_offset = bytes_offset.back();}
+        bytes_offset.push_back(last_offset + shape * sizeof(float));
         feature_id.emplace_back((char*)feas, FEATYPE::FLOAT, shape);
         num = 1;
       }
@@ -291,10 +300,10 @@ class FeatureNode : public Node {
   virtual int get_slot_feature_ids(int slot_idx,
                                    std::vector<Feature> &feature_id,      // NOLINT
                                    std::vector<uint8_t> &slot_id,
-                                   std::vector<uint64_t> &bytes_size) const {  // NOLINT
+                                   std::vector<uint64_t> &bytes_offset) const {  // NOLINT
     errno = 0;
     size_t num = 0;
-    VLOG(0) << "[debug]before call get_slot_feature_ids!!!!";
+    // VLOG(0) << "[debug]before call get_slot_feature_ids!!!!";
 
     if (slot_idx < static_cast<int>(this->feature.size())) {
       const std::string &s = this->feature[slot_idx];
@@ -309,7 +318,9 @@ class FeatureNode : public Node {
             << "bad feature_item: [" << s << "]";
         for (size_t i = 0; i < num; ++i) {
           slot_id.push_back(slot_idx);
-          bytes_size.push_back(shape * sizeof(uint64_t));
+          uint64_t last_offset = 0;
+          if (!bytes_offset.empty()) {last_offset = bytes_offset.back();}
+          bytes_offset.push_back(last_offset + shape * sizeof(uint64_t));
           feature_id.emplace_back((char*)(feas + i), FEATYPE::INT64, shape);
         }
       } else if (dtype == "int32"){
@@ -319,7 +330,9 @@ class FeatureNode : public Node {
             << "bad feature_item: [" << s << "]";
         for (size_t i = 0; i < num; ++i) {
           slot_id.push_back(slot_idx);
-          bytes_size.push_back(shape * sizeof(int32_t));
+          uint64_t last_offset = 0;
+          if (!bytes_offset.empty()) {last_offset = bytes_offset.back();}
+          bytes_offset.push_back(last_offset + shape * sizeof(uint64_t));
           feature_id.emplace_back((char*)(feas + i), FEATYPE::INT32, shape);
         }
       }
@@ -329,7 +342,7 @@ class FeatureNode : public Node {
     //    0,
     //    paddle::platform::errors::InvalidArgument(
     //        "get_feature_ids get errno should be 0, but got %d.", errno));
-    VLOG(0) << "[debug]after call get_slot_feature_ids!!!!";
+    // VLOG(0) << "[debug]after call get_slot_feature_ids!!!!";
     return num;
   }
 

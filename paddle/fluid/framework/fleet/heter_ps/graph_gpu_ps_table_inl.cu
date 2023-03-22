@@ -1188,9 +1188,7 @@ void GpuPsGraphTable::clear_graph_info(int idx) {
 }
 
 void GpuPsGraphTable::move_feature_to_gpu(const GpuPsCommGraphFea& g,
-                                          int gpu_id,
-                                          int offset) {
- 
+                                          int gpu_id) { 
 
   std::vector<std::thread> threads;
 
@@ -1199,9 +1197,13 @@ void GpuPsGraphTable::move_feature_to_gpu(const GpuPsCommGraphFea& g,
     this->mem_pools_[gpu_id] = nullptr;
 
   }
-  this->mem_pools_[gpu_id] = new MemoryPool(g.bytes_offset[g.feature_size], 1);
+
+  // VLOG(0) << "gpu_id:" << gpu_id << ", before allocate mem pool" << g.bytes_offset[g.feature_size] << ", feature size:" << g.feature_size;
+  size_t total_bytes = g.bytes_offset[g.feature_size];
+  this->mem_pools_[gpu_id] = new MemoryPool(total_bytes, 1);
   int thread_num = 16;
 
+  // VLOG(0) << "gpu_id:" << gpu_id << ", after allocate mem pool" << g.bytes_offset[g.feature_size] << "feature size:" << g.feature_size;
   auto write_feature_mem = [this, &g, thread_num, gpu_id](int id) {
     // ============ add for multi-thread ================ 
     int len = g.feature_size;
@@ -1227,7 +1229,9 @@ void GpuPsGraphTable::move_feature_to_gpu(const GpuPsCommGraphFea& g,
       char* feat = g.feature_list[i].feature;
       size_t offset = g.bytes_offset[i];
       size_t len = g.bytes_offset[i + 1] - offset;
+      // VLOG(0) << "before gpu_id:" << gpu_id << ", left:" << left<< ", right:" << right << ", offset:" << offset << ", len:" << len << ", i:" << i;
       memcpy((char*)(this->mem_pools_[gpu_id]->mem()) + offset, feat, len);
+      // VLOG(0) << "after gpu_id:" << gpu_id << ", left:" << left<< ", right:" << right << ", offset:" << offset << ", len:" << len << ", i:" << i;
     }
   };
   threads.resize(thread_num);
@@ -1240,6 +1244,7 @@ void GpuPsGraphTable::move_feature_to_gpu(const GpuPsCommGraphFea& g,
   }
   
   threads.clear();
+  // VLOG(0) << "gpu_id:" << gpu_id << ", after write feature mem";
 
   if (this->hbm_pools_[gpu_id] != nullptr) {
     delete this->hbm_pools_[gpu_id];
@@ -1286,6 +1291,7 @@ void GpuPsGraphTable::move_feature_to_gpu(const GpuPsCommGraphFea& g,
   }
   
   threads.clear();
+  // VLOG(0) << "gpu_id:" << gpu_id << ", after write feature hbm";
 
 }
 
@@ -1299,9 +1305,13 @@ gpu i saves the ith graph from cpu_graph_list
 */
 void GpuPsGraphTable::build_graph_fea_on_single_gpu(const GpuPsCommGraphFea& g,
                                                     int gpu_id) {
+
+  VLOG(0) << "gpu_id:" << gpu_id << ", in build_graph_fea_on_single_gpu";
+
   platform::CUDADeviceGuard guard(resource_->dev_id(gpu_id));
   size_t capacity = std::max((uint64_t)1, g.node_size) / load_factor_;
   reset_feature_info(gpu_id, capacity, g.feature_size);
+  VLOG(0) << "gpu_id:" << gpu_id << ", after reset feature info";
   int ntype_id = 0;
   int offset = get_graph_fea_list_offset(gpu_id);
   int table_offset =
@@ -1326,7 +1336,9 @@ void GpuPsGraphTable::build_graph_fea_on_single_gpu(const GpuPsCommGraphFea& g,
     //                           g.feature_size * sizeof(uint64_t),
     //                           cudaMemcpyHostToDevice,
     //                           stream));
-    move_feature_to_gpu(g, gpu_id, offset);
+    VLOG(0) << "gpu_id:" << gpu_id << ", before move feature to gpu";
+    move_feature_to_gpu(g, gpu_id);
+    VLOG(0) << "gpu_id:" << gpu_id << ", after move feature to gpu";
 
     CUDA_CHECK(cudaMemcpyAsync(gpu_graph_fea_list_[offset].feature_list,
                                g.feature_list,

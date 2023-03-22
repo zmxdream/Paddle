@@ -78,13 +78,13 @@ paddle::framework::GpuPsCommGraphFea GraphTable::make_gpu_ps_graph_fea(
   std::vector<Feature> feature_array[shard_num];
   std::vector<uint8_t> slot_id_array[shard_num];
   std::vector<uint64_t> node_id_array[shard_num];
-  std::vector<uint64_t> bytes_size[shard_num];
+  std::vector<uint64_t> bytes_offset[shard_num];
   std::vector<paddle::framework::GpuPsFeaInfo> node_fea_info_array[shard_num];
   for (size_t i = 0; i < shard_num; i++) {
     auto predsize = node_ids.size() / shard_num;
     bags[i].reserve(predsize * 1.2);
     feature_array[i].reserve(predsize * 1.2 * slot_num);
-    bytes_size[i].reserve(predsize * 1.2 * slot_num);
+    bytes_offset[i].reserve(predsize * 1.2 * slot_num);
     slot_id_array[i].reserve(predsize * 1.2 * slot_num);
     node_id_array[i].reserve(predsize * 1.2);
     node_fea_info_array[i].reserve(predsize * 1.2);
@@ -121,8 +121,8 @@ paddle::framework::GpuPsCommGraphFea GraphTable::make_gpu_ps_graph_fea(
             x.feature_offset = feature_array[i].size();
             int total_feature_size = 0;
             for (int k = 0; k < slot_num; ++k) {
-              auto feature_ids_size = // 对于单个slot特征来说,feature_ids_size是这个slot下的feasign数量,对于dense特征来说就是1
-                  v->get_feature_ids(k, feature_array[i], slot_id_array[i], bytes_size[i]);
+              auto feature_ids_size =
+                  v->get_feature_ids(k, feature_array[i], slot_id_array[i], bytes_offset[i]);
               if (slot_feature_num_map_[k] < feature_ids_size) {
                 slot_feature_num_map_[k] = feature_ids_size;
               }
@@ -159,10 +159,12 @@ paddle::framework::GpuPsCommGraphFea GraphTable::make_gpu_ps_graph_fea(
   res.init_on_cpu(tot_len, (unsigned int)node_ids.size(), slot_num);
 
   unsigned int offset = 0, ind = 0;
+  uint64_t total_bytes_offset = 0;
   res.bytes_offset[0] = 0;
+
   for (size_t i = 0; i < shard_num; i++) {
     tasks.push_back(
-        _cpu_worker_pool[gpu_id]->enqueue([&, i, ind, offset, this]() -> int {
+        _cpu_worker_pool[gpu_id]->enqueue([&, i, ind, offset, total_bytes_offset, this]() -> int {
           auto start = ind;
           for (size_t j = 0; j < node_id_array[i].size(); j++) {
             res.node_list[start] = node_id_array[i][j];
@@ -170,16 +172,30 @@ paddle::framework::GpuPsCommGraphFea GraphTable::make_gpu_ps_graph_fea(
             res.fea_info_list[start++].feature_offset += offset;
           }
           for (size_t j = 0; j < feature_array[i].size(); j++) {
-            res.feature_list[offset + j] = feature_array[i][j]; // 这块需要重载赋值操作
-            res.bytes_offset[offset + j + 1] = res.bytes_offset[offset + j] + bytes_size[i][j];
+            res.feature_list[offset + j] = feature_array[i][j];
+            res.bytes_offset[offset + j + 1] = total_bytes_offset + bytes_offset[i][j];
             res.slot_id_list[offset + j] = slot_id_array[i][j];
           }
           return 0;
         }));
     offset += feature_array[i].size();
+    if (!bytes_offset[i].empty()) {
+      total_bytes_offset += bytes_offset[i].back();
+    }
     ind += node_id_array[i].size();
   }
   for (size_t i = 0; i < tasks.size(); i++) tasks[i].get();
+
+  std::stringstream each_bytes_offset;
+  for(size_t i = 0; i < shard_num; i++) {
+    // each_bytes_offset.append(bytes_offset[i].back()).append(" ");
+    if (bytes_offset[i].empty()) each_bytes_offset << 0 << " ";
+    else each_bytes_offset << bytes_offset[i].back() << " "; 
+  }
+  each_bytes_offset << "\n";
+
+  // VLOG(0) << "gpu_id:" << gpu_id << ", feature size:" << res.feature_size << ", total len:" << tot_len << ",total bytes offset" << total_bytes_offset << ", res_bytes_offset:" << res.bytes_offset[tot_len] << ", each:" << each_bytes_offset.str();
+
   return res;
 }
 
@@ -253,7 +269,7 @@ paddle::framework::GpuPsCommGraphFea GraphTable::make_gpu_ps_graph_slot_fea(
   }
   for (size_t i = 0; i < tasks.size(); i++) tasks[i].get();
 
-  VLOG(0) << "[debug] gpu_id:" << gpu_id << "before init_on_cpu";
+  // VLOG(0) << "[debug] gpu_id:" << gpu_id << "before init_on_cpu";
 
 
   if (FLAGS_v > 0) {
