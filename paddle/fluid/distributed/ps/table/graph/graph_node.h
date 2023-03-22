@@ -247,7 +247,6 @@ class FeatureNode : public Node {
           bytes_offset.push_back(last_offset + shape * sizeof(uint64_t));
           feature_id.emplace_back((char*)(feas + i), FEATYPE::INT64, shape);
         }
-        // VLOG(0) << "num:" << num << ", offset back:" << bytes_offset.back();
       } else if (dtype == "int32"){
         const int32_t *feas = (const int32_t *)(s.c_str());
         num = s.length() / sizeof(int32_t);
@@ -303,7 +302,6 @@ class FeatureNode : public Node {
                                    std::vector<uint64_t> &bytes_offset) const {  // NOLINT
     errno = 0;
     size_t num = 0;
-    // VLOG(0) << "[debug]before call get_slot_feature_ids!!!!";
 
     if (slot_idx < static_cast<int>(this->feature.size())) {
       const std::string &s = this->feature[slot_idx];
@@ -313,7 +311,6 @@ class FeatureNode : public Node {
       if (dtype == "feasign" || dtype == "int64") {
         const uint64_t *feas = (const uint64_t *)(s.c_str());
         num = s.length() / sizeof(uint64_t);
-        // VLOG(0) << "slot idx:" << slot_idx << ", feature:" << s << ", dtype:" << dtype << ", shape:" << shape << ", num:" << num;
         CHECK((s.length() % sizeof(uint64_t)) == 0)
             << "bad feature_item: [" << s << "]";
         for (size_t i = 0; i < num; ++i) {

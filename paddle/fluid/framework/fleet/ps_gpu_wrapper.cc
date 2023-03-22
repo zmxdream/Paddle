@@ -553,8 +553,6 @@ void PSGPUWrapper::add_slot_feature(std::shared_ptr<HeterContext> gpu_task) {
       feature_list[i] = slot_sub_graph_feas[i].feature_list;
       feature_list_size[i] = slot_sub_graph_feas[i].feature_size;
     }
-
-
   } else {
     VLOG(0) << "FLAGS_gpugraph_storage_mode is not adaptived";
   }
@@ -565,7 +563,6 @@ void PSGPUWrapper::add_slot_feature(std::shared_ptr<HeterContext> gpu_task) {
   for (size_t i = 0; i < device_num; i++) {
     feature_num += feature_list_size[i];
   }
-  VLOG(0) << "feature_num is " << feature_num << " node_num is " << node_num;
 
   size_t set_num = thread_keys_shard_num_;
   std::vector<std::unordered_set<uint64_t>> feature_id_set(set_num);
@@ -638,10 +635,6 @@ void PSGPUWrapper::add_slot_feature(std::shared_ptr<HeterContext> gpu_task) {
   }
   threads.clear();
   time_stage.Pause();
-
-
-  VLOG(0) << "[debug] before add feature to key";
-
   add_feature_to_set_cost = time_stage.ElapsedSec();
   auto add_feature_to_key = [this,
                              device_num,
@@ -668,13 +661,10 @@ void PSGPUWrapper::add_slot_feature(std::shared_ptr<HeterContext> gpu_task) {
     t.join();
   }
   time_stage.Pause();
-
-
-
   add_feature_to_key_cost = time_stage.ElapsedSec();
   threads.clear();
   timeline.Pause();
-  VLOG(0) << " add_slot_feature costs: " << timeline.ElapsedSec() << " s."
+  VLOG(1) << " add_slot_feature costs: " << timeline.ElapsedSec() << " s."
           << " divide_nodeid_cost " << divide_nodeid_cost
           << " get_feature_id_cost " << get_feature_id_cost
           << " add_feature_to_set_cost " << add_feature_to_set_cost
@@ -694,9 +684,6 @@ void PSGPUWrapper::BuildPull(std::shared_ptr<HeterContext> gpu_task) {
   add_slot_feature(gpu_task);
 #endif
   resize_gputask(gpu_task);
-
-  VLOG(0) << "[debug] after resize gpu task";
-
   platform::Timer time_stage;
   time_stage.Start();
   gpu_task->UniqueKeys();
@@ -840,7 +827,7 @@ void PSGPUWrapper::BuildPull(std::shared_ptr<HeterContext> gpu_task) {
   }
   task_futures.clear();
   timeline.Pause();
-  VLOG(0) << "passid=" << gpu_task->pass_id_
+  VLOG(1) << "passid=" << gpu_task->pass_id_
           << ", pull sparse from CpuPS into GpuPS total keys " << total_key
           << ", cost " << timeline.ElapsedSec() << " seconds.";
 }
@@ -1073,7 +1060,7 @@ void PSGPUWrapper::MergePull(std::shared_ptr<HeterContext> gpu_task) {
     }
   }
   timeline.Pause();
-  VLOG(0) << "passid=" << gpu_task->pass_id_
+  VLOG(1) << "passid=" << gpu_task->pass_id_
           << ", merge pull sparse from CpuPS into GpuPS total keys "
           << total_key << ", cost " << timeline.ElapsedSec()
           << " seconds, barrier span: " << barrier_span;
@@ -1303,7 +1290,7 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
 #endif
   }
   stagetime.Pause();
-  VLOG(0) << "passid=" << gpu_task->pass_id_ << ", card: "
+  VLOG(1) << "passid=" << gpu_task->pass_id_ << ", card: "
           << " BuildGPUTask create HeterPs_ costs: " << stagetime.ElapsedSec()
           << " s.";
   stagetime.Start();
@@ -1473,7 +1460,7 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
   }
   cpu_task_futures.clear();
   stagetime.Pause();
-  VLOG(0) << "passid=" << gpu_task->pass_id_
+  VLOG(1) << "passid=" << gpu_task->pass_id_
           << ", BuildGPUTask build_dynamic_mf_func "
           << " cost " << stagetime.ElapsedSec() << " s.";
   for (int i = 0; i < device_num; i++) {
@@ -1501,7 +1488,7 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
   }
 #endif
   stagetime.Pause();
-  VLOG(0) << "  build_dymf_hbm_pool "
+  VLOG(1) << "  build_dymf_hbm_pool "
           << " cost " << stagetime.ElapsedSec() << " s.";
 }
 
@@ -1572,7 +1559,7 @@ void PSGPUWrapper::build_pull_thread() {
     // build cpu ps data process
     BuildPull(gpu_task);
     timer.Pause();
-    VLOG(0) << "passid=" << gpu_task->pass_id_
+    VLOG(1) << "passid=" << gpu_task->pass_id_
             << ", thread BuildPull end, cost time: " << timer.ElapsedSec()
             << "s";
     buildpull_ready_channel_->Put(gpu_task);

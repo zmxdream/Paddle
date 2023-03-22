@@ -157,11 +157,9 @@ paddle::framework::GpuPsCommGraphFea GraphTable::make_gpu_ps_graph_fea(
   VLOG(1) << "Loaded feature table on cpu, feature_list_size[" << tot_len
           << "] node_ids_size[" << node_ids.size() << "]";
   res.init_on_cpu(tot_len, (unsigned int)node_ids.size(), slot_num);
-
   unsigned int offset = 0, ind = 0;
   uint64_t total_bytes_offset = 0;
   res.bytes_offset[0] = 0;
-
   for (size_t i = 0; i < shard_num; i++) {
     tasks.push_back(
         _cpu_worker_pool[gpu_id]->enqueue([&, i, ind, offset, total_bytes_offset, this]() -> int {
@@ -268,9 +266,6 @@ paddle::framework::GpuPsCommGraphFea GraphTable::make_gpu_ps_graph_slot_fea(
   }
   for (size_t i = 0; i < tasks.size(); i++) tasks[i].get();
 
-  // VLOG(0) << "[debug] gpu_id:" << gpu_id << "before init_on_cpu";
-
-
   if (FLAGS_v > 0) {
     std::stringstream ss;
     for (int k = 0; k < slot_num; ++k) {
@@ -278,7 +273,6 @@ paddle::framework::GpuPsCommGraphFea GraphTable::make_gpu_ps_graph_slot_fea(
     }
     VLOG(0) << "slot_feature_num_map: " << ss.str();
   }
-
   tasks.clear();
 
   paddle::framework::GpuPsCommGraphFea res;
@@ -287,12 +281,9 @@ paddle::framework::GpuPsCommGraphFea GraphTable::make_gpu_ps_graph_slot_fea(
     tot_len += feature_array[i].size();
   }
 
-  VLOG(0) << "gpud_id:" << gpu_id << ", Loaded feature table on cpu, feature_list_size[" << tot_len
+  VLOG(1) << "gpud_id:" << gpu_id << ", Loaded feature table on cpu, feature_list_size[" << tot_len
           << "] node_ids_size[" << node_ids.size() << "]";
   res.init_on_cpu(tot_len, (unsigned int)node_ids.size(), slot_num);
-
-
-  VLOG(0) << "gpuid:" << gpu_id << "after init on cpu";
 
   unsigned int offset = 0, ind = 0;
   res.bytes_offset[0] = 0;
@@ -306,7 +297,7 @@ paddle::framework::GpuPsCommGraphFea GraphTable::make_gpu_ps_graph_slot_fea(
             res.fea_info_list[start++].feature_offset += offset;
           }
           for (size_t j = 0; j < feature_array[i].size(); j++) {
-            res.feature_list[offset + j] = feature_array[i][j]; // 这块需要重载赋值操作
+            res.feature_list[offset + j] = feature_array[i][j];
             res.bytes_offset[offset + j + 1] = res.bytes_offset[offset + j] + bytes_size[i][j];
             res.slot_id_list[offset + j] = slot_id_array[i][j];
           }
@@ -316,7 +307,6 @@ paddle::framework::GpuPsCommGraphFea GraphTable::make_gpu_ps_graph_slot_fea(
     ind += node_id_array[i].size();
   }
   for (size_t i = 0; i < tasks.size(); i++) tasks[i].get();
-  VLOG(0) << "gpuid:" << gpu_id << "after fill res";
   return res;
 }
 
@@ -2595,8 +2585,6 @@ int GraphTable::parse_feature(int idx,
   char c = slot_feature_separator_.at(0);
   paddle::string::split_string_ptr(feat_str, len, c, &fields);
 
-  // fields[0]是slot
-  // fields[1]是fea1,fea2,fea3,....
   thread_local std::vector<paddle::string::str_ptr> fea_fields;
   fea_fields.clear();
   c = feature_separator_.at(0);
@@ -3027,7 +3015,6 @@ int32_t GraphTable::Initialize(const GraphParameter &graph) {
     edge_to_id[edge_types[k]] = k;
     id_to_edge.push_back(edge_types[k]);
   }
-
   feat_name.resize(node_types.size());
   feat_shape.resize(node_types.size());
   feat_dtype.resize(node_types.size());
