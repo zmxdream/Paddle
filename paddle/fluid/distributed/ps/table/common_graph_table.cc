@@ -186,14 +186,13 @@ paddle::framework::GpuPsCommGraphFea GraphTable::make_gpu_ps_graph_fea(
   }
   for (size_t i = 0; i < tasks.size(); i++) tasks[i].get();
 
-  std::stringstream each_bytes_offset;
-  for(size_t i = 0; i < shard_num; i++) {
-    // each_bytes_offset.append(bytes_offset[i].back()).append(" ");
-    if (bytes_offset[i].empty()) each_bytes_offset << 0 << " ";
-    else each_bytes_offset << bytes_offset[i].back() << " "; 
-  }
-  each_bytes_offset << "\n";
-
+  // std::stringstream each_bytes_offset;
+  // for(size_t i = 0; i < shard_num; i++) {
+  //   // each_bytes_offset.append(bytes_offset[i].back()).append(" ");
+  //   if (bytes_offset[i].empty()) each_bytes_offset << 0 << " ";
+  //  else each_bytes_offset << bytes_offset[i].back() << " "; 
+  // }
+  // each_bytes_offset << "\n";
   // VLOG(0) << "gpu_id:" << gpu_id << ", feature size:" << res.feature_size << ", total len:" << tot_len << ",total bytes offset" << total_bytes_offset << ", res_bytes_offset:" << res.bytes_offset[tot_len] << ", each:" << each_bytes_offset.str();
 
   return res;
