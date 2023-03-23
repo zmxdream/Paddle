@@ -1107,6 +1107,7 @@ __global__ void get_each_ins_info(Feature* feature_list,
                                   uint32_t *slot_size_prefix,
                                   uint32_t *each_ins_slot_num,
                                   uint32_t *each_ins_slot_num_inner_prefix,
+                                  uint32_t *slot_shape,
                                   size_t key_num,
                                   int slot_num) {
   const size_t i = blockIdx.x * blockDim.y + threadIdx.y;
@@ -1115,21 +1116,19 @@ __global__ void get_each_ins_info(Feature* feature_list,
     size_t each_ins_slot_index = i * slot_num;
 
     for (int j = 0; j < slot_size_list[i]; j++) {
-      // each_ins_slot_num[each_ins_slot_index + slot_list[slot_index + j]] += feature_list[slot_index + j].shape;
-      each_ins_slot_num[each_ins_slot_index + slot_list[slot_index + j]] += 1;
-      // slot_shape[slot_list[slot_index + j]] = feature_list[slot_index + j].shape;
+      each_ins_slot_num[each_ins_slot_index + slot_list[slot_index + j]] += feature_list[slot_index + j].shape;
+      slot_shape[slot_list[slot_index + j]] = feature_list[slot_index + j].shape;
     }
 
-    // 第一个元素为啥是1
     each_ins_slot_num_inner_prefix[each_ins_slot_index] = 0;
 
     for (int j = 1; j < slot_num; j++) {
-      // each_ins_slot_num_inner_prefix[each_ins_slot_index + j] =
-      //    each_ins_slot_num[each_ins_slot_index + j - 1] / slot_shape[j - 1] +
-      //    each_ins_slot_num_inner_prefix[each_ins_slot_index + j - 1];
       each_ins_slot_num_inner_prefix[each_ins_slot_index + j] =
-          each_ins_slot_num[each_ins_slot_index + j - 1]+
+          each_ins_slot_num[each_ins_slot_index + j - 1] / slot_shape[j - 1] +
           each_ins_slot_num_inner_prefix[each_ins_slot_index + j - 1];
+      // each_ins_slot_num_inner_prefix[each_ins_slot_index + j] =
+      //    each_ins_slot_num[each_ins_slot_index + j - 1]+
+      //    each_ins_slot_num_inner_prefix[each_ins_slot_index + j - 1];
     }
   }
 }
@@ -1186,9 +1185,8 @@ __global__ void fill_slot_tensor(Feature *feature_list,
     size_t src_index = feature_size_prefixsum[i] +
                        each_ins_slot_num_inner_prefix[slot_num * i + slot];
     uint32_t shape = feature_list[src_index].shape;
-    for (uint64_t j = 0; j < ins_slot_num[i] * shape; j++) {
+    for (uint64_t j = 0; j < ins_slot_num[i]; j++) {
       int fea_idx = j / shape;
-      // slot_tensor[dst_index + j] = *(reinterpret_cast<T*>(feature_list[src_index + fea_idx].feature) + (j % shape));
       slot_tensor[dst_index + j] = *(reinterpret_cast<T*>(feature_list[src_index + fea_idx].feature) + (j % shape));
     }
   }
@@ -1473,12 +1471,12 @@ int GraphDataGenerator::FillSlotFeature(uint64_t *d_walk, size_t key_num) {
                              train_stream_));
 
 
-  // std::shared_ptr<phi::Allocation> d_slot_shape =
-  //     memory::AllocShared(place_, slot_num_ * sizeof(uint32_t));
-  // uint32_t* d_slot_shape_ptr = 
-  //    reinterpret_cast<uint32_t *>(d_slot_shape->ptr());
-  // CUDA_CHECK(cudaMemsetAsync(
-  //       d_slot_shape, 0, slot_num_ * sizeof(uint32_t), train_stream_));
+  std::shared_ptr<phi::Allocation> d_slot_shape =
+       memory::AllocShared(place_, slot_num_ * sizeof(uint32_t));
+  uint32_t* d_slot_shape_ptr = 
+      reinterpret_cast<uint32_t *>(d_slot_shape->ptr());
+  CUDA_CHECK(cudaMemsetAsync(
+         d_slot_shape_ptr, 1, slot_num_ * sizeof(uint32_t), train_stream_));
   
   dim3 grid((key_num - 1) / 256 + 1);
   dim3 block(1, 256);
@@ -1491,6 +1489,7 @@ int GraphDataGenerator::FillSlotFeature(uint64_t *d_walk, size_t key_num) {
       d_feature_size_prefixsum_ptr,
       d_each_ins_slot_num_ptr,
       d_each_ins_slot_num_inner_prefix_ptr,
+      d_slot_shape_ptr,
       key_num,
       slot_num_);
 
@@ -1575,16 +1574,44 @@ int GraphDataGenerator::FillSlotFeature(uint64_t *d_walk, size_t key_num) {
 
   int64_t default_lod = 1;
   for (int i = 0; i < slot_num_; ++i) {
-    fill_slot_tensor<<<grid, block, 0, train_stream_>>>(
-        d_feature_list_ptr,
-        d_feature_size_prefixsum_ptr,
-        d_each_ins_slot_num_inner_prefix_ptr,
-        ins_slot_num_vecotr[i],
-        slot_lod_tensor_ptr_[i],
-        slot_tensor_ptr_[i],
-        i,
-        slot_num_,
-        key_num);
+
+    if (feed_type_[i] == "uint64") {
+      fill_slot_tensor<<<grid, block, 0, train_stream_>>>(
+          d_feature_list_ptr,
+          d_feature_size_prefixsum_ptr,
+          d_each_ins_slot_num_inner_prefix_ptr,
+          ins_slot_num_vecotr[i],
+          slot_lod_tensor_ptr_[i],
+          (uint64_t*)slot_tensor_ptr_[i],
+          i,
+          slot_num_,
+          key_num);
+    } else if (feed_type_[i] == "uint32"){
+      fill_slot_tensor<<<grid, block, 0, train_stream_>>>(
+          d_feature_list_ptr,
+          d_feature_size_prefixsum_ptr,
+          d_each_ins_slot_num_inner_prefix_ptr,
+          ins_slot_num_vecotr[i],
+          slot_lod_tensor_ptr_[i],
+          (uint32_t*)slot_tensor_ptr_[i],
+          i,
+          slot_num_,
+          key_num);
+    } else if (feed_type_[i] == "float") {
+      fill_slot_tensor<<<grid, block, 0, train_stream_>>>(
+          d_feature_list_ptr,
+          d_feature_size_prefixsum_ptr,
+          d_each_ins_slot_num_inner_prefix_ptr,
+          ins_slot_num_vecotr[i],
+          slot_lod_tensor_ptr_[i],
+          (float*)slot_tensor_ptr_[i],
+          i,
+          slot_num_,
+          key_num);
+
+
+
+    }
 
     // VLOG(0) << "before sync gpuid:" << gpuid_ << ", i:" << i << ",each_slot_fea_num:" << each_slot_fea_num[i];
 
