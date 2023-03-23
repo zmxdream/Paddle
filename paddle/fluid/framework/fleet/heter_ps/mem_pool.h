@@ -51,12 +51,6 @@ class MemoryPool {
 // Derived from managed, alloced managed hbm
 class HBMMemoryPool : public managed {
  public:
-  // HBMMemoryPool(size_t capacity, size_t block_size)
-  //    : capacity_(capacity), block_size_(block_size) {
-  //   VLOG(3) << "hbm memory pool with capacity" << capacity_
-  //          << " bs: " << block_size_;
-  //  CUDA_CHECK(cudaMalloc(&mem_, block_size_ * capacity_));
-  // }
   explicit HBMMemoryPool(MemoryPool* mem_pool) {
     capacity_ = mem_pool->capacity();
     block_size_ = mem_pool->block_size();

@@ -549,11 +549,18 @@ void PSGPUWrapper::add_slot_feature(std::shared_ptr<HeterContext> gpu_task) {
     slot_sub_graph_feas = gpu_graph_ptr->get_sub_graph_slot_fea(node_ids, slot_num);
     sub_graph_feas = gpu_graph_ptr->get_sub_graph_fea(node_ids, slot_num);
 
+    std::stringstream ss, ss2;
+    ss << "[debug] get_sub_graph_slot_fea:";
+    ss2 << "[debug] get_sub_graph_fea:";
+
     for (size_t i = 0; i < device_num; i++) {
       feature_list[i] = slot_sub_graph_feas[i].feature_list;
       feature_list_size[i] = slot_sub_graph_feas[i].feature_size;
+      ss << feature_list_size[i] << " ";
+      ss2 << sub_graph_feas[i].feature_size << " ";
     }
-  } else {
+    VLOG(0) << ss.str() << "|" << ss2.str();
+  } else { 
     VLOG(0) << "FLAGS_gpugraph_storage_mode is not adaptived";
   }
   time_stage.Pause();

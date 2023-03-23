@@ -2991,7 +2991,6 @@ void GraphDataGenerator::AllocResource(
           << " table cap: " << train_table_cap_;
 
 
-
   // feed_vec_ = feed_vec;
   // if (!sage_mode_) {
   //  slot_num_ = (feed_vec.size() - 3) / 2;

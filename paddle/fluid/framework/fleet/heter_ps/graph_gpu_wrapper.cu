@@ -788,21 +788,16 @@ std::vector<GpuPsCommGraphFea> GraphGpuWrapper::get_sub_graph_slot_fea(
   std::vector<std::future<int>> tasks;
   std::vector<GpuPsCommGraphFea> sub_graph_slot_feas(node_ids.size());
 
-  VLOG(0) << "[debug] before graph gpu wrapper, get_sub_graph_slot_fea, slot_num:" << slot_num;  
-
   for (int i = 0; i < node_ids.size(); i++) {
     tasks.push_back(upload_task_pool->enqueue([&, i, this]() -> int {
       GpuPsGraphTable *g = reinterpret_cast<GpuPsGraphTable *>(graph_table);
-      VLOG(0) << "[debug] before make_gpu_ps_graph_fea:" << i;
       sub_graph_slot_feas[i] =
           g->cpu_graph_table_->make_gpu_ps_graph_slot_fea(i, node_ids[i], slot_num);
-      VLOG(0) << "[debug] after make_gpu_ps_graph_fea:" << i;
       return 0;
     }));
   }
 
   for (size_t i = 0; i < tasks.size(); i++) tasks[i].get();
-  VLOG(0) << "[debug] after graph gpu wrapper, get_sub_graph_slot_fea, slot_num:" << slot_num;  
   return sub_graph_slot_feas;
 }
 
