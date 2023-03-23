@@ -1091,7 +1091,7 @@ __global__ void get_each_ins_info(uint8_t *slot_list,
     for (int j = 0; j < slot_size_list[i]; j++) {
       each_ins_slot_num[each_ins_slot_index + slot_list[slot_index + j]] += 1;
     }
-    each_ins_slot_num_inner_prefix[each_ins_slot_index] = 1;
+    each_ins_slot_num_inner_prefix[each_ins_slot_index] = 0;
     for (int j = 1; j < slot_num; j++) {
       each_ins_slot_num_inner_prefix[each_ins_slot_index + j] =
           each_ins_slot_num[each_ins_slot_index + j - 1] +
