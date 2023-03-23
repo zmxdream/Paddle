@@ -1193,9 +1193,9 @@ void GpuPsGraphTable::move_feature_to_gpu(const GpuPsCommGraphFea& g,
 
   std::vector<std::thread> threads;
 
-  if (this->mem_pools_[gpu_id] != nullptr) {
+  if (this->mem_pools_[gpu_id] != NULL) {
     delete this->mem_pools_[gpu_id];
-    this->mem_pools_[gpu_id] = nullptr;
+    this->mem_pools_[gpu_id] = NULL;
 
   }
 
@@ -1242,13 +1242,13 @@ void GpuPsGraphTable::move_feature_to_gpu(const GpuPsCommGraphFea& g,
   
   threads.clear();
 
-  if (this->hbm_pools_[gpu_id] != nullptr) {
+  if (this->hbm_pools_[gpu_id] != NULL) {
     delete this->hbm_pools_[gpu_id];
-    this->hbm_pools_[gpu_id] = nullptr;
+    this->hbm_pools_[gpu_id] = NULL;
   }
   this->hbm_pools_[gpu_id] = new HBMMemoryPool(this->mem_pools_[gpu_id]);
   delete this->mem_pools_[gpu_id];
-  this->mem_pools_[gpu_id] = nullptr;
+  this->mem_pools_[gpu_id] = NULL;
 
   auto write_feature_hbm = [this, &g, thread_num, gpu_id](int id) {
     // ============ add for multi-thread ================ 

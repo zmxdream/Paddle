@@ -58,8 +58,8 @@ class GpuPsGraphTable
     this->graph_table_num_ = graph_table_num;
     this->feature_table_num_ = 1;
     gpu_num = resource_->total_device();
-    mem_pools_.resize(gpu_num); 
-    hbm_pools_.resize(gpu_num); 
+    mem_pools_.resize(gpu_num, NULL); 
+    hbm_pools_.resize(gpu_num, NULL); 
     memset(global_device_map, -1, sizeof(global_device_map));
 
     tables_ = std::vector<Table *>(
