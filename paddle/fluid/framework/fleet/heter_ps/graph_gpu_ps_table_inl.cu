@@ -998,7 +998,6 @@ __global__ void fill_feature_and_slot(Feature* dst_feature_list,
     for (uint32_t j = 0; j < src_size_list[i]; j++) {
       dst_feature_list[dst_index + j] = src_feature_list[src_index + j];
       dst_slot_list[dst_index + j] = src_slot_list[src_index + j];
-
     }
   }
 }
