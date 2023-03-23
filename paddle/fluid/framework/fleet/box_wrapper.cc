@@ -883,6 +883,13 @@ void BoxWrapper::InitMetric(const std::string& method,
                             bool mode_collect_in_gpu,
                             int max_batch_size,
                             const std::string& sample_scale_varname) {
+  // add skip vars
+  AddSkipGCVar(label_varname);
+  AddSkipGCVar(pred_varname);
+  AddSkipGCVar(cmatch_rank_varname);
+  AddSkipGCVar(mask_varname);
+  AddSkipGCVar(sample_scale_varname);
+
   if (method == "AucCalculator") {
     metric_lists_.emplace(name,
                           new MetricMsg(label_varname,

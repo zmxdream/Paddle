@@ -908,9 +908,24 @@ class BoxWrapper {
     boxps_ptr_->ExecRangeFunc(GetPlaceDeviceId(place), num, func);
   }
   // get slot vector
-  const std::vector<int>& GetSlotVector(void) {
-    return slot_vector_;
+  const std::vector<int>& GetSlotVector(void) { return slot_vector_; }
+  // add skip gc var
+  void AddSkipGCVar(const std::string& str) {
+    if (str.empty()) {
+      return;
+    }
+    auto var_names = string::split_string(str);
+    for (auto& name : var_names) {
+      auto it = std::find(skip_gc_vars_.begin(), skip_gc_vars_.end(), name);
+      if (it != skip_gc_vars_.end()) {
+        return;
+      }
+      skip_gc_vars_.push_back(name);
+    }
   }
+  // get need skip gc var
+  const std::vector<std::string>& GetSkipGCVars(void) { return skip_gc_vars_; }
+
  private:
   static boxps::StreamType stream_list_[MAX_GPU_NUM];
   static std::shared_ptr<BoxWrapper> s_instance_;
@@ -1067,6 +1082,8 @@ class BoxWrapper {
   std::shared_ptr<scalopus::EndpointManagerPoll> manager;
   scalopus::CatapultRecorder::Ptr catapult_recorder;
 #endif
+  // skip gc vars
+  std::vector<std::string> skip_gc_vars_;
 };
 /**
  * @brief file mgr
