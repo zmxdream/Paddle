@@ -57,6 +57,7 @@ class FusedSeqpoolCVMOpXPUKernel : public framework::OpKernel<T> {
     auto out = ctx.MultiOutput<LoDTensor>("Out");
     std::string pooltype = ctx.Attr<std::string>("pooltype");
     bool use_cvm = ctx.Attr<bool>("use_cvm");
+    bool need_filter = ctx.Attr<bool>("need_filter");
     bool clk_filter = ctx.Attr<bool>("clk_filter");
     auto padding_value = ctx.Attr<float>("pad_value");
     auto quant_ratio = ctx.Attr<int>("quant_ratio");
@@ -120,6 +121,7 @@ class FusedSeqpoolCVMOpXPUKernel : public framework::OpKernel<T> {
                                           slot_num,
                                           use_cvm,
                                           clk_filter,
+                                          need_filter,
                                           padding_value,
                                           quant_ratio,
                                           show_coeff,
