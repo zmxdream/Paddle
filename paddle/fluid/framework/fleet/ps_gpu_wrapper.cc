@@ -1482,6 +1482,10 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
    
     std::vector<GpuPsCommGraphFea>* slot_tmp =
         (std::vector<GpuPsCommGraphFea>*)gpu_task->slot_sub_graph_feas;
+    // fix bug for mem leak
+    for (int i = 0; i < device_num; i++) {
+      (*slot_tmp)[i].release_on_cpu();
+    }
     delete slot_tmp;
     gpu_task->slot_sub_graph_feas = NULL;
   }
