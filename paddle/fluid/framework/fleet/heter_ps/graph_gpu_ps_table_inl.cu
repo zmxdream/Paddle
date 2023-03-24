@@ -1220,9 +1220,6 @@ void GpuPsGraphTable::move_feature_to_gpu(const GpuPsCommGraphFea& g,
     }
     // ============ add for multi-thread ================ 
     for(int i =  left; i < right; i++) {
-      // int dtype = g.feature_list[i].dtype;
-      // int idx = Feature::get_idx(dtype);
-      // size_t tmp_len = g.feature_list[i].shape * Feature::get_bytes(dtype);
       char* feat = g.feature_list[i].feature;
       size_t offset = g.bytes_offset[i];
       size_t len = g.bytes_offset[i + 1] - offset;
