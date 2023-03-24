@@ -215,7 +215,6 @@ class GpuPsGraphTable
 
   std::vector<MemoryPool*> mem_pools_;
   std::vector<HBMMemoryPool*> hbm_pools_;
-
 };
 
 };  // namespace framework

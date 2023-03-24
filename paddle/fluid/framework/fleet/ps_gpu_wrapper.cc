@@ -548,18 +548,10 @@ void PSGPUWrapper::add_slot_feature(std::shared_ptr<HeterContext> gpu_task) {
     // sub_graph_feas = gpu_graph_ptr->get_sub_graph_fea(node_ids, slot_num);
     slot_sub_graph_feas = gpu_graph_ptr->get_sub_graph_slot_fea(node_ids, slot_num);
     sub_graph_feas = gpu_graph_ptr->get_sub_graph_fea(node_ids, slot_num);
-
-    std::stringstream ss, ss2;
-    ss << "[debug] get_sub_graph_slot_fea:";
-    ss2 << "[debug] get_sub_graph_fea:";
-
     for (size_t i = 0; i < device_num; i++) {
       feature_list[i] = slot_sub_graph_feas[i].feature_list;
       feature_list_size[i] = slot_sub_graph_feas[i].feature_size;
-      ss << feature_list_size[i] << " ";
-      ss2 << sub_graph_feas[i].feature_size << " ";
     }
-    VLOG(0) << ss.str() << "|" << ss2.str();
   } else { 
     VLOG(0) << "FLAGS_gpugraph_storage_mode is not adaptived";
   }
@@ -695,7 +687,7 @@ void PSGPUWrapper::BuildPull(std::shared_ptr<HeterContext> gpu_task) {
   time_stage.Start();
   gpu_task->UniqueKeys();
   time_stage.Pause();
-  VLOG(0) << "passid=" << gpu_task->pass_id_
+  VLOG(1) << "passid=" << gpu_task->pass_id_
           << ", BuildPull slot feature uniq and sort cost time: "
           << time_stage.ElapsedSec();
 
@@ -1067,7 +1059,7 @@ void PSGPUWrapper::MergePull(std::shared_ptr<HeterContext> gpu_task) {
     }
   }
   timeline.Pause();
-  VLOG(1) << "passid=" << gpu_task->pass_id_
+  VLOG(0) << "passid=" << gpu_task->pass_id_
           << ", merge pull sparse from CpuPS into GpuPS total keys "
           << total_key << ", cost " << timeline.ElapsedSec()
           << " seconds, barrier span: " << barrier_span;
@@ -1440,7 +1432,7 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
     stagetime.Pause();
     timer.Pause();
 
-    VLOG(0) << "card: " << i
+    VLOG(1) << "card: " << i
             << " BuildGPUTask build_ps total costs: " << timer.ElapsedSec()
             << ", copy: " << stagetime.ElapsedSec() << ", table: " << build_span
             << ", feature: " << build_feature_span
@@ -1566,7 +1558,7 @@ void PSGPUWrapper::build_pull_thread() {
     // build cpu ps data process
     BuildPull(gpu_task);
     timer.Pause();
-    VLOG(1) << "passid=" << gpu_task->pass_id_
+    VLOG(0) << "passid=" << gpu_task->pass_id_
             << ", thread BuildPull end, cost time: " << timer.ElapsedSec()
             << "s";
     buildpull_ready_channel_->Put(gpu_task);
@@ -1594,7 +1586,7 @@ void PSGPUWrapper::build_task() {
   }
   BuildGPUTask(gpu_task);
   timer.Pause();
-  VLOG(0) << "passid=" << gpu_task->pass_id_
+  VLOG(1) << "passid=" << gpu_task->pass_id_
           << ", PrepareGPUTask + BuildGPUTask end, cost time: "
           << timer.ElapsedSec() << "s";
 

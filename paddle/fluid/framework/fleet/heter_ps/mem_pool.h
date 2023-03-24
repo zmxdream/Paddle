@@ -51,6 +51,8 @@ class MemoryPool {
 // Derived from managed, alloced managed hbm
 class HBMMemoryPool : public managed {
  public:
+  HBMMemoryPool(size_t capacity, size_t block_size)
+      : capacity_(capacity), block_size_(block_size) {}
   explicit HBMMemoryPool(MemoryPool* mem_pool) {
     capacity_ = mem_pool->capacity();
     block_size_ = mem_pool->block_size();

@@ -675,10 +675,8 @@ void GraphGpuWrapper::init_service() {
       g_f->add_shape(table_feat_conf_feat_shape[i][x]);
     }
   }
-
   std::shared_ptr<HeterPsResource> resource =
       std::make_shared<HeterPsResource>(device_id_mapping);
-
   resource->enable_p2p();
   GpuPsGraphTable *g = new GpuPsGraphTable(resource, id_to_edge.size());
   size_t gpu_num = device_id_mapping.size();
