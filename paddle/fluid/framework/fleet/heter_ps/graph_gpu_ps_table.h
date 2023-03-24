@@ -84,6 +84,19 @@ class GpuPsGraphTable
       delete device_mutex_[i];
     }
     device_mutex_.clear();
+
+    for (size_t i = 0; i < gpu_num; i++) {
+      if (mem_pools_[i] != NULL) {
+        delete mem_pools_[i];
+        mem_pools_[i] = NULL;
+      }
+      if (hbm_pools_[i] != NULL) {
+        delete hbm_pools_[i];
+        hbm_pools_[i] = NULL;
+      }
+    }
+    mem_pools_.clear();
+    hbm_pools_.clear();
   }
   void build_graph_on_single_gpu(const GpuPsCommGraph &g, int gpu_id, int idx);
   void build_graph_fea_on_single_gpu(const GpuPsCommGraphFea &g, int gpu_id);
