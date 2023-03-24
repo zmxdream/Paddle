@@ -97,7 +97,7 @@ class Node {
     return 0;
   }
   virtual void set_feature(int idx, const std::string &str) {}
-  virtual void set_feature_shape(int idx, const int32_t & shape) {}
+  virtual void set_feature_shape(int idx, const int32_t &shape) {}
   virtual void set_feature_dtype(int idx, const std::string &dtype) {}
   virtual void set_feature_size(int size) {}
   virtual void shrink_to_fit() {}
