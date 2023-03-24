@@ -637,6 +637,11 @@ void PSGPUWrapper::add_slot_feature(std::shared_ptr<HeterContext> gpu_task) {
   for (size_t i = 0; i < device_num; i++) {
       slot_sub_graph_feas[i].release_on_cpu();
   }
+  std::vector<GpuPsCommGraphFea>* slot_tmp =
+      (std::vector<GpuPsCommGraphFea>*)gpu_task->slot_sub_graph_feas;
+  delete slot_tmp;
+  gpu_task->slot_sub_graph_feas = NULL;
+
   time_stage.Pause();
   add_feature_to_set_cost = time_stage.ElapsedSec();
   auto add_feature_to_key = [this,
@@ -1483,11 +1488,6 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
         (std::vector<GpuPsCommGraphFea>*)gpu_task->sub_graph_feas;
     delete tmp;
     gpu_task->sub_graph_feas = NULL;
-   
-    std::vector<GpuPsCommGraphFea>* slot_tmp =
-        (std::vector<GpuPsCommGraphFea>*)gpu_task->slot_sub_graph_feas;
-    delete slot_tmp;
-    gpu_task->slot_sub_graph_feas = NULL;
   }
 #endif
   stagetime.Pause();
