@@ -32,9 +32,9 @@ enum FEATYPE{
   INT64 = 0,
   INT32,
   DOUBLE,
-  FLOAT
+  FLOAT,
+  NONETYPE
 };
-
 
 struct Feature {
   char* feature;
@@ -295,7 +295,7 @@ class FeatureNode : public Node {
     //        "get_feature_ids get errno should be 0, but got %d.", errno));
     return num;
   }
-
+/*
   virtual int get_slot_feature_ids(int slot_idx,
                                    std::vector<Feature> &feature_id,      // NOLINT
                                    std::vector<uint8_t> &slot_id,
@@ -342,6 +342,7 @@ class FeatureNode : public Node {
     // VLOG(0) << "[debug]after call get_slot_feature_ids!!!!";
     return num;
   }
+*/
 
   virtual std::string *mutable_feature(int idx) {
     if (idx >= static_cast<int>(this->feature.size())) {

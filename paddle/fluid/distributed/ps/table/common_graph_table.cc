@@ -185,7 +185,7 @@ paddle::framework::GpuPsCommGraphFea GraphTable::make_gpu_ps_graph_fea(
   for (size_t i = 0; i < tasks.size(); i++) tasks[i].get();
   return res;
 }
-
+/*
 paddle::framework::GpuPsCommGraphFea GraphTable::make_gpu_ps_graph_slot_fea(
     int gpu_id, std::vector<uint64_t> &node_ids, int slot_num) {
   size_t shard_num = 64;
@@ -299,6 +299,7 @@ paddle::framework::GpuPsCommGraphFea GraphTable::make_gpu_ps_graph_slot_fea(
   for (size_t i = 0; i < tasks.size(); i++) tasks[i].get();
   return res;
 }
+*/
 
 paddle::framework::GpuPsCommGraph GraphTable::make_gpu_ps_graph(
     int idx, const std::vector<uint64_t> &ids) {

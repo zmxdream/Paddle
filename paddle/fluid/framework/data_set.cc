@@ -134,7 +134,7 @@ std::vector<std::string> DatasetImpl<T>::GetSlots() {
   for (int i = 0; i < multi_slot_desc.slots_size(); ++i) {
     const auto& slot = multi_slot_desc.slots(i);
     if (slot.type() == "uint64" || slot.type() == "uint32") {
-      use_slots_.push_back(slot.name());
+    use_slots_.push_back(slot.name());
     }
   }
   std::cout << "dataset use slots: ";

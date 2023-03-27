@@ -154,13 +154,13 @@ class GpuPsGraphTable
                        uint64_t *key,
                        int len,
                        std::shared_ptr<phi::Allocation> node_degree);
-  // int get_feature_of_nodes(int gpu_id,
-  //                         uint64_t *d_walk,
-  //                         uint64_t *d_offset,
-  //                         int size,
-  //                         int slot_num,
-  //                         int *d_slot_feature_num_map,
-  //                         int fea_num_per_node);
+  int get_feature_of_nodes(int gpu_id,
+                           uint64_t *d_walk,
+                           Feature *d_offset,
+                           int size,
+                           int slot_num,
+                           int *d_slot_feature_num_map,
+                           int fea_num_per_node);
   int get_feature_info_of_nodes(
       int gpu_id,
       uint64_t *d_nodes,
@@ -181,6 +181,13 @@ class GpuPsGraphTable
                                  int *h_left,
                                  int *h_right,
                                  uint64_t *src_sample_res,
+                                 int *actual_sample_size);
+  void move_result_to_source_gpu(int gpu_id,
+                                 int gpu_num,
+                                 int sample_size,
+                                 int *h_left,
+                                 int *h_right,
+                                 Feature *src_sample_res,
                                  int *actual_sample_size);
   void move_result_to_source_gpu(int start_index,
                                  int gpu_num,

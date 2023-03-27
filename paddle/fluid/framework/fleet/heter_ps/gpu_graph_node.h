@@ -34,7 +34,7 @@ struct GpuPsNodeInfo {
 };
 
 using Feature = ::paddle::distributed::Feature;
-
+using FEATYPE = ::paddle::distributed::FEATYPE;
 struct GpuPsCommGraph {
   uint64_t *node_list;
   // when FLAGS_gpugraph_load_node_list_into_hbm is true locate on both side

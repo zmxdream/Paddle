@@ -779,6 +779,7 @@ std::vector<GpuPsCommGraphFea> GraphGpuWrapper::get_sub_graph_fea(
   return sub_graph_feas;
 }
 
+/*
 // get sub_graph_slot_fea
 std::vector<GpuPsCommGraphFea> GraphGpuWrapper::get_sub_graph_slot_fea(
     std::vector<std::vector<uint64_t>> &node_ids, int slot_num) {
@@ -798,6 +799,7 @@ std::vector<GpuPsCommGraphFea> GraphGpuWrapper::get_sub_graph_slot_fea(
   for (size_t i = 0; i < tasks.size(); i++) tasks[i].get();
   return sub_graph_slot_feas;
 }
+*/
 
 // build_gpu_graph_fea
 void GraphGpuWrapper::build_gpu_graph_fea(GpuPsCommGraphFea &sub_graph_fea,
@@ -870,10 +872,9 @@ int GraphGpuWrapper::get_feature_info_of_nodes(
                                   slot_list);
 }
 
-/*
 int GraphGpuWrapper::get_feature_of_nodes(int gpu_id,
                                           uint64_t *d_walk,
-                                          uint64_t *d_offset,
+                                          Feature *d_offset,
                                           uint32_t size,
                                           int slot_num,
                                           int *d_slot_feature_num_map,
@@ -891,7 +892,6 @@ int GraphGpuWrapper::get_feature_of_nodes(int gpu_id,
                              d_slot_feature_num_map,
                              fea_num_per_node);
 }
-*/
 
 NeighborSampleResult GraphGpuWrapper::graph_neighbor_sample(
     int gpu_id, uint64_t *device_keys, int walk_degree, int len) {

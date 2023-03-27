@@ -439,20 +439,19 @@ void PSGPUWrapper::add_slot_feature(std::shared_ptr<HeterContext> gpu_task) {
       reinterpret_cast<void*>(new std::vector<GpuPsCommGraphFea>);
   std::vector<GpuPsCommGraphFea>& sub_graph_feas =
       *((std::vector<GpuPsCommGraphFea>*)gpu_task->sub_graph_feas);
-  gpu_task->slot_sub_graph_feas =
-      reinterpret_cast<void*>(new std::vector<GpuPsCommGraphFea>);
-  std::vector<GpuPsCommGraphFea>& slot_sub_graph_feas =
-      *((std::vector<GpuPsCommGraphFea>*)gpu_task->slot_sub_graph_feas);
+  // gpu_task->slot_sub_graph_feas =
+  //    reinterpret_cast<void*>(new std::vector<GpuPsCommGraphFea>);
+  // std::vector<GpuPsCommGraphFea>& slot_sub_graph_feas =
+  //     *((std::vector<GpuPsCommGraphFea>*)gpu_task->slot_sub_graph_feas);
 #endif
-  std::vector<std::vector<uint64_t>> feature_ids(device_num);
+  std::vector<std::vector<Feature>> feature_ids(device_num);
   std::vector<Feature*> feature_list(device_num);
   std::vector<size_t> feature_list_size(device_num);
 #if defined(PADDLE_WITH_PSCORE) && defined(PADDLE_WITH_GPU_GRAPH)
-  // size_t batch = 40000;
+  size_t batch = 40000;
   size_t slot_num = static_cast<size_t>(
       slot_num_for_pull_feature_);  // node slot 9008 in slot_vector
   time_stage.Start();
-/*
   if (FLAGS_gpugraph_storage_mode ==
       paddle::framework::GpuGraphStorageMode::MEM_EMB_AND_GPU_GRAPH) {
     auto gpu_graph_ptr = GraphGpuWrapper::GetInstance();
@@ -473,7 +472,7 @@ void PSGPUWrapper::add_slot_feature(std::shared_ptr<HeterContext> gpu_task) {
       auto stream = resource_->local_stream(i, 0);
       int* d_slot_feature_num_map;
       uint64_t* d_node_list_ptr;
-      uint64_t* d_feature_list_ptr;
+      Feature* d_feature_list_ptr;
       CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_slot_feature_num_map),
                             slot_num * sizeof(int)));
       CUDA_CHECK(cudaMemcpyAsync(d_slot_feature_num_map,
@@ -485,7 +484,7 @@ void PSGPUWrapper::add_slot_feature(std::shared_ptr<HeterContext> gpu_task) {
       CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_node_list_ptr),
                             batch * sizeof(uint64_t)));
       CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_feature_list_ptr),
-                            batch * fea_num_per_node * sizeof(uint64_t)));
+                            batch * fea_num_per_node * sizeof(Feature)));
       auto gpu_graph_ptr = GraphGpuWrapper::GetInstance();
       uint64_t pos = 0;
       size_t real_batch = 0;
@@ -513,7 +512,7 @@ void PSGPUWrapper::add_slot_feature(std::shared_ptr<HeterContext> gpu_task) {
 
         CUDA_CHECK(cudaMemcpyAsync(feature_ids[i].data() + pos * fea_num_per_node,
                               d_feature_list_ptr,
-                              real_batch * fea_num_per_node * sizeof(uint64_t),
+                              real_batch * fea_num_per_node * sizeof(Feature),
                               cudaMemcpyDeviceToHost,
                               stream));
         pos += real_batch;
@@ -536,21 +535,18 @@ void PSGPUWrapper::add_slot_feature(std::shared_ptr<HeterContext> gpu_task) {
       feature_list[i] = feature_ids[i].data();
       feature_list_size[i] = feature_ids[i].size();
     }
-  } else 
-  */
-  if (FLAGS_gpugraph_storage_mode ==
+  } else if (FLAGS_gpugraph_storage_mode ==
                  paddle::framework::GpuGraphStorageMode::
                      MEM_EMB_FEATURE_AND_GPU_GRAPH ||
              FLAGS_gpugraph_storage_mode ==
                  paddle::framework::GpuGraphStorageMode::
                      SSD_EMB_AND_MEM_FEATURE_GPU_GRAPH) {
     auto gpu_graph_ptr = GraphGpuWrapper::GetInstance();
-    // sub_graph_feas = gpu_graph_ptr->get_sub_graph_fea(node_ids, slot_num);
-    slot_sub_graph_feas = gpu_graph_ptr->get_sub_graph_slot_fea(node_ids, slot_num);
+    // slot_sub_graph_feas = gpu_graph_ptr->get_sub_graph_slot_fea(node_ids, slot_num);
     sub_graph_feas = gpu_graph_ptr->get_sub_graph_fea(node_ids, slot_num);
     for (size_t i = 0; i < device_num; i++) {
-      feature_list[i] = slot_sub_graph_feas[i].feature_list;
-      feature_list_size[i] = slot_sub_graph_feas[i].feature_size;
+      feature_list[i] = sub_graph_feas[i].feature_list;
+      feature_list_size[i] = sub_graph_feas[i].feature_size;
     }
   } else { 
     VLOG(0) << "FLAGS_gpugraph_storage_mode is not adaptived";
@@ -580,12 +576,14 @@ void PSGPUWrapper::add_slot_feature(std::shared_ptr<HeterContext> gpu_task) {
         while (pos < end) {
           real_batch = (pos + batch <= end) ? batch : end - pos;
           for (size_t i = pos; i < pos + real_batch; i++) {
-            uint64_t tmp_fea = *(reinterpret_cast<uint64_t*>(feature_list[dev][i].feature));
-            if (tmp_fea == 0) {
-              continue;
+            if (feature_list[dev][i].dtype == FEATYPE::INT64) {
+                uint64_t tmp_fea = *(reinterpret_cast<uint64_t*>(feature_list[dev][i].feature));
+                if (tmp_fea == 0) {
+                    continue;
+                }
+                int shard_num = tmp_fea % set_num;
+                feature_list_tmp[shard_num].push_back(tmp_fea);
             }
-            int shard_num = tmp_fea % set_num;
-            feature_list_tmp[shard_num].push_back(tmp_fea);
           }
           // uniq in local
           for (size_t i = 0; i < set_num; i++) {
@@ -634,13 +632,13 @@ void PSGPUWrapper::add_slot_feature(std::shared_ptr<HeterContext> gpu_task) {
   }
   threads.clear();
   // fix memory leak bug
-  for (size_t i = 0; i < device_num; i++) {
-      slot_sub_graph_feas[i].release_on_cpu();
-  }
-  std::vector<GpuPsCommGraphFea>* slot_tmp =
-      (std::vector<GpuPsCommGraphFea>*)gpu_task->slot_sub_graph_feas;
-  delete slot_tmp;
-  gpu_task->slot_sub_graph_feas = NULL;
+  // for (size_t i = 0; i < device_num; i++) {
+  //    slot_sub_graph_feas[i].release_on_cpu();
+  // }
+  // std::vector<GpuPsCommGraphFea>* slot_tmp =
+  //     (std::vector<GpuPsCommGraphFea>*)gpu_task->slot_sub_graph_feas;
+  // delete slot_tmp;
+  // gpu_task->slot_sub_graph_feas = NULL;
 
   time_stage.Pause();
   add_feature_to_set_cost = time_stage.ElapsedSec();
