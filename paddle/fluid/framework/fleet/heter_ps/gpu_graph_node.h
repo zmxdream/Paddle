@@ -436,7 +436,6 @@ struct GpuPsFeaInfo {
 
 struct GpuPsCommGraphFea {
   uint64_t *node_list;     // only locate on host side, the list of node id
-  // uint64_t *feature_list;  // locate on both side
   Feature *feature_list;  // locate on both side
   uint8_t *slot_id_list;   // locate on both side
   uint64_t* bytes_offset; // record bytes occupy for each feature
@@ -480,7 +479,6 @@ struct GpuPsCommGraphFea {
     this->feature_size = feature_size;
     this->node_size = node_size;
     this->node_list = new uint64_t[node_size];
-    // this->feature_list = new uint64_t[feature_size];
     this->feature_list = new Feature[feature_size];
     this->slot_id_list = new uint8_t[feature_size];
     this->bytes_offset = new uint64_t[feature_size + 1];

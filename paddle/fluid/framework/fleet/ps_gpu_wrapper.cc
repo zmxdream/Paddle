@@ -439,10 +439,6 @@ void PSGPUWrapper::add_slot_feature(std::shared_ptr<HeterContext> gpu_task) {
       reinterpret_cast<void*>(new std::vector<GpuPsCommGraphFea>);
   std::vector<GpuPsCommGraphFea>& sub_graph_feas =
       *((std::vector<GpuPsCommGraphFea>*)gpu_task->sub_graph_feas);
-  // gpu_task->slot_sub_graph_feas =
-  //    reinterpret_cast<void*>(new std::vector<GpuPsCommGraphFea>);
-  // std::vector<GpuPsCommGraphFea>& slot_sub_graph_feas =
-  //     *((std::vector<GpuPsCommGraphFea>*)gpu_task->slot_sub_graph_feas);
 #endif
   std::vector<std::vector<Feature>> feature_ids(device_num);
   std::vector<Feature*> feature_list(device_num);
@@ -542,7 +538,6 @@ void PSGPUWrapper::add_slot_feature(std::shared_ptr<HeterContext> gpu_task) {
                  paddle::framework::GpuGraphStorageMode::
                      SSD_EMB_AND_MEM_FEATURE_GPU_GRAPH) {
     auto gpu_graph_ptr = GraphGpuWrapper::GetInstance();
-    // slot_sub_graph_feas = gpu_graph_ptr->get_sub_graph_slot_fea(node_ids, slot_num);
     sub_graph_feas = gpu_graph_ptr->get_sub_graph_fea(node_ids, slot_num);
     for (size_t i = 0; i < device_num; i++) {
       feature_list[i] = sub_graph_feas[i].feature_list;
@@ -631,15 +626,6 @@ void PSGPUWrapper::add_slot_feature(std::shared_ptr<HeterContext> gpu_task) {
     t.join();
   }
   threads.clear();
-  // fix memory leak bug
-  // for (size_t i = 0; i < device_num; i++) {
-  //    slot_sub_graph_feas[i].release_on_cpu();
-  // }
-  // std::vector<GpuPsCommGraphFea>* slot_tmp =
-  //     (std::vector<GpuPsCommGraphFea>*)gpu_task->slot_sub_graph_feas;
-  // delete slot_tmp;
-  // gpu_task->slot_sub_graph_feas = NULL;
-
   time_stage.Pause();
   add_feature_to_set_cost = time_stage.ElapsedSec();
   auto add_feature_to_key = [this,

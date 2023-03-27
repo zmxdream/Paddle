@@ -96,27 +96,6 @@ __global__ void get_features_size(GpuPsFeaInfo* fea_info_array,
   }
 }
 
-// __global__ void get_features_kernel(GpuPsCommGraphFea graph,
-//                                     GpuPsFeaInfo* fea_info_array,
-//                                    uint32_t* fea_size_prefix_sum,
-//                                     uint64_t* feature_array,
-//                                     uint8_t* slot_array,
-//                                     int n) {
-//   int idx = blockIdx.x * blockDim.y + threadIdx.y;
-//   if (idx < n) {
-//     uint32_t feature_size = fea_info_array[idx].feature_size;
-//     if (feature_size == 0) {
-//       return;
-//     }
-//     uint32_t src_offset = fea_info_array[idx].feature_offset;
-//     uint32_t dst_offset = fea_size_prefix_sum[idx];
-//     for (uint32_t j = 0; j < feature_size; ++j) {
-//       feature_array[dst_offset + j] = graph.feature_list[src_offset + j];
-//       slot_array[dst_offset + j] = graph.slot_id_list[src_offset + j];
-//     }
-//   }
-// }
-
 __global__ void get_features_kernel(GpuPsCommGraphFea graph,
                                     GpuPsFeaInfo* fea_info_array,
                                     uint32_t* fea_size_prefix_sum,
@@ -131,62 +110,12 @@ __global__ void get_features_kernel(GpuPsCommGraphFea graph,
     }
     uint32_t src_offset = fea_info_array[idx].feature_offset;
     uint32_t dst_offset = fea_size_prefix_sum[idx];
-
     for (uint32_t j = 0; j < feature_size; ++j) {
       feature_array[dst_offset + j] = graph.feature_list[src_offset + j];
       slot_array[dst_offset + j] = graph.slot_id_list[src_offset + j];
     }
   }
 }
-
-/*
-__global__ void get_features_kernel(GpuPsCommGraphFea graph,
-                                    GpuPsFeaInfo* fea_info_array,
-                                    int* actual_size,
-                                    uint64_t* feature,
-                                    int* slot_feature_num_map,
-                                    int slot_num,
-                                    int n,
-                                    int fea_num_per_node) {
-  int idx = blockIdx.x * blockDim.y + threadIdx.y;
-  if (idx < n) {
-    int feature_size = fea_info_array[idx].feature_size;
-    int src_offset = fea_info_array[idx].feature_offset;
-    int dst_offset = idx * fea_num_per_node;
-    uint64_t* dst_feature = &feature[dst_offset];
-    if (feature_size == 0) {
-      for (int k = 0; k < fea_num_per_node; ++k) {
-        dst_feature[k] = 0;
-      }
-      actual_size[idx] = fea_num_per_node;
-      return;
-    }
-
-    uint64_t* feature_start = &(graph.feature_list[src_offset]);
-    uint8_t* slot_id_start = &(graph.slot_id_list[src_offset]);
-    for (int slot_id = 0, dst_fea_idx = 0, src_fea_idx = 0; slot_id < slot_num;
-         slot_id++) {
-      int feature_num = slot_feature_num_map[slot_id];
-      if (src_fea_idx >= feature_size || slot_id < slot_id_start[src_fea_idx]) {
-        for (int j = 0; j < feature_num; ++j, ++dst_fea_idx) {
-          dst_feature[dst_fea_idx] = 0;
-        }
-      } else if (slot_id == slot_id_start[src_fea_idx]) {
-        for (int j = 0; j < feature_num; ++j, ++dst_fea_idx) {
-          if (slot_id == slot_id_start[src_fea_idx]) {
-            dst_feature[dst_fea_idx] = feature_start[src_fea_idx++];
-          } else {
-            dst_feature[dst_fea_idx] = 0;
-          }
-        }
-      } else {
-        assert(0);
-      }
-    }
-    actual_size[idx] = fea_num_per_node;
-  }
-}
-*/
 
 __global__ void get_features_kernel(GpuPsCommGraphFea graph,
                                     GpuPsFeaInfo* fea_info_array,
@@ -928,9 +857,6 @@ void GpuPsGraphTable::move_result_to_source_gpu(int start_index,
   }
 }
 
-
-
-
 void GpuPsGraphTable::move_degree_to_source_gpu(
     int start_index, int gpu_num, int* h_left, int* h_right, int* node_degree) {
   std::vector<int> shard_len(gpu_num, 0);
@@ -1192,8 +1118,6 @@ __global__ void fill_dvalues(Feature* d_shard_vals,
     }
   }
 }
-
-
 
 __global__ void fill_actual_vals(uint64_t* vals,
                                  uint64_t* actual_vals,

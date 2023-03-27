@@ -90,12 +90,6 @@ class Node {
                               std::vector<uint64_t> & bytes_offset) const {  // NOLINT
     return 0;
   }
-  virtual int get_slot_feature_ids(int slot_idx,
-                                   std::vector<Feature> &feature_id,      // NOLINT
-                                   std::vector<uint8_t> &slot_id,
-                                   std::vector<uint64_t> & bytes_offset) const {  // NOLINT
-    return 0;
-  }
   virtual void set_feature(int idx, const std::string &str) {}
   virtual void set_feature_shape(int idx, const int32_t &shape) {}
   virtual void set_feature_dtype(int idx, const std::string &dtype) {}
@@ -295,54 +289,6 @@ class FeatureNode : public Node {
     //        "get_feature_ids get errno should be 0, but got %d.", errno));
     return num;
   }
-/*
-  virtual int get_slot_feature_ids(int slot_idx,
-                                   std::vector<Feature> &feature_id,      // NOLINT
-                                   std::vector<uint8_t> &slot_id,
-                                   std::vector<uint64_t> &bytes_offset) const {  // NOLINT
-    errno = 0;
-    size_t num = 0;
-
-    if (slot_idx < static_cast<int>(this->feature.size())) {
-      const std::string &s = this->feature[slot_idx];
-      auto& dtype = this->feature_dtype[slot_idx];
-      auto& shape = this->feature_shape[slot_idx];
-    
-      if (dtype == "feasign" || dtype == "int64") {
-        const uint64_t *feas = (const uint64_t *)(s.c_str());
-        num = s.length() / sizeof(uint64_t);
-        CHECK((s.length() % sizeof(uint64_t)) == 0)
-            << "bad feature_item: [" << s << "]";
-        for (size_t i = 0; i < num; ++i) {
-          slot_id.push_back(slot_idx);
-          uint64_t last_offset = 0;
-          if (!bytes_offset.empty()) {last_offset = bytes_offset.back();}
-          bytes_offset.push_back(last_offset + shape * sizeof(uint64_t));
-          feature_id.emplace_back((char*)(feas + i), FEATYPE::INT64, shape);
-        }
-      } else if (dtype == "int32"){
-        const int32_t *feas = (const int32_t *)(s.c_str());
-        num = s.length() / sizeof(int32_t);
-        CHECK((s.length() % sizeof(int32_t)) == 0)
-            << "bad feature_item: [" << s << "]";
-        for (size_t i = 0; i < num; ++i) {
-          slot_id.push_back(slot_idx);
-          uint64_t last_offset = 0;
-          if (!bytes_offset.empty()) {last_offset = bytes_offset.back();}
-          bytes_offset.push_back(last_offset + shape * sizeof(uint64_t));
-          feature_id.emplace_back((char*)(feas + i), FEATYPE::INT32, shape);
-        }
-      }
-    }
-    // PADDLE_ENFORCE_EQ(
-    //    errno,
-    //    0,
-    //    paddle::platform::errors::InvalidArgument(
-    //        "get_feature_ids get errno should be 0, but got %d.", errno));
-    // VLOG(0) << "[debug]after call get_slot_feature_ids!!!!";
-    return num;
-  }
-*/
 
   virtual std::string *mutable_feature(int idx) {
     if (idx >= static_cast<int>(this->feature.size())) {
