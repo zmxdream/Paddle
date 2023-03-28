@@ -48,6 +48,14 @@ limitations under the License. */
 #include "paddle/fluid/string/string_helper.h"
 #include "paddle/fluid/framework/fleet/metrics.h"
 #include "paddle/fluid/framework/fleet/box_wrapper_kernel.h"
+// The producer side.
+#include <scalopus_tracing/tracing.h>
+#include <scalopus_transport/transport_loopback.h>
+// The catapult recorder side.
+#include <scalopus_catapult/catapult_recorder.h>
+#include <scalopus_general/endpoint_manager_poll.h>
+#include <scalopus_general/general_provider.h>
+#include <scalopus_tracing/native_trace_provider.h>
 #define BUF_SIZE 1024 * 1024
 
 DECLARE_int32(fix_dayid);
@@ -373,12 +381,56 @@ class BoxWrapper {
   std::deque<GpuReplicaCache> gpu_replica_cache;
   std::deque<InputTable> input_table_deque_;
 
-  virtual ~BoxWrapper() {}
+  virtual ~BoxWrapper() {
+#ifdef TRACE_PROFILE
+    // need to guarantee we propagate the tracepoints before we stop the interval.
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    catapult_recorder->stopInterval();
+    catapult_recorder->setupDumpFile("./traces.json");
+    std::cout<<"end profile in BoxWrapper"<<std::endl;
+
+    factory.reset();
+    manager.reset();
+    catapult_recorder.reset();
+#endif
+  }
   BoxWrapper() {
     fprintf(stdout, "init box wrapper\n");
     boxps::MPICluster::Ins();
 #ifdef PADDLE_WITH_XPU_KP
     box_wrapper_kernel_ = std::make_unique<BoxWrapperKernel>();
+#endif
+#ifdef TRACE_PROFILE
+    // Client side to produce the tracepoints.
+    factory = std::make_shared<scalopus::TransportLoopbackFactory>();
+    const auto server = factory->serve();
+    server->addEndpoint(std::make_shared<scalopus::EndpointTraceMapping>());
+    server->addEndpoint(std::make_shared<scalopus::EndpointIntrospect>());
+    server->addEndpoint(std::make_shared<scalopus::EndpointNativeTraceSender>());
+    auto endpoint_process_info = std::make_shared<scalopus::EndpointProcessInfo>();
+    endpoint_process_info->setProcessName("BoxWrapper");
+    server->addEndpoint(endpoint_process_info);
+
+    // Catapult recorder side.
+    manager = std::make_shared<scalopus::EndpointManagerPoll>(factory);
+    manager->addEndpointFactory<scalopus::EndpointTraceMapping>();
+    manager->addEndpointFactory<scalopus::EndpointProcessInfo>();
+    auto native_trace_provider = std::make_shared<scalopus::NativeTraceProvider>(manager);
+    manager->addEndpointFactory(scalopus::EndpointNativeTraceSender::name, native_trace_provider);
+
+    catapult_recorder = std::make_shared<scalopus::CatapultRecorder>();
+    catapult_recorder->addProvider(native_trace_provider);
+    catapult_recorder->addProvider(std::make_shared<scalopus::GeneralProvider>(manager));
+
+    auto logging_function = [](const std::string& msg) { std::cout << msg << std::endl; };
+    logging_function("Logging can be enabled in the source, uncomment the lines below this one.");
+
+    manager->connect(server->getAddress());  // Connect the manager to the server.
+    catapult_recorder->start();              // start the recorder thread.
+    catapult_recorder->startInterval();      // start recording.
+
+    TRACE_THREAD_NAME("BoxWrapper");
+    std::cout<<"start profile in BoxWrapper"<<std::endl;
 #endif
   }
   void SetDatasetName(const std::string& name) {}
@@ -863,6 +915,11 @@ class BoxWrapper {
   std::set<std::string> slot_eval_set_;
   std::atomic<uint16_t> dataset_id_{0};
   std::atomic<uint16_t> round_id_{0};
+#ifdef TRACE_PROFILE
+  scalopus::TransportLoopbackFactory::Ptr factory;
+  std::shared_ptr<scalopus::EndpointManagerPoll> manager;
+  scalopus::CatapultRecorder::Ptr catapult_recorder;
+#endif
 };
 /**
  * @brief file mgr

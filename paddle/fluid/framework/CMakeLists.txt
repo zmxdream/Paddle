@@ -1,3 +1,16 @@
+set(SCALOPUS_PATH "${PROJECT_BINARY_DIR}/third_party/xpu/src/extern_xpu")
+include_directories("${SCALOPUS_PATH}/scalopus/include")
+include_directories("${SCALOPUS_PATH}/scalopus/include_consumer")
+include_directories("${SCALOPUS_PATH}/scalopus/thirdparty/nlohmann_json/single_include")
+if(TRACE_PROFILE)
+  link_directories("${SCALOPUS_PATH}/scalopus/so/scalopus_catapult")
+  link_directories("${SCALOPUS_PATH}/scalopus/so/scalopus_general")
+  link_directories("${SCALOPUS_PATH}/scalopus/so/scalopus_interface/")
+  link_directories("${SCALOPUS_PATH}/scalopus/so/scalopus_transport/")
+  link_directories("${SCALOPUS_PATH}/scalopus/so/scalopus_tracing")
+  link_directories("${SCALOPUS_PATH}/scalopus/so/thirdparty/seasocks/src/main/c/")
+endif()
+
 #windows treat symbolic file as a real file, which is different with unix
 #We create a hidden file and compile it instead of origin source file.
 function(windows_symbolic TARGET)
@@ -1010,6 +1023,14 @@ endif()
 
 target_link_libraries(executor while_op_helper executor_gc_helper
                       recurrent_op_helper conditional_block_op_helper)
+if(TRACE_PROFILE)
+  target_link_libraries(executor scalopus_catapult scalopus_tracing_native
+                        scalopus_tracing_nop scalopus_general_consumer
+                        scalopus_general scalopus_consumer scalopus_lttng_babeltrace
+                        scalopus_tracepoint_native scalopus_tracepoint_nop
+                        scalopus_scope_tracing scalopus_transport scalopus_interface
+                        seasocks scalopus_tracing_consumer)
+endif()
 
 cc_library(
   parallel_executor

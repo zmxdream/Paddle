@@ -35,6 +35,15 @@ limitations under the License. */
 #include "paddle/fluid/platform/collective_helper.h"
 #endif
 
+// The producer side.
+#include <scalopus_tracing/tracing.h>
+#include <scalopus_transport/transport_loopback.h>
+// The catapult recorder side.
+#include <scalopus_catapult/catapult_recorder.h>
+#include <scalopus_general/endpoint_manager_poll.h>
+#include <scalopus_general/general_provider.h>
+#include <scalopus_tracing/native_trace_provider.h>
+
 DECLARE_bool(enable_sync_dense_moment);
 DECLARE_bool(check_nan_inf);
 namespace paddle {
@@ -733,7 +742,9 @@ void BoxPSWorker::TrainFilesWithProfiler() {
     main_timer.Resume();
 
     reader_timer.Resume();
+    TRACE_SCOPE_START("PackBatchTask", dev_ctx_->Wait());
     batch_size = PackBatchTask();
+    TRACE_SCOPE_END("PackBatchTask", dev_ctx_->Wait());
     reader_timer.Pause();
     if (batch_size <= 0) {
       break;
@@ -745,14 +756,19 @@ void BoxPSWorker::TrainFilesWithProfiler() {
     cal_timer.Resume();
     int op_id = 0;
     dev_ctx_->Wait();
+    std::vector<std::string> op_names;
+    TRACE_SCOPE_START("ops run",);
     for (auto& op : ops_) {
+      RUNTIME_TRACE_SCOPE_START((op->Type()+" run").c_str(),);
       timeline.Start();
       op->Run(*thread_scope_, place_);
       dev_ctx_->Wait();
       timeline.Pause();
       op_total_time[op_id++] += timeline.ElapsedUS();
+      RUNTIME_TRACE_SCOPE_END((op->Type()+" run").c_str(),);
     }
     dev_ctx_->Wait();
+    TRACE_SCOPE_END("ops run",);
     cal_timer.Pause();
 #if defined(PADDLE_WITH_CUDA)
     if (FLAGS_check_nan_inf) {

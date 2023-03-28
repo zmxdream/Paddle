@@ -16,6 +16,15 @@ limitations under the License. */
 #include <glog/logging.h>
 #include <vector>
 
+// The producer side.
+#include <scalopus_tracing/tracing.h>
+#include <scalopus_transport/transport_loopback.h>
+// The catapult recorder side.
+#include <scalopus_catapult/catapult_recorder.h>
+#include <scalopus_general/endpoint_manager_poll.h>
+#include <scalopus_general/general_provider.h>
+#include <scalopus_tracing/native_trace_provider.h>
+
 DECLARE_bool(enable_pullpush_dedup_keys);
 
 namespace paddle {
@@ -301,6 +310,7 @@ void BoxWrapper::PullSparseCaseXPU(const paddle::platform::Place& place,
   void* total_values_xpu =
       dev.pull_push_tensor.mutable_data<void>(total_bytes, place);
 
+  TRACE_SCOPE_START("copy keys", xpu_wait(ctx_xpu->xpu_stream));
   VLOG(3) << "Begin copy keys, key_num[" << total_length << "]";
   LoDTensor& total_keys_tensor = dev.keys_tensor;
   //uint32_t* total_keys = reinterpret_cast<uint32_t*>(
@@ -330,20 +340,26 @@ void BoxWrapper::PullSparseCaseXPU(const paddle::platform::Place& place,
                   slot_lengths_lod.size() * sizeof(int64_t),
                   XPU_HOST_TO_DEVICE);
 
+  TRACE_SCOPE_START("CopyKeys", xpu_wait(ctx_xpu->xpu_stream));
   box_wrapper_kernel_->CopyKeys(place, xpu_keys, total_keys, slot_lens,
                   static_cast<int>(slot_lengths.size()),
                   static_cast<int>(total_length), key2slot);
   VLOG(3) << "Begin call PullSparseXPU in BoxPS, dev: " << device_id
             << " len: " << total_length;
+  TRACE_SCOPE_END("CopyKeys", xpu_wait(ctx_xpu->xpu_stream));
+  TRACE_SCOPE_END("copy keys", xpu_wait(ctx_xpu->xpu_stream));
 
+  TRACE_SCOPE_START("PullSparseXPU", xpu_wait(ctx_xpu->xpu_stream));
   pull_boxps_timer.Start();
   boxps_ptr_->PullSparseXPU(total_keys, total_values_xpu,
       static_cast<int>(total_length), device_id);
   pull_boxps_timer.Pause();
+  TRACE_SCOPE_END("PullSparseXPU", xpu_wait(ctx_xpu->xpu_stream));
 
   VLOG(3) << "Begin Copy result to tensor, total_length[" << total_length
           << "]";
 
+  TRACE_SCOPE_START("pull copy", xpu_wait(ctx_xpu->xpu_stream));
   boxps::FeaturePullOffset* pull_offset = nullptr;
   if (dev.pull_offset.memory_size() == 0) {
     pull_offset = dev.pull_offset.mutable_data<boxps::FeaturePullOffset>(
@@ -358,10 +374,14 @@ void BoxWrapper::PullSparseCaseXPU(const paddle::platform::Place& place,
         static_cast<int>(values.size() * sizeof(float*)), place);
   xpu_memcpy(xpu_values, values.data(), values.size() * sizeof(float*),
                   XPU_HOST_TO_DEVICE);
+
+  TRACE_SCOPE_START("CopyForPull", xpu_wait(ctx_xpu->xpu_stream));
   box_wrapper_kernel_->CopyForPull(place, xpu_keys, (float**)values.data(), total_values_xpu,
                       pull_offset, slot_lengths_lod.data(), slot_num, key2slot, hidden_size,
                       expand_embed_dim, total_length, total_dims, skip_offset,
                       expand_only);
+  TRACE_SCOPE_END("CopyForPull", xpu_wait(ctx_xpu->xpu_stream));
+  TRACE_SCOPE_END("pull copy", xpu_wait(ctx_xpu->xpu_stream));
   all_timer.Pause();
 #endif
 }
@@ -493,12 +513,15 @@ void BoxWrapper::PushSparseGradCaseXPU(const paddle::platform::Place& place,
 #ifdef PADDLE_WITH_XPU_KP
   int device_id = place.GetDeviceId();
   DeviceBoxData& dev = device_caches_[device_id];
+  auto dev_ctx = platform::DeviceContextPool::Instance().Get(place);
+  auto ctx_xpu = static_cast<platform::XPUDeviceContext*>(dev_ctx)->x_context();
 
   platform::Timer& all_timer = dev.all_push_timer;
   platform::Timer& push_boxps_timer = dev.boxps_push_timer;
 
   all_timer.Resume();
 
+  TRACE_SCOPE_START("push copy", xpu_wait(ctx_xpu->xpu_stream));
   int64_t total_length = dev.total_key_length;
   int64_t total_bytes = total_length * feature_push_size_;
   void* total_grad_values_xpu =
@@ -536,27 +559,34 @@ void BoxWrapper::PushSparseGradCaseXPU(const paddle::platform::Place& place,
   float** xpu_values = dev.values_ptr_tensor.data<float*>();
   xpu_memcpy(xpu_values, grad_values.data(),
                   grad_values.size() * sizeof(float*), XPU_HOST_TO_DEVICE);
+  TRACE_SCOPE_START("CopyForPush's xpu::copy", xpu_wait(ctx_xpu->xpu_stream));
   auto gm_src = memory::Alloc(place, total_length * hidden_size * sizeof(float));
   float* gm_src_ptr = reinterpret_cast<float*>(gm_src->ptr());
-  auto dev_ctx = platform::DeviceContextPool::Instance().Get(place);
-  auto ctx_xpu = static_cast<platform::XPUDeviceContext*>(dev_ctx)->x_context();
+
   for (int i = 0; i < slot_num; i++) {
     int offset = i ? slot_lengths_lod[i - 1] : 0;
     xpu::copy<float>(ctx_xpu, grad_values[i], gm_src_ptr + offset * hidden_size,
         slot_lengths[i] * hidden_size);
   }
+  TRACE_SCOPE_END("CopyForPush's xpu::copy", xpu_wait(ctx_xpu->xpu_stream));
 
+  TRACE_SCOPE_START("CopyForPush", xpu_wait(ctx_xpu->xpu_stream));
   box_wrapper_kernel_->CopyForPush(place, gm_src_ptr, total_grad_values_xpu,
       push_offset, total_length, slot_vector, slot_lens, slot_num,
       hidden_size, batch_size, total_dims, skip_offset, key2slot);
 
   push_boxps_timer.Resume();
+  TRACE_SCOPE_END("CopyForPush", xpu_wait(ctx_xpu->xpu_stream));
+  TRACE_SCOPE_END("push copy", xpu_wait(ctx_xpu->xpu_stream));
+
+  TRACE_SCOPE_START("PushSparseXPU", xpu_wait(ctx_xpu->xpu_stream));
   int ret = boxps_ptr_->PushSparseXPU(total_keys,
       reinterpret_cast<void*>(total_grad_values_xpu),
       static_cast<int>(total_length), device_id);
   PADDLE_ENFORCE_EQ(ret, 0, platform::errors::PreconditionNotMet(
                               "PushSparseXPU failed in BoxPS."));
   push_boxps_timer.Pause();
+  TRACE_SCOPE_END("PushSparseXPU", xpu_wait(ctx_xpu->xpu_stream));
 
   all_timer.Pause();
 

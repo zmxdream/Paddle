@@ -27,6 +27,14 @@ limitations under the License. */
 // #include "xpu/kernel/debug.h"           // NOLINT
 #include "xpu/kernel/math.h"            // NOLINT
 #include "xpu/kernel/simd.h"
+// The producer side.
+#include <scalopus_tracing/tracing.h>
+#include <scalopus_transport/transport_loopback.h>
+// The catapult recorder side.
+#include <scalopus_catapult/catapult_recorder.h>
+#include <scalopus_general/endpoint_manager_poll.h>
+#include <scalopus_general/general_provider.h>
+#include <scalopus_tracing/native_trace_provider.h>
 
 namespace paddle {
 namespace framework {
@@ -226,6 +234,7 @@ inline void FeaturePullCopy(const paddle::platform::Place& place,
                op,
                sizeof(TEmbedxOp));
 
+  TRACE_SCOPE_START("PullCopy", xpu_wait(stream));
   PullCopy<TEmbedxOp><<<8, 64, stream>>>(d_op,
                                 scale,
                                 info,
@@ -239,7 +248,9 @@ inline void FeaturePullCopy(const paddle::platform::Place& place,
                                 skip_offset,
                                 cvm_offset);
   xpu_wait(stream);
+  TRACE_SCOPE_END("PullCopy", );
 
+  TRACE_SCOPE_START("PullCopy's xpu::copy", xpu_wait(stream));
   int device_id = place.GetDeviceId();
   for (int i = 0; i < slot_num; ++i) {
     int slot_len = slot_lens[i + 1] - slot_lens[i];
@@ -255,6 +266,7 @@ inline void FeaturePullCopy(const paddle::platform::Place& place,
         "xpu::copy");
   }
   xpu_wait(stream);
+  TRACE_SCOPE_END("PullCopy's xpu::copy",);
 }
 
 void BoxWrapperKernel::CopyForPull(
