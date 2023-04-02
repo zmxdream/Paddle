@@ -1573,13 +1573,15 @@ void PSGPUWrapper::LoadIntoMemory(bool is_shuffle) {
   timer.Pause();
   VLOG(0) << "LoadIntoMemory cost: " << timer.ElapsedSec() << "s";
 
+/*
   auto gloo_wrapper = paddle::framework::GlooWrapper::GetInstance();
   if (!gloo_wrapper->IsInitialized()) {
     VLOG(0) << "GLOO is not inited";
     gloo_wrapper->Init();
   }
   gloo_wrapper->Barrier();
-  VLOG(0) << "yxf::loadintomemory GlooBarrier";
+*/
+  VLOG(0) << "yxf::loadintomemory No GlooBarrier";
 
   if (dataset_->GetMemoryDataSize() > 0) {
     // local shuffle

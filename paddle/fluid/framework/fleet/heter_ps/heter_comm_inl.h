@@ -4252,8 +4252,8 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::push_sparse(int gpu_num
   }
 
   if (multi_node_) {
-    // push_sparse_all2all(gpu_num, d_keys, d_grads, len, sgd);
-    push_sparse_allgather(gpu_num, d_keys, d_grads, len, sgd);
+    push_sparse_all2all(gpu_num, d_keys, d_grads, len, sgd);
+    // push_sparse_allgather(gpu_num, d_keys, d_grads, len, sgd);
     return;
   }
 
