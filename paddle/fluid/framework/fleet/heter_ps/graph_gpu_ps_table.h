@@ -36,7 +36,7 @@ class GpuPsGraphTable
  public:
   inline int get_table_offset(int gpu_id, GraphTableType type, int idx) const {
     int type_id = type;
-    return gpu_id * (graph_table_num_ + feature_table_num_) +
+    return gpu_id * (graph_table_num_ + feature_table_num_ + float_feature_table_num_) +
            type_id * graph_table_num_ + idx;
   }
   inline int get_graph_list_offset(int gpu_id, int edge_idx) const {
@@ -44,6 +44,9 @@ class GpuPsGraphTable
   }
   inline int get_graph_fea_list_offset(int gpu_id) const {
     return gpu_id * feature_table_num_;
+  }
+  inline int get_graph_float_fea_list_offset(int gpu_id) const {
+    return gpu_id * float_feature_table_num_;
   }
 
   GpuPsGraphTable(std::shared_ptr<HeterPsResource> resource,
@@ -57,11 +60,12 @@ class GpuPsGraphTable
     rw_lock.reset(new pthread_rwlock_t());
     this->graph_table_num_ = graph_table_num;
     this->feature_table_num_ = 1;
+    this->float_feature_table_num_ = 1;
     gpu_num = resource_->total_device();
     memset(global_device_map, -1, sizeof(global_device_map));
 
     tables_ = std::vector<Table *>(
-        gpu_num * (graph_table_num_ + feature_table_num_), NULL);
+        gpu_num * (graph_table_num_ + feature_table_num_ + float_feature_table_num_), NULL);
     for (int i = 0; i < gpu_num; i++) {
       global_device_map[resource_->dev_id(i)] = i;
       for (int j = 0; j < graph_table_num_; j++) {
@@ -69,6 +73,9 @@ class GpuPsGraphTable
       }
       for (int j = 0; j < feature_table_num_; j++) {
         gpu_graph_fea_list_.push_back(GpuPsCommGraphFea());
+      }
+      for (int j = 0; j < float_feature_table_num_; j++) {
+        gpu_graph_float_fea_list_.push_back(GpuPsCommGraphFloatFea());
       }
     }
     cpu_table_status = -1;
@@ -85,9 +92,11 @@ class GpuPsGraphTable
   }
   void build_graph_on_single_gpu(const GpuPsCommGraph &g, int gpu_id, int idx);
   void build_graph_fea_on_single_gpu(const GpuPsCommGraphFea &g, int gpu_id);
+  void build_graph_float_fea_on_single_gpu(const GpuPsCommGraphFloatFea &g, int gpu_id);
   void clear_graph_info(int gpu_id, int index);
   void clear_graph_info(int index);
   void reset_feature_info(int gpu_id, size_t capacity, size_t feature_size);
+  void reset_float_feature_info(int gpu_id, size_t capacity, size_t feature_size, size_t slot_size);
   void clear_feature_info(int gpu_id, int index);
   void clear_feature_info(int index);
   void build_graph_from_cpu(const std::vector<GpuPsCommGraph> &cpu_node_list,
@@ -206,9 +215,10 @@ class GpuPsGraphTable
   }
 
   int gpu_num;
-  int graph_table_num_, feature_table_num_;
+  int graph_table_num_, feature_table_num_, float_feature_table_num_;
   std::vector<GpuPsCommGraph> gpu_graph_list_;
   std::vector<GpuPsCommGraphFea> gpu_graph_fea_list_;
+  std::vector<GpuPsCommGraphFloatFea> gpu_graph_float_fea_list_;
   int global_device_map[32];
   const int parallel_sample_size = 1;
   const int dim_y = 256;

@@ -61,6 +61,11 @@ class Node {
                               std::vector<uint8_t> &slot_id) const {  // NOLINT
     return 0;
   }
+  virtual int get_float_feature(int slot_idx,
+                              std::vector<float> &feature_id,      // NOLINT
+                              std::vector<uint8_t> &slot_id) const {  // NOLINT
+    return 0;
+  }
   virtual void set_feature(int idx, const std::string &str) {}
   virtual void set_feature_size(int size) {}
   virtual void shrink_to_fit() {}
@@ -187,11 +192,49 @@ class FeatureNode : public Node {
     return num;
   }
 
+
+  virtual int get_float_feature(int slot_idx,
+                                std::vector<float> &float_feature,      // NOLINT
+                                std::vector<uint8_t> &slot_id,
+                                std::vector<uint64_t> &slot_offset) const {  // NOLINT
+    // errno = 0;
+    size_t num = 0;
+    if (slot_idx < static_cast<int>(this->float_feature.size())) {
+      const std::string &s = this->feature[slot_idx];
+      const float *feas = (const float *)(s.c_str());
+      num = s.length() / sizeof(float);
+      CHECK((s.length() % sizeof(float)) == 0)
+          << "bad feature_item: [" << s << "]";
+      for (size_t i = 0; i < num; ++i) {
+        float_feature.push_back(feas[i]);
+      }
+      if (num > 0) {
+        slot_id.push_back(slot_idx);
+        uint64_t last_offset = 0;
+        if (!slot_offset.empty()) {last_offset = slot_offset.back();}
+        slot_offset.push_back(last_offset + num);
+      }
+    }
+    // PADDLE_ENFORCE_EQ(
+    //    errno,
+    //    0,
+    //    paddle::platform::errors::InvalidArgument(
+    //         "get_feature_ids get errno should be 0, but got %d.", errno));
+    return num;
+  }
+
   virtual std::string *mutable_feature(int idx) {
     if (idx >= static_cast<int>(this->feature.size())) {
       this->feature.resize(idx + 1);
     }
     return &(this->feature[idx]);
+  }
+
+  virtual std::string *mutable_float_feature(int idx) {
+    if (idx >= static_cast<int>(this->float_feature.size())) {
+      this->float_feature.resize(idx + 1);
+    }
+    return &(this->float_feature[idx]);
   }
 
   virtual void set_feature(int idx, const std::string &str) {
@@ -201,7 +244,9 @@ class FeatureNode : public Node {
     this->feature[idx] = str;
   }
   virtual void set_feature_size(int size) { this->feature.resize(size); }
+  virtual void set_float_feature_size(int size) { this->float_feature.resize(size); }
   virtual int get_feature_size() { return this->feature.size(); }
+  virtual int get_float_feature_size() { return this->float_feature.size(); }
   virtual void shrink_to_fit() {
     feature.shrink_to_fit();
     for (auto &slot : feature) {
@@ -282,6 +327,7 @@ class FeatureNode : public Node {
 
  protected:
   std::vector<std::string> feature;
+  std::vector<std::string> float_feature;
 };
 
 }  // namespace distributed

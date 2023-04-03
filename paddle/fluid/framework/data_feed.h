@@ -900,6 +900,7 @@ class GraphDataGenerator {
   void AllocResource(int thread_id, std::vector<phi::DenseTensor*> feed_vec);
   void AllocTrainResource(int thread_id);
   void SetFeedVec(std::vector<phi::DenseTensor*> feed_vec);
+  void SetFeedType(std::vector<std::string> feed_type);
   int AcquireInstance(BufState* state);
   int GenerateBatch();
   int FillWalkBuf();
@@ -931,6 +932,7 @@ class GraphDataGenerator {
       bool gpu_graph_training,
       std::shared_ptr<phi::Allocation> final_sage_nodes = nullptr);
   int FillSlotFeature(uint64_t* d_walk, size_t key_num);
+  int FillFloatFeature(uint64_t* d_walk, size_t key_num);
   int MakeInsPair(cudaStream_t stream);
   uint64_t CopyUniqueNodes();
   int GetPathNum() { return total_row_; }
@@ -1006,6 +1008,7 @@ class GraphDataGenerator {
   cudaStream_t sample_stream_;
   paddle::platform::Place place_;
   std::vector<phi::DenseTensor*> feed_vec_;
+  std::vector<std::string> feed_type_; // adapt for dense feature
   std::vector<size_t> offset_;
   std::shared_ptr<phi::Allocation> d_prefix_sum_;
   std::vector<std::shared_ptr<phi::Allocation>> d_device_keys_;
@@ -1075,6 +1078,8 @@ class GraphDataGenerator {
   int batch_size_;
   int slot_num_;
   std::vector<int> h_slot_feature_num_map_;
+  // adapt slot&dense feature
+  std::vector<std::string> slot_type;
   int fea_num_per_node_;
   int shuffle_seed_;
   int debug_mode_;
@@ -1295,7 +1300,7 @@ class DataFeed {
 
   // The data read by DataFeed will be stored here
   std::vector<phi::DenseTensor*> feed_vec_;
-
+  std::vector<std::string> use_slots_type_; // adapt for dense feature
   phi::DenseTensor* rank_offset_;
 
   // the batch size defined by user

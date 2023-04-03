@@ -727,7 +727,8 @@ void GraphGpuWrapper::upload_batch(int table_type,
 // feature table
 void GraphGpuWrapper::upload_batch(int table_type,
                                    int slice_num,
-                                   int slot_num) {
+                                   int slot_num,
+                                   int float_slot_num) {
   if (table_type == GraphTableType::FEATURE_TABLE &&
       (FLAGS_gpugraph_storage_mode == paddle::framework::GpuGraphStorageMode::
                                           MEM_EMB_FEATURE_AND_GPU_GRAPH ||
@@ -744,6 +745,7 @@ void GraphGpuWrapper::upload_batch(int table_type,
   std::vector<std::future<int>> tasks;
   for (int i = 0; i < slice_num; i++) {
     tasks.push_back(upload_task_pool->enqueue([&, i, this]() -> int {
+      // build slot feature
       VLOG(0) << "begin make_gpu_ps_graph_fea, node_ids[" << i << "]_size["
               << node_ids[i].size() << "]";
       GpuPsCommGraphFea sub_graph =
@@ -754,6 +756,17 @@ void GraphGpuWrapper::upload_batch(int table_type,
       g->build_graph_fea_on_single_gpu(sub_graph, i);
       sub_graph.release_on_cpu();
       VLOG(0) << "sub graph fea on gpu " << i << " is built";
+      // build float feature
+      VLOG(0) << "begin make_gpu_ps_graph_float_fea, node_ids[" << i << "]_size["
+              << node_ids[i].size() << "]";
+      GpuPsCommGraphFloatFea float_sub_graph =
+          g->cpu_graph_table_->make_gpu_ps_graph_float_fea(i, node_ids[i], float_slot_num);
+      // sub_graph.display_on_cpu();
+      VLOG(0) << "begin build_graph_float_fea_on_single_gpu, node_ids[" << i
+              << "]_size[" << node_ids[i].size() << "]";
+      g->build_graph_float_fea_on_single_gpu(float_sub_graph, i);
+      float_sub_graph.release_on_cpu();
+      VLOG(0) << "float sub graph fea on gpu " << i << " is built";
       return 0;
     }));
   }
@@ -780,6 +793,25 @@ std::vector<GpuPsCommGraphFea> GraphGpuWrapper::get_sub_graph_fea(
   return sub_graph_feas;
 }
 
+// get sub_graph_float_fea
+std::vector<GpuPsCommGraphFloatFea> GraphGpuWrapper::get_sub_graph_float_fea(
+    std::vector<std::vector<uint64_t>> &node_ids, int float_slot_num) {
+  if (float_slot_num == 0) return {};
+  GpuPsGraphTable *g = reinterpret_cast<GpuPsGraphTable *>(graph_table);
+  std::vector<std::future<int>> tasks;
+  std::vector<GpuPsCommGraphFloatFea> sub_graph_float_feas(node_ids.size());
+  for (int i = 0; i < node_ids.size(); i++) {
+    tasks.push_back(upload_task_pool->enqueue([&, i, this]() -> int {
+      GpuPsGraphTable *g = reinterpret_cast<GpuPsGraphTable *>(graph_table);
+      sub_graph_feas[i] =
+          g->cpu_graph_table_->make_gpu_ps_graph_float_fea(i, node_ids[i], float_slot_num);
+      return 0;
+    }));
+  }
+  for (size_t i = 0; i < tasks.size(); i++) tasks[i].get();
+  return sub_graph_float_feas;
+}
+
 // build_gpu_graph_fea
 void GraphGpuWrapper::build_gpu_graph_fea(GpuPsCommGraphFea &sub_graph_fea,
                                           int i) {
@@ -787,6 +819,16 @@ void GraphGpuWrapper::build_gpu_graph_fea(GpuPsCommGraphFea &sub_graph_fea,
   g->build_graph_fea_on_single_gpu(sub_graph_fea, i);
   sub_graph_fea.release_on_cpu();
   VLOG(1) << "sub graph fea on gpu " << i << " is built";
+  return;
+}
+
+// build_gpu_graph_float_fea
+void GraphGpuWrapper::build_gpu_graph_float_fea(GpuPsCommGraphFloatFea &sub_graph_float_fea,
+                                                int i) {
+  GpuPsGraphTable *g = reinterpret_cast<GpuPsGraphTable *>(graph_table);
+  g->build_graph_float_fea_on_single_gpu(sub_graph_float_fea, i);
+  sub_graph_float_fea.release_on_cpu();
+  VLOG(1) << "sub graph float fea on gpu " << i << " is built";
   return;
 }
 

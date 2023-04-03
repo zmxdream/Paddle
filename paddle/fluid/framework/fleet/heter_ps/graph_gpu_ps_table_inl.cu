@@ -1320,7 +1320,9 @@ void GpuPsGraphTable::reset_feature_info(int gpu_id,
   }
   int graph_fea_idx = get_graph_fea_list_offset(gpu_id);
   auto& graph = gpu_graph_fea_list_[graph_fea_idx];
+
   graph.node_list = NULL;
+
   if (graph.feature_list == NULL) {
     CUDA_CHECK(cudaMalloc((void**)&graph.feature_list,
                           feature_size * sizeof(uint64_t)));
@@ -1340,6 +1342,46 @@ void GpuPsGraphTable::reset_feature_info(int gpu_id,
         graph.feature_list, 0, feature_size * sizeof(uint64_t), stream));
     CUDA_CHECK(cudaMemsetAsync(
         graph.slot_id_list, 0, feature_size * sizeof(uint8_t), stream));
+    cudaStreamSynchronize(stream);
+  }
+}
+
+
+void GpuPsGraphTable::reset_float_feature_info(int gpu_id,
+                                               size_t capacity,
+                                               size_t feature_size,
+                                               size_t slot_size) {
+  int idx = 1;
+  auto stream = get_local_stream(gpu_id);
+  int offset = get_table_offset(gpu_id, GraphTableType::FEATURE_TABLE, idx);
+  if (offset < tables_.size()) {
+    delete tables_[offset];
+    tables_[offset] = new Table(capacity, stream);
+  }
+  int graph_float_fea_idx = get_graph_float_fea_list_offset(gpu_id);
+  auto& graph = gpu_graph_float_fea_list_[graph_float_fea_idx];
+
+  graph.node_list = NULL;
+
+  if (graph.feature_list == NULL) {
+    CUDA_CHECK(cudaMalloc((void**)&graph.feature_list,
+                          feature_size * sizeof(float)));
+    CUDA_CHECK(cudaMalloc((void**)&graph.slot_id_list,
+                          ALIGN_INT64(slot_size * sizeof(uint8_t))));
+    graph.feature_capacity = feature_size;
+  } else if (graph.feature_capacity < feature_size) {
+    cudaFree(graph.feature_list);
+    cudaFree(graph.slot_id_list);
+    CUDA_CHECK(cudaMalloc((void**)&graph.feature_list,
+                          feature_size * sizeof(float)));
+    CUDA_CHECK(cudaMalloc((void**)&graph.slot_id_list,
+                          ALIGN_INT64(slot_size * sizeof(uint8_t))));
+    graph.feature_capacity = feature_size;
+  } else {
+    CUDA_CHECK(cudaMemsetAsync(
+        graph.feature_list, 0, feature_size * sizeof(float), stream));
+    CUDA_CHECK(cudaMemsetAsync(
+        graph.slot_id_list, 0, slot_size * sizeof(uint8_t), stream));
     cudaStreamSynchronize(stream);
   }
 }
@@ -1376,8 +1418,8 @@ void GpuPsGraphTable::build_graph_fea_on_single_gpu(const GpuPsCommGraphFea& g,
                                                     int gpu_id) {
   platform::CUDADeviceGuard guard(resource_->dev_id(gpu_id));
   size_t capacity = std::max((uint64_t)1, g.node_size) / load_factor_;
+  int ntype_id = 0; // slot feature
   reset_feature_info(gpu_id, capacity, g.feature_size);
-  int ntype_id = 0;
   int offset = get_graph_fea_list_offset(gpu_id);
   int table_offset =
       get_table_offset(gpu_id, GraphTableType::FEATURE_TABLE, ntype_id);
@@ -1415,6 +1457,52 @@ void GpuPsGraphTable::build_graph_fea_on_single_gpu(const GpuPsCommGraphFea& g,
   VLOG(1) << "gpu node_feature info card :" << gpu_id << " ,node_size is "
           << gpu_graph_fea_list_[offset].node_size << ", feature_size is "
           << gpu_graph_fea_list_[offset].feature_size;
+}
+
+
+void GpuPsGraphTable::build_graph_float_fea_on_single_gpu(const GpuPsCommGraphFloatFea& g,
+                                                          int gpu_id) {
+  platform::CUDADeviceGuard guard(resource_->dev_id(gpu_id));
+  size_t capacity = std::max((uint64_t)1, g.node_size) / load_factor_;
+  int ntype_id = 1; // float feature
+  reset_float_feature_info(gpu_id, capacity, g.feature_size, g.slot_size);
+  int offset = get_graph_float_fea_list_offset(gpu_id);
+  int table_offset =
+      get_table_offset(gpu_id, GraphTableType::FEATURE_TABLE, ntype_id);
+  if (g.node_size > 0) {
+    build_ps(gpu_id,
+             g.node_list,
+             reinterpret_cast<uint64_t*>(g.fea_info_list),
+             g.node_size,
+             HBMPS_MAX_BUFF,
+             8,
+             table_offset);
+    gpu_graph_float_fea_list_[offset].node_size = g.node_size;
+  } else {
+    build_ps(gpu_id, NULL, NULL, 0, HBMPS_MAX_BUFF, 8, table_offset);
+    gpu_graph_float_fea_list_[offset].node_size = 0;
+  }
+  if (g.feature_size) {
+    auto stream = get_local_stream(gpu_id);
+    CUDA_CHECK(cudaMemcpyAsync(gpu_graph_float_fea_list_[offset].feature_list,
+                               g.feature_list,
+                               g.feature_size * sizeof(float),
+                               cudaMemcpyHostToDevice,
+                               stream));
+    CUDA_CHECK(cudaMemcpyAsync(gpu_graph_float_fea_list_[offset].slot_id_list,
+                               g.slot_id_list,
+                               g.slot_size * sizeof(uint8_t),
+                               cudaMemcpyHostToDevice,
+                               stream));
+    cudaStreamSynchronize(stream);
+
+    gpu_graph_float_fea_list_[offset].feature_size = g.feature_size;
+  } else {
+    gpu_graph_float_fea_list_[offset].feature_size = 0;
+  }
+  VLOG(1) << "gpu node_float_feature info card :" << gpu_id << " ,node_size is "
+          << gpu_graph_float_fea_list_[offset].node_size << ", feature_size is "
+          << gpu_graph_float_fea_list_[offset].feature_size;
 }
 
 std::vector<std::shared_ptr<phi::Allocation>>

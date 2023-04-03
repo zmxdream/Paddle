@@ -439,6 +439,10 @@ void PSGPUWrapper::add_slot_feature(std::shared_ptr<HeterContext> gpu_task) {
       reinterpret_cast<void*>(new std::vector<GpuPsCommGraphFea>);
   std::vector<GpuPsCommGraphFea>& sub_graph_feas =
       *((std::vector<GpuPsCommGraphFea>*)gpu_task->sub_graph_feas);
+  gpu_task->sub_graph_float_feas =
+      reinterpret_cast<void*>(new std::vector<GpuPsCommGraphFloatFea>);
+  std::vector<GpuPsCommGraphFloatFea>& sub_graph_float_feas =
+      *((std::vector<GpuPsCommGraphFloatFea>*)gpu_task->sub_graph_float_feas);
 #endif
   std::vector<std::vector<uint64_t>> feature_ids(device_num);
   std::vector<uint64_t*> feature_list(device_num);
@@ -539,6 +543,9 @@ void PSGPUWrapper::add_slot_feature(std::shared_ptr<HeterContext> gpu_task) {
                      SSD_EMB_AND_MEM_FEATURE_GPU_GRAPH) {
     auto gpu_graph_ptr = GraphGpuWrapper::GetInstance();
     sub_graph_feas = gpu_graph_ptr->get_sub_graph_fea(node_ids, slot_num);
+    if (float_slot_num_ > 0) {
+      sub_graph_float_feas = gpu_graph_ptr->get_sub_graph_float_fea(node_ids, float_slot_num_);
+    }
     for (size_t i = 0; i < device_num; i++) {
       feature_list[i] = sub_graph_feas[i].feature_list;
       feature_list_size[i] = sub_graph_feas[i].feature_size;
@@ -1397,6 +1404,18 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
           (std::vector<GpuPsCommGraphFea>*)gpu_task->sub_graph_feas;
       gpu_graph_ptr->build_gpu_graph_fea((*tmp)[i], i);
     }
+
+    if (float_slot_num_> 0 &&
+        (FLAGS_gpugraph_storage_mode == paddle::framework::GpuGraphStorageMode::
+                                            MEM_EMB_FEATURE_AND_GPU_GRAPH ||
+         FLAGS_gpugraph_storage_mode ==
+             paddle::framework::GpuGraphStorageMode::
+                 SSD_EMB_AND_MEM_FEATURE_GPU_GRAPH)) {
+      auto gpu_graph_ptr = GraphGpuWrapper::GetInstance();
+      std::vector<GpuPsCommGraphFloatFea>* float_tmp =
+          (std::vector<GpuPsCommGraphFloatFea>*)gpu_task->sub_graph_float_feas;
+      gpu_graph_ptr->build_gpu_graph_float_fea((*float_tmp)[i], i);
+    }
 #endif
     stagetime.Pause();
     auto build_feature_span = stagetime.ElapsedSec();
@@ -1472,6 +1491,11 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
         (std::vector<GpuPsCommGraphFea>*)gpu_task->sub_graph_feas;
     delete tmp;
     gpu_task->sub_graph_feas = NULL;
+
+    std::vector<GpuPsCommGraphFloatFea>* float_tmp =
+        (std::vector<GpuPsCommGraphFloatFea>*)gpu_task->sub_graph_float_feas;
+    delete float_tmp;
+    gpu_task->sub_graph_float_feas = NULL;
   }
 #endif
   stagetime.Pause();
