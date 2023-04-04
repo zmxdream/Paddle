@@ -1359,7 +1359,7 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
     int mf_dim = this->index_dim_vec_[j];
     size_t feature_value_size =
         accessor_wrapper_ptr->GetFeatureValueSize(mf_dim);
-    VLOG(3) << "build dymf mem pool with device:" << i << " dim:" << mf_dim << " feature_value_size:" << feature_value_size;
+    VLOG(0) << "build dymf mem pool with device:" << i << " dim:" << mf_dim << " feature_value_size:" << feature_value_size;
     auto& device_dim_keys = gpu_task->device_dim_keys_[i][j];
     auto& device_dim_ptrs = gpu_task->device_dim_ptr_[i][j];
     size_t len = device_dim_keys.size();
@@ -1375,8 +1375,6 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
     size_t feature_value_size =
         accessor_wrapper_ptr->GetFeatureValueSize(mf_dim);
     auto& mem_pool = this->mem_pools_[i * this->multi_mf_dim_ + j];
-
-    VLOG(0) << "build dymf mem pool with device:" << i << " dim:" << mf_dim << ", len:" << len << " feature_value_size:" << feature_value_size;
 
     platform::CUDADeviceGuard guard(resource_->dev_id(i));
     this->hbm_pools_[i * this->multi_mf_dim_ + j] = new HBMMemoryPool(mem_pool);
@@ -1397,11 +1395,12 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
     // after_debug_info.append(", j:" + std::to_string(j));
     // debug_gpu_memory_info(i, after_debug_info.c_str());
 
-    if (device_dim_keys.size() > 0) {
-      VLOG(3) << "show table: " << i << " table kv size: " << device_dim_keys.size() << "dim: " << mf_dim << " len: " << len;
-      HeterPs_->show_one_table(i);
-    }
+    // if (device_dim_keys.size() > 0) {
+    //   VLOG(3) << "show table: " << i << " table kv size: " << device_dim_keys.size() << "dim: " << mf_dim << " len: " << len;
+    //   HeterPs_->show_one_table(i);
+    // }
     delete mem_pool;
+    VLOG(0) << "build dymf hbm pool with device:" << i << " dim:" << mf_dim << ", len:" << len << " feature_value_size:" << feature_value_size;
   };
 
   int thread_num = 16;
@@ -1647,6 +1646,7 @@ void PSGPUWrapper::build_pull_thread() {
     timer.Pause();
     VLOG(0) << "thread BuildPull end, cost time: " << timer.ElapsedSec() << "s";
     buildpull_ready_channel_->Put(gpu_task);
+    VLOG(0) << "after build pull put task";
   }
   VLOG(3) << "build cpu thread end";
 }
@@ -1655,22 +1655,21 @@ void PSGPUWrapper::build_task() {
   // build_task: build_pull + build_gputask
   std::shared_ptr<HeterContext> gpu_task = nullptr;
 
-  // VLOG(0) << "[debug] before gpu free channel";
+  VLOG(0) << "[debug] before gpu free channel get task";
   
   // train end, gpu free
   if (!gpu_free_channel_->Get(gpu_task)) {
     return;
   }
-  // VLOG(0) << "[debug] before build pull channel";
+  VLOG(0) << "[debug] before build pull get task";
   // ins and pre_build end
   if (!buildpull_ready_channel_->Get(gpu_task)) {
     return;
   }
 
-  VLOG(0) << "BuildPull start.";
+  VLOG(0) << "BuildGPUTask start.";
   platform::Timer timer;
   timer.Start();
-//  BuildPull(gpu_task);
 
   BuildGPUTask(gpu_task);
   timer.Pause();

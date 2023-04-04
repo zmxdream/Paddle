@@ -334,7 +334,7 @@ class PSGPUWrapper {
       buildcpu_ready_channel_->Open();
       buildcpu_ready_channel_->SetCapacity(3);
       buildpull_ready_channel_->Open();
-      buildpull_ready_channel_->SetCapacity(1);
+      buildpull_ready_channel_->SetCapacity(3);
       gpu_free_channel_->Open();
       gpu_free_channel_->SetCapacity(1);
 

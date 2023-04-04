@@ -479,14 +479,14 @@ void PSGPUWorker::TrainFiles() {
         }
         if (!need_skip) {
           // before op run, get gpu memory
-          std::string before_debug_info = "before op run:";
-          before_debug_info.append(op->Type());
-          debug_gpu_memory_info(thread_id_,before_debug_info.c_str());
+          // std::string before_debug_info = "before op run:";
+          // before_debug_info.append(op->Type());
+          // debug_gpu_memory_info(thread_id_,before_debug_info.c_str());
           OpRunAndShapeCheck(*op, *thread_scope, place_);
           // after op run, get gpu memory
-          std::string after_debug_info = "after op run:";
-          after_debug_info.append(op->Type());
-          debug_gpu_memory_info(thread_id_, after_debug_info.c_str());
+          // std::string after_debug_info = "after op run:";
+          // after_debug_info.append(op->Type());
+          // debug_gpu_memory_info(thread_id_, after_debug_info.c_str());
         }
       }
       graph_batch_size = cur_batch;
