@@ -1279,12 +1279,14 @@ void PSGPUWrapper::BuildPull(std::shared_ptr<HeterContext> gpu_task) {
   }
   
   timeline.Pause();
+  /* no need ??
   if (this->multi_node_) {
     gloo_wrapper->Barrier();
     for (size_t dev_idx = 0; dev_idx < device_dim_keys.size(); dev_idx++) {
       VLOG(0) << "yxf:::devidx: " << dev_idx << " dev keys: " << device_dim_keys[dev_idx][0].size();
     }
   }
+  */
   VLOG(0) << "GpuPs prepare for build hbm cost " << timeline.ElapsedSec()
           << " seconds.";
 }

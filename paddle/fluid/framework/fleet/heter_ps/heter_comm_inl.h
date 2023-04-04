@@ -2482,10 +2482,10 @@ size_t HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_sparse_keys_by
 
   size_t total_fea_num = 0;
 
-  // if (rdma_checker_->need_rdma_trans()) {
-  //    total_fea_num = send_keys_by_all2all_trans(
-  //      gpu_id, rank_id_, node_size_, fea_size, d_tmp_keys, d_out_keys, stream);
-  // } else {
+  if (rdma_checker_->need_rdma_trans()) {
+      total_fea_num = send_keys_by_all2all_trans(
+        gpu_id, rank_id_, node_size_, fea_size, d_tmp_keys, d_out_keys, stream);
+  } else {
       total_fea_num = send_data_by_all2all(gpu_id,
                                            node_size_,
                                            rank_id_,
@@ -2497,7 +2497,7 @@ size_t HeterComm<KeyType, ValType, GradType, GPUAccessor>::gather_sparse_keys_by
                                            (const char *)(d_tmp_keys),
                                            (char *)(d_out_keys),
                                            stream);
-  // }
+  }
   PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
 
   return remote_size;
@@ -2567,7 +2567,6 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::
   auto h_remote_part_offsets = res.h_remote_part_offsets.data();
 
   size_t total_fea_num = 0;
-/*
   if (rdma_checker_->need_rdma_trans()) {
      total_fea_num =
          send_vals_by_all2all_trans(gpu_id,
@@ -2578,7 +2577,6 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::
                                     value_bytes,
                                     stream);
   } else {
-*/
     // send local device
     // 把数据发送回原来的机器,接收后的数据存储在d_tmp_vals
     total_fea_num = send_data_by_all2all(gpu_id,
@@ -2592,7 +2590,7 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::
                                          d_in_vals,
                                          reinterpret_cast<char *>(d_tmp_vals),
                                          stream);
-  // }
+  }
   PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
   // fill vals
   scatter_vals(
@@ -3749,7 +3747,6 @@ size_t HeterComm<KeyType, ValType, GradType, GPUAccessor>::
       stream);
 
   size_t total_send_recv = 0;
-/*
   if (rdma_checker_->need_rdma_trans()) {
      total_send_recv = send_gradient_by_all2all_trans(gpu_id,
                                                       rank_id_,
@@ -3762,7 +3759,6 @@ size_t HeterComm<KeyType, ValType, GradType, GPUAccessor>::
                                                       d_out_vals,
                                                       stream);
   } else {
-*/
     // send local device
     total_send_recv = send_data_by_all2all(gpu_id,
                                            node_size_,
@@ -3786,7 +3782,7 @@ size_t HeterComm<KeyType, ValType, GradType, GPUAccessor>::
                          (const char *)(d_tmp_vals),
                          reinterpret_cast<char *>(d_out_vals), // d_merged_push_vals
                          stream);
-  // }
+  }
   PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
 
   return total_recv_fea_num;
@@ -3938,8 +3934,6 @@ size_t HeterComm<KeyType, ValType, GradType, GPUAccessor>::
                                                         reinterpret_cast<char *>(my_cache.d_allgather_vals), // d_merged_push_vals
                                                         stream);
   } else {
-
-
 
     // send local device
     send_key_data_by_allgather(gpu_id,
