@@ -1164,12 +1164,12 @@ void PSGPUWrapper::BuildPull(std::shared_ptr<HeterContext> gpu_task) {
       if (record_values_ptr == nullptr) {
         VLOG(0) << "yxf no record shard_id: " << i;
       } else {
-        auto record_values = *record_values_ptr;
+        auto& record_values = *record_values_ptr;
         for (size_t k = 0; k < record_values.size(); k++) {
            int shard = record_values[k].first % device_num;
            if (local_keys_set.find(record_values[k].first) == local_keys_set.end()) {
              task_kv[shard].push_back(std::make_pair(record_values[k].first, (paddle::ps::DownpourFixedFeatureValue*)record_values[k].second));
-
+             local_keys_set.insert(record_values[k].first); // fix bug for hbm oom
              if (task_kv[shard].size() > 5000) {
                uint32_t shard_idx = shard * multi_mf_dim_ + j;
                uint32_t shard_sum = device_keys_num[shard_idx]->load();
@@ -1183,8 +1183,8 @@ void PSGPUWrapper::BuildPull(std::shared_ptr<HeterContext> gpu_task) {
           // if (task_keys_ptr[shard].find(record_values[k].first) == task_keys_ptr[shard].end()) {
           //  task_keys_ptr[shard][record_values[k].first] = (paddle::ps::DownpourFixedFeatureValue*)(record_values[k].second);
           //}
-          
         }
+        record_values.clear();
       }
     }
      
