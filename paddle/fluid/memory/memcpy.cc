@@ -1545,12 +1545,12 @@ void Copy<phi::Place, phi::Place>(phi::Place dst_place,
   } else if (src_place.GetType() == phi::AllocationType::XPU &&
              dst_place.GetType() == phi::AllocationType::XPUL3) {
     platform::XPUL3Place place_dst(dst_place.GetDeviceId());
-    platform::XPUPlace place_src;
+    platform::XPUPlace place_src(src_place.GetDeviceId());
     return Copy(place_dst, dst, place_src, src, num);
   } else if (src_place.GetType() == phi::AllocationType::XPUL3 &&
              dst_place.GetType() == phi::AllocationType::XPU) {
     platform::XPUL3Place place_src(src_place.GetDeviceId());
-    platform::XPUPlace place_dst;
+    platform::XPUPlace place_dst(dst_place.GetDeviceId());
     return Copy(place_dst, dst, place_src, src, num);
   } else if (src_place.GetType() == phi::AllocationType::XPU &&
              dst_place.GetType() == phi::AllocationType::XPUL3) {
