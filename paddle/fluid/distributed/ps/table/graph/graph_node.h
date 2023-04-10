@@ -192,15 +192,13 @@ class FeatureNode : public Node {
     return num;
   }
 
-
   virtual int get_float_feature(int slot_idx,
                                 std::vector<float> &float_feature,      // NOLINT
-                                std::vector<uint8_t> &slot_id,
-                                std::vector<uint64_t> &slot_offset) const {  // NOLINT
+                                std::vector<uint8_t> &slot_id) const {  // NOLINT
     // errno = 0;
     size_t num = 0;
     if (slot_idx < static_cast<int>(this->float_feature.size())) {
-      const std::string &s = this->feature[slot_idx];
+      const std::string &s = this->float_feature[slot_idx];
       const float *feas = (const float *)(s.c_str());
       num = s.length() / sizeof(float);
       CHECK((s.length() % sizeof(float)) == 0)
@@ -210,9 +208,9 @@ class FeatureNode : public Node {
       }
       if (num > 0) {
         slot_id.push_back(slot_idx);
-        uint64_t last_offset = 0;
-        if (!slot_offset.empty()) {last_offset = slot_offset.back();}
-        slot_offset.push_back(last_offset + num);
+        // uint64_t last_offset = 0;
+        // if (!slot_offset.empty()) {last_offset = slot_offset.back();}
+        // slot_offset.push_back(last_offset + num);
       }
     }
     // PADDLE_ENFORCE_EQ(

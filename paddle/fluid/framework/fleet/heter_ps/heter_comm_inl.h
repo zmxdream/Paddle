@@ -894,6 +894,89 @@ template <typename KeyType,
           typename ValType,
           typename GradType,
           typename GPUAccessor>
+void HeterComm<KeyType, ValType, GradType, GPUAccessor>::build_float_feat_table(
+    int num,
+    KeyType *h_keys,
+    GpuPsFloatFeaInfo *fea_info,
+    size_t len,
+    size_t chunk_size,
+    int stream_num,
+    int offset) {
+  if (len <= 0) {
+    return;
+  }
+  int dev_id = resource_->dev_id(num);
+
+  std::vector<std::shared_ptr<phi::Allocation>> d_key_bufs;
+  std::vector<std::shared_ptr<phi::Allocation>> d_val_bufs;
+
+  // auto adjust stream num by data length
+  int max_stream = (len + chunk_size - 1) / chunk_size;
+  if (max_stream < stream_num) {
+    stream_num = max_stream;
+  }
+  if (stream_num > device_num_) {
+    stream_num = device_num_;
+  }
+
+  DevPlace place = DevPlace(dev_id);
+  AnyDeviceGuard guard(dev_id);
+  ppStream streams[stream_num];  // NOLINT
+
+  d_key_bufs.resize(stream_num);
+  d_val_bufs.resize(stream_num);
+  for (int i = 0; i < stream_num; ++i) {
+    streams[i] = resource_->local_stream(dev_num, i);
+    d_key_bufs[i] = MemoryAlloc(place, chunk_size * sizeof(KeyType));
+    d_val_bufs[i] = MemoryAlloc(place, chunk_size * sizeof(GpuPsFloatFeaInfo));
+  }
+
+  int cur_len = 0;
+  int cur_stream = 0;
+
+  while (static_cast<size_t>(cur_len) < len) {
+    cur_stream = cur_stream % stream_num;
+    auto cur_use_stream = streams[cur_stream];
+#if defined(PADDLE_WITH_XPU_KP)
+    cur_use_stream = 0;
+#endif
+
+    int tmp_len = cur_len + chunk_size > len ? len - cur_len : chunk_size;
+
+    auto dst_place = place;
+    auto src_place = platform::CPUPlace();
+
+    memory_copy(dst_place,
+                reinterpret_cast<char *>(d_key_bufs[cur_stream]->ptr()),
+                src_place,
+                h_keys + cur_len,
+                sizeof(KeyType) * tmp_len,
+                cur_use_stream);
+    memory_copy(dst_place,
+                reinterpret_cast<char *>(d_val_bufs[cur_stream]->ptr()),
+                src_place,
+                fea_info + cur_len,
+                sizeof(GpuPsFloatFeaInfo)* tmp_len,
+                cur_use_stream);
+
+    if (offset == -1) offset = dev_num;
+    float_tables_[offset]->insert(
+        reinterpret_cast<KeyType *>(d_key_bufs[cur_stream]->ptr()),
+        reinterpret_cast<GpuPsFloatFeaInfo *>(d_val_bufs[cur_stream]->ptr()),
+        static_cast<size_t>(tmp_len),
+        cur_use_stream);
+    cur_stream += 1;
+    cur_len += tmp_len;
+  }
+  for (int i = 0; i < stream_num; ++i) {
+    sync_stream(streams[i]);
+  }
+}
+
+template <typename KeyType,
+          typename ValType,
+          typename GradType,
+          typename GPUAccessor>
 void HeterComm<KeyType, ValType, GradType, GPUAccessor>::build_ps(
     int num,
     KeyType *h_keys,

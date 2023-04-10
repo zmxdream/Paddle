@@ -903,8 +903,9 @@ struct NodeQueryResult {
   ~NodeQueryResult() {}
 };  // end of struct NodeQueryResult
 
-struct GpuPsFeaInfo {
+struct GpuPsFloatFeaInfo {
   uint32_t feature_size, feature_offset;
+  uint32_t slot_size, slot_offset;
   // this node's feature is stored on [feature_offset,feature_offset +
   // feature_size) of int64_t *feature_list;
 };
@@ -913,8 +914,7 @@ struct GpuPsCommGraphFloatFea {
   uint64_t *node_list;     // only locate on host side, the list of node id
   float* feature_list;  // locate on both side
   uint8_t *slot_id_list;   // locate on both side
-  uint64_t *slot_offset_list; 
-  GpuPsFeaInfo
+  GpuPsFloatFeaInfo
       *fea_info_list;  // only locate on host side, the list of fea_info
   uint64_t feature_size, node_size, slot_size, feature_capacity;
 
@@ -930,15 +930,13 @@ struct GpuPsCommGraphFloatFea {
   GpuPsCommGraphFloatFea(uint64_t *node_list_, // node0
                     float *feature_list_, // 30 = 20 + 10
                     uint8_t *slot_id_list_, // slot0, slot1
-                    uint64_t* slot_offset_list, //  20, 10
-                    GpuPsFeaInfo *fea_info_list_,
+                    GpuPsFeaFloatInfo *fea_info_list_,
                     uint64_t feature_size_, // 30
                     uint64_t node_size_,
                     uint64_t slot_size_) // 1
       : node_list(node_list_),
         feature_list(feature_list_),
         slot_id_list(slot_id_list_),
-        slot_offset_list(slot_offset_list),
         fea_info_list(fea_info_list_),
         feature_size(feature_size_),
         node_size(node_size_),
@@ -960,7 +958,7 @@ struct GpuPsCommGraphFloatFea {
     this->node_list = new uint64_t[node_size];
     this->feature_list = new float[feature_size];
     this->slot_id_list = new uint8_t[total_slot];
-    this->slot_offset_list = new uint8_t[total_slot + 1];
+    // this->slot_offset_list = new uint8_t[total_slot + 1];
     this->fea_info_list = new GpuPsFeaInfo[node_size];
   }
   void release_on_cpu() {
@@ -972,7 +970,7 @@ struct GpuPsCommGraphFloatFea {
     DEL_PTR_ARRAY(node_list);
     DEL_PTR_ARRAY(feature_list);
     DEL_PTR_ARRAY(slot_id_list);
-    DEL_PTR_ARRAY(slot_offset_list);
+    // DEL_PTR_ARRAY(slot_offset_list);
     DEL_PTR_ARRAY(fea_info_list);
   }
   void display_on_cpu() const {

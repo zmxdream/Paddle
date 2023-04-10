@@ -183,15 +183,15 @@ paddle::framework::GpuPsCommGraphFloatFea GraphTable::make_gpu_ps_graph_float_fe
   std::vector<std::vector<uint64_t>> bags(shard_num);
   std::vector<float> feature_array[shard_num];
   std::vector<uint8_t> slot_id_array[shard_num];
-  std::vector<uint64_t> slot_offset[shard_num];
+  // std::vector<uint64_t> slot_offset[shard_num];
   std::vector<uint64_t> node_id_array[shard_num];
-  std::vector<paddle::framework::GpuPsFeaInfo> node_fea_info_array[shard_num];
+  std::vector<paddle::framework::GpuPsFloatFeaInfo> node_fea_info_array[shard_num];
   for (size_t i = 0; i < shard_num; i++) {
     auto predsize = node_ids.size() / shard_num;
     bags[i].reserve(predsize * 1.2);
     feature_array[i].reserve(predsize * 1.2 * float_slot_num);
     slot_id_array[i].reserve(predsize * 1.2 * float_slot_num);
-    slot_offset[i].reserver(predsize * 1.2 * float_slot_num)
+    // slot_offset[i].reserver(predsize * 1.2 * float_slot_num)
     node_id_array[i].reserve(predsize * 1.2);
     node_fea_info_array[i].reserve(predsize * 1.2);
   }
@@ -226,16 +226,18 @@ paddle::framework::GpuPsCommGraphFloatFea GraphTable::make_gpu_ps_graph_float_fe
           } else {
             // x <- v
             x.feature_offset = feature_array[i].size();
+            x.slot_offset = slot_id_array[i].size();
             int total_feature_size = 0;
             for (int k = 0; k < float_slot_num; ++k) {
               auto float_feature_size = // 其实就是float特征的shape,只可能有两种取值，0或者shape
-                  v->get_float_feature(k, feature_array[i], slot_id_array[i], slot_offset[i]);
+                  v->get_float_feature(k, feature_array[i], slot_id_array[i]);
               // if (slot_feature_num_map_[k] < feature_ids_size) {
               //   slot_feature_num_map_[k] = feature_ids_size;
               // }
               total_feature_size += float_feature_size;
             }
             x.feature_size = total_feature_size;
+            x.slot_size = slot_id_array[i].size() - x.slot_offset;
             node_fea_info_array[i].push_back(x);
           }
           node_id_array[i].push_back(node_id);
@@ -266,8 +268,8 @@ paddle::framework::GpuPsCommGraphFloatFea GraphTable::make_gpu_ps_graph_float_fe
   VLOG(1) << "Loaded feature table on cpu, feature_list_size[" << tot_len
           << "] node_ids_size[" << node_ids.size() << "]";
   res.init_on_cpu(tot_len, (unsigned int)node_ids.size(), float_slot_num, total_slot);
-  res.slot_offset_list[0] = 0;
-  uint64_t total_slot_offset = 0;
+  // res.slot_offset_list[0] = 0;
+  // uint64_t total_slot_offset = 0;
   unsigned int offset = 0, ind = 0, slot_offsets = 0;
   for (size_t i = 0; i < shard_num; i++) {
     tasks.push_back(
@@ -283,15 +285,15 @@ paddle::framework::GpuPsCommGraphFloatFea GraphTable::make_gpu_ps_graph_float_fe
           }
           for (size_t j = 0; j < slot_id_array[i].size(); j++) {
             res.slot_id_list[slot_offsets + j] = slot_id_array[i][j];
-            res.slot_offset_list[slot_offsets + j + 1] = total_slot_offset + slot_offset[i][j];
+            // res.slot_offset_list[slot_offsets + j + 1] = total_slot_offset + slot_offset[i][j];
           }
           return 0;
         }));
     offset += feature_array[i].size();
     slot_offsets += slot_id_array[i].size();
-    if (!slot_offset[i].empty()) {
-      total_slot_offset += slot_offset[i].back();
-    }
+    // if (!slot_offset[i].empty()) {
+    //   total_slot_offset += slot_offset[i].back();
+    // }
     ind += node_id_array[i].size();
   }
   for (size_t i = 0; i < tasks.size(); i++) tasks[i].get();

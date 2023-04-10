@@ -1051,6 +1051,8 @@ __global__ void GraphFillFirstStepKernel(int *prefix_sum,
 }
 
 __global__ void get_each_ins_info(uint8_t *slot_list,
+                                  uint32_t *fea_size_list,
+                                  uint32_t *fea_size_prefix,
                                   uint32_t *slot_size_list,
                                   uint32_t *slot_size_prefix,
                                   uint32_t *each_ins_slot_num,
@@ -1320,23 +1322,26 @@ int GraphDataGenerator::FillSlotFeature(uint64_t *d_walk, size_t key_num) {
   int64_t *slot_lod_tensor_ptr_[slot_num_];
   if (fea_num == 0) {
     int64_t default_lod = 1;
-    for (int i = 0; i < slot_num_; ++i) {
-      slot_lod_tensor_ptr_[i] = feed_vec_[id_offset_of_feed_vec_ + 2 * i + 1]->mutable_data<int64_t>(
-          {(long)key_num + 1}, this->place_);  // NOLINT
-      slot_tensor_ptr_[i] =
-          feed_vec_[id_offset_of_feed_vec_ + 2 * i]->mutable_data<int64_t>({1, 1}, this->place_);
-      CUDA_CHECK(cudaMemsetAsync(
-          slot_tensor_ptr_[i], 0, sizeof(int64_t), train_stream_));
-      CUDA_CHECK(cudaMemsetAsync(slot_lod_tensor_ptr_[i],
-                                 0,
-                                 sizeof(int64_t) * key_num,
-                                 train_stream_));
-      CUDA_CHECK(cudaMemcpyAsync(
+    for (int i = 0; i < slot_num_; ++i) { // slot_num_表示所有的slot包括float slot
+      if (feed_type_[i] == "uint64") {
+        slot_lod_tensor_ptr_[i] = feed_vec_[id_offset_of_feed_vec_ + 2 * i + 1]->mutable_data<int64_t>(
+            {(long)key_num + 1}, this->place_);  // NOLINT
+        slot_tensor_ptr_[i] =
+            feed_vec_[id_offset_of_feed_vec_ + 2 * i]->mutable_data<int64_t>({1, 1}, this->place_);
+        CUDA_CHECK(cudaMemsetAsync(
+            slot_tensor_ptr_[i], 0, sizeof(int64_t), train_stream_));
+        CUDA_CHECK(cudaMemsetAsync(slot_lod_tensor_ptr_[i],
+                                   0,
+                                   sizeof(int64_t) * key_num,
+                                   train_stream_));
+
+        CUDA_CHECK(cudaMemcpyAsync(
           reinterpret_cast<char *>(slot_lod_tensor_ptr_[i] + key_num),
           &default_lod,
           sizeof(int64_t),
           cudaMemcpyHostToDevice,
           train_stream_));
+      }
     }
     CUDA_CHECK(cudaStreamSynchronize(train_stream_));
     return 0;
@@ -1379,9 +1384,11 @@ int GraphDataGenerator::FillSlotFeature(uint64_t *d_walk, size_t key_num) {
   uint64_t **d_ins_slot_num_vector_ptr =
       reinterpret_cast<uint64_t **>(d_ins_slot_num_vector->ptr());
   for (int i = 0; i < slot_num_; i++) {
-    ins_slot_num[i] = memory::AllocShared(place_, key_num * sizeof(uint64_t));
-    ins_slot_num_vecotr[i] =
-        reinterpret_cast<uint64_t *>(ins_slot_num[i]->ptr());
+    if (feed_type_[i] == "uint64") {
+      ins_slot_num[i] = memory::AllocShared(place_, key_num * sizeof(uint64_t));
+      ins_slot_num_vecotr[i] =
+          reinterpret_cast<uint64_t *>(ins_slot_num[i]->ptr());
+    }
   }
   CUDA_CHECK(
       cudaMemcpyAsync(reinterpret_cast<char *>(d_ins_slot_num_vector_ptr),
@@ -1389,14 +1396,23 @@ int GraphDataGenerator::FillSlotFeature(uint64_t *d_walk, size_t key_num) {
                       sizeof(uint64_t *) * slot_num_,
                       cudaMemcpyHostToDevice,
                       train_stream_));
+
+
+
   fill_slot_num<<<grid, block, 0, train_stream_>>>(
       d_each_ins_slot_num_ptr, d_ins_slot_num_vector_ptr, key_num, slot_num_);
   CUDA_CHECK(cudaStreamSynchronize(train_stream_));
 
+
+
+
   for (int i = 0; i < slot_num_; ++i) {
-    slot_lod_tensor_ptr_[i] = feed_vec_[id_offset_of_feed_vec_ + 2 * i + 1]->mutable_data<int64_t>(
-        {(long)key_num + 1}, this->place_);  // NOLINT
+    if (feed_type_[i] == "uint64") {
+      slot_lod_tensor_ptr_[i] = feed_vec_[id_offset_of_feed_vec_ + 2 * i + 1]->mutable_data<int64_t>(
+          {(long)key_num + 1}, this->place_);  // NOLINT
+    }
   }
+  // 如果第1个slot不是slot feature,是float feature咋办
   size_t temp_storage_bytes = 0;
   CUDA_CHECK(cub::DeviceScan::InclusiveSum(NULL,
                                            temp_storage_bytes,
@@ -1411,54 +1427,62 @@ int GraphDataGenerator::FillSlotFeature(uint64_t *d_walk, size_t key_num) {
       phi::Stream(reinterpret_cast<phi::StreamId>(train_stream_)));
   std::vector<int64_t> each_slot_fea_num(slot_num_, 0);
   for (int i = 0; i < slot_num_; ++i) {
-    CUDA_CHECK(cudaMemsetAsync(
-        slot_lod_tensor_ptr_[i], 0, sizeof(uint64_t), train_stream_));
-    CUDA_CHECK(cub::DeviceScan::InclusiveSum(d_temp_storage->ptr(),
-                                             temp_storage_bytes,
-                                             ins_slot_num_vecotr[i],
-                                             slot_lod_tensor_ptr_[i] + 1,
-                                             key_num,
-                                             train_stream_));
-    CUDA_CHECK(cudaMemcpyAsync(&each_slot_fea_num[i],
+    if (feed_type_[i] == "uint64") {
+      CUDA_CHECK(cudaMemsetAsync(
+          slot_lod_tensor_ptr_[i], 0, sizeof(uint64_t), train_stream_));
+      CUDA_CHECK(cub::DeviceScan::InclusiveSum(d_temp_storage->ptr(),
+                                               temp_storage_bytes,
+                                               ins_slot_num_vecotr[i],
+                                               slot_lod_tensor_ptr_[i] + 1,
+                                               key_num,
+                                               train_stream_));
+      CUDA_CHECK(cudaMemcpyAsync(&each_slot_fea_num[i],
                                slot_lod_tensor_ptr_[i] + key_num,
                                sizeof(uint64_t),
                                cudaMemcpyDeviceToHost,
                                train_stream_));
-  }
-  CUDA_CHECK(cudaStreamSynchronize(train_stream_));
-  for (int i = 0; i < slot_num_; ++i) {
-    slot_tensor_ptr_[i] = feed_vec_[id_offset_of_feed_vec_ + 2 * i]->mutable_data<int64_t>(
-        {each_slot_fea_num[i], 1}, this->place_);
-  }
-  int64_t default_lod = 1;
-  for (int i = 0; i < slot_num_; ++i) {
-    fill_slot_tensor<<<grid, block, 0, train_stream_>>>(
-        d_feature_list_ptr,
-        d_feature_size_prefixsum_ptr,
-        d_each_ins_slot_num_inner_prefix_ptr,
-        ins_slot_num_vecotr[i],
-        slot_lod_tensor_ptr_[i],
-        slot_tensor_ptr_[i],
-        i,
-        slot_num_,
-        key_num);
-    // trick for empty tensor
-    if (each_slot_fea_num[i] == 0) {
-      slot_tensor_ptr_[i] =
-          feed_vec_[id_offset_of_feed_vec_ + 2 * i]->mutable_data<int64_t>({1, 1}, this->place_);
-      CUDA_CHECK(cudaMemsetAsync(
-          slot_tensor_ptr_[i], 0, sizeof(uint64_t), train_stream_));
-      CUDA_CHECK(cudaMemcpyAsync(
-          reinterpret_cast<char *>(slot_lod_tensor_ptr_[i] + key_num),
-          &default_lod,
-          sizeof(int64_t),
-          cudaMemcpyHostToDevice,
-          train_stream_));
     }
   }
   CUDA_CHECK(cudaStreamSynchronize(train_stream_));
-
+  for (int i = 0; i < slot_num_; ++i) {
+    if (feed_type_[i] == "uint64") {
+      slot_tensor_ptr_[i] = feed_vec_[id_offset_of_feed_vec_ + 2 * i]->mutable_data<int64_t>(
+          {each_slot_fea_num[i], 1}, this->place_);
+    }
+  }
+  int64_t default_lod = 1;
+  for (int i = 0; i < slot_num_; ++i) {
+    if (feed_type_[i] == "uint64") {
+      fill_slot_tensor<<<grid, block, 0, train_stream_>>>(
+          d_feature_list_ptr,
+          d_feature_size_prefixsum_ptr,
+          d_each_ins_slot_num_inner_prefix_ptr,
+          ins_slot_num_vecotr[i],
+          slot_lod_tensor_ptr_[i],
+          slot_tensor_ptr_[i],
+          i,
+          slot_num_,
+          key_num);
+      // trick for empty tensor
+      if (each_slot_fea_num[i] == 0) {
+        slot_tensor_ptr_[i] =
+            feed_vec_[id_offset_of_feed_vec_ + 2 * i]->mutable_data<int64_t>({1, 1}, this->place_);
+        CUDA_CHECK(cudaMemsetAsync(
+            slot_tensor_ptr_[i], 0, sizeof(uint64_t), train_stream_));
+        CUDA_CHECK(cudaMemcpyAsync(
+            reinterpret_cast<char *>(slot_lod_tensor_ptr_[i] + key_num),
+            &default_lod,
+            sizeof(int64_t),
+            cudaMemcpyHostToDevice,
+            train_stream_));
+      }
+    }
+  }
+  CUDA_CHECK(cudaStreamSynchronize(train_stream_));
+  
   if (debug_mode_) {
+  // 后面适配
+  /*
     std::vector<uint32_t> h_feature_size_list(key_num, 0);
     std::vector<uint32_t> h_feature_size_list_prefixsum(key_num, 0);
     std::vector<uint64_t> node_list(key_num, 0);
@@ -1540,6 +1564,7 @@ int GraphDataGenerator::FillSlotFeature(uint64_t *d_walk, size_t key_num) {
       ss_tensor << "]";
       VLOG(0) << ss_lod.str() << "  " << ss_tensor.str();
     }
+ */
   }
 
   return 0;
@@ -1569,42 +1594,50 @@ int GraphDataGenerator::FillFloatFeature(uint64_t *d_walk, size_t key_num) {
       reinterpret_cast<uint32_t *>(d_feature_size_list_buf_->ptr());
   uint32_t *d_feature_size_prefixsum_ptr =
       reinterpret_cast<uint32_t *>(d_feature_size_prefixsum_buf_->ptr());
+  uint32_t *d_slot_size_list_ptr =
+      reinterpret_cast<uint32_t *>(d_slot_size_list_buf_->ptr());
+  uint32_t *d_slot_size_prefixsum_ptr =
+      reinterpret_cast<uint32_t *>(d_slot_size_prefixsum_buf_->ptr());
   int fea_num =
-      gpu_graph_ptr->get_feature_info_of_nodes(gpuid_,
+      gpu_graph_ptr->get_float_feature_info_of_nodes(gpuid_,
                                                d_walk,
                                                key_num,
                                                d_feature_size_list_ptr,
                                                d_feature_size_prefixsum_ptr,
+                                               d_slot_size_list_ptr,
+                                               d_slot_size_prefixsum_ptr,
                                                d_feature_list,
                                                d_slot_list);
-  int64_t *slot_tensor_ptr_[slot_num_];
+  float *slot_tensor_ptr_[slot_num_];
   int64_t *slot_lod_tensor_ptr_[slot_num_];
   if (fea_num == 0) {
     int64_t default_lod = 1;
     for (int i = 0; i < slot_num_; ++i) {
-      slot_lod_tensor_ptr_[i] = feed_vec_[id_offset_of_feed_vec_ + 2 * i + 1]->mutable_data<int64_t>(
-          {(long)key_num + 1}, this->place_);  // NOLINT
-      slot_tensor_ptr_[i] =
-          feed_vec_[id_offset_of_feed_vec_ + 2 * i]->mutable_data<int64_t>({1, 1}, this->place_);
-      CUDA_CHECK(cudaMemsetAsync(
-          slot_tensor_ptr_[i], 0, sizeof(int64_t), train_stream_));
-      CUDA_CHECK(cudaMemsetAsync(slot_lod_tensor_ptr_[i],
-                                 0,
-                                 sizeof(int64_t) * key_num,
-                                 train_stream_));
-      CUDA_CHECK(cudaMemcpyAsync(
+      if (feed_type_[i] == "float") {
+        slot_lod_tensor_ptr_[i] = feed_vec_[id_offset_of_feed_vec_ + 2 * i + 1]->mutable_data<int64_t>(
+            {(long)key_num + 1}, this->place_);  // NOLINT
+        slot_tensor_ptr_[i] =
+            feed_vec_[id_offset_of_feed_vec_ + 2 * i]->mutable_data<float>({1, 1}, this->place_);
+        CUDA_CHECK(cudaMemsetAsync(
+            slot_tensor_ptr_[i], 0, sizeof(float), train_stream_));
+        CUDA_CHECK(cudaMemsetAsync(slot_lod_tensor_ptr_[i],
+                                   0,
+                                   sizeof(int64_t) * key_num,
+                                   train_stream_));
+        CUDA_CHECK(cudaMemcpyAsync(
           reinterpret_cast<char *>(slot_lod_tensor_ptr_[i] + key_num),
           &default_lod,
           sizeof(int64_t),
           cudaMemcpyHostToDevice,
           train_stream_));
+      }
     }
     CUDA_CHECK(cudaStreamSynchronize(train_stream_));
     return 0;
   }
 
-  uint64_t *d_feature_list_ptr =
-      reinterpret_cast<uint64_t *>(d_feature_list->ptr());
+  float *d_feature_list_ptr =
+      reinterpret_cast<float *>(d_feature_list->ptr());
   uint8_t *d_slot_list_ptr = reinterpret_cast<uint8_t *>(d_slot_list->ptr());
 
   std::shared_ptr<phi::Allocation> d_each_ins_slot_num_inner_prefix =
@@ -1627,6 +1660,8 @@ int GraphDataGenerator::FillFloatFeature(uint64_t *d_walk, size_t key_num) {
       d_slot_list_ptr,
       d_feature_size_list_ptr,
       d_feature_size_prefixsum_ptr,
+      d_slot_size_list_ptr,
+      d_slot_size_prefixsum_ptr,
       d_each_ins_slot_num_ptr,
       d_each_ins_slot_num_inner_prefix_ptr,
       key_num,
