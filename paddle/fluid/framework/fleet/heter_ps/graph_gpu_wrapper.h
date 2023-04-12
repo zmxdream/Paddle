@@ -173,6 +173,17 @@ class GraphGpuWrapper {
       uint32_t* size_list_prefix_sum,
       std::shared_ptr<phi::Allocation>& feature_list,  // NOLINT
       std::shared_ptr<phi::Allocation>& slot_list);    // NOLINT
+  int get_float_feature_shape(std::vector<uint32_t>& float_feature_shape);
+  int get_float_feature_info_of_nodes(
+      int gpu_id,
+      uint64_t *d_nodes,
+      int node_num,
+      uint32_t *size_list,
+      uint32_t *size_list_prefix_sum,
+      uint32_t *slot_size_list,
+      uint32_t *slot_size_list_prefix_sum,
+      std::shared_ptr<phi::Allocation> &feature_list,  // NOLINT  
+      std::shared_ptr<phi::Allocation> &slot_list);  // NOLINT
   void init_metapath(std::string cur_metapath,
                      int cur_metapath_index,
                      int cur_metapath_len);

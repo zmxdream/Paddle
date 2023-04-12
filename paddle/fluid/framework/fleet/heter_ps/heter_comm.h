@@ -31,6 +31,7 @@ limitations under the License. */
 
 #include "paddle/fluid/framework/barrier.h"
 #include "paddle/fluid/framework/fleet/heter_ps/hashtable.h"
+#include "paddle/fluid/framework/fleet/heter_ps/gpu_graph_node.h"
 #include "paddle/fluid/framework/fleet/heter_ps/heter_comm_kernel.h"
 #include "paddle/fluid/framework/fleet/heter_ps/heter_resource.h"
 #include "paddle/fluid/memory/allocation/allocator.h"
@@ -697,7 +698,7 @@ class HeterComm {
   using FloatTable = HashTable<KeyType, GpuPsFloatFeaInfo>;
   using PtrTable = HashTable<KeyType, float*>;
   std::vector<Table*> tables_;
-  std::vector<Table*> float_tables_;
+  std::vector<FloatTable*> float_tables_;
   std::vector<PtrTable*> ptr_tables_;
   std::shared_ptr<HeterPsResource> resource_;
   std::vector<std::vector<Path>> path_;

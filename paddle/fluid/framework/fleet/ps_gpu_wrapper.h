@@ -798,8 +798,8 @@ class PSGPUWrapper {
     slot_vector_ = slot_vector;
     VLOG(0) << "slot_vector size is " << slot_vector_.size();
   }
-  void SetPullFeatureSlotNum(int sparse_slot_num, float_slot_sum) {
-    slot_num_for_pull_feature_ = slot_num;
+  void SetPullFeatureSlotNum(int sparse_slot_num, int float_slot_num) {
+    slot_num_for_pull_feature_ = sparse_slot_num;
     float_slot_num_ = float_slot_num;
     VLOG(0) << "slot_num_for_pull_feature_ is " << slot_num_for_pull_feature_ << ", float_slot_num is " << float_slot_num_;
   }

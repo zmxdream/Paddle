@@ -889,7 +889,7 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::build_ps(
     sync_stream(streams[i]);
   }
 }
-
+/*
 template <typename KeyType,
           typename ValType,
           typename GradType,
@@ -972,6 +972,7 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::build_float_feat_table(
     sync_stream(streams[i]);
   }
 }
+*/
 
 template <typename KeyType,
           typename ValType,

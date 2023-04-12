@@ -214,7 +214,7 @@ paddle::framework::GpuPsCommGraphFloatFea GraphTable::make_gpu_ps_graph_float_fe
     if (bags[i].size() > 0) {
       tasks.push_back(_cpu_worker_pool[gpu_id]->enqueue([&, i, this]() -> int {
         uint64_t node_id;
-        paddle::framework::GpuPsFeaInfo x;
+        paddle::framework::GpuPsFloatFeaInfo x;
         // std::vector<uint64_t> feature_ids;
         for (size_t j = 0; j < bags[i].size(); j++) {
           Node *v = find_node(GraphTableType::FEATURE_TABLE, bags[i][j]);
@@ -273,7 +273,7 @@ paddle::framework::GpuPsCommGraphFloatFea GraphTable::make_gpu_ps_graph_float_fe
   unsigned int offset = 0, ind = 0, slot_offsets = 0;
   for (size_t i = 0; i < shard_num; i++) {
     tasks.push_back(
-        _cpu_worker_pool[gpu_id]->enqueue([&, i, ind, offset, total_slot_offset, this]() -> int {
+        _cpu_worker_pool[gpu_id]->enqueue([&, i, ind, offset, this]() -> int {
           auto start = ind;
           for (size_t j = 0; j < node_id_array[i].size(); j++) {
             res.node_list[start] = node_id_array[i][j];
@@ -2620,8 +2620,6 @@ int GraphTable::parse_feature(int idx,
       }
       return 0;
     }
-  } else if () {
-
   } else {
     auto float_it = float_feat_id_map[idx].find(name);
     if (float_it != float_feat_id_map[idx].end()) {
@@ -2840,6 +2838,16 @@ int GraphTable::get_node_embedding_ids(
   }
 }
 
+void GraphTable::get_float_feature_shape(std::vector<uint32_t>& float_feature_shape) {
+  if (float_feat_shape.size() > 0) {
+    for (size_t i = 0; i < float_feat_shape[0].size(); i++) {
+      if (float_feat_dtype[0][i] == "float") {
+        float_feature_shape.push_back(float_feat_shape[0][i]);
+      }
+    }
+  }
+}
+
 int32_t GraphTable::pull_graph_list(GraphTableType table_type,
                                     int idx,
                                     int start,
@@ -3029,7 +3037,8 @@ int32_t GraphTable::Initialize(const GraphParameter &graph) {
         feat_shape[k].push_back(f_shape);
         feat_dtype[k].push_back(f_dtype);
         feat_id_map[k][f_name] = feasign_idx++;
-      } else if (f_dtype == "float32"){
+      } 
+      else if (f_dtype == "float32"){
         float_feat_name[k].push_back(f_name);
         float_feat_shape[k].push_back(f_shape);
         float_feat_dtype[k].push_back(f_dtype);

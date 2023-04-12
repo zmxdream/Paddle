@@ -609,6 +609,9 @@ class GraphTable : public Table {
                           std::vector<std::vector<uint64_t>> *output);
   int get_node_embedding_ids(int slice_num,
                              std::vector<std::vector<uint64_t>> *output);
+
+  void get_float_feature_shape(std::vector<uint32_t>& float_feature_shape);  // NOLINT
+
   int32_t load_nodes(const std::string &path,
                      std::string node_type = std::string(),
                      bool load_slot = true);
@@ -779,6 +782,7 @@ class GraphTable : public Table {
   std::vector<std::vector<std::string>> feat_dtype;
   std::vector<std::vector<int32_t>> feat_shape;
   std::vector<std::vector<std::string>> float_feat_name;
+  std::vector<std::vector<std::string>> float_feat_dtype;
   std::vector<std::vector<int32_t>> float_feat_shape;
   std::vector<std::unordered_map<std::string, int32_t>> feat_id_map;
   std::vector<std::unordered_map<std::string, int32_t>> float_feat_id_map;
