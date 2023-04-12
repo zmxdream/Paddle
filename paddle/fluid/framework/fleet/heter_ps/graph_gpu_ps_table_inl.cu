@@ -1034,8 +1034,7 @@ void GpuPsGraphTable::move_result_to_source_gpu(int start_index,
   }
 }
 
-
-void GpuPsGraphTable::move_result_to_source_gpu(int start_index,
+void GpuPsGraphTable::move_float_result_to_source_gpu(int start_index,
                                                 int gpu_num,
                                                 int* h_left,
                                                 int* h_right,
@@ -1077,7 +1076,7 @@ void GpuPsGraphTable::move_result_to_source_gpu(int start_index,
       MemcpyPeerAsync(reinterpret_cast<char*>(slot_list + slot_left[i]),
                       node.val_storage +
                           sizeof(uint32_t) * (shard_len[i] + shard_len[i] % 2) * 2 + 
-                          sizeof(float) * fea_num_list[i],
+                            sizeof(float) * fea_num_list[i],
                       sizeof(uint8_t) * slot_num_list[i],
                       node.out_stream);
     }
@@ -1694,7 +1693,7 @@ void GpuPsGraphTable::build_float_feat_table(
     if (offset == -1) offset = dev_num;
     float_tables_[offset]->insert(
         reinterpret_cast<uint64_t *>(d_key_bufs[cur_stream]->ptr()),
-        reinterpret_cast<GpuPsFloatFeaInfo *>(d_val_bufs[cur_stream]->ptr()),
+        reinterpret_cast<GpuPsFloatFeaInfo*>(d_val_bufs[cur_stream]->ptr()),
         static_cast<size_t>(tmp_len),
         cur_use_stream);
     cur_stream += 1;
@@ -3436,24 +3435,20 @@ int GpuPsGraphTable::get_float_feature_info_of_nodes(
                     node_num * sizeof(uint32_t),
                     phi::Stream(reinterpret_cast<phi::StreamId>(stream)));
   uint32_t* d_size_list_ptr = reinterpret_cast<uint32_t*>(size_list_tmp->ptr());
-  // auto size_list_tmp =
-  //    memory::Alloc(place,
-  //                  node_num * sizeof(uint32_t),
-  //                  phi::Stream(reinterpret_cast<phi::StreamId>(stream)));
-  // uint32_t* d_size_list_ptr = reinterpret_cast<uint32_t*>(size_list_tmp->ptr());
   auto slot_size_list_tmp =
       memory::Alloc(place,
                     node_num * sizeof(uint32_t),
                     phi::Stream(reinterpret_cast<phi::StreamId>(stream)));
   uint32_t* d_slot_size_list_ptr = reinterpret_cast<uint32_t*>(slot_size_list_tmp->ptr());
 
-  move_result_to_source_gpu(gpu_id,
+  move_float_result_to_source_gpu(gpu_id,
                             total_gpu,
                             h_left,
                             h_right,
                             fea_left.data(),
                             slot_left.data(),
                             fea_num_list.data(),
+                            slot_num_list.data(),
                             d_size_list_ptr,
                             d_slot_size_list_ptr,
                             d_feature_list_ptr,

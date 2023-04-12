@@ -27,6 +27,9 @@ limitations under the License. */
 #if defined(PADDLE_WITH_PSCORE)
 #include "paddle/fluid/distributed/ps/table/depends/feature_value.h"
 #endif
+#if defined(PADDLE_WITH_PSCORE) && defined(PADDLE_WITH_GPU_GRAPH)
+#include "paddle/fluid/framework/fleet/heter_ps/gpu_graph_node.h"
+#endif
 #include "paddle/fluid/framework/fleet/heter_ps/feature_value.h"
 #include "paddle/phi/core/utils/rw_lock.h"
 

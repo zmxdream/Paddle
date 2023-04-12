@@ -803,7 +803,7 @@ std::vector<GpuPsCommGraphFloatFea> GraphGpuWrapper::get_sub_graph_float_fea(
   for (int i = 0; i < node_ids.size(); i++) {
     tasks.push_back(upload_task_pool->enqueue([&, i, this]() -> int {
       GpuPsGraphTable *g = reinterpret_cast<GpuPsGraphTable *>(graph_table);
-      sub_graph_feas[i] =
+      sub_graph_float_feas[i] =
           g->cpu_graph_table_->make_gpu_ps_graph_float_fea(i, node_ids[i], float_slot_num);
       return 0;
     }));
@@ -893,7 +893,7 @@ int GraphGpuWrapper::get_feature_info_of_nodes(
                                   slot_list);
 }
 
-int GraphGpuWrapper::get_float_feature_shape(std::vector<uint32_t>& float_feature_shape) {
+void GraphGpuWrapper::get_float_feature_shape(std::vector<uint32_t>& float_feature_shape) {
   return reinterpret_cast<GpuPsGraphTable *>(graph_table)
       ->cpu_graph_table_->get_float_feature_shape(float_feature_shape);
 }

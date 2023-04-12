@@ -102,7 +102,7 @@ class GpuPsGraphTable
   void build_graph_on_single_gpu(const GpuPsCommGraph &g, int gpu_id, int idx);
   void build_graph_fea_on_single_gpu(const GpuPsCommGraphFea &g, int gpu_id);
   void build_graph_float_fea_on_single_gpu(const GpuPsCommGraphFloatFea &g, int gpu_id);
-  void build_float_feat_table(int num, uint64_t* h_keys, GpuPsFloatFeaInfo* fea_info, size_t len, size_t chunk_size, int stream_num, int offset);
+  void build_float_feat_table(int dev_num, uint64_t* h_keys, GpuPsFloatFeaInfo* fea_info, size_t len, size_t chunk_size, int stream_num, int offset);
   void clear_graph_info(int gpu_id, int index);
   void clear_graph_info(int index);
   void reset_feature_info(int gpu_id, size_t capacity, size_t feature_size);
@@ -193,7 +193,6 @@ class GpuPsGraphTable
       uint32_t *slot_size_list_prefix_sum,
       std::shared_ptr<phi::Allocation> &feature_list,  // NOLINT
       std::shared_ptr<phi::Allocation> &slot_list);    // NOLINT
-
   NodeQueryResult query_node_list(int gpu_id,
                                   int idx,
                                   int start,
@@ -215,18 +214,18 @@ class GpuPsGraphTable
                                  uint32_t *actual_feature_size,
                                  uint64_t *feature_list,
                                  uint8_t *slot_list);
- void move_result_to_source_gpu(int start_index,
-                                int gpu_num,
-                                int *h_left,
-                                int *h_right,
-                                int *fea_left,
-                                int *slot_left,
-                                uint32_t* fea_num_list,
-                                uint32_t* slot_num_list,
-                                uint32_t* actual_feature_size,
-                                uint32_t* actual_slot_size,
-                                float* feature_list,
-                                uint8_t* slot_list);
+  void move_float_result_to_source_gpu(int start_index,
+                                 int gpu_num,
+                                 int *h_left,
+                                 int *h_right,
+                                 int *fea_left,
+                                 int *slot_left,
+                                 uint32_t* fea_num_list,
+                                 uint32_t* slot_num_list,
+                                 uint32_t* actual_feature_size,
+                                 uint32_t* actual_slot_size,
+                                 float* feature_list,
+                                 uint8_t* slot_list);
   void move_degree_to_source_gpu(
       int gpu_id, int gpu_num, int *h_left, int *h_right, int *node_degree);
   void move_result_to_source_gpu_all_edge_type(int gpu_id,
