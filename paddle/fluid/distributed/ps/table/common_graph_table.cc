@@ -1997,6 +1997,8 @@ std::pair<uint64_t, uint64_t> GraphTable::parse_node_file(
     if (load_slot) {
       auto node = feature_shards[idx][index]->add_feature_node(id, false);
       if (node != NULL) {
+        node->set_feature_size(feat_name[idx].size());
+        node->set_float_feature_size(float_feat_name[idx].size());
         for (int i = 2; i < num; ++i) {
           auto &v = vals[i];
           int ret = parse_feature(idx, v.ptr, v.len, node);
@@ -2841,7 +2843,7 @@ int GraphTable::get_node_embedding_ids(
 void GraphTable::get_float_feature_shape(std::vector<uint32_t>& float_feature_shape) {
   if (float_feat_shape.size() > 0) {
     for (size_t i = 0; i < float_feat_shape[0].size(); i++) {
-      if (float_feat_dtype[0][i] == "float") {
+      if (float_feat_dtype[0][i] == "float32") {
         float_feature_shape.push_back(float_feat_shape[0][i]);
       }
     }
@@ -3006,6 +3008,7 @@ int32_t GraphTable::Initialize(const GraphParameter &graph) {
           << ", graph_edges_split_only_by_src_id="
           << FLAGS_graph_edges_split_only_by_src_id;
   feat_id_map.resize(node_types.size());
+  float_feat_id_map.resize(node_types.size());
   for (int k = 0; k < edge_types.size(); k++) {
     VLOG(0) << "in initialize: get a edge_type " << edge_types[k];
     edge_to_id[edge_types[k]] = k;
