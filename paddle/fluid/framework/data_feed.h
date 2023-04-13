@@ -1078,7 +1078,11 @@ class GraphDataGenerator {
   std::vector<int> window_step_;
   BufState buf_state_;
   int batch_size_;
-  int slot_num_;
+  int slot_num_; // all slot num, include slot feature and float feature
+  int first_slot_idx_ = -1; // the idx of first slot feature
+  int first_float_idx_ = -1; // the idx of first float feature
+  int float_slot_num_ = 0; // float slot num
+
   std::vector<int> h_slot_feature_num_map_;
   // adapt slot&dense feature
   std::vector<std::string> slot_type;

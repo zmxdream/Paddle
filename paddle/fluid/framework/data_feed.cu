@@ -792,14 +792,21 @@ int GraphDataGenerator::FillGraphSlotFeature(
         feed_vec_[0]->mutable_data<int64_t>({total_instance, 1}, this->place_);
     ins_cursor = reinterpret_cast<uint64_t *>(id_tensor_ptr_);
   }
-
+  int ret = -1;
   if (!sage_mode_) {
-    return (FillSlotFeature(ins_cursor, total_instance) && FillFloatFeature(ins_cursor, total_instance));
+    ret = FillSlotFeature(ins_cursor, total_instance);
+    if (float_slot_num_ > 0) {
+      ret += FillFloatFeature(ins_cursor, total_instance);
+    }
   } else {
     uint64_t *sage_nodes_ptr =
         reinterpret_cast<uint64_t *>(final_sage_nodes->ptr());
-    return (FillSlotFeature(sage_nodes_ptr, total_instance) && FillFloatFeature(ins_cursor, total_instance));
+    ret = FillSlotFeature(sage_nodes_ptr, total_instance);
+    if (float_slot_num_ > 0) {
+      ret += FillFloatFeature(ins_cursor, total_instance);
+    }
   }
+  return ret;
 }
 
 int GraphDataGenerator::MakeInsPair(cudaStream_t stream) {
@@ -1369,7 +1376,7 @@ int GraphDataGenerator::FillSlotFeature(uint64_t *d_walk, size_t key_num) {
   if (fea_num == 0) {
     int64_t default_lod = 1;
     for (int i = 0; i < slot_num_; ++i) { // slot_num_表示所有的slot包括float slot
-      if (feed_type_[i] == "uint64") {
+      if (feed_type_[i][0] == 'u') {
         slot_lod_tensor_ptr_[i] = feed_vec_[id_offset_of_feed_vec_ + 2 * i + 1]->mutable_data<int64_t>(
             {(long)key_num + 1}, this->place_);  // NOLINT
         slot_tensor_ptr_[i] =
@@ -1429,16 +1436,14 @@ int GraphDataGenerator::FillSlotFeature(uint64_t *d_walk, size_t key_num) {
       memory::AllocShared(place_, (slot_num_) * sizeof(uint64_t *));
   uint64_t **d_ins_slot_num_vector_ptr =
       reinterpret_cast<uint64_t **>(d_ins_slot_num_vector->ptr());
-  int first_slot_idx = -1;
   for (int i = 0; i < slot_num_; i++) {
-    if (feed_type_[i] == "uint64") {
-      if (first_slot_idx == -1) first_slot_idx = i;
+    if (feed_type_[i][0] == 'u') {
       ins_slot_num[i] = memory::AllocShared(place_, key_num * sizeof(uint64_t));
       ins_slot_num_vecotr[i] =
           reinterpret_cast<uint64_t *>(ins_slot_num[i]->ptr());
     }
   }
-  if (first_slot_idx != -1) {
+  if (first_slot_idx_ != -1) {
     CUDA_CHECK(
         cudaMemcpyAsync(reinterpret_cast<char *>(d_ins_slot_num_vector_ptr),
                         ins_slot_num_vecotr.data(),
@@ -1450,7 +1455,7 @@ int GraphDataGenerator::FillSlotFeature(uint64_t *d_walk, size_t key_num) {
     CUDA_CHECK(cudaStreamSynchronize(train_stream_));
 
     for (int i = 0; i < slot_num_; ++i) {
-      if (feed_type_[i] == "uint64") {
+      if (feed_type_[i][0] == 'u') {
         slot_lod_tensor_ptr_[i] = feed_vec_[id_offset_of_feed_vec_ + 2 * i + 1]->mutable_data<int64_t>(
             {(long)key_num + 1}, this->place_);  // NOLINT
       }
@@ -1459,8 +1464,8 @@ int GraphDataGenerator::FillSlotFeature(uint64_t *d_walk, size_t key_num) {
     size_t temp_storage_bytes = 0;
     CUDA_CHECK(cub::DeviceScan::InclusiveSum(NULL,
                                              temp_storage_bytes,
-                                             ins_slot_num_vecotr[first_slot_idx],
-                                             slot_lod_tensor_ptr_[first_slot_idx] + 1,
+                                             ins_slot_num_vecotr[first_slot_idx_],
+                                             slot_lod_tensor_ptr_[first_slot_idx_] + 1,
                                              key_num,
                                              train_stream_));
     CUDA_CHECK(cudaStreamSynchronize(train_stream_));
@@ -1470,7 +1475,7 @@ int GraphDataGenerator::FillSlotFeature(uint64_t *d_walk, size_t key_num) {
         phi::Stream(reinterpret_cast<phi::StreamId>(train_stream_)));
     std::vector<int64_t> each_slot_fea_num(slot_num_, 0);
     for (int i = 0; i < slot_num_; ++i) {
-      if (feed_type_[i] == "uint64") {
+      if (feed_type_[i][0] == 'u') {
         CUDA_CHECK(cudaMemsetAsync(
             slot_lod_tensor_ptr_[i], 0, sizeof(uint64_t), train_stream_));
         CUDA_CHECK(cub::DeviceScan::InclusiveSum(d_temp_storage->ptr(),
@@ -1488,14 +1493,14 @@ int GraphDataGenerator::FillSlotFeature(uint64_t *d_walk, size_t key_num) {
     }
     CUDA_CHECK(cudaStreamSynchronize(train_stream_));
     for (int i = 0; i < slot_num_; ++i) {
-      if (feed_type_[i] == "uint64") {
+      if (feed_type_[i][0] == 'u') {
         slot_tensor_ptr_[i] = feed_vec_[id_offset_of_feed_vec_ + 2 * i]->mutable_data<int64_t>(
             {each_slot_fea_num[i], 1}, this->place_);
       }
     }
     int64_t default_lod = 1;
     for (int i = 0; i < slot_num_; ++i) {
-      if (feed_type_[i] == "uint64") {
+      if (feed_type_[i][0] == 'u') {
         fill_slot_tensor<<<grid, block, 0, train_stream_>>>(
             d_feature_list_ptr,
             d_feature_size_prefixsum_ptr,
@@ -1669,11 +1674,10 @@ int GraphDataGenerator::FillFloatFeature(uint64_t *d_walk, size_t key_num) {
 
   float *slot_tensor_ptr_[slot_num_];
   int64_t *slot_lod_tensor_ptr_[slot_num_];
-  int first_float_idx = -1;
   if (fea_num == 0) {
     int64_t default_lod = 1;
     for (int i = 0; i < slot_num_; ++i) {
-      if (feed_type_[i] == "float") {
+      if (feed_type_[i][0] == 'f') {
         slot_lod_tensor_ptr_[i] = feed_vec_[id_offset_of_feed_vec_ + 2 * i + 1]->mutable_data<int64_t>(
             {(long)key_num + 1}, this->place_);  // NOLINT
         slot_tensor_ptr_[i] =
@@ -1716,22 +1720,13 @@ int GraphDataGenerator::FillFloatFeature(uint64_t *d_walk, size_t key_num) {
   dim3 grid((key_num - 1) / 256 + 1);
   dim3 block(1, 256);
 
-  int float_slot_num = 0;
-  for (int i = 0; i < slot_num_; i++) {
-    if (feed_type_[i] == "float") {
-      if (first_float_idx == -1) { 
-        first_float_idx = i;
-      }
-      float_slot_num++;
-    }
-  }
-  CHECK(float_slot_num == (int)float_slot_shape.size());
+  CHECK(float_slot_num_ == (int)float_slot_shape.size());
   // copy float slot shape from cpu to gpu 
-  std::shared_ptr<phi::Allocation> d_float_slot_shape = memory::AllocShared(this->place_, float_slot_num * sizeof(uint32_t));
+  std::shared_ptr<phi::Allocation> d_float_slot_shape = memory::AllocShared(this->place_, float_slot_num_ * sizeof(uint32_t));
   uint32_t* d_float_slot_shape_ptr = reinterpret_cast<uint32_t*>(d_float_slot_shape->ptr());
   CUDA_CHECK(cudaMemcpyAsync(reinterpret_cast<char*>(d_float_slot_shape_ptr),
                              float_slot_shape.data(),
-                             float_slot_num * sizeof(uint32_t),
+                             float_slot_num_ * sizeof(uint32_t),
                              cudaMemcpyHostToDevice,
                              train_stream_));
 
@@ -1746,7 +1741,7 @@ int GraphDataGenerator::FillFloatFeature(uint64_t *d_walk, size_t key_num) {
       d_float_slot_shape_ptr,
       key_num,
       slot_num_,
-      first_float_idx);
+      first_float_idx_);
 
   std::vector<std::shared_ptr<phi::Allocation>> ins_slot_num(slot_num_,
                                                              nullptr);
@@ -1756,13 +1751,13 @@ int GraphDataGenerator::FillFloatFeature(uint64_t *d_walk, size_t key_num) {
   uint64_t **d_ins_slot_num_vector_ptr =
       reinterpret_cast<uint64_t **>(d_ins_slot_num_vector->ptr());
   for (int i = 0; i < slot_num_; i++) {
-    if (feed_type_[i] == "float") {
+    if (feed_type_[i][0] == 'f') {
       ins_slot_num[i] = memory::AllocShared(place_, key_num * sizeof(uint64_t));
       ins_slot_num_vecotr[i] =
           reinterpret_cast<uint64_t *>(ins_slot_num[i]->ptr());
     }
   }
-  if (first_float_idx != -1) {
+  if (first_float_idx_ != -1) {
     CUDA_CHECK(
         cudaMemcpyAsync(reinterpret_cast<char *>(d_ins_slot_num_vector_ptr),
                         ins_slot_num_vecotr.data(),
@@ -1773,7 +1768,7 @@ int GraphDataGenerator::FillFloatFeature(uint64_t *d_walk, size_t key_num) {
         d_each_ins_slot_num_ptr, d_ins_slot_num_vector_ptr, key_num, slot_num_);
     CUDA_CHECK(cudaStreamSynchronize(train_stream_));
     for (int i = 0; i < slot_num_; ++i) {
-      if (feed_type_[i] == "float") {
+      if (feed_type_[i][0] == 'f') {
         slot_lod_tensor_ptr_[i] = feed_vec_[id_offset_of_feed_vec_ + 2 * i + 1]->mutable_data<int64_t>(
             {(long)key_num + 1}, this->place_);  // NOLINT
       }
@@ -1781,8 +1776,8 @@ int GraphDataGenerator::FillFloatFeature(uint64_t *d_walk, size_t key_num) {
     size_t temp_storage_bytes = 0;
     CUDA_CHECK(cub::DeviceScan::InclusiveSum(NULL,
                                              temp_storage_bytes,
-                                             ins_slot_num_vecotr[first_float_idx],
-                                             slot_lod_tensor_ptr_[first_float_idx] + 1,
+                                             ins_slot_num_vecotr[first_float_idx_],
+                                             slot_lod_tensor_ptr_[first_float_idx_] + 1,
                                              key_num,
                                              train_stream_));
     CUDA_CHECK(cudaStreamSynchronize(train_stream_));
@@ -1792,7 +1787,7 @@ int GraphDataGenerator::FillFloatFeature(uint64_t *d_walk, size_t key_num) {
         phi::Stream(reinterpret_cast<phi::StreamId>(train_stream_)));
     std::vector<int64_t> each_slot_fea_num(slot_num_, 0);
     for (int i = 0; i < slot_num_; ++i) {
-      if (feed_type_[i] == "float") {
+      if (feed_type_[i][0] == 'f') {
         CUDA_CHECK(cudaMemsetAsync(
             slot_lod_tensor_ptr_[i], 0, sizeof(uint64_t), train_stream_));
         CUDA_CHECK(cub::DeviceScan::InclusiveSum(d_temp_storage->ptr(),
@@ -1810,14 +1805,14 @@ int GraphDataGenerator::FillFloatFeature(uint64_t *d_walk, size_t key_num) {
     }
     CUDA_CHECK(cudaStreamSynchronize(train_stream_));
     for (int i = 0; i < slot_num_; ++i) {
-      if (feed_type_[i] == "float") {
+      if (feed_type_[i][0] == 'f') {
         slot_tensor_ptr_[i] = feed_vec_[id_offset_of_feed_vec_ + 2 * i]->mutable_data<float>(
             {each_slot_fea_num[i], 1}, this->place_);
       }
     }
     int64_t default_lod = 1;
     for (int i = 0; i < slot_num_; ++i) {
-      if (feed_type_[i] == "float") {
+      if (feed_type_[i][0] == 'f') {
         fill_float_tensor<<<grid, block, 0, train_stream_>>>(
             d_feature_list_ptr,
             d_feature_size_prefixsum_ptr,
@@ -3177,6 +3172,18 @@ void GraphDataGenerator::SetFeedVec(std::vector<phi::DenseTensor *> feed_vec) {
 }
 void GraphDataGenerator::SetFeedType(const std::vector<std::string>& feed_type) {
   feed_type_ = feed_type; 
+  for (int i = 0; i < slot_num_; i++) {
+    if (feed_type_[i][0] == 'f') { // float feature
+      if (first_float_idx_ == -1) { 
+        first_float_idx_ = i;
+      }
+      float_slot_num_++;
+    } else if (feed_type_[i][0] == 'u') { // slot feature
+      if (first_slot_idx_ == -1) { 
+        first_slot_idx_ = i;
+      }
+    }
+  }
 }
 
 void GraphDataGenerator::AllocResource(
