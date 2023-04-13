@@ -3175,6 +3175,9 @@ int GraphDataGenerator::FillWalkBufMultiPath() {
 void GraphDataGenerator::SetFeedVec(std::vector<phi::DenseTensor *> feed_vec) {
   feed_vec_ = feed_vec;
 }
+void GraphDataGenerator::SetFeedType(const std::vector<std::string>& feed_type) {
+  feed_type_ = feed_type; 
+}
 
 void GraphDataGenerator::AllocResource(
     int thread_id, std::vector<phi::DenseTensor *> feed_vec) {

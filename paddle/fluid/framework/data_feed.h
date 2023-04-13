@@ -900,7 +900,7 @@ class GraphDataGenerator {
   void AllocResource(int thread_id, std::vector<phi::DenseTensor*> feed_vec);
   void AllocTrainResource(int thread_id);
   void SetFeedVec(std::vector<phi::DenseTensor*> feed_vec);
-  void SetFeedType(std::vector<std::string> feed_type);
+  void SetFeedType(const std::vector<std::string>& feed_type);
   int AcquireInstance(BufState* state);
   int GenerateBatch();
   int FillWalkBuf();
