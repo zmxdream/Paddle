@@ -1520,9 +1520,9 @@ void GpuPsGraphTable::reset_float_feature_info(int gpu_id,
   int idx = 1;
   auto stream = get_local_stream(gpu_id);
   int offset = get_float_table_offset(gpu_id);
-  if (offset < tables_.size()) {
-    delete tables_[offset];
-    tables_[offset] = new Table(capacity, stream);
+  if (offset < float_tables_.size()) {
+    delete float_tables_[offset];
+    float_tables_[offset] = new FloatTable(capacity, stream);
   }
   int graph_float_fea_idx = get_graph_float_fea_list_offset(gpu_id);
   auto& graph = gpu_graph_float_fea_list_[graph_float_fea_idx];
@@ -1687,7 +1687,7 @@ void GpuPsGraphTable::build_float_feat_table(
                 reinterpret_cast<char *>(d_val_bufs[cur_stream]->ptr()),
                 src_place,
                 fea_info + cur_len,
-                sizeof(GpuPsFloatFeaInfo)* tmp_len,
+                sizeof(GpuPsFloatFeaInfo) * tmp_len,
                 cur_use_stream);
 
     if (offset == -1) offset = dev_num;
