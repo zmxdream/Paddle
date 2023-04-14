@@ -28,7 +28,7 @@ endif()
 
 set(XPU_XCCL_BASE_URL
     "https://klx-sdk-release-public.su.bcebos.com/xccl/release/1.0.0")
-  
+
 set(XPU_XCTR_DIR_NAME "xctr_x86_64")
 
 if(WITH_AARCH64)
@@ -86,7 +86,7 @@ set(XPU_XCCL_URL
     "${XPU_XCCL_BASE_URL}/${XPU_XCCL_DIR_NAME}.tar.gz"
     CACHE STRING "" FORCE)
 set(XPU_XCTR_URL
-    https://klx-sdk-release-public.su.bcebos.com/xdnn_train/dev/20221130/xctr.tar.gz 
+    https://klx-sdk-release-public.su.bcebos.com/xdnn_train/dev/20221130/xctr.tar.gz
     CACHE STRING "" FORCE)
 
 #"data-im.baidu.com:/home/work/var/CI_DATA/im/static/pack_paddle_depence.sh/pack_paddle_depence.sh"
@@ -101,11 +101,11 @@ if(WITH_BOX_PS)
         "https://klx-sdk-release-public.su.bcebos.com/xre/release/4.0.22.1/${XPU_XRE_DIR_NAME}.tar.gz"
         CACHE STRING "" FORCE)
     set(XPU_XCCL_URL
-        "https://klx-sdk-release-public.su.bcebos.com/xccl/release/1.0.3/${XPU_XCCL_DIR_NAME}.tar.gz"
+        "https://klx-sdk-release-public.su.bcebos.com/xccl/release/1.0.14/${XPU_XCCL_DIR_NAME}.tar.gz"
         CACHE STRING "" FORCE)
     #"https://klx-sdk-release-public.su.bcebos.com/xdnn/release/2.6.0.1/${XPU_XDNN_DIR_NAME}.tar.gz"
     set(XPU_XDNN_URL
-        "https://klx-sdk-release-public.su.bcebos.com/xdnn_train/dev/paddlebox/20230413/${XPU_XDNN_DIR_NAME}.tar.gz"
+        "https://klx-sdk-release-public.su.bcebos.com/xdnn_train/dev/paddlebox/20230414/${XPU_XDNN_DIR_NAME}.tar.gz"
         CACHE STRING "" FORCE)
     set(SCALOPUS_URL
         "https://klx-sdk-release-public.su.bcebos.com/xdnn_train/dev/paddlebox/20230306/scalopus.tar.gz"
