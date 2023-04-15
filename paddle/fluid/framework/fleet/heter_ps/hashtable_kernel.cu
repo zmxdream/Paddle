@@ -457,6 +457,9 @@ template class HashTable<uint64_t, uint64_t>;
 template class HashTable<uint64_t, uint64_t*>;
 template class HashTable<uint64_t, int64_t>;
 template class HashTable<uint64_t, int64_t*>;
+#if defined(PADDLE_WITH_PSCORE) && defined(PADDLE_WITH_GPU_GRAPH)
+template class HashTable<uint64_t, GpuPsFloatFeaInfo>;
+#endif
 template class HashTable<int64_t, int64_t>;
 template class HashTable<int64_t, uint64_t>;
 template class HashTable<int64_t, unsigned int>;

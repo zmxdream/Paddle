@@ -18,7 +18,6 @@
 #include <chrono>
 
 #include "paddle/fluid/distributed/ps/table/common_graph_table.h"
-#include "paddle/fluid/framework/fleet/heter_ps/gpu_graph_node.h"
 #include "paddle/fluid/framework/fleet/heter_ps/heter_comm.h"
 #include "paddle/fluid/framework/fleet/heter_ps/heter_comm_kernel.h"
 #include "paddle/fluid/platform/enforce.h"
