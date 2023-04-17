@@ -802,7 +802,7 @@ int GraphDataGenerator::FillGraphSlotFeature(
     uint64_t *sage_nodes_ptr =
         reinterpret_cast<uint64_t *>(final_sage_nodes->ptr());
     ret = FillSlotFeature(sage_nodes_ptr, total_instance);
-      VLOG(0) << "[debug] in FillGraphSlotFeature, float_slot_num:" << float_slot_num_;
+    VLOG(0) << "[debug] in FillGraphSlotFeature, float_slot_num:" << float_slot_num_;
     if (float_slot_num_ > 0) {
       // VLOG(0) << "[debug] in FillGraphSlotFeature, float_slot_num:" << float_slot_num_;
       ret += FillFloatFeature(ins_cursor, total_instance);
@@ -1378,7 +1378,7 @@ int GraphDataGenerator::FillSlotFeature(uint64_t *d_walk, size_t key_num) {
   if (fea_num == 0) {
     int64_t default_lod = 1;
     for (int i = 0; i < slot_num_; ++i) { // slot_num_表示所有的slot包括float slot
-      if (feed_type_[i][0] == 'u') {
+      if (feed_type_[id_offset_of_feed_vec_ + 2 * i][0] == 'u') {
         slot_lod_tensor_ptr_[i] = feed_vec_[id_offset_of_feed_vec_ + 2 * i + 1]->mutable_data<int64_t>(
             {(long)key_num + 1}, this->place_);  // NOLINT
         slot_tensor_ptr_[i] =
@@ -1439,7 +1439,7 @@ int GraphDataGenerator::FillSlotFeature(uint64_t *d_walk, size_t key_num) {
   uint64_t **d_ins_slot_num_vector_ptr =
       reinterpret_cast<uint64_t **>(d_ins_slot_num_vector->ptr());
   for (int i = 0; i < slot_num_; i++) {
-    if (feed_type_[i][0] == 'u') {
+    if (feed_type_[id_offset_of_feed_vec_ + 2 * i][0] == 'u') {
       ins_slot_num[i] = memory::AllocShared(place_, key_num * sizeof(uint64_t));
       ins_slot_num_vecotr[i] =
           reinterpret_cast<uint64_t *>(ins_slot_num[i]->ptr());
@@ -1457,7 +1457,7 @@ int GraphDataGenerator::FillSlotFeature(uint64_t *d_walk, size_t key_num) {
     CUDA_CHECK(cudaStreamSynchronize(train_stream_));
 
     for (int i = 0; i < slot_num_; ++i) {
-      if (feed_type_[i][0] == 'u') {
+      if (feed_type_[id_offset_of_feed_vec_ + 2 * i][0] == 'u') {
         slot_lod_tensor_ptr_[i] = feed_vec_[id_offset_of_feed_vec_ + 2 * i + 1]->mutable_data<int64_t>(
             {(long)key_num + 1}, this->place_);  // NOLINT
       }
@@ -1477,7 +1477,7 @@ int GraphDataGenerator::FillSlotFeature(uint64_t *d_walk, size_t key_num) {
         phi::Stream(reinterpret_cast<phi::StreamId>(train_stream_)));
     std::vector<int64_t> each_slot_fea_num(slot_num_, 0);
     for (int i = 0; i < slot_num_; ++i) {
-      if (feed_type_[i][0] == 'u') {
+      if (feed_type_[id_offset_of_feed_vec_ + 2 * i][0] == 'u') {
         CUDA_CHECK(cudaMemsetAsync(
             slot_lod_tensor_ptr_[i], 0, sizeof(uint64_t), train_stream_));
         CUDA_CHECK(cub::DeviceScan::InclusiveSum(d_temp_storage->ptr(),
@@ -1495,14 +1495,14 @@ int GraphDataGenerator::FillSlotFeature(uint64_t *d_walk, size_t key_num) {
     }
     CUDA_CHECK(cudaStreamSynchronize(train_stream_));
     for (int i = 0; i < slot_num_; ++i) {
-      if (feed_type_[i][0] == 'u') {
+      if (feed_type_[id_offset_of_feed_vec_ + 2 * i][0] == 'u') {
         slot_tensor_ptr_[i] = feed_vec_[id_offset_of_feed_vec_ + 2 * i]->mutable_data<int64_t>(
             {each_slot_fea_num[i], 1}, this->place_);
       }
     }
     int64_t default_lod = 1;
     for (int i = 0; i < slot_num_; ++i) {
-      if (feed_type_[i][0] == 'u') {
+      if (feed_type_[id_offset_of_feed_vec_ + 2 * i][0] == 'u') {
         fill_slot_tensor<<<grid, block, 0, train_stream_>>>(
             d_feature_list_ptr,
             d_feature_size_prefixsum_ptr,
@@ -1680,7 +1680,7 @@ int GraphDataGenerator::FillFloatFeature(uint64_t *d_walk, size_t key_num) {
   if (fea_num == 0) {
     int64_t default_lod = 1;
     for (int i = 0; i < slot_num_; ++i) {
-      if (feed_type_[i][0] == 'f') {
+      if (feed_type_[id_offset_of_feed_vec_ + 2 * i][0] == 'f') {
         slot_lod_tensor_ptr_[i] = feed_vec_[id_offset_of_feed_vec_ + 2 * i + 1]->mutable_data<int64_t>(
             {(long)key_num + 1}, this->place_);  // NOLINT
         slot_tensor_ptr_[i] =
@@ -1754,7 +1754,7 @@ int GraphDataGenerator::FillFloatFeature(uint64_t *d_walk, size_t key_num) {
   uint64_t **d_ins_slot_num_vector_ptr =
       reinterpret_cast<uint64_t **>(d_ins_slot_num_vector->ptr());
   for (int i = 0; i < slot_num_; i++) {
-    if (feed_type_[i][0] == 'f') {
+    if (feed_type_[id_offset_of_feed_vec_ + 2 * i][0] == 'f') {
       ins_slot_num[i] = memory::AllocShared(place_, key_num * sizeof(uint64_t));
       ins_slot_num_vecotr[i] =
           reinterpret_cast<uint64_t *>(ins_slot_num[i]->ptr());
@@ -1771,7 +1771,7 @@ int GraphDataGenerator::FillFloatFeature(uint64_t *d_walk, size_t key_num) {
         d_each_ins_slot_num_ptr, d_ins_slot_num_vector_ptr, key_num, slot_num_);
     CUDA_CHECK(cudaStreamSynchronize(train_stream_));
     for (int i = 0; i < slot_num_; ++i) {
-      if (feed_type_[i][0] == 'f') {
+      if (feed_type_[id_offset_of_feed_vec_ + 2 * i][0] == 'f') {
         slot_lod_tensor_ptr_[i] = feed_vec_[id_offset_of_feed_vec_ + 2 * i + 1]->mutable_data<int64_t>(
             {(long)key_num + 1}, this->place_);  // NOLINT
       }
@@ -1790,7 +1790,7 @@ int GraphDataGenerator::FillFloatFeature(uint64_t *d_walk, size_t key_num) {
         phi::Stream(reinterpret_cast<phi::StreamId>(train_stream_)));
     std::vector<int64_t> each_slot_fea_num(slot_num_, 0);
     for (int i = 0; i < slot_num_; ++i) {
-      if (feed_type_[i][0] == 'f') {
+      if (feed_type_[id_offset_of_feed_vec_ + 2 * i][0] == 'f') {
         CUDA_CHECK(cudaMemsetAsync(
             slot_lod_tensor_ptr_[i], 0, sizeof(uint64_t), train_stream_));
         CUDA_CHECK(cub::DeviceScan::InclusiveSum(d_temp_storage->ptr(),
@@ -1815,7 +1815,7 @@ int GraphDataGenerator::FillFloatFeature(uint64_t *d_walk, size_t key_num) {
     }
     int64_t default_lod = 1;
     for (int i = 0; i < slot_num_; ++i) {
-      if (feed_type_[i][0] == 'f') {
+      if (feed_type_[id_offset_of_feed_vec_ + 2 * i][0] == 'f') {
         fill_float_tensor<<<grid, block, 0, train_stream_>>>(
             d_feature_list_ptr,
             d_feature_size_prefixsum_ptr,
@@ -3174,20 +3174,24 @@ void GraphDataGenerator::SetFeedVec(std::vector<phi::DenseTensor *> feed_vec) {
   feed_vec_ = feed_vec;
 }
 void GraphDataGenerator::SetFeedType(const std::vector<std::string>& feed_type) {
-  feed_type_ = feed_type; 
+  feed_type_ = feed_type;
+  VLOG(0) << "[debug] in set feed type, slot_num_" << slot_num_ << "feed_type_size" << feed_vec_.size(); 
+
   for (int i = 0; i < slot_num_; i++) {
-    VLOG(0) << "feed_type" << i << ", type:" << feed_type_[i];
-    if (feed_type_[i][0] == 'f') { // float feature
+    int offset = id_offset_of_feed_vec_ + 2 * i; 
+    VLOG(0) << "feed_type" << offset << ", type:" << feed_type_[offset];
+    if (feed_type_[offset][0] == 'f') { // float feature
       if (first_float_idx_ == -1) { 
         first_float_idx_ = i;
       }
       float_slot_num_++;
-    } else if (feed_type_[i][0] == 'u') { // slot feature
+    } else if (feed_type_[offset][0] == 'u') { // slot feature
       if (first_slot_idx_ == -1) { 
         first_slot_idx_ = i;
       }
     }
   }
+  VLOG(0) << "first slot idx:" << first_slot_idx_ << ", first float idx:" << first_float_idx_ << ", float_slot_num_:" << float_slot_num_;
 }
 
 void GraphDataGenerator::AllocResource(
