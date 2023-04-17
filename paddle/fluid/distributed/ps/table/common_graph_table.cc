@@ -222,6 +222,8 @@ paddle::framework::GpuPsCommGraphFloatFea GraphTable::make_gpu_ps_graph_float_fe
           if (v == NULL) {
             x.feature_size = 0;
             x.feature_offset = 0;
+            x.slot_size = 0;
+            x.slot_offset = 0;
             node_fea_info_array[i].push_back(x);
           } else {
             // x <- v
@@ -265,35 +267,29 @@ paddle::framework::GpuPsCommGraphFloatFea GraphTable::make_gpu_ps_graph_float_fe
     tot_len += feature_array[i].size();
     total_slot += slot_id_array[i].size();
   }
-  VLOG(1) << "Loaded feature table on cpu, feature_list_size[" << tot_len
-          << "] node_ids_size[" << node_ids.size() << "]";
+  VLOG(1) << "Loaded float feature table on cpu, float feature_list_size[" << tot_len
+          << "] node_ids_size[" << node_ids.size() << "]" << " total slot size[" << total_slot << "]";
   res.init_on_cpu(tot_len, (unsigned int)node_ids.size(), float_slot_num, total_slot);
-  // res.slot_offset_list[0] = 0;
-  // uint64_t total_slot_offset = 0;
   unsigned int offset = 0, ind = 0, slot_offsets = 0;
   for (size_t i = 0; i < shard_num; i++) {
     tasks.push_back(
-        _cpu_worker_pool[gpu_id]->enqueue([&, i, ind, offset, this]() -> int {
+        _cpu_worker_pool[gpu_id]->enqueue([&, i, ind, offset, slot_offsets, this]() -> int {
           auto start = ind;
           for (size_t j = 0; j < node_id_array[i].size(); j++) {
             res.node_list[start] = node_id_array[i][j];
             res.fea_info_list[start] = node_fea_info_array[i][j];
-            res.fea_info_list[start++].feature_offset += offset;
+            res.fea_info_list[start++].feature_offset += offset; // 如果节点不在呢
           }
           for (size_t j = 0; j < feature_array[i].size(); j++) {
             res.feature_list[offset + j] = feature_array[i][j];
           }
           for (size_t j = 0; j < slot_id_array[i].size(); j++) {
             res.slot_id_list[slot_offsets + j] = slot_id_array[i][j];
-            // res.slot_offset_list[slot_offsets + j + 1] = total_slot_offset + slot_offset[i][j];
           }
           return 0;
         }));
     offset += feature_array[i].size();
     slot_offsets += slot_id_array[i].size();
-    // if (!slot_offset[i].empty()) {
-    //   total_slot_offset += slot_offset[i].back();
-    // }
     ind += node_id_array[i].size();
   }
   for (size_t i = 0; i < tasks.size(); i++) tasks[i].get();

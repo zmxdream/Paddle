@@ -1753,9 +1753,9 @@ void GpuPsGraphTable::build_graph_float_fea_on_single_gpu(const GpuPsCommGraphFl
     gpu_graph_float_fea_list_[offset].feature_size = 0;
     gpu_graph_float_fea_list_[offset].slot_size = 0;
   }
-  VLOG(1) << "gpu node_float_feature info card :" << gpu_id << " ,node_size is "
+  VLOG(0) << "gpu node_float_feature info card :" << gpu_id << " ,node_size is "
           << gpu_graph_float_fea_list_[offset].node_size << ", feature_size is "
-          << gpu_graph_float_fea_list_[offset].feature_size << ", slot_size is"
+          << gpu_graph_float_fea_list_[offset].feature_size << ", slot_size is "
           << gpu_graph_float_fea_list_[offset].slot_size;
 }
 

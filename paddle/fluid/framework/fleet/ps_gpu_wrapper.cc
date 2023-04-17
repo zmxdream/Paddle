@@ -363,6 +363,7 @@ void PSGPUWrapper::PreBuildTask(std::shared_ptr<HeterContext> gpu_task,
 }
 
 void PSGPUWrapper::add_slot_feature(std::shared_ptr<HeterContext> gpu_task) {
+  VLOG(0) << "in add_slot_feature";
   platform::Timer timeline;
   platform::Timer time_stage;
   timeline.Start();
@@ -545,9 +546,13 @@ void PSGPUWrapper::add_slot_feature(std::shared_ptr<HeterContext> gpu_task) {
                      SSD_EMB_AND_MEM_FEATURE_GPU_GRAPH) {
     auto gpu_graph_ptr = GraphGpuWrapper::GetInstance();
     sub_graph_feas = gpu_graph_ptr->get_sub_graph_fea(node_ids, slot_num);
+
+    VLOG(0) << "after get sub_graph_feas";
+
     if (float_slot_num_ > 0) {
       sub_graph_float_feas = gpu_graph_ptr->get_sub_graph_float_fea(node_ids, float_slot_num_);
     }
+    VLOG(0) << "after get sub_graph_float_feas";
     for (size_t i = 0; i < device_num; i++) {
       feature_list[i] = sub_graph_feas[i].feature_list;
       feature_list_size[i] = sub_graph_feas[i].feature_size;
@@ -562,7 +567,7 @@ void PSGPUWrapper::add_slot_feature(std::shared_ptr<HeterContext> gpu_task) {
   for (size_t i = 0; i < device_num; i++) {
     feature_num += feature_list_size[i];
   }
-  VLOG(1) << "feature_num is " << feature_num << " node_num is " << node_num;
+  VLOG(0) << "feature_num is " << feature_num << " node_num is " << node_num;
 
   size_t set_num = thread_keys_shard_num_;
   std::vector<std::unordered_set<uint64_t>> feature_id_set(set_num);

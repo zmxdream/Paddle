@@ -802,7 +802,9 @@ int GraphDataGenerator::FillGraphSlotFeature(
     uint64_t *sage_nodes_ptr =
         reinterpret_cast<uint64_t *>(final_sage_nodes->ptr());
     ret = FillSlotFeature(sage_nodes_ptr, total_instance);
+      VLOG(0) << "[debug] in FillGraphSlotFeature, float_slot_num:" << float_slot_num_;
     if (float_slot_num_ > 0) {
+      // VLOG(0) << "[debug] in FillGraphSlotFeature, float_slot_num:" << float_slot_num_;
       ret += FillFloatFeature(ins_cursor, total_instance);
     }
   }
@@ -1671,6 +1673,7 @@ int GraphDataGenerator::FillFloatFeature(uint64_t *d_walk, size_t key_num) {
                                                      d_slot_size_prefixsum_ptr,
                                                      d_feature_list,
                                                      d_slot_list);
+  VLOG(0) << "float_slot_shape size:" << float_slot_shape.size() << ", shape0:" << float_slot_shape[0] << ", feed_type0:" << feed_type_[0];
 
   float *slot_tensor_ptr_[slot_num_];
   int64_t *slot_lod_tensor_ptr_[slot_num_];
@@ -3173,6 +3176,7 @@ void GraphDataGenerator::SetFeedVec(std::vector<phi::DenseTensor *> feed_vec) {
 void GraphDataGenerator::SetFeedType(const std::vector<std::string>& feed_type) {
   feed_type_ = feed_type; 
   for (int i = 0; i < slot_num_; i++) {
+    VLOG(0) << "feed_type" << i << ", type:" << feed_type_[i];
     if (feed_type_[i][0] == 'f') { // float feature
       if (first_float_idx_ == -1) { 
         first_float_idx_ = i;

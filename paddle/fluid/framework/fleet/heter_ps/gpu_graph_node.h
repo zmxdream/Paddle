@@ -570,7 +570,6 @@ struct GpuPsCommGraphFloatFea {
     this->node_list = new uint64_t[node_size];
     this->feature_list = new float[feature_size];
     this->slot_id_list = new uint8_t[total_slot];
-    // this->slot_offset_list = new uint8_t[total_slot + 1];
     this->fea_info_list = new GpuPsFloatFeaInfo[node_size];
   }
   void release_on_cpu() {
@@ -582,7 +581,6 @@ struct GpuPsCommGraphFloatFea {
     DEL_PTR_ARRAY(node_list);
     DEL_PTR_ARRAY(feature_list);
     DEL_PTR_ARRAY(slot_id_list);
-    // DEL_PTR_ARRAY(slot_offset_list);
     DEL_PTR_ARRAY(fea_info_list);
   }
   void display_on_cpu() const {
