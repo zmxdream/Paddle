@@ -3238,9 +3238,9 @@ int GpuPsGraphTable::get_float_feature_info_of_nodes(
     platform::CUDADeviceGuard guard(resource_->dev_id(i));
     auto& node = path_[gpu_id][i].nodes_.back();
     create_tmp_storage(
-        d_fea_info[i], gpu_id, i, shard_len[i] * sizeof(uint64_t));
+        d_fea_info[i], gpu_id, i, shard_len[i] * sizeof(GpuPsFloatFeaInfo));
     CUDA_CHECK(cudaMemsetAsync(
-        d_fea_info[i], 0, shard_len[i] * sizeof(uint64_t), node.in_stream));
+        d_fea_info[i], 0, shard_len[i] * sizeof(GpuPsFloatFeaInfo), node.in_stream));
     create_tmp_storage(
         d_fea_size[i], gpu_id, i, shard_len[i] * sizeof(uint32_t));
     create_tmp_storage(
@@ -3304,6 +3304,7 @@ int GpuPsGraphTable::get_float_feature_info_of_nodes(
     dim3 grid((shard_len[i] - 1) / dim_y + 1);
     dim3 block(1, dim_y);
 
+    // 下面两个kernel可以合并成一个
     get_float_features_size<<<grid, block, 0, resource_->remote_stream(i, gpu_id)>>>(
          reinterpret_cast<GpuPsFloatFeaInfo*>(d_fea_info[i]),
          reinterpret_cast<uint32_t*>(d_fea_size[i]),
