@@ -47,6 +47,8 @@ static void PaddingZeros(const framework::ExecutionContext &ctx,
   data_lod[0].resize(batch_size + 1, 1);
   data_lod[0][0] = 0;
   data->set_lod(data_lod);
+
+  data->set_layout(paddle::framework::DataLayout::UNDEFINED);
 }
 
 template <typename T>
@@ -128,6 +130,14 @@ static void PullBoxSparseFunctor(const framework::ExecutionContext &ctx) {
       }
     }
   }
+  int total_length = 0;
+  for (size_t i = 0; i < inputs.size(); ++i) {
+    total_length += outputs[i]->numel();
+  }
+  framework::LoDTensor total_values;
+  total_values.Resize(phi::make_ddim({total_length}));
+  total_values.mutable_data<T>(ctx.GetPlace());
+  int offset = 0;
   for (size_t i = 0; i < slot_size; ++i) {
     const auto *slot = inputs[i];
     auto *output = outputs[i];
@@ -143,7 +153,10 @@ static void PullBoxSparseFunctor(const framework::ExecutionContext &ctx) {
         reinterpret_cast<const uint64_t *>(slot->data<int64_t>());
     all_keys[i] = single_slot_keys;
     slot_lengths[i] = numel;
+    total_values.set_offset(offset);
+    output->ShareBufferWith(total_values);
     all_values[i] = output->mutable_data<T>(ctx.GetPlace());
+    offset += output->numel() * sizeof(T);
   }
 
 #ifdef PADDLE_WITH_BOX_PS

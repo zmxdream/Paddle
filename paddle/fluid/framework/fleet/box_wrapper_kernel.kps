@@ -224,8 +224,6 @@ inline void FeaturePullCopy(const paddle::platform::Place& place,
   auto ctx_xpu = static_cast<platform::XPUDeviceContext*>(dev_ctx)->x_context();
   auto stream = ctx_xpu->xpu_stream;
 
-  auto dst_vals_tmp = memory::Alloc(place, total_length * sizeof(float) * hidden_size);
-  float * dst_vals = reinterpret_cast<float*>(dst_vals_tmp->ptr());
   auto d_op_tmp = memory::Alloc(place, sizeof(TEmbedxOp));
   TEmbedxOp* d_op = reinterpret_cast<TEmbedxOp*>(d_op_tmp->ptr());
   memory::Copy(place,
@@ -239,7 +237,7 @@ inline void FeaturePullCopy(const paddle::platform::Place& place,
                                 scale,
                                 info,
                                 total_dims,
-                                dst_vals,
+                                xpu_values[0],
                                 total_values_xpu,
                                 xpu_restore_idx,
                                 total_length,
@@ -251,20 +249,6 @@ inline void FeaturePullCopy(const paddle::platform::Place& place,
   TRACE_SCOPE_END("PullCopy", );
 
   TRACE_SCOPE_START("PullCopy's xpu::copy", xpu_wait(stream));
-  int device_id = place.GetDeviceId();
-  for (int i = 0; i < slot_num; ++i) {
-    int slot_len = slot_lens[i + 1] - slot_lens[i];
-    int offset = slot_lens[i];
-    if (xpu_values[i] == nullptr || slot_len == 0) {
-      continue;
-    }
-    PADDLE_ENFORCE_XDNN_SUCCESS(
-        xpu::copy<float>(ctx_xpu,
-            dst_vals + offset * hidden_size,
-            xpu_values[i],
-            slot_len * hidden_size),
-        "xpu::copy");
-  }
   xpu_wait(stream);
   TRACE_SCOPE_END("PullCopy's xpu::copy",);
 }

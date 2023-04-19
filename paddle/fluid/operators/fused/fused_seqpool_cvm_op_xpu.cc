@@ -140,6 +140,7 @@ class FusedSeqpoolCVMGradOpXPUKernel : public framework::OpKernel<T> {
  public:
   void Compute(const framework::ExecutionContext& ctx) const override {
     auto dOut = ctx.MultiInput<framework::LoDTensor>(framework::GradVarName("Out"));
+    auto xs = ctx.MultiInput<LoDTensor>("X");
     const Tensor* cvm = ctx.Input<Tensor>("CVM");
     auto dxs = ctx.MultiOutput<framework::LoDTensor>(framework::GradVarName("X"));
     auto use_cvm = ctx.Attr<bool>("use_cvm");//TODO:
@@ -147,8 +148,8 @@ class FusedSeqpoolCVMGradOpXPUKernel : public framework::OpKernel<T> {
     auto cvm_offset = ctx.Attr<int>("cvm_offset");
     int slot_num = dxs.size();
     auto xpu_context = ctx.template device_context<DeviceContext>().x_context();
-    // auto place = ctx.GetPlace();
-    phi::Place l3_place = ctx.template device_context<DeviceContext>().GetL3Place();
+    auto place = ctx.GetPlace();
+    // phi::Place l3_place = ctx.template device_context<DeviceContext>().GetL3Place();
     T* cvm_data = const_cast<T*>(cvm->data<T>());
     int batch_size = dOut[0]->dims()[0];
     // int dy_offset = dOut[0]->dims()[1];
@@ -159,10 +160,26 @@ class FusedSeqpoolCVMGradOpXPUKernel : public framework::OpKernel<T> {
     unsigned int sum_size = slot_num * (batch_size + 1);
     std::vector<int> cpu_lodx(sum_size);
     unsigned int start_index = 0;
+    int total_length = 0;
+    for (int i = 0; i < slot_num; ++i) {
+      if(xs[i]->layout()!=paddle::framework::DataLayout::UNDEFINED) {
+        total_length += dxs[i]->numel();
+      }
+    }
+    framework::LoDTensor total_values;
+    total_values.Resize(phi::make_ddim({total_length}));
+    total_values.mutable_data<T>(place);
+    int offset = 0;
     for (int k = 0; k < slot_num; k++) {
         auto dx = dxs[k];
         auto dy = dOut[k];
-        T* dx_data = dx->mutable_data<T>(l3_place);
+
+        if(xs[k]->layout()!=paddle::framework::DataLayout::UNDEFINED) {
+          total_values.set_offset(offset);
+          dx->ShareBufferWith(total_values);
+          offset += dx->numel() * sizeof(T);
+        }
+        T* dx_data = dx->mutable_data<T>(place);
         // T* dx_data = dx->mutable_data<T>(place);
         T* dy_data = const_cast<T*>(dy->data<T>());
         auto lod = dx->lod();
