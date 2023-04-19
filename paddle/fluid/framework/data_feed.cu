@@ -805,7 +805,7 @@ int GraphDataGenerator::FillGraphSlotFeature(
     // VLOG(0) << "[debug] in FillGraphSlotFeature, float_slot_num:" << float_slot_num_;
     if (float_slot_num_ > 0) {
       // VLOG(0) << "[debug] in FillGraphSlotFeature, float_slot_num:" << float_slot_num_;
-      ret += FillFloatFeature(ins_cursor, total_instance);
+      ret += FillFloatFeature(sage_nodes_ptr, total_instance);
     }
   }
   return ret;
@@ -1686,7 +1686,7 @@ int GraphDataGenerator::FillFloatFeature(uint64_t *d_walk, size_t key_num) {
   // get float slot shape
   std::vector<uint32_t> float_slot_shape;
   gpu_graph_ptr->get_float_feature_shape(float_slot_shape);
-  VLOG(0) << "float_slot_shape size:" << float_slot_shape.size() << ", shape0:" << float_slot_shape[0];
+  // VLOG(0) << "float_slot_shape size:" << float_slot_shape.size() << ", shape0:" << float_slot_shape[0];
 
   int fea_num =
       gpu_graph_ptr->get_float_feature_info_of_nodes(gpuid_,

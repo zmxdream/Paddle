@@ -1035,17 +1035,17 @@ void GpuPsGraphTable::move_result_to_source_gpu(int start_index,
 }
 
 void GpuPsGraphTable::move_float_result_to_source_gpu(int start_index,
-                                                int gpu_num,
-                                                int* h_left,
-                                                int* h_right,
-                                                int* fea_left,
-                                                int* slot_left,
-                                                uint32_t* fea_num_list,
-                                                uint32_t* slot_num_list,
-                                                uint32_t* actual_feature_size,
-                                                uint32_t* actual_slot_size,
-                                                float* feature_list,
-                                                uint8_t* slot_list) {
+                                                      int gpu_num,
+                                                      int* h_left,
+                                                      int* h_right,
+                                                      int* fea_left,
+                                                      int* slot_left,
+                                                      uint32_t* fea_num_list,
+                                                      uint32_t* slot_num_list,
+                                                      uint32_t* actual_feature_size,
+                                                      uint32_t* actual_slot_size,
+                                                      float* feature_list,
+                                                      uint8_t* slot_list) {
   int shard_len[gpu_num];  // NOLINT
   for (int i = 0; i < gpu_num; i++) {
     if (h_left[i] == -1 || h_right[i] == -1) {
@@ -1306,18 +1306,18 @@ __global__ void fill_feature_and_slot(uint64_t* dst_feature_list,
 }
 
 
-__global__ void fill_feature_and_slot(float* dst_feature_list,
-                                      uint8_t* dst_slot_list,
-                                      uint32_t* dst_size_prefix_sum_list,
-                                      uint32_t* dst_slot_size_prefix_sum_list,
-                                      float* src_feature_list,
-                                      uint8_t* src_slot_list,
-                                      uint32_t* src_size_prefix_sum_list,
-                                      uint32_t* src_slot_size_prefix_sum_list,
-                                      uint32_t* src_size_list,
-                                      uint32_t* src_slot_size_list,
-                                      int* idx,
-                                      int len) {
+__global__ void fill_float_feature_and_slot(float* dst_feature_list,
+                                            uint8_t* dst_slot_list,
+                                            uint32_t* dst_size_prefix_sum_list,
+                                            uint32_t* dst_slot_size_prefix_sum_list,
+                                            float* src_feature_list,
+                                            uint8_t* src_slot_list,
+                                            uint32_t* src_size_prefix_sum_list,
+                                            uint32_t* src_slot_size_prefix_sum_list,
+                                            uint32_t* src_size_list,
+                                            uint32_t* src_slot_size_list,
+                                            int* idx,
+                                            int len) {
   const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
   if (i < len) {
     uint32_t dst_index = dst_size_prefix_sum_list[idx[i]];
@@ -1730,10 +1730,10 @@ void GpuPsGraphTable::build_graph_float_fea_on_single_gpu(const GpuPsCommGraphFl
                            table_offset);
     gpu_graph_float_fea_list_[offset].node_size = g.node_size;
 
-    VLOG(0) << "gpuid:" << gpu_id << ", test build_float_feat_table";
-    for (int i = 0 ; i < 10; i++) {
-      VLOG(0) << "gpuid:" << gpu_id << ", feature_size:" << g.fea_info_list[i].feature_size;
-    }
+    // VLOG(0) << "gpuid:" << gpu_id << ", test build_float_feat_table";
+    // for (int i = 0 ; i < 10; i++) {
+    //   VLOG(0) << "gpuid:" << gpu_id << ", feature_size:" << g.fea_info_list[i].feature_size;
+    // }
   } else {
     build_float_feat_table(gpu_id, NULL, NULL, 0, HBMPS_MAX_BUFF, 8, table_offset);
     gpu_graph_float_fea_list_[offset].node_size = 0;
@@ -3226,8 +3226,8 @@ int GpuPsGraphTable::get_float_feature_info_of_nodes(
                              stream));
   CUDA_CHECK(cudaStreamSynchronize(stream));
 
-  VLOG(0) << "gpuid:" << gpu_id << ", left:" << h_left[0] << "," << h_left[1] << "," << h_left[2] << "," << h_left[3] << "," << h_left[4] << "," << h_left[7];
-  VLOG(0) << "gpuid:" << gpu_id << ", right:" << h_right[0] << "," << h_right[1] << "," << h_right[2] << "," << h_right[3] << "," << h_right[4] << "," << h_right[7];
+  // VLOG(0) << "gpuid:" << gpu_id << ", left:" << h_left[0] << "," << h_left[1] << "," << h_left[2] << "," << h_left[3] << "," << h_left[4] << "," << h_left[7];
+  // VLOG(0) << "gpuid:" << gpu_id << ", right:" << h_right[0] << "," << h_right[1] << "," << h_right[2] << "," << h_right[3] << "," << h_right[4] << "," << h_right[7];
 
   device_mutex_[gpu_id]->lock();
   int shard_len[total_gpu];  // NOLINT
@@ -3372,7 +3372,7 @@ int GpuPsGraphTable::get_float_feature_info_of_nodes(
     CUDA_CHECK(cudaStreamSynchronize(
         resource_->remote_stream(i, gpu_id)));  // wait for fea_num_list
 
-    VLOG(0) << "gpu id:" << i << ", feature_size:" << fea_num_list[i] << ", slot_size:" << slot_num_list[i];
+    // VLOG(0) << "gpu id:" << i << ", feature_size:" << fea_num_list[i] << ", slot_size:" << slot_num_list[i];
 
 
     // 拿到每张卡上所有key的所有feature size
@@ -3389,7 +3389,6 @@ int GpuPsGraphTable::get_float_feature_info_of_nodes(
                                sizeof(uint32_t) * shard_len[i],
                                cudaMemcpyDeviceToDevice,
                                resource_->remote_stream(i, gpu_id)));
-
     CUDA_CHECK(cudaMemcpyAsync(actual_slot_size_array,
                                d_slot_size[i],
                                sizeof(uint32_t) * shard_len[i],
@@ -3397,7 +3396,7 @@ int GpuPsGraphTable::get_float_feature_info_of_nodes(
                                resource_->remote_stream(i, gpu_id)));
 
     int offset = get_graph_float_fea_list_offset(i);
-    auto graph = gpu_graph_float_fea_list_[offset];
+    auto& graph = gpu_graph_float_fea_list_[offset];
 
     float* feature_array = reinterpret_cast<float*>(
         actual_slot_size_array + shard_len[i] + shard_len[i] % 2);
@@ -3434,6 +3433,10 @@ int GpuPsGraphTable::get_float_feature_info_of_nodes(
     all_fea_num += fea_num_list[i];
     all_slot_num += slot_num_list[i];
   }
+
+  // VLOG(0) << "gpuid:" << gpu_id << ", fea_left:" << fea_left[0] << "," << fea_left[1] << "," << fea_left[7] << ", all_fea_num:" << all_fea_num << ", all_slot_num:" << all_slot_num;
+  // VLOG(0) << "gpuid:" << gpu_id << ", fea_left:" << slot_left[0] << "," << slot_left[1] << "," << slot_left[7] << ", all_fea_num:" << all_fea_num << ", all_slot_num:" << all_slot_num;
+
 
   auto feature_list_tmp =
       memory::Alloc(place,
@@ -3491,7 +3494,7 @@ int GpuPsGraphTable::get_float_feature_info_of_nodes(
       destroy_tmp_storage(d_fea_size_prefix_sum[i], gpu_id, i);
     }
     if (d_slot_size_prefix_sum[i] != NULL) {
-      destroy_tmp_storage(d_fea_size_prefix_sum[i], gpu_id, i);
+      destroy_tmp_storage(d_slot_size_prefix_sum[i], gpu_id, i);
     }
     if (d_temp_storage[i] != NULL) {
       destroy_tmp_storage(d_temp_storage[i], gpu_id, i);
@@ -3545,6 +3548,7 @@ int GpuPsGraphTable::get_float_feature_info_of_nodes(
   CUDA_CHECK(cub::DeviceScan::ExclusiveSum(
       NULL, storage_bytes, size_list, size_list_prefix_sum, node_num, stream));
   CUDA_CHECK(cudaStreamSynchronize(stream));
+
   auto d_temp_storage_tmp =
       memory::Alloc(place,
                     storage_bytes,
@@ -3574,7 +3578,7 @@ int GpuPsGraphTable::get_float_feature_info_of_nodes(
                                            src_slot_size_prefix_sum_ptr,
                                            node_num,
                                            stream));
-  fill_feature_and_slot<<<grid_size, block_size_, 0, stream>>>(
+  fill_float_feature_and_slot<<<grid_size, block_size_, 0, stream>>>(
       d_res_feature_list_ptr,
       d_res_slot_list_ptr,
       size_list_prefix_sum,
