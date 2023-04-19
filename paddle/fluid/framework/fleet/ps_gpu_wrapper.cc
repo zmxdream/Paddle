@@ -440,10 +440,10 @@ void PSGPUWrapper::add_slot_feature(std::shared_ptr<HeterContext> gpu_task) {
       reinterpret_cast<void*>(new std::vector<GpuPsCommGraphFea>);
   std::vector<GpuPsCommGraphFea>& sub_graph_feas =
       *((std::vector<GpuPsCommGraphFea>*)gpu_task->sub_graph_feas);
-  gpu_task->sub_graph_float_feas =
-      reinterpret_cast<void*>(new std::vector<GpuPsCommGraphFloatFea>);
-  std::vector<GpuPsCommGraphFloatFea>& sub_graph_float_feas =
-      *((std::vector<GpuPsCommGraphFloatFea>*)gpu_task->sub_graph_float_feas);
+    gpu_task->sub_graph_float_feas =
+        reinterpret_cast<void*>(new std::vector<GpuPsCommGraphFloatFea>);
+    std::vector<GpuPsCommGraphFloatFea>& sub_graph_float_feas =
+        *((std::vector<GpuPsCommGraphFloatFea>*)gpu_task->sub_graph_float_feas);
 #endif
   std::vector<std::vector<uint64_t>> feature_ids(device_num);
   std::vector<uint64_t*> feature_list(device_num);
@@ -547,12 +547,9 @@ void PSGPUWrapper::add_slot_feature(std::shared_ptr<HeterContext> gpu_task) {
     auto gpu_graph_ptr = GraphGpuWrapper::GetInstance();
     sub_graph_feas = gpu_graph_ptr->get_sub_graph_fea(node_ids, slot_num);
 
-    VLOG(0) << "after get sub_graph_feas";
-
     if (float_slot_num_ > 0) {
       sub_graph_float_feas = gpu_graph_ptr->get_sub_graph_float_fea(node_ids, float_slot_num_);
     }
-    VLOG(0) << "after get sub_graph_float_feas";
     for (size_t i = 0; i < device_num; i++) {
       feature_list[i] = sub_graph_feas[i].feature_list;
       feature_list_size[i] = sub_graph_feas[i].feature_size;

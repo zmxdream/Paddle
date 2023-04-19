@@ -756,17 +756,19 @@ void GraphGpuWrapper::upload_batch(int table_type,
       g->build_graph_fea_on_single_gpu(sub_graph, i);
       sub_graph.release_on_cpu();
       VLOG(0) << "sub graph fea on gpu " << i << " is built";
-      // build float feature
-      VLOG(0) << "begin make_gpu_ps_graph_float_fea, node_ids[" << i << "]_size["
-              << node_ids[i].size() << "]";
-      GpuPsCommGraphFloatFea float_sub_graph =
-          g->cpu_graph_table_->make_gpu_ps_graph_float_fea(i, node_ids[i], float_slot_num);
-      // sub_graph.display_on_cpu();
-      VLOG(0) << "begin build_graph_float_fea_on_single_gpu, node_ids[" << i
-              << "]_size[" << node_ids[i].size() << "]";
-      g->build_graph_float_fea_on_single_gpu(float_sub_graph, i);
-      float_sub_graph.release_on_cpu();
-      VLOG(0) << "float sub graph fea on gpu " << i << " is built";
+      if (float_slot_num > 0) {  
+        // build float feature
+        VLOG(0) << "begin make_gpu_ps_graph_float_fea, node_ids[" << i << "]_size["
+                << node_ids[i].size() << "]";
+        GpuPsCommGraphFloatFea float_sub_graph =
+            g->cpu_graph_table_->make_gpu_ps_graph_float_fea(i, node_ids[i], float_slot_num);
+        // sub_graph.display_on_cpu();
+        VLOG(0) << "begin build_graph_float_fea_on_single_gpu, node_ids[" << i
+                << "]_size[" << node_ids[i].size() << "]";
+        g->build_graph_float_fea_on_single_gpu(float_sub_graph, i);
+        float_sub_graph.release_on_cpu();
+        VLOG(0) << "float sub graph fea on gpu " << i << " is built";
+      }
       return 0;
     }));
   }

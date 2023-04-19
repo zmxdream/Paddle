@@ -1350,16 +1350,19 @@ GraphNode *GraphShard::add_graph_node(Node *node) {
   return reinterpret_cast<GraphNode *>(bucket[node_location[id]]);
 }
 
-FeatureNode *GraphShard::add_feature_node(uint64_t id, bool is_overlap) {
+FeatureNode *GraphShard::add_feature_node(uint64_t id, bool is_overlap, int float_fea_num) {
   if (node_location.find(id) == node_location.end()) {
     node_location[id] = bucket.size();
-    bucket.push_back(new FeatureNode(id));
+    if (float_fea_num > 0) {
+      bucket.push_back(new FloatFeatureNode(id));
+    } else {
+      bucket.push_back(new FeatureNode(id));
+    }
     return reinterpret_cast<FeatureNode *>(bucket[node_location[id]]);
   }
   if (is_overlap) {
     return reinterpret_cast<FeatureNode *>(bucket[node_location[id]]);
   }
-
   return NULL;
 }
 
@@ -1919,7 +1922,7 @@ std::pair<uint64_t, uint64_t> GraphTable::parse_node_file(
 
     size_t index = shard_id - shard_start;
     if (load_slot) {
-      auto node = feature_shards[idx][index]->add_feature_node(id, false);
+      auto node = feature_shards[idx][index]->add_feature_node(id, false, float_fea_num_);
       if (node != NULL) {
         node->set_feature_size(feat_name[idx].size());
         node->set_float_feature_size(float_feat_name[idx].size());
@@ -1934,7 +1937,7 @@ std::pair<uint64_t, uint64_t> GraphTable::parse_node_file(
         }
       }
     } else {
-      node_shards[idx][index]->add_feature_node(id, false);
+      node_shards[idx][index]->add_feature_node(id, false, float_fea_num_);
     }
     local_valid_count++;
   }
@@ -1991,7 +1994,7 @@ std::pair<uint64_t, uint64_t> GraphTable::parse_node_file(
     }
     size_t index = shard_id - shard_start;
     if (load_slot) {
-      auto node = feature_shards[idx][index]->add_feature_node(id, false);
+      auto node = feature_shards[idx][index]->add_feature_node(id, false, float_fea_num_);
       if (node != NULL) {
         node->set_feature_size(feat_name[idx].size());
         node->set_float_feature_size(float_feat_name[idx].size());
@@ -2006,7 +2009,7 @@ std::pair<uint64_t, uint64_t> GraphTable::parse_node_file(
         }
       }
     } else {
-      node_shards[idx][index]->add_feature_node(id, false);
+      node_shards[idx][index]->add_feature_node(id, false, float_fea_num_);
     }
     local_valid_count++;
   }
@@ -2512,7 +2515,7 @@ int32_t GraphTable::set_node_feat(
     tasks.push_back(_shards_task_pool[get_thread_pool_index(node_id)]->enqueue(
         [&, idx, idy, node_id]() -> int {
           size_t index = node_id % this->shard_num - this->shard_start;
-          auto node = feature_shards[idx][index]->add_feature_node(node_id);
+          auto node = feature_shards[idx][index]->add_feature_node(node_id, float_fea_num_);
           node->set_feature_size(this->feat_name[idx].size());
           for (size_t feat_idx = 0; feat_idx < feature_names.size();
                ++feat_idx) {
@@ -3011,9 +3014,9 @@ int32_t GraphTable::Initialize(const GraphParameter &graph) {
     id_to_edge.push_back(edge_types[k]);
   }
   feat_name.resize(node_types.size());
-  float_feat_name.resize(node_types.size());
   feat_shape.resize(node_types.size());
   feat_dtype.resize(node_types.size());
+  float_feat_name.resize(node_types.size());
   float_feat_shape.resize(node_types.size());
   float_feat_dtype.resize(node_types.size());
   VLOG(0) << "got " << node_types.size() << " node types in total";
@@ -3046,6 +3049,8 @@ int32_t GraphTable::Initialize(const GraphParameter &graph) {
       VLOG(0) << "init graph table feat conf name:" << f_name
               << " shape:" << f_shape << " dtype:" << f_dtype;
     }
+    if (slot_fea_num_ < 0) slot_fea_num_ = feasign_idx;
+    if (float_fea_num_ < 0) float_fea_num_ = float_idx;
   }
   // this->table_name = common.table_name();
   // this->table_type = common.name();
