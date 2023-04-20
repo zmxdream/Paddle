@@ -217,6 +217,7 @@ paddle::framework::GpuPsCommGraphFloatFea GraphTable::make_gpu_ps_graph_float_fe
         paddle::framework::GpuPsFloatFeaInfo x;
         // std::vector<uint64_t> feature_ids;
         for (size_t j = 0; j < bags[i].size(); j++) {
+          // int node_type_id = -1;
           Node *v = find_node(GraphTableType::FEATURE_TABLE, bags[i][j]);
           node_id = bags[i][j];
           if (v == NULL) {
@@ -224,6 +225,24 @@ paddle::framework::GpuPsCommGraphFloatFea GraphTable::make_gpu_ps_graph_float_fe
             x.feature_offset = 0;
             x.slot_size = 0;
             x.slot_offset = 0;
+            /*
+            x.feature_offset = feature_array[i].size();
+            x.slot_offset = slot_id_array[i].size();
+            int total_feature_size = 0;
+            for (int k = 0; k < float_slot_num; ++k) {
+              // auto float_feature_size = // 其实就是float特征的shape,只可能有两种取值，0或者shape
+              //    v->get_float_feature(k, feature_array[i], slot_id_array[i], feat_shape[node_type_id]);
+              // if (slot_feature_num_map_[k] < feature_ids_size) {
+              //   slot_feature_num_map_[k] = feature_ids_size;
+              // }
+              node_type_id = 0;
+              for (int t = 0; t < feat_shape[node_type_id][k]; t++) feature_array[i].push_back(0.0);
+              slot_id_array[i].push_back(k);
+              total_feature_size += feat_shape[node_type_id][k];
+            }
+            x.feature_size = total_feature_size;
+            x.slot_size = slot_id_array[i].size() - x.slot_offset;
+            */
             node_fea_info_array[i].push_back(x);
           } else {
             // x <- v
@@ -2254,7 +2273,7 @@ Node *GraphTable::find_node(GraphTableType table_type, uint64_t id) {
                                 "search_shard[%d] should not be null.", index));
     node = search_shard[index]->find_node(id);
     if (node != nullptr) {
-      break;
+      break;      
     }
   }
   return node;

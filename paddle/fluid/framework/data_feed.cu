@@ -802,9 +802,7 @@ int GraphDataGenerator::FillGraphSlotFeature(
     uint64_t *sage_nodes_ptr =
         reinterpret_cast<uint64_t *>(final_sage_nodes->ptr());
     ret = FillSlotFeature(sage_nodes_ptr, total_instance);
-    // VLOG(0) << "[debug] in FillGraphSlotFeature, float_slot_num:" << float_slot_num_;
     if (float_slot_num_ > 0) {
-      // VLOG(0) << "[debug] in FillGraphSlotFeature, float_slot_num:" << float_slot_num_;
       ret += FillFloatFeature(sage_nodes_ptr, total_instance);
     }
   }
@@ -970,9 +968,13 @@ int GraphDataGenerator::GenerateBatch() {
   }
   LoD lod{offset_};
   feed_vec_[0]->set_lod(lod);
+
+  //adapt for float feature 
   if (slot_num_ > 0) {
     for (int i = 0; i < slot_num_; ++i) {
-      feed_vec_[id_offset_of_feed_vec_ + 2 * i]->set_lod(lod);
+      if (feed_type_[id_offset_of_feed_vec_ + 2 * i][0] == 'u') {
+        feed_vec_[id_offset_of_feed_vec_ + 2 * i]->set_lod(lod);
+      }
     }
   }
 

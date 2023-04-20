@@ -3433,11 +3433,6 @@ int GpuPsGraphTable::get_float_feature_info_of_nodes(
     all_fea_num += fea_num_list[i];
     all_slot_num += slot_num_list[i];
   }
-
-  // VLOG(0) << "gpuid:" << gpu_id << ", fea_left:" << fea_left[0] << "," << fea_left[1] << "," << fea_left[7] << ", all_fea_num:" << all_fea_num << ", all_slot_num:" << all_slot_num;
-  // VLOG(0) << "gpuid:" << gpu_id << ", fea_left:" << slot_left[0] << "," << slot_left[1] << "," << slot_left[7] << ", all_fea_num:" << all_fea_num << ", all_slot_num:" << all_slot_num;
-
-
   auto feature_list_tmp =
       memory::Alloc(place,
                     all_fea_num * sizeof(float),

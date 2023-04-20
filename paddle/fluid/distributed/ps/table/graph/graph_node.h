@@ -194,7 +194,8 @@ class FeatureNode : public Node {
 
   virtual int get_float_feature(int slot_idx,
                                 std::vector<float> &float_feature,      // NOLINT
-                                std::vector<uint8_t> &slot_id) const {  // NOLINT
+                                std::vector<uint8_t> &slot_id,
+                                std::vector<int32_t>& float_slot_shape) const {  // NOLINT
     return 0;
   }
 
@@ -409,9 +410,16 @@ class FloatFeatureNode : public FeatureNode {
       num = s.length() / sizeof(float);
       CHECK((s.length() % sizeof(float)) == 0)
           << "bad feature_item: [" << s << "]";
-      for (size_t i = 0; i < num; ++i) {
-        float_feature.push_back(feas[i]);
-      }
+      // if (num > 0) {
+        for (size_t i = 0; i < num; ++i) {
+          float_feature.push_back(feas[i]);
+        }
+      // } 
+      // else {
+      //  for (size_t i = 0; i < (size_t)float_slot_shape[slot_idx]; ++i) {
+      //    float_feature.push_back(0.0);
+      //  }
+      // }
       if (num > 0) {
         slot_id.push_back(slot_idx);
         // uint64_t last_offset = 0;
