@@ -1730,10 +1730,6 @@ void GpuPsGraphTable::build_graph_float_fea_on_single_gpu(const GpuPsCommGraphFl
                            table_offset);
     gpu_graph_float_fea_list_[offset].node_size = g.node_size;
 
-    // VLOG(0) << "gpuid:" << gpu_id << ", test build_float_feat_table";
-    // for (int i = 0 ; i < 10; i++) {
-    //   VLOG(0) << "gpuid:" << gpu_id << ", feature_size:" << g.fea_info_list[i].feature_size;
-    // }
   } else {
     build_float_feat_table(gpu_id, NULL, NULL, 0, HBMPS_MAX_BUFF, 8, table_offset);
     gpu_graph_float_fea_list_[offset].node_size = 0;
@@ -3433,7 +3429,8 @@ int GpuPsGraphTable::get_float_feature_info_of_nodes(
     all_fea_num += fea_num_list[i];
     all_slot_num += slot_num_list[i];
   }
-
+  
+  // VLOG(0) << "gpuid:" << gpu_id << ", node_num:" << node_num << ", all_feature_num:"  << all_fea_num << ", all_slot_num:" << all_slot_num;
   // VLOG(0) << "gpuid:" << gpu_id << ", fea_left:" << fea_left[0] << "," << fea_left[1] << "," << fea_left[7] << ", all_fea_num:" << all_fea_num << ", all_slot_num:" << all_slot_num;
   // VLOG(0) << "gpuid:" << gpu_id << ", fea_left:" << slot_left[0] << "," << slot_left[1] << "," << slot_left[7] << ", all_fea_num:" << all_fea_num << ", all_slot_num:" << all_slot_num;
 

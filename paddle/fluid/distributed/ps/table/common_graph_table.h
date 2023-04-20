@@ -633,7 +633,8 @@ class GraphTable : public Table {
 
   int32_t get_server_index_by_id(uint64_t id);
   Node *find_node(GraphTableType table_type, int idx, uint64_t id);
-  Node *find_node(GraphTableType table_type, uint64_t id);
+  Node *find_node(GraphTableType table_type, uint64_t id, int& node_type_id);
+  // Node *find_node(GraphTableType table_type, uint64_t id);
 
   virtual int32_t Pull(TableContext &context) { return 0; }  // NOLINT
   virtual int32_t Push(TableContext &context) { return 0; }  // NOLINT
@@ -786,6 +787,8 @@ class GraphTable : public Table {
   std::vector<std::vector<int32_t>> float_feat_shape;
   int slot_fea_num_{-1};
   int float_fea_num_{-1};
+  // int first_slot_idx{-1};
+  // int first_float_idx{-1};
   std::vector<std::unordered_map<std::string, int32_t>> feat_id_map;
   std::vector<std::unordered_map<std::string, int32_t>> float_feat_id_map;
   std::unordered_map<std::string, int> feature_to_id, edge_to_id;

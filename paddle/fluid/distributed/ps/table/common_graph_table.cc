@@ -107,7 +107,8 @@ paddle::framework::GpuPsCommGraphFea GraphTable::make_gpu_ps_graph_fea(
         paddle::framework::GpuPsFeaInfo x;
         std::vector<uint64_t> feature_ids;
         for (size_t j = 0; j < bags[i].size(); j++) {
-          Node *v = find_node(GraphTableType::FEATURE_TABLE, bags[i][j]);
+          int node_type_id = -1;
+          Node *v = find_node(GraphTableType::FEATURE_TABLE, bags[i][j], node_type_id);
           node_id = bags[i][j];
           if (v == NULL) {
             x.feature_size = 0;
@@ -183,7 +184,6 @@ paddle::framework::GpuPsCommGraphFloatFea GraphTable::make_gpu_ps_graph_float_fe
   std::vector<std::vector<uint64_t>> bags(shard_num);
   std::vector<float> feature_array[shard_num];
   std::vector<uint8_t> slot_id_array[shard_num];
-  // std::vector<uint64_t> slot_offset[shard_num];
   std::vector<uint64_t> node_id_array[shard_num];
   std::vector<paddle::framework::GpuPsFloatFeaInfo> node_fea_info_array[shard_num];
   for (size_t i = 0; i < shard_num; i++) {
@@ -191,7 +191,6 @@ paddle::framework::GpuPsCommGraphFloatFea GraphTable::make_gpu_ps_graph_float_fe
     bags[i].reserve(predsize * 1.2);
     feature_array[i].reserve(predsize * 1.2 * float_slot_num);
     slot_id_array[i].reserve(predsize * 1.2 * float_slot_num);
-    // slot_offset[i].reserver(predsize * 1.2 * float_slot_num)
     node_id_array[i].reserve(predsize * 1.2);
     node_fea_info_array[i].reserve(predsize * 1.2);
   }
@@ -217,13 +216,30 @@ paddle::framework::GpuPsCommGraphFloatFea GraphTable::make_gpu_ps_graph_float_fe
         paddle::framework::GpuPsFloatFeaInfo x;
         // std::vector<uint64_t> feature_ids;
         for (size_t j = 0; j < bags[i].size(); j++) {
-          Node *v = find_node(GraphTableType::FEATURE_TABLE, bags[i][j]);
+          int node_type_id = -1;
+          Node *v = find_node(GraphTableType::FEATURE_TABLE, bags[i][j], node_type_id);
           node_id = bags[i][j];
           if (v == NULL) {
-            x.feature_size = 0;
-            x.feature_offset = 0;
-            x.slot_size = 0;
-            x.slot_offset = 0;
+            // x.feature_size = 0;
+            // x.feature_offset = 0;
+            // x.slot_size = 0;
+            // x.slot_offset = 0;
+            x.feature_offset = feature_array[i].size();
+            x.slot_offset = slot_id_array[i].size();
+            int total_feature_size = 0;
+            for (int k = 0; k < float_slot_num; ++k) {
+              // auto float_feature_size = // 其实就是float特征的shape,只可能有两种取值，0或者shape
+              //    v->get_float_feature(k, feature_array[i], slot_id_array[i], feat_shape[node_type_id]);
+              // if (slot_feature_num_map_[k] < feature_ids_size) {
+              //   slot_feature_num_map_[k] = feature_ids_size;
+              // }
+              node_type_id = 0;
+              for (int t = 0; t < float_feat_shape[node_type_id][k]; t++) feature_array[i].push_back(0.0);
+              slot_id_array[i].push_back(k);
+              total_feature_size += float_feat_shape[node_type_id][k];
+            }
+            x.feature_size = total_feature_size;
+            x.slot_size = slot_id_array[i].size() - x.slot_offset;
             node_fea_info_array[i].push_back(x);
           } else {
             // x <- v
@@ -232,7 +248,7 @@ paddle::framework::GpuPsCommGraphFloatFea GraphTable::make_gpu_ps_graph_float_fe
             int total_feature_size = 0;
             for (int k = 0; k < float_slot_num; ++k) {
               auto float_feature_size = // 其实就是float特征的shape,只可能有两种取值，0或者shape
-                  v->get_float_feature(k, feature_array[i], slot_id_array[i]);
+                  v->get_float_feature(k, feature_array[i], slot_id_array[i], float_feat_shape[node_type_id]);
               // if (slot_feature_num_map_[k] < feature_ids_size) {
               //   slot_feature_num_map_[k] = feature_ids_size;
               // }
@@ -267,7 +283,7 @@ paddle::framework::GpuPsCommGraphFloatFea GraphTable::make_gpu_ps_graph_float_fe
     tot_len += feature_array[i].size();
     total_slot += slot_id_array[i].size();
   }
-  VLOG(1) << "Loaded float feature table on cpu, float feature_list_size[" << tot_len
+  VLOG(0) << "Loaded float feature table on cpu, float feature_list_size[" << tot_len
           << "] node_ids_size[" << node_ids.size() << "]" << " total slot size[" << total_slot << "]";
   res.init_on_cpu(tot_len, (unsigned int)node_ids.size(), float_slot_num, total_slot);
   unsigned int offset = 0, ind = 0, slot_offsets = 0;
@@ -2237,7 +2253,7 @@ int32_t GraphTable::load_edges(const std::string &path,
   return 0;
 }
 
-Node *GraphTable::find_node(GraphTableType table_type, uint64_t id) {
+Node *GraphTable::find_node(GraphTableType table_type, uint64_t id, int& node_type_id) {
   size_t shard_id = id % shard_num;
   if (shard_id >= shard_end || shard_id < shard_start) {
     return nullptr;
@@ -2248,13 +2264,16 @@ Node *GraphTable::find_node(GraphTableType table_type, uint64_t id) {
                         : table_type == GraphTableType::FEATURE_TABLE
                             ? feature_shards
                             : node_shards;
+  int idx = -1;
   for (auto &search_shard : search_shards) {
+    idx++;
     PADDLE_ENFORCE_NOT_NULL(search_shard[index],
                             paddle::platform::errors::InvalidArgument(
                                 "search_shard[%d] should not be null.", index));
     node = search_shard[index]->find_node(id);
     if (node != nullptr) {
-      break;
+      node_type_id = idx;
+      break;      
     }
   }
   return node;
@@ -3035,12 +3054,14 @@ int32_t GraphTable::Initialize(const GraphParameter &graph) {
       auto &f_shape = feature.shape()[i];
       auto &f_dtype = feature.dtype()[i];
       if (f_dtype == "feasign" || f_dtype == "int64") {
+        // if (first_slot_idx == -1) first_slot_idx = i;
         feat_name[k].push_back(f_name);
         feat_shape[k].push_back(f_shape);
         feat_dtype[k].push_back(f_dtype);
         feat_id_map[k][f_name] = feasign_idx++;
       } 
-      else if (f_dtype == "float32"){
+      else if (f_dtype == "float32") {
+        // if (first_float_idx == -1) first_float_idx = i;
         float_feat_name[k].push_back(f_name);
         float_feat_shape[k].push_back(f_shape);
         float_feat_dtype[k].push_back(f_dtype);

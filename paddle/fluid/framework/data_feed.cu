@@ -802,9 +802,7 @@ int GraphDataGenerator::FillGraphSlotFeature(
     uint64_t *sage_nodes_ptr =
         reinterpret_cast<uint64_t *>(final_sage_nodes->ptr());
     ret = FillSlotFeature(sage_nodes_ptr, total_instance);
-    // VLOG(0) << "[debug] in FillGraphSlotFeature, float_slot_num:" << float_slot_num_;
     if (float_slot_num_ > 0) {
-      // VLOG(0) << "[debug] in FillGraphSlotFeature, float_slot_num:" << float_slot_num_;
       ret += FillFloatFeature(sage_nodes_ptr, total_instance);
     }
   }
@@ -970,9 +968,13 @@ int GraphDataGenerator::GenerateBatch() {
   }
   LoD lod{offset_};
   feed_vec_[0]->set_lod(lod);
+
+  //adapt for float feature 
   if (slot_num_ > 0) {
     for (int i = 0; i < slot_num_; ++i) {
-      feed_vec_[id_offset_of_feed_vec_ + 2 * i]->set_lod(lod);
+      if (feed_type_[id_offset_of_feed_vec_ + 2 * i][0] == 'u') {
+        feed_vec_[id_offset_of_feed_vec_ + 2 * i]->set_lod(lod);
+      }
     }
   }
 
@@ -1847,7 +1849,7 @@ int GraphDataGenerator::FillFloatFeature(uint64_t *d_walk, size_t key_num) {
     for (int i = first_float_idx_; i < slot_num_; ++i) {
       if (feed_type_[id_offset_of_feed_vec_ + 2 * i][0] == 'f') {
         slot_tensor_ptr_[ii] = feed_vec_[id_offset_of_feed_vec_ + 2 * i]->mutable_data<float>(
-            {each_slot_fea_num[ii], 1}, this->place_);
+            {each_slot_fea_num[ii] / float_slot_shape[ii], float_slot_shape[ii]}, this->place_);
         ii++;
       }
     }
@@ -1868,9 +1870,9 @@ int GraphDataGenerator::FillFloatFeature(uint64_t *d_walk, size_t key_num) {
         // trick for empty tensor
         if (each_slot_fea_num[ii] == 0) {
           slot_tensor_ptr_[ii] =
-              feed_vec_[id_offset_of_feed_vec_ + 2 * i]->mutable_data<float>({1, 1}, this->place_);
+              feed_vec_[id_offset_of_feed_vec_ + 2 * i]->mutable_data<float>({1, float_slot_shape[ii]}, this->place_);
           CUDA_CHECK(cudaMemsetAsync(
-              slot_tensor_ptr_[ii], 0, sizeof(float), train_stream_));
+              slot_tensor_ptr_[ii], 0, sizeof(float) * float_slot_shape[ii], train_stream_));
           CUDA_CHECK(cudaMemcpyAsync(
               reinterpret_cast<char *>(slot_lod_tensor_ptr_[ii] + key_num),
               &default_lod,
