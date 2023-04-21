@@ -457,9 +457,6 @@ template class HashTable<uint64_t, uint64_t>;
 template class HashTable<uint64_t, uint64_t*>;
 template class HashTable<uint64_t, int64_t>;
 template class HashTable<uint64_t, int64_t*>;
-#if defined(PADDLE_WITH_PSCORE) && defined(PADDLE_WITH_GPU_GRAPH)
-template class HashTable<uint64_t, GpuPsFloatFeaInfo>;
-#endif
 template class HashTable<int64_t, int64_t>;
 template class HashTable<int64_t, uint64_t>;
 template class HashTable<int64_t, unsigned int>;
@@ -499,10 +496,6 @@ template void HashTable<int64_t, unsigned int>::get<cudaStream_t>(
 // HashTable<uint64_t, paddle::framework::FeatureValue>::get<cudaStream_t>(
 //    const uint64_t* d_keys, char* d_vals, size_t len, cudaStream_t
 //    stream);
-#if defined(PADDLE_WITH_PSCORE) && defined(PADDLE_WITH_GPU_GRAPH)
-  template void HashTable<uint64_t, GpuPsFloatFeaInfo>::get<cudaStream_t>(
-    const uint64_t* d_keys, GpuPsFloatFeaInfo* d_vals, size_t len, cudaStream_t stream);
-#endif
 template void HashTable<uint64_t, float>::insert<cudaStream_t>(
     const uint64_t* d_keys,
     const float* d_vals,
@@ -516,14 +509,6 @@ template void HashTable<uint64_t, float*>::insert<cudaStream_t>(
     size_t feature_value_size,
     size_t start_index,
     cudaStream_t stream);
-
-#if defined(PADDLE_WITH_PSCORE) && defined(PADDLE_WITH_GPU_GRAPH)
-template void HashTable<uint64_t, GpuPsFloatFeaInfo>::insert<cudaStream_t>(
-    const uint64_t* d_keys,
-    const GpuPsFloatFeaInfo* d_vals,
-    size_t len,
-    cudaStream_t stream);
-#endif
 
 template void HashTable<int64_t, int>::insert<cudaStream_t>(
     const int64_t* d_keys, const int* d_vals, size_t len, cudaStream_t stream);

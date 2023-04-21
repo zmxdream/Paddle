@@ -183,15 +183,13 @@ paddle::framework::GpuPsCommGraphFloatFea GraphTable::make_gpu_ps_graph_float_fe
   std::vector<std::vector<uint64_t>> bags(shard_num);
   std::vector<float> feature_array[shard_num];
   std::vector<uint8_t> slot_id_array[shard_num];
-  // std::vector<uint64_t> slot_offset[shard_num];
   std::vector<uint64_t> node_id_array[shard_num];
-  std::vector<paddle::framework::GpuPsFloatFeaInfo> node_fea_info_array[shard_num];
+  std::vector<paddle::framework::GpuPsFeaInfo> node_fea_info_array[shard_num];
   for (size_t i = 0; i < shard_num; i++) {
     auto predsize = node_ids.size() / shard_num;
     bags[i].reserve(predsize * 1.2);
     feature_array[i].reserve(predsize * 1.2 * float_slot_num);
     slot_id_array[i].reserve(predsize * 1.2 * float_slot_num);
-    // slot_offset[i].reserver(predsize * 1.2 * float_slot_num)
     node_id_array[i].reserve(predsize * 1.2);
     node_fea_info_array[i].reserve(predsize * 1.2);
   }
@@ -202,63 +200,39 @@ paddle::framework::GpuPsCommGraphFloatFea GraphTable::make_gpu_ps_graph_float_fe
   }
 
   std::vector<std::future<int>> tasks;
-  // only used in mem_emb mode for sparse slot feature
-  // if (slot_feature_num_map_.size() == 0) {
-  //   slot_feature_num_map_.resize(float_slot_num);
-  //   for (int k = 0; k < float_slot_num; ++k) {
-  //     slot_feature_num_map_[k] = 0;
-  //   }
-  // }
+  if (float_feature_num_map_.size() == 0) {
+     float_feature_num_map_.resize(float_slot_num);
+     for (int k = 0; k < float_slot_num; ++k) {
+        float_feature_num_map_[k] = 0;
+     }
+  }
 
   for (size_t i = 0; i < bags.size(); i++) {
     if (bags[i].size() > 0) {
       tasks.push_back(_cpu_worker_pool[gpu_id]->enqueue([&, i, this]() -> int {
         uint64_t node_id;
-        paddle::framework::GpuPsFloatFeaInfo x;
+        paddle::framework::GpuPsFeaInfo x;
         // std::vector<uint64_t> feature_ids;
         for (size_t j = 0; j < bags[i].size(); j++) {
-          // int node_type_id = -1;
           Node *v = find_node(GraphTableType::FEATURE_TABLE, bags[i][j]);
           node_id = bags[i][j];
           if (v == NULL) {
             x.feature_size = 0;
             x.feature_offset = 0;
-            x.slot_size = 0;
-            x.slot_offset = 0;
-            /*
-            x.feature_offset = feature_array[i].size();
-            x.slot_offset = slot_id_array[i].size();
-            int total_feature_size = 0;
-            for (int k = 0; k < float_slot_num; ++k) {
-              // auto float_feature_size = // 其实就是float特征的shape,只可能有两种取值，0或者shape
-              //    v->get_float_feature(k, feature_array[i], slot_id_array[i], feat_shape[node_type_id]);
-              // if (slot_feature_num_map_[k] < feature_ids_size) {
-              //   slot_feature_num_map_[k] = feature_ids_size;
-              // }
-              node_type_id = 0;
-              for (int t = 0; t < feat_shape[node_type_id][k]; t++) feature_array[i].push_back(0.0);
-              slot_id_array[i].push_back(k);
-              total_feature_size += feat_shape[node_type_id][k];
-            }
-            x.feature_size = total_feature_size;
-            x.slot_size = slot_id_array[i].size() - x.slot_offset;
-            */
             node_fea_info_array[i].push_back(x);
           } else {
             // x <- v
             x.feature_offset = feature_array[i].size();
-            x.slot_offset = slot_id_array[i].size();
             int total_feature_size = 0;
             for (int k = 0; k < float_slot_num; ++k) {
               auto float_feature_size = // 其实就是float特征的shape,只可能有两种取值，0或者shape
                   v->get_float_feature(k, feature_array[i], slot_id_array[i]);
-              // if (slot_feature_num_map_[k] < feature_ids_size) {
-              //   slot_feature_num_map_[k] = feature_ids_size;
-              // }
+              if (float_feature_num_map_[k] < float_feature_size) {
+                 float_feature_num_map_[k] = float_feature_size;
+              }
               total_feature_size += float_feature_size;
             }
             x.feature_size = total_feature_size;
-            x.slot_size = slot_id_array[i].size() - x.slot_offset;
             node_fea_info_array[i].push_back(x);
           }
           node_id_array[i].push_back(node_id);
@@ -269,30 +243,28 @@ paddle::framework::GpuPsCommGraphFloatFea GraphTable::make_gpu_ps_graph_float_fe
   }
   for (size_t i = 0; i < tasks.size(); i++) tasks[i].get();
 
-  // if (FLAGS_v > 0) {
-  //   std::stringstream ss;
-  //    for (int k = 0; k < slot_num; ++k) {
-  //      ss << slot_feature_num_map_[k] << " ";
-  //  }
-  //  VLOG(1) << "slot_feature_num_map: " << ss.str();
-  // }
+  if (FLAGS_v > 0) {
+     std::stringstream ss;
+     for (int k = 0; k < float_slot_num; ++k) {
+        ss << float_feature_num_map_[k] << " ";
+     }
+     VLOG(1) << "float_feature_num_map: " << ss.str();
+  }
 
   tasks.clear();
 
   paddle::framework::GpuPsCommGraphFloatFea res;
   uint64_t tot_len = 0;
-  uint64_t total_slot = 0;
   for (size_t i = 0; i < shard_num; i++) {
     tot_len += feature_array[i].size();
-    total_slot += slot_id_array[i].size();
   }
   VLOG(1) << "Loaded float feature table on cpu, float feature_list_size[" << tot_len
-          << "] node_ids_size[" << node_ids.size() << "]" << " total slot size[" << total_slot << "]";
-  res.init_on_cpu(tot_len, (unsigned int)node_ids.size(), float_slot_num, total_slot);
-  unsigned int offset = 0, ind = 0, slot_offsets = 0;
+          << "] node_ids_size[" << node_ids.size() << "]";
+  res.init_on_cpu(tot_len, (unsigned int)node_ids.size(), float_slot_num);
+  unsigned int offset = 0, ind = 0;
   for (size_t i = 0; i < shard_num; i++) {
     tasks.push_back(
-        _cpu_worker_pool[gpu_id]->enqueue([&, i, ind, offset, slot_offsets, this]() -> int {
+        _cpu_worker_pool[gpu_id]->enqueue([&, i, ind, offset, this]() -> int {
           auto start = ind;
           for (size_t j = 0; j < node_id_array[i].size(); j++) {
             res.node_list[start] = node_id_array[i][j];
@@ -301,14 +273,11 @@ paddle::framework::GpuPsCommGraphFloatFea GraphTable::make_gpu_ps_graph_float_fe
           }
           for (size_t j = 0; j < feature_array[i].size(); j++) {
             res.feature_list[offset + j] = feature_array[i][j];
-          }
-          for (size_t j = 0; j < slot_id_array[i].size(); j++) {
-            res.slot_id_list[slot_offsets + j] = slot_id_array[i][j];
+            res.slot_id_list[offset + j] = slot_id_array[i][j];
           }
           return 0;
         }));
     offset += feature_array[i].size();
-    slot_offsets += slot_id_array[i].size();
     ind += node_id_array[i].size();
   }
   for (size_t i = 0; i < tasks.size(); i++) tasks[i].get();

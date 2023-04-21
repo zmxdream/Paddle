@@ -180,8 +180,6 @@ class GraphGpuWrapper {
       int node_num,
       uint32_t *size_list,
       uint32_t *size_list_prefix_sum,
-      uint32_t *slot_size_list,
-      uint32_t *slot_size_list_prefix_sum,
       std::shared_ptr<phi::Allocation> &feature_list,  // NOLINT  
       std::shared_ptr<phi::Allocation> &slot_list);  // NOLINT
   void init_metapath(std::string cur_metapath,

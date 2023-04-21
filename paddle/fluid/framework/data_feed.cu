@@ -1085,13 +1085,10 @@ __global__ void get_each_ins_info(uint8_t *slot_list,
 }
 
 __global__ void get_each_ins_float_info(uint8_t *slot_list,
-                                        uint32_t *fea_size_list,
-                                        uint32_t *fea_size_prefix,
                                         uint32_t *slot_size_list,
                                         uint32_t *slot_size_prefix,
                                         uint32_t *each_ins_slot_num,
                                         uint32_t *each_ins_slot_num_inner_prefix,
-                                        uint32_t *slot_shape,
                                         size_t key_num,
                                         int slot_num) { // offset of float slot
   const size_t i = blockIdx.x * blockDim.y + threadIdx.y;
@@ -1099,8 +1096,7 @@ __global__ void get_each_ins_float_info(uint8_t *slot_list,
     uint32_t slot_index = slot_size_prefix[i];
     size_t each_ins_slot_index = i * slot_num;
     for (int j = 0; j < slot_size_list[i]; j++) {
-      int shape = slot_shape[slot_list[slot_index + j]];
-      each_ins_slot_num[each_ins_slot_index + slot_list[slot_index + j]] += shape;
+      each_ins_slot_num[each_ins_slot_index + slot_list[slot_index + j]] += 1;
     }
     each_ins_slot_num_inner_prefix[each_ins_slot_index] = 0;
     for (int j = 1; j < slot_num; j++) {
@@ -1124,7 +1120,7 @@ __global__ void fill_slot_num(uint32_t *d_each_ins_slot_num_ptr,
     }
   }
 }
-
+// 可以搞成模板
 __global__ void fill_slot_tensor(uint64_t *feature_list,
                                  uint32_t *feature_size_prefixsum,
                                  uint32_t *each_ins_slot_num_inner_prefix,
@@ -1664,30 +1660,30 @@ int GraphDataGenerator::FillFloatFeature(uint64_t *d_walk, size_t key_num) {
       d_feature_size_prefixsum_buf_ =
           memory::AllocShared(this->place_, temp_storage_bytes);
     }
-    if (d_slot_size_list_buf_ == NULL ||
-        d_slot_size_list_buf_->size() < temp_storage_bytes) {
-      d_slot_size_list_buf_ =
-          memory::AllocShared(this->place_, temp_storage_bytes);
-    }
-    if (d_slot_size_prefixsum_buf_ == NULL ||
-        d_slot_size_prefixsum_buf_->size() < temp_storage_bytes) {
-      d_slot_size_prefixsum_buf_ =
-          memory::AllocShared(this->place_, temp_storage_bytes);
-    }
+    // if (d_slot_size_list_buf_ == NULL ||
+    //    d_slot_size_list_buf_->size() < temp_storage_bytes) {
+    //  d_slot_size_list_buf_ =
+    //      memory::AllocShared(this->place_, temp_storage_bytes);
+    // }
+    // if (d_slot_size_prefixsum_buf_ == NULL ||
+    //     d_slot_size_prefixsum_buf_->size() < temp_storage_bytes) {
+    //   d_slot_size_prefixsum_buf_ =
+    //      memory::AllocShared(this->place_, temp_storage_bytes);
+    // }
   }
 
   uint32_t *d_feature_size_list_ptr =
       reinterpret_cast<uint32_t *>(d_feature_size_list_buf_->ptr());
   uint32_t *d_feature_size_prefixsum_ptr =
       reinterpret_cast<uint32_t *>(d_feature_size_prefixsum_buf_->ptr());
-  uint32_t *d_slot_size_list_ptr =
-      reinterpret_cast<uint32_t *>(d_slot_size_list_buf_->ptr());
-  uint32_t *d_slot_size_prefixsum_ptr =
-      reinterpret_cast<uint32_t *>(d_slot_size_prefixsum_buf_->ptr());
+  // uint32_t *d_slot_size_list_ptr =
+  //    reinterpret_cast<uint32_t *>(d_slot_size_list_buf_->ptr());
+  // uint32_t *d_slot_size_prefixsum_ptr =
+  //     reinterpret_cast<uint32_t *>(d_slot_size_prefixsum_buf_->ptr());
 
   // get float slot shape
-  std::vector<uint32_t> float_slot_shape;
-  gpu_graph_ptr->get_float_feature_shape(float_slot_shape);
+  // std::vector<uint32_t> float_slot_shape;
+  // gpu_graph_ptr->get_float_feature_shape(float_slot_shape);
   // VLOG(0) << "float_slot_shape size:" << float_slot_shape.size() << ", shape0:" << float_slot_shape[0];
 
   int fea_num =
@@ -1696,8 +1692,6 @@ int GraphDataGenerator::FillFloatFeature(uint64_t *d_walk, size_t key_num) {
                                                      key_num,
                                                      d_feature_size_list_ptr,
                                                      d_feature_size_prefixsum_ptr,
-                                                     d_slot_size_list_ptr,
-                                                     d_slot_size_prefixsum_ptr,
                                                      d_feature_list,
                                                      d_slot_list);
 
@@ -1751,25 +1745,22 @@ int GraphDataGenerator::FillFloatFeature(uint64_t *d_walk, size_t key_num) {
   dim3 grid((key_num - 1) / 256 + 1);
   dim3 block(1, 256);
 
-  CHECK(float_slot_num_ == (int)float_slot_shape.size());
+  // CHECK(float_slot_num_ == (int)float_slot_shape.size());
   // copy float slot shape from cpu to gpu 
-  std::shared_ptr<phi::Allocation> d_float_slot_shape = memory::AllocShared(this->place_, float_slot_num_ * sizeof(uint32_t));
-  uint32_t* d_float_slot_shape_ptr = reinterpret_cast<uint32_t*>(d_float_slot_shape->ptr());
-  CUDA_CHECK(cudaMemcpyAsync(reinterpret_cast<char*>(d_float_slot_shape_ptr),
-                             float_slot_shape.data(),
-                             float_slot_num_ * sizeof(uint32_t),
-                             cudaMemcpyHostToDevice,
-                             train_stream_));
+  // std::shared_ptr<phi::Allocation> d_float_slot_shape = memory::AllocShared(this->place_, float_slot_num_ * sizeof(uint32_t));
+  // uint32_t* d_float_slot_shape_ptr = reinterpret_cast<uint32_t*>(d_float_slot_shape->ptr());
+  // CUDA_CHECK(cudaMemcpyAsync(reinterpret_cast<char*>(d_float_slot_shape_ptr),
+  //                           float_slot_shape.data(),
+  //                            float_slot_num_ * sizeof(uint32_t),
+  //                           cudaMemcpyHostToDevice,
+  //                           train_stream_));
 
   get_each_ins_float_info<<<grid, block, 0, train_stream_>>>(
       d_slot_list_ptr,
       d_feature_size_list_ptr,
       d_feature_size_prefixsum_ptr,
-      d_slot_size_list_ptr,
-      d_slot_size_prefixsum_ptr,
       d_each_ins_slot_num_ptr,
       d_each_ins_slot_num_inner_prefix_ptr,
-      d_float_slot_shape_ptr,
       key_num,
       float_slot_num_);
 
@@ -1885,7 +1876,6 @@ int GraphDataGenerator::FillFloatFeature(uint64_t *d_walk, size_t key_num) {
     }
     CUDA_CHECK(cudaStreamSynchronize(train_stream_));
   }
-/*
   if (debug_mode_) {
     std::vector<uint32_t> h_feature_size_list(key_num, 0);
     std::vector<uint32_t> h_feature_size_list_prefixsum(key_num, 0);
@@ -1969,7 +1959,6 @@ int GraphDataGenerator::FillFloatFeature(uint64_t *d_walk, size_t key_num) {
       VLOG(0) << ss_lod.str() << "  " << ss_tensor.str();
     }
   }
-*/
   return 0;
 }
 
@@ -3500,15 +3489,15 @@ void GraphDataGenerator::AllocTrainResource(int thread_id) {
           memory::AllocShared(place_, (batch_size_ * 2) * sizeof(uint32_t));
       d_feature_size_prefixsum_buf_ =
           memory::AllocShared(place_, (batch_size_ * 2 + 1) * sizeof(uint32_t));
-      d_slot_size_list_buf_ =
-          memory::AllocShared(place_, (batch_size_ * 2) * sizeof(uint32_t));
-      d_slot_size_prefixsum_buf_ =
-          memory::AllocShared(place_, (batch_size_ * 2 + 1) * sizeof(uint32_t));
+      // d_slot_size_list_buf_ =
+      //     memory::AllocShared(place_, (batch_size_ * 2) * sizeof(uint32_t));
+      // d_slot_size_prefixsum_buf_ =
+      //     memory::AllocShared(place_, (batch_size_ * 2 + 1) * sizeof(uint32_t));
     } else {
       d_feature_size_list_buf_ = NULL;
       d_feature_size_prefixsum_buf_ = NULL;
-      d_slot_size_list_buf_ = NULL;
-      d_slot_size_prefixsum_buf_ = NULL;
+      // d_slot_size_list_buf_ = NULL;
+      // d_slot_size_prefixsum_buf_ = NULL;
     }
   }
 }

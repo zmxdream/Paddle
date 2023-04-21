@@ -35,13 +35,13 @@ class GpuPsGraphTable
  public:
   inline int get_table_offset(int gpu_id, GraphTableType type, int idx) const {
     int type_id = type;
-    return gpu_id * (graph_table_num_ + feature_table_num_) +
+    return gpu_id * (graph_table_num_ + feature_table_num_ + float_feature_table_num_) +
            type_id * graph_table_num_ + idx;
   }
 
-  inline int get_float_table_offset(int gpu_id) const {
-    return gpu_id * float_feature_table_num_;
-  }
+  // inline int get_float_table_offset(int gpu_id) const {
+  //  return gpu_id * float_feature_table_num_;
+  // }
 
   inline int get_graph_list_offset(int gpu_id, int edge_idx) const {
     return gpu_id * graph_table_num_ + edge_idx;
@@ -69,10 +69,10 @@ class GpuPsGraphTable
     memset(global_device_map, -1, sizeof(global_device_map));
 
     tables_ = std::vector<Table *>(
-        gpu_num * (graph_table_num_ + feature_table_num_), NULL);
+        gpu_num * (graph_table_num_ + feature_table_num_ + float_feature_table_num_), NULL);
     // float table
-    float_tables_ = std::vector<FloatTable *>(
-        gpu_num * float_feature_table_num_, NULL);
+    // float_tables_ = std::vector<FloatTable *>(
+    //    gpu_num * float_feature_table_num_, NULL);
 
     for (int i = 0; i < gpu_num; i++) {
       global_device_map[resource_->dev_id(i)] = i;
@@ -101,11 +101,11 @@ class GpuPsGraphTable
   void build_graph_on_single_gpu(const GpuPsCommGraph &g, int gpu_id, int idx);
   void build_graph_fea_on_single_gpu(const GpuPsCommGraphFea &g, int gpu_id);
   void build_graph_float_fea_on_single_gpu(const GpuPsCommGraphFloatFea &g, int gpu_id);
-  void build_float_feat_table(int dev_num, uint64_t* h_keys, GpuPsFloatFeaInfo* fea_info, size_t len, size_t chunk_size, int stream_num, int offset);
+  // void build_float_feat_table(int dev_num, uint64_t* h_keys, GpuPsFloatFeaInfo* fea_info, size_t len, size_t chunk_size, int stream_num, int offset);
   void clear_graph_info(int gpu_id, int index);
   void clear_graph_info(int index);
   void reset_feature_info(int gpu_id, size_t capacity, size_t feature_size);
-  void reset_float_feature_info(int gpu_id, size_t capacity, size_t feature_size, size_t slot_size);
+  void reset_float_feature_info(int gpu_id, size_t capacity, size_t feature_size);
   void clear_feature_info(int gpu_id, int index);
   void clear_feature_info(int index);
   void build_graph_from_cpu(const std::vector<GpuPsCommGraph> &cpu_node_list,
@@ -188,8 +188,6 @@ class GpuPsGraphTable
       int node_num,
       uint32_t *size_list,
       uint32_t *size_list_prefix_sum,
-      uint32_t *slot_size_list,
-      uint32_t *slot_size_list_prefix_sum,
       std::shared_ptr<phi::Allocation> &feature_list,  // NOLINT
       std::shared_ptr<phi::Allocation> &slot_list);    // NOLINT
   NodeQueryResult query_node_list(int gpu_id,
@@ -214,17 +212,14 @@ class GpuPsGraphTable
                                  uint64_t *feature_list,
                                  uint8_t *slot_list);
   void move_float_result_to_source_gpu(int start_index,
-                                 int gpu_num,
-                                 int *h_left,
-                                 int *h_right,
-                                 int *fea_left,
-                                 int *slot_left,
-                                 uint32_t* fea_num_list,
-                                 uint32_t* slot_num_list,
-                                 uint32_t* actual_feature_size,
-                                 uint32_t* actual_slot_size,
-                                 float* feature_list,
-                                 uint8_t* slot_list);
+                                       int gpu_num,
+                                       int *h_left,
+                                       int *h_right,
+                                       int *fea_left,
+                                       uint32_t* fea_num_list,
+                                       uint32_t* actual_feature_size,
+                                       float* feature_list,
+                                       uint8_t *slot_list);
   void move_degree_to_source_gpu(
       int gpu_id, int gpu_num, int *h_left, int *h_right, int *node_degree);
   void move_result_to_source_gpu_all_edge_type(int gpu_id,

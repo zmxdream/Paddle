@@ -906,8 +906,6 @@ int GraphGpuWrapper::get_float_feature_info_of_nodes(
     int node_num,
     uint32_t *size_list,
     uint32_t *size_list_prefix_sum,
-    uint32_t *slot_size_list,
-    uint32_t *slot_size_list_prefix_sum,
     std::shared_ptr<phi::Allocation> &feature_list,
     std::shared_ptr<phi::Allocation> &slot_list) {
   platform::CUDADeviceGuard guard(gpu_id);
@@ -920,8 +918,6 @@ int GraphGpuWrapper::get_float_feature_info_of_nodes(
                                         node_num,
                                         size_list,
                                         size_list_prefix_sum,
-                                        slot_size_list,
-                                        slot_size_list_prefix_sum,
                                         feature_list,
                                         slot_list);
 }

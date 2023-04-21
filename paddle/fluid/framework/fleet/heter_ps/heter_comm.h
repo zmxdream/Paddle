@@ -697,10 +697,8 @@ class HeterComm {
   }
 
   using Table = HashTable<KeyType, ValType>;
-  using FloatTable = HashTable<KeyType, GpuPsFloatFeaInfo>;
   using PtrTable = HashTable<KeyType, float*>;
   std::vector<Table*> tables_;
-  std::vector<FloatTable*> float_tables_;
   std::vector<PtrTable*> ptr_tables_;
   std::shared_ptr<HeterPsResource> resource_;
   std::vector<std::vector<Path>> path_;

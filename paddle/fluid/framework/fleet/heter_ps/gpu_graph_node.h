@@ -509,6 +509,7 @@ struct GpuPsCommGraphFea {
   }
 };  // end of struct GpuPsCommGraphFea
 
+/*
 struct GpuPsFloatFeaInfo {
   uint32_t feature_size, feature_offset;
   uint32_t slot_size, slot_offset;
@@ -520,15 +521,16 @@ struct GpuPsFloatFeaInfo {
     return out;
   }
 };
+*/
 
 
 struct GpuPsCommGraphFloatFea {
   uint64_t *node_list;     // only locate on host side, the list of node id
   float* feature_list;  // locate on both side
   uint8_t *slot_id_list;   // locate on both side
-  GpuPsFloatFeaInfo
+  GpuPsFeaInfo
       *fea_info_list;  // only locate on host side, the list of fea_info
-  uint64_t feature_size, node_size, slot_size, feature_capacity;
+  uint64_t feature_size, node_size, feature_capacity;
 
   // the size of feature array and graph_node_list array
   GpuPsCommGraphFloatFea()
@@ -537,26 +539,22 @@ struct GpuPsCommGraphFloatFea {
         slot_id_list(NULL),
         fea_info_list(NULL),
         feature_size(0),
-        node_size(0),
-        slot_size(0) {}
+        node_size(0) {}
   GpuPsCommGraphFloatFea(uint64_t *node_list_, // node0
-                    float *feature_list_, // 30 = 20 + 10
-                    uint8_t *slot_id_list_, // slot0, slot1
-                    GpuPsFloatFeaInfo *fea_info_list_,
-                    uint64_t feature_size_, // 30
-                    uint64_t node_size_,
-                    uint64_t slot_size_) // 1
+                         float *feature_list_, // 30 = 20 + 10
+                         uint8_t *slot_id_list_, // slot0, slot1
+                         GpuPsFeaInfo *fea_info_list_,
+                         uint64_t feature_size_, // 30
+                         uint64_t node_size_) // 1
       : node_list(node_list_),
         feature_list(feature_list_),
         slot_id_list(slot_id_list_),
         fea_info_list(fea_info_list_),
         feature_size(feature_size_),
-        node_size(node_size_),
-        slot_size(slot_size_) {}
+        node_size(node_size_) {}
   void init_on_cpu(uint64_t feature_size,
                    uint64_t node_size,
-                   uint32_t slot_num, // float slot num
-                   uint64_t total_slot) {
+                   uint32_t slot_num) {
     PADDLE_ENFORCE_LE(
         slot_num,
         255,
@@ -566,11 +564,10 @@ struct GpuPsCommGraphFloatFea {
             slot_num));
     this->feature_size = feature_size;
     this->node_size = node_size;
-    this->slot_size = total_slot;
     this->node_list = new uint64_t[node_size];
     this->feature_list = new float[feature_size];
-    this->slot_id_list = new uint8_t[total_slot];
-    this->fea_info_list = new GpuPsFloatFeaInfo[node_size];
+    this->slot_id_list = new uint8_t[feature_size];
+    this->fea_info_list = new GpuPsFeaInfo[node_size];
   }
   void release_on_cpu() {
 #define DEL_PTR_ARRAY(p) \
