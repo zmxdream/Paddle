@@ -2827,15 +2827,15 @@ int GraphTable::get_node_embedding_ids(
   }
 }
 
-void GraphTable::get_float_feature_shape(std::vector<uint32_t>& float_feature_shape) {
-  if (float_feat_shape.size() > 0) {
-    for (size_t i = 0; i < float_feat_shape[0].size(); i++) {
-      if (float_feat_dtype[0][i] == "float32") {
-        float_feature_shape.push_back(float_feat_shape[0][i]);
-      }
-    }
-  }
-}
+// void GraphTable::get_float_feature_shape(std::vector<uint32_t>& float_feature_shape) {
+//   if (float_feat_shape.size() > 0) {
+//     for (size_t i = 0; i < float_feat_shape[0].size(); i++) {
+//       if (float_feat_dtype[0][i] == "float32") {
+//         float_feature_shape.push_back(float_feat_shape[0][i]);
+//       }
+//     }
+//   }
+// }
 
 int32_t GraphTable::pull_graph_list(GraphTableType table_type,
                                     int idx,

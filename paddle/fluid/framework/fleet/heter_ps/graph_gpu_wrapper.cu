@@ -895,10 +895,10 @@ int GraphGpuWrapper::get_feature_info_of_nodes(
                                   slot_list);
 }
 
-void GraphGpuWrapper::get_float_feature_shape(std::vector<uint32_t>& float_feature_shape) {
-  return reinterpret_cast<GpuPsGraphTable *>(graph_table)
-      ->cpu_graph_table_->get_float_feature_shape(float_feature_shape);
-}
+// void GraphGpuWrapper::get_float_feature_shape(std::vector<uint32_t>& float_feature_shape) {
+//   return reinterpret_cast<GpuPsGraphTable *>(graph_table)
+//       ->cpu_graph_table_->get_float_feature_shape(float_feature_shape);
+// }
 
 int GraphGpuWrapper::get_float_feature_info_of_nodes(
     int gpu_id,
