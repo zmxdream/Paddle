@@ -1553,8 +1553,6 @@ int GraphDataGenerator::FillSlotFeature(uint64_t *d_walk, size_t key_num) {
     CUDA_CHECK(cudaStreamSynchronize(train_stream_));
   }
   if (debug_mode_) {
-  // 后面适配
-  /*
     std::vector<uint32_t> h_feature_size_list(key_num, 0);
     std::vector<uint32_t> h_feature_size_list_prefixsum(key_num, 0);
     std::vector<uint64_t> node_list(key_num, 0);
@@ -1636,7 +1634,6 @@ int GraphDataGenerator::FillSlotFeature(uint64_t *d_walk, size_t key_num) {
       ss_tensor << "]";
       VLOG(0) << ss_lod.str() << "  " << ss_tensor.str();
     }
- */
   }
 
   return 0;
