@@ -449,13 +449,12 @@ void PSGPUWrapper::add_slot_feature(std::shared_ptr<HeterContext> gpu_task) {
   std::vector<uint64_t*> feature_list(device_num);
   std::vector<size_t> feature_list_size(device_num);
 #if defined(PADDLE_WITH_PSCORE) && defined(PADDLE_WITH_GPU_GRAPH)
-  // size_t batch = 40000;
+  size_t batch = 40000;
   size_t slot_num = static_cast<size_t>(
       slot_num_for_pull_feature_);  // node slot 9008 in slot_vector
   time_stage.Start();
   if (FLAGS_gpugraph_storage_mode ==
       paddle::framework::GpuGraphStorageMode::MEM_EMB_AND_GPU_GRAPH) {
-  /*
     auto gpu_graph_ptr = GraphGpuWrapper::GetInstance();
     auto h_slot_feature_num_map = gpu_graph_ptr->slot_feature_num_map();
     int fea_num_per_node = 0;
@@ -537,7 +536,6 @@ void PSGPUWrapper::add_slot_feature(std::shared_ptr<HeterContext> gpu_task) {
       feature_list[i] = feature_ids[i].data();
       feature_list_size[i] = feature_ids[i].size();
     }
-  */
   } else if (FLAGS_gpugraph_storage_mode ==
                  paddle::framework::GpuGraphStorageMode::
                      MEM_EMB_FEATURE_AND_GPU_GRAPH ||
