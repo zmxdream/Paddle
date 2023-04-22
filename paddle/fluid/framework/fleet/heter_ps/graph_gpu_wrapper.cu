@@ -18,12 +18,14 @@
 #include "paddle/fluid/framework/fleet/heter_ps/gpu_graph_utils.h"
 #include "paddle/fluid/framework/fleet/heter_ps/graph_gpu_ps_table.h"
 #include "paddle/fluid/framework/fleet/heter_ps/heter_resource.h"
+
 DECLARE_int32(gpugraph_storage_mode);
 DECLARE_bool(graph_metapath_split_opt);
+
 namespace paddle {
 namespace framework {
-#ifdef PADDLE_WITH_HETERPS
 
+#ifdef PADDLE_WITH_HETERPS
 std::shared_ptr<GraphGpuWrapper> GraphGpuWrapper::s_instance_(nullptr);
 void GraphGpuWrapper::set_device(std::vector<int> ids) {
   for (auto device_id : ids) {
@@ -114,7 +116,9 @@ void GraphGpuWrapper::init_conf(const std::string &first_node_type,
                     "(%s) is not found in edge_to_id.", edge_dst));
         VLOG(2) << "pair_label_conf[" << src_iter->second << "][" << dst_iter->second << "] = " << label;
         pair_label_conf_[src_iter->second * id_to_feature.size() + dst_iter->second] = label;
-        pair_label_conf_[dst_iter->second * id_to_feature.size() + src_iter->second] = label;
+        if (pair_label_conf_[dst_iter->second * id_to_feature.size() + src_iter->second] == 0) {
+          pair_label_conf_[dst_iter->second * id_to_feature.size() + src_iter->second] = label;
+        }
       }
       for (int i = 0; i < id_to_feature.size(); ++i) {
         std::stringstream buf;
@@ -675,12 +679,70 @@ void GraphGpuWrapper::init_service() {
       g_f->add_shape(table_feat_conf_feat_shape[i][x]);
     }
   }
+
   std::shared_ptr<HeterPsResource> resource =
       std::make_shared<HeterPsResource>(device_id_mapping);
   resource->enable_p2p();
-  GpuPsGraphTable *g = new GpuPsGraphTable(resource, id_to_edge.size());
+
+#ifdef PADDLE_WITH_GLOO
+  auto gloo = paddle::framework::GlooWrapper::GetInstance();
+  if (gloo->Size() > 1) {
+    multi_node_ = 1;
+    resource->set_multi_node(multi_node_);
+    VLOG(0) << "init multi node graph gpu server";
+  }
+#else
+  PADDLE_THROW(
+          platform::errors::Unavailable("heter ps need compile with GLOO"));
+#endif
+
+#ifdef PADDLE_WITH_CUDA
+  if (multi_node_) {
+    int dev_size = device_id_mapping.size();
+    // init inner comm
+    inner_comms_.resize(dev_size);
+    inter_ncclids_.resize(dev_size);
+    platform::dynload::ncclCommInitAll(
+            &(inner_comms_[0]), dev_size, &device_id_mapping[0]);
+// init inter comm
+#ifdef PADDLE_WITH_GLOO
+    inter_comms_.resize(dev_size);
+    if (gloo->Rank() == 0) {
+      for (int i = 0; i < dev_size; ++i) {
+        platform::dynload::ncclGetUniqueId(&inter_ncclids_[i]);
+      }
+    }
+
+    PADDLE_ENFORCE_EQ(
+            gloo->IsInitialized(),
+            true,
+            platform::errors::PreconditionNotMet(
+                "You must initialize the gloo environment first to use it."));
+    gloo::BroadcastOptions opts(gloo->GetContext());
+    opts.setOutput(&inter_ncclids_[0], dev_size);
+    opts.setRoot(0);
+    gloo::broadcast(opts);
+
+    PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclGroupStart());
+    for (int i = 0; i < dev_size; ++i) {
+      platform::CUDADeviceGuard guard(device_id_mapping[i]);
+      platform::dynload::ncclCommInitRank(
+              &inter_comms_[i], gloo->Size(), inter_ncclids_[i], gloo->Rank());
+    }
+    PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclGroupEnd());
+
+    rank_id_ = gloo->Rank();
+    node_size_ = gloo->Size();
+#else
+    PADDLE_THROW(platform::errors::Unavailable("heter ps need compile with GLOO"));
+#endif
+  }
+#endif
+
   size_t gpu_num = device_id_mapping.size();
+  GpuPsGraphTable *g = new GpuPsGraphTable(resource, id_to_edge.size());
   g->init_cpu_table(table_proto, gpu_num);
+  g->set_nccl_comm_and_size(inner_comms_, inter_comms_, node_size_, rank_id_);
   g->cpu_graph_table_->set_feature_separator(feature_separator_);
   g->cpu_graph_table_->set_slot_feature_separator(slot_feature_separator_);
   graph_table = reinterpret_cast<char *>(g);
@@ -690,6 +752,12 @@ void GraphGpuWrapper::init_service() {
 
 void GraphGpuWrapper::finalize() {
   reinterpret_cast<GpuPsGraphTable *>(graph_table)->show_table_collisions();
+}
+
+void GraphGpuWrapper::show_mem(const char* msg)
+{
+  show_cpu_mem(msg);
+  show_gpu_mem(msg);
 }
 
 // edge table
@@ -1090,7 +1158,7 @@ std::string &GraphGpuWrapper::get_edge_type_size() {
   edge_type_size_str_ = paddle::string::join_strings(edge_type_size, delim);
   return edge_type_size_str_;
 }
-
 #endif
-}  // namespace framework
+
+};  // namespace framework
 };  // namespace paddle
