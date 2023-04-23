@@ -1953,7 +1953,7 @@ int GraphDataGenerator::FillFloatFeature(uint64_t *d_walk, size_t key_num) {
       }
       VLOG(0) << ss.str();
     }
-    VLOG(0) << "all fea_num is " << fea_num << " calc fea_num is "
+    VLOG(0) << "all float fea_num is " << fea_num << " calc float fea_num is "
             << h_feature_size_list[key_num - 1] +
                    h_feature_size_list_prefixsum[key_num - 1];
     for (int i = 0; i < float_slot_num_; ++i) {
@@ -1972,10 +1972,10 @@ int GraphDataGenerator::FillFloatFeature(uint64_t *d_walk, size_t key_num) {
         ss_lod << h_slot_lod_tensor[j] << ",";
       }
       ss_lod << "]";
-      std::vector<int64_t> h_slot_tensor(h_slot_lod_tensor[key_num], 0);
+      std::vector<float> h_slot_tensor(h_slot_lod_tensor[key_num], 0);
       CUDA_CHECK(cudaMemcpyAsync(reinterpret_cast<char *>(h_slot_tensor.data()),
                                  slot_tensor_ptr_[i],
-                                 sizeof(int64_t) * h_slot_lod_tensor[key_num],
+                                 sizeof(float) * h_slot_lod_tensor[key_num],
                                  cudaMemcpyDeviceToHost,
                                  train_stream_));
       CUDA_CHECK(cudaStreamSynchronize(train_stream_));
