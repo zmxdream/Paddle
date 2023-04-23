@@ -796,16 +796,20 @@ int GraphDataGenerator::FillGraphSlotFeature(
         feed_vec_[0]->mutable_data<int64_t>({total_instance, 1}, this->place_);
     ins_cursor = reinterpret_cast<uint64_t *>(id_tensor_ptr_);
   }
-  int ret = -1;
-  if (!conf_.sage_mode_) {
-    ret = FillSlotFeature(ins_cursor, total_instance);
+  int ret = 0;
+  if (!conf_.sage_mode) {
+    if (uint_slot_num_ > 0) {
+      ret += FillSlotFeature(ins_cursor, total_instance);
+    }
     if (float_slot_num_ > 0) {
       ret += FillFloatFeature(ins_cursor, total_instance);
     }
   } else {
     uint64_t *sage_nodes_ptr =
         reinterpret_cast<uint64_t *>(final_sage_nodes->ptr());
-    ret = FillSlotFeature(sage_nodes_ptr, total_instance);
+    if (uint_slot_num_ > 0) {
+      ret += FillSlotFeature(sage_nodes_ptr, total_instance);
+    }
     if (float_slot_num_ > 0) {
       ret += FillFloatFeature(sage_nodes_ptr, total_instance);
     }
@@ -997,8 +1001,8 @@ int GraphDataGenerator::GenerateBatch() {
   LoD lod{offset_};
   feed_vec_[0]->set_lod(lod);
   //adapt for float feature 
-  if (conf_.slot_num_ > 0) {
-    for (int i = 0; i < conf_.slot_num_; ++i) {
+  if (conf_.slot_num > 0) {
+    for (int i = 0; i < conf_.slot_num; ++i) {
       if (feed_type_[id_offset_of_feed_vec_ + 2 * i][0] == 'u') {
         feed_vec_[id_offset_of_feed_vec_ + 2 * i]->set_lod(lod);
       }
@@ -1579,7 +1583,7 @@ int GraphDataGenerator::FillSlotFeature(uint64_t *d_walk, size_t key_num) {
     }
     CUDA_CHECK(cudaStreamSynchronize(train_stream_));
   }
-  if (debug_mode_) {
+  if (conf_.debug_mode) {
     std::vector<uint32_t> h_feature_size_list(key_num, 0);
     std::vector<uint32_t> h_feature_size_list_prefixsum(key_num, 0);
     std::vector<uint64_t> node_list(key_num, 0);
@@ -1630,7 +1634,7 @@ int GraphDataGenerator::FillSlotFeature(uint64_t *d_walk, size_t key_num) {
     VLOG(0) << "all fea_num is " << fea_num << " calc fea_num is "
             << h_feature_size_list[key_num - 1] +
                    h_feature_size_list_prefixsum[key_num - 1];
-    for (int i = 0; i < slot_num_; ++i) {
+    for (int i = 0; i < conf_.slot_num; ++i) {
       std::vector<int64_t> h_slot_lod_tensor(key_num + 1, 0);
       CUDA_CHECK(
           cudaMemcpyAsync(reinterpret_cast<char *>(h_slot_lod_tensor.data()),
@@ -1667,12 +1671,12 @@ int GraphDataGenerator::FillSlotFeature(uint64_t *d_walk, size_t key_num) {
 }
 
 int GraphDataGenerator::FillFloatFeature(uint64_t *d_walk, size_t key_num) {
-  platform::CUDADeviceGuard guard(gpuid_);
+  platform::CUDADeviceGuard guard(conf_.gpuid);
   auto gpu_graph_ptr = GraphGpuWrapper::GetInstance();
   std::shared_ptr<phi::Allocation> d_feature_list;
   std::shared_ptr<phi::Allocation> d_slot_list;
 
-  if (sage_mode_) {
+  if (conf_.sage_mode) {
     size_t temp_storage_bytes = (key_num + 1) * sizeof(uint32_t);
     if (d_feature_size_list_buf_ == NULL ||
         d_feature_size_list_buf_->size() < temp_storage_bytes) {
@@ -1711,7 +1715,7 @@ int GraphDataGenerator::FillFloatFeature(uint64_t *d_walk, size_t key_num) {
   // VLOG(0) << "float_slot_shape size:" << float_slot_shape.size() << ", shape0:" << float_slot_shape[0];
 
   int fea_num =
-      gpu_graph_ptr->get_float_feature_info_of_nodes(gpuid_,
+      gpu_graph_ptr->get_float_feature_info_of_nodes(conf_.gpuid,
                                                      d_walk,
                                                      key_num,
                                                      d_feature_size_list_ptr,
@@ -1900,11 +1904,11 @@ int GraphDataGenerator::FillFloatFeature(uint64_t *d_walk, size_t key_num) {
     }
     CUDA_CHECK(cudaStreamSynchronize(train_stream_));
   }
-  if (conf_.debug_mode_) {
+  if (conf_.debug_mode) {
     std::vector<uint32_t> h_feature_size_list(key_num, 0);
     std::vector<uint32_t> h_feature_size_list_prefixsum(key_num, 0);
     std::vector<uint64_t> node_list(key_num, 0);
-    std::vector<uint64_t> h_feature_list(fea_num, 0);
+    std::vector<float> h_feature_list(fea_num, 0);
     std::vector<uint8_t> h_slot_list(fea_num, 0);
 
     CUDA_CHECK(
@@ -1927,7 +1931,7 @@ int GraphDataGenerator::FillFloatFeature(uint64_t *d_walk, size_t key_num) {
 
     CUDA_CHECK(cudaMemcpyAsync(reinterpret_cast<char *>(h_feature_list.data()),
                                d_feature_list_ptr,
-                               sizeof(uint64_t) * fea_num,
+                               sizeof(float) * fea_num,
                                cudaMemcpyDeviceToHost,
                                train_stream_));
     CUDA_CHECK(cudaMemcpyAsync(reinterpret_cast<char *>(h_slot_list.data()),
@@ -3377,11 +3381,8 @@ void GraphDataGenerator::SetFeedVec(std::vector<phi::DenseTensor *> feed_vec) {
 }
 void GraphDataGenerator::SetFeedType(const std::vector<std::string>& feed_type) {
   feed_type_ = feed_type;
-  // VLOG(0) << "[debug] in set feed type, slot_num_" << slot_num_ << "feed_type_size" << feed_vec_.size(); 
-
-  for (int i = 0; i < slot_num_; i++) {
+  for (int i = 0; i < conf_.slot_num; i++) {
     int offset = id_offset_of_feed_vec_ + 2 * i; 
-    // VLOG(0) << "feed_type" << offset << ", type:" << feed_type_[offset];
     if (feed_type_[offset][0] == 'f') { // float feature
       if (first_float_idx_ == -1) { 
         first_float_idx_ = i;
@@ -3391,9 +3392,9 @@ void GraphDataGenerator::SetFeedType(const std::vector<std::string>& feed_type) 
       if (first_slot_idx_ == -1) { 
         first_slot_idx_ = i;
       }
+      uint_slot_num_++;
     }
   }
-  // VLOG(0) << "first slot idx:" << first_slot_idx_ << ", first float idx:" << first_float_idx_ << ", float_slot_num_:" << float_slot_num_;
 }
 
 void GraphDataGenerator::AllocResource(

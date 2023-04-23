@@ -1070,6 +1070,7 @@ class GraphDataGenerator {
   int first_slot_idx_ = -1; // the idx of first slot feature
   int first_float_idx_ = -1; // the idx of first float feature
   int float_slot_num_ = 0; // float slot num
+  int uint_slot_num_ = 0; // uint slot num
   std::vector<int> h_slot_feature_num_map_;
   // adapt slot&dense feature
   std::vector<std::string> slot_type;
