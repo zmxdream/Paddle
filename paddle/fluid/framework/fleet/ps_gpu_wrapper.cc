@@ -362,7 +362,6 @@ void PSGPUWrapper::PreBuildTask(std::shared_ptr<HeterContext> gpu_task,
   add_key_to_gputask(gpu_task);
 }
 void PSGPUWrapper::add_slot_feature(std::shared_ptr<HeterContext> gpu_task) {
-  VLOG(0) << "in add_slot_feature";
   platform::Timer timeline;
   platform::Timer time_stage;
   timeline.Start();
@@ -442,10 +441,6 @@ if (slot_num_for_pull_feature_ > 0) {
       reinterpret_cast<void*>(new std::vector<GpuPsCommGraphFea>);
   std::vector<GpuPsCommGraphFea>& sub_graph_feas =
       *((std::vector<GpuPsCommGraphFea>*)gpu_task->sub_graph_feas);
-  //gpu_task->sub_graph_float_feas =
-  //      reinterpret_cast<void*>(new std::vector<GpuPsCommGraphFloatFea>);
-  //  std::vector<GpuPsCommGraphFloatFea>& sub_graph_float_feas =
-  //      *((std::vector<GpuPsCommGraphFloatFea>*)gpu_task->sub_graph_float_feas);
 #endif
   std::vector<std::vector<uint64_t>> feature_ids(device_num);
   std::vector<uint64_t*> feature_list(device_num);
@@ -547,9 +542,6 @@ if (slot_num_for_pull_feature_ > 0) {
     auto gpu_graph_ptr = GraphGpuWrapper::GetInstance();
     sub_graph_feas = gpu_graph_ptr->get_sub_graph_fea(node_ids, slot_num);
 
-    // if (float_slot_num_ > 0) {
-    //   sub_graph_float_feas = gpu_graph_ptr->get_sub_graph_float_fea(node_ids, float_slot_num_);
-    // }
     for (size_t i = 0; i < device_num; i++) {
       feature_list[i] = sub_graph_feas[i].feature_list;
       feature_list_size[i] = sub_graph_feas[i].feature_size;
@@ -564,7 +556,7 @@ if (slot_num_for_pull_feature_ > 0) {
   for (size_t i = 0; i < device_num; i++) {
     feature_num += feature_list_size[i];
   }
-  VLOG(0) << "feature_num is " << feature_num << " node_num is " << node_num;
+  VLOG(1) << "feature_num is " << feature_num << " node_num is " << node_num;
 
   size_t set_num = thread_keys_shard_num_;
   std::vector<std::unordered_set<uint64_t>> feature_id_set(set_num);
@@ -701,11 +693,6 @@ void PSGPUWrapper::BuildPull(std::shared_ptr<HeterContext> gpu_task) {
           paddle::framework::GpuGraphStorageMode::WHOLE_HBM) {
     add_slot_feature(gpu_task);
   }
-  // if (float_slot_num_ > 0 &&
-  //    FLAGS_gpugraph_storage_mode !=
-  //        paddle::framework::GpuGraphStorageMode::WHOLE_HBM) {
-  //  add_float_feature(gpu_task);
-  //} 
 #endif
 #ifdef PADDLE_WITH_PSLIB
   add_slot_feature(gpu_task);

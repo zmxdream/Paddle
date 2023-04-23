@@ -1689,31 +1689,12 @@ int GraphDataGenerator::FillFloatFeature(uint64_t *d_walk, size_t key_num) {
       d_feature_size_prefixsum_buf_ =
           memory::AllocShared(this->place_, temp_storage_bytes);
     }
-    // if (d_slot_size_list_buf_ == NULL ||
-    //    d_slot_size_list_buf_->size() < temp_storage_bytes) {
-    //  d_slot_size_list_buf_ =
-    //      memory::AllocShared(this->place_, temp_storage_bytes);
-    // }
-    // if (d_slot_size_prefixsum_buf_ == NULL ||
-    //     d_slot_size_prefixsum_buf_->size() < temp_storage_bytes) {
-    //   d_slot_size_prefixsum_buf_ =
-    //      memory::AllocShared(this->place_, temp_storage_bytes);
-    // }
   }
 
   uint32_t *d_feature_size_list_ptr =
       reinterpret_cast<uint32_t *>(d_feature_size_list_buf_->ptr());
   uint32_t *d_feature_size_prefixsum_ptr =
       reinterpret_cast<uint32_t *>(d_feature_size_prefixsum_buf_->ptr());
-  // uint32_t *d_slot_size_list_ptr =
-  //    reinterpret_cast<uint32_t *>(d_slot_size_list_buf_->ptr());
-  // uint32_t *d_slot_size_prefixsum_ptr =
-  //     reinterpret_cast<uint32_t *>(d_slot_size_prefixsum_buf_->ptr());
-
-  // get float slot shape
-  // std::vector<uint32_t> float_slot_shape;
-  // gpu_graph_ptr->get_float_feature_shape(float_slot_shape);
-  // VLOG(0) << "float_slot_shape size:" << float_slot_shape.size() << ", shape0:" << float_slot_shape[0];
 
   int fea_num =
       gpu_graph_ptr->get_float_feature_info_of_nodes(conf_.gpuid,
@@ -3668,8 +3649,6 @@ void GraphDataGenerator::AllocTrainResource(int thread_id) {
     } else {
       d_feature_size_list_buf_ = NULL;
       d_feature_size_prefixsum_buf_ = NULL;
-      // d_slot_size_list_buf_ = NULL;
-      // d_slot_size_prefixsum_buf_ = NULL;
     }
   }
 }

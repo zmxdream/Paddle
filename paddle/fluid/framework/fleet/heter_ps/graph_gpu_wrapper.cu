@@ -455,6 +455,11 @@ void GraphGpuWrapper::set_feature_separator(std::string ch) {
   }
 }
 
+void GraphGpuWrapper::set_feature_info(int sparse_slot_num, int float_slot_num) {
+  this->sparse_slot_num_ = sparse_slot_num;
+  this->float_slot_num_ = float_slot_num;
+}
+
 void GraphGpuWrapper::set_slot_feature_separator(std::string ch) {
   slot_feature_separator_ = ch;
   if (graph_table != nullptr) {
@@ -740,7 +745,8 @@ void GraphGpuWrapper::init_service() {
 #endif
 
   size_t gpu_num = device_id_mapping.size();
-  GpuPsGraphTable *g = new GpuPsGraphTable(resource, id_to_edge.size());
+
+  GpuPsGraphTable *g = new GpuPsGraphTable(resource, id_to_edge.size(), sparse_slot_num_, float_slot_num_);
   g->init_cpu_table(table_proto, gpu_num);
   g->set_nccl_comm_and_size(inner_comms_, inter_comms_, node_size_, rank_id_);
   g->cpu_graph_table_->set_feature_separator(feature_separator_);

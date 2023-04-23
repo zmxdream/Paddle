@@ -154,27 +154,6 @@ __global__ void dy_mf_search_kernel(Table* table,
   }
 }
 
-// use warp to optimize
-template <typename Table>
-__global__ void dy_mf_search_kernel(Table* table,
-                                    const typename Table::key_type* const keys,
-                                    char* vals,
-                                    size_t len,
-                                    size_t value_size) {
-  const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
-  if (i < len) {
-    auto it = table->find(keys[i]);
-    if (it != table->end()) {
-      uint64_t offset = i * value_size;
-      char* cur = vals + offset;
-      char* input = reinterpret_cast<char*>(it->second);
-      for (int j = 0; j < value_size; j++) cur[j] = input[j];
-    } else {
-      PADDLE_ENFORCE(false, "warning: pull miss key: %lu", keys[i]);
-    }
-  }
-}
-
 template <typename Table, typename GradType, typename Sgd>
 __global__ void update_kernel(Table* table,
                               const OptimizerConfig& optimizer_config,
@@ -309,22 +288,6 @@ void HashTable<KeyType, ValType>::get(const KeyType* d_keys,
   search_kernel<<<grid_size, BLOCK_SIZE_, 0, stream>>>(
       container_, d_keys, d_vals, len);
 }
-/*
-template <typename KeyType, typename ValType>
-template <typename StreamType>
-void HashTable<KeyType, ValType>::get(const KeyType* d_keys,
-                                      char* d_vals,
-                                      size_t len,
-                                      size_t value_size,
-                                      StreamType stream) {
-  if (len == 0) {
-    return;
-  }
-  const int grid_size = (len - 1) / BLOCK_SIZE_ + 1;
-  dy_mf_search_kernel<<<grid_size, BLOCK_SIZE_, 0, stream>>>(
-      container_, d_keys, d_vals, len, value_size);
-}
-*/
 
 template <typename KeyType, typename ValType>
 template <typename StreamType, typename GPUAccessor>

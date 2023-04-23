@@ -31,9 +31,6 @@ limitations under the License. */
 
 #include "paddle/fluid/framework/barrier.h"
 #include "paddle/fluid/framework/fleet/heter_ps/hashtable.h"
-#if defined(PADDLE_WITH_PSCORE) && defined(PADDLE_WITH_GPU_GRAPH)
-#include "paddle/fluid/framework/fleet/heter_ps/gpu_graph_node.h"
-#endif
 #include "paddle/fluid/framework/fleet/heter_ps/heter_comm_kernel.h"
 #include "paddle/fluid/framework/fleet/heter_ps/heter_resource.h"
 #include "paddle/fluid/memory/allocation/allocator.h"

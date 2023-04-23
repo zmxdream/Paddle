@@ -39,10 +39,6 @@ class GpuPsGraphTable
            type_id * graph_table_num_ + idx;
   }
 
-  // inline int get_float_table_offset(int gpu_id) const {
-  //  return gpu_id * float_feature_table_num_;
-  // }
-
   inline int get_graph_list_offset(int gpu_id, int edge_idx) const {
     return gpu_id * graph_table_num_ + edge_idx;
   }
@@ -54,7 +50,7 @@ class GpuPsGraphTable
   }
 
   GpuPsGraphTable(std::shared_ptr<HeterPsResource> resource,
-                  int graph_table_num)
+                  int graph_table_num, int sparse_slot_num = 0, int float_slot_num = 0)
       : HeterComm<uint64_t, uint64_t, int, CommonFeatureValueAccessor>(
             0, resource) {
     load_factor_ = FLAGS_gpugraph_hbm_table_load_factor;
@@ -63,8 +59,8 @@ class GpuPsGraphTable
 
     rw_lock.reset(new pthread_rwlock_t());
     this->graph_table_num_ = graph_table_num;
-    this->feature_table_num_ = 1;
-    this->float_feature_table_num_ = 1;
+    if (sparse_slot_num > 0) this->feature_table_num_ = 1;
+    if (float_slot_num > 0) this->float_feature_table_num_ = 1;
     gpu_num = resource_->total_device();
     memset(global_device_map, -1, sizeof(global_device_map));
 
@@ -249,7 +245,7 @@ class GpuPsGraphTable
   }
 
   int gpu_num;
-  int graph_table_num_, feature_table_num_, float_feature_table_num_;
+  int graph_table_num_, feature_table_num_{0}, float_feature_table_num_{0};
   std::vector<GpuPsCommGraph> gpu_graph_list_;
   std::vector<GpuPsCommGraphFea> gpu_graph_fea_list_;
   std::vector<GpuPsCommGraphFloatFea> gpu_graph_float_fea_list_;

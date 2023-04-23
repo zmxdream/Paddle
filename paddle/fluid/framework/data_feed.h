@@ -1033,8 +1033,6 @@ class GraphDataGenerator {
   std::shared_ptr<phi::Allocation> d_ins_buf_;
   std::shared_ptr<phi::Allocation> d_feature_size_list_buf_;
   std::shared_ptr<phi::Allocation> d_feature_size_prefixsum_buf_;
-  std::shared_ptr<phi::Allocation> d_slot_size_list_buf_;
-  std::shared_ptr<phi::Allocation> d_slot_size_prefixsum_buf_;
   std::shared_ptr<phi::Allocation> d_pair_num_;
   std::shared_ptr<phi::Allocation> d_slot_tensor_ptr_;
   std::shared_ptr<phi::Allocation> d_slot_lod_tensor_ptr_;

@@ -2877,16 +2877,6 @@ int GraphTable::get_node_embedding_ids(
   }
 }
 
-// void GraphTable::get_float_feature_shape(std::vector<uint32_t>& float_feature_shape) {
-//   if (float_feat_shape.size() > 0) {
-//     for (size_t i = 0; i < float_feat_shape[0].size(); i++) {
-//       if (float_feat_dtype[0][i] == "float32") {
-//         float_feature_shape.push_back(float_feat_shape[0][i]);
-//       }
-//     }
-//   }
-// }
-
 int32_t GraphTable::pull_graph_list(GraphTableType table_type,
                                     int idx,
                                     int start,
@@ -3045,7 +3035,6 @@ int32_t GraphTable::Initialize(const GraphParameter &graph) {
           << ", graph_edges_split_only_by_src_id="
           << FLAGS_graph_edges_split_only_by_src_id;
   feat_id_map.resize(node_types.size());
-  float_feat_id_map.resize(node_types.size());
   for (int k = 0; k < edge_types.size(); k++) {
     VLOG(0) << "in initialize: get a edge_type " << edge_types[k];
     edge_to_id[edge_types[k]] = k;
@@ -3054,9 +3043,6 @@ int32_t GraphTable::Initialize(const GraphParameter &graph) {
   feat_name.resize(node_types.size());
   feat_shape.resize(node_types.size());
   feat_dtype.resize(node_types.size());
-  float_feat_name.resize(node_types.size());
-  float_feat_shape.resize(node_types.size());
-  float_feat_dtype.resize(node_types.size());
   VLOG(0) << "got " << node_types.size() << " node types in total";
   for (int k = 0; k < node_types.size(); k++) {
     feature_to_id[node_types[k]] = k;
@@ -3079,6 +3065,12 @@ int32_t GraphTable::Initialize(const GraphParameter &graph) {
         feat_id_map[k][f_name] = feasign_idx++;
       } 
       else if (f_dtype == "float32"){
+        if (float_feat_name.size() < (size_t)node_types.size()) {
+          float_feat_name.resize(node_types.size());
+          float_feat_shape.resize(node_types.size());
+          float_feat_dtype.resize(node_types.size());
+          float_feat_id_map.resize(node_types.size());
+        }
         float_feat_name[k].push_back(f_name);
         float_feat_shape[k].push_back(f_shape);
         float_feat_dtype[k].push_back(f_dtype);
