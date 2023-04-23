@@ -534,21 +534,6 @@ struct GpuPsCommGraphFea {
   }
 };  // end of struct GpuPsCommGraphFea
 
-/*
-struct GpuPsFloatFeaInfo {
-  uint32_t feature_size, feature_offset;
-  uint32_t slot_size, slot_offset;
-  // this node's feature is stored on [feature_offset,feature_offset +
-  // feature_size) of int64_t *feature_list;
-  friend std::ostream& operator<<(std::ostream& out, GpuPsFloatFeaInfo& info) {
-    uint64_t* info_ptr = reinterpret_cast<uint64_t*>(&(info.feature_size));
-    out << *info_ptr;
-    return out;
-  }
-};
-*/
-
-
 struct GpuPsCommGraphFloatFea {
   uint64_t *node_list;     // only locate on host side, the list of node id
   float* feature_list;  // locate on both side

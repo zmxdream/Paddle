@@ -433,9 +433,7 @@ void PSGPUWrapper::add_slot_feature(std::shared_ptr<HeterContext> gpu_task) {
   threads.clear();
   time_stage.Pause();
   divide_nodeid_cost = time_stage.ElapsedSec();
-
 if (slot_num_for_pull_feature_ > 0) {
-
 #if defined(PADDLE_WITH_PSCORE) && defined(PADDLE_WITH_GPU_GRAPH)
   gpu_task->sub_graph_feas =
       reinterpret_cast<void*>(new std::vector<GpuPsCommGraphFea>);
@@ -541,7 +539,6 @@ if (slot_num_for_pull_feature_ > 0) {
                      SSD_EMB_AND_MEM_FEATURE_GPU_GRAPH) {
     auto gpu_graph_ptr = GraphGpuWrapper::GetInstance();
     sub_graph_feas = gpu_graph_ptr->get_sub_graph_fea(node_ids, slot_num);
-
     for (size_t i = 0; i < device_num; i++) {
       feature_list[i] = sub_graph_feas[i].feature_list;
       feature_list_size[i] = sub_graph_feas[i].feature_size;

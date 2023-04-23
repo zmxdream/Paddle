@@ -1392,7 +1392,6 @@ int GraphDataGenerator::FillSlotFeature(uint64_t *d_walk, size_t key_num) {
           memory::AllocShared(this->place_, temp_storage_bytes);
     }
   }
-
   uint32_t *d_feature_size_list_ptr =
       reinterpret_cast<uint32_t *>(d_feature_size_list_buf_->ptr());
   uint32_t *d_feature_size_prefixsum_ptr =
@@ -1458,7 +1457,6 @@ int GraphDataGenerator::FillSlotFeature(uint64_t *d_walk, size_t key_num) {
 
   dim3 grid((key_num - 1) / 256 + 1);
   dim3 block(1, 256);
-  
   get_each_ins_info<<<grid, block, 0, train_stream_>>>(
       d_slot_list_ptr,
       d_feature_size_list_ptr,
@@ -1754,17 +1752,6 @@ int GraphDataGenerator::FillFloatFeature(uint64_t *d_walk, size_t key_num) {
 
   dim3 grid((key_num - 1) / 256 + 1);
   dim3 block(1, 256);
-
-  // CHECK(float_slot_num_ == (int)float_slot_shape.size());
-  // copy float slot shape from cpu to gpu 
-  // std::shared_ptr<phi::Allocation> d_float_slot_shape = memory::AllocShared(this->place_, float_slot_num_ * sizeof(uint32_t));
-  // uint32_t* d_float_slot_shape_ptr = reinterpret_cast<uint32_t*>(d_float_slot_shape->ptr());
-  // CUDA_CHECK(cudaMemcpyAsync(reinterpret_cast<char*>(d_float_slot_shape_ptr),
-  //                           float_slot_shape.data(),
-  //                            float_slot_num_ * sizeof(uint32_t),
-  //                           cudaMemcpyHostToDevice,
-  //                           train_stream_));
-
   get_each_ins_float_info<<<grid, block, 0, train_stream_>>>(
       d_slot_list_ptr,
       d_feature_size_list_ptr,

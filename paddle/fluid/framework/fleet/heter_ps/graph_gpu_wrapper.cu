@@ -745,7 +745,6 @@ void GraphGpuWrapper::init_service() {
 #endif
 
   size_t gpu_num = device_id_mapping.size();
-
   GpuPsGraphTable *g = new GpuPsGraphTable(resource, id_to_edge.size(), sparse_slot_num_, float_slot_num_);
   g->init_cpu_table(table_proto, gpu_num);
   g->set_nccl_comm_and_size(inner_comms_, inter_comms_, node_size_, rank_id_);
@@ -968,11 +967,6 @@ int GraphGpuWrapper::get_feature_info_of_nodes(
                                   feature_list,
                                   slot_list);
 }
-
-// void GraphGpuWrapper::get_float_feature_shape(std::vector<uint32_t>& float_feature_shape) {
-//   return reinterpret_cast<GpuPsGraphTable *>(graph_table)
-//       ->cpu_graph_table_->get_float_feature_shape(float_feature_shape);
-// }
 
 int GraphGpuWrapper::get_float_feature_info_of_nodes(
     int gpu_id,

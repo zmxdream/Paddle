@@ -1965,7 +1965,7 @@ std::pair<uint64_t, uint64_t> GraphTable::parse_node_file(
       auto node = feature_shards[idx][index]->add_feature_node(id, false, float_fea_num_);
       if (node != NULL) {
         node->set_feature_size(feat_name[idx].size());
-        node->set_float_feature_size(float_feat_name[idx].size());
+        if (float_fea_num_ > 0) node->set_float_feature_size(float_feat_name[idx].size());
         for (int i = 1; i < num; ++i) {
           auto &v = vals[i];
           int ret = parse_feature(idx, v.ptr, v.len, node);
@@ -2035,7 +2035,7 @@ std::pair<uint64_t, uint64_t> GraphTable::parse_node_file(
       auto node = feature_shards[idx][index]->add_feature_node(id, false, float_fea_num_);
       if (node != NULL) {
         node->set_feature_size(feat_name[idx].size());
-        node->set_float_feature_size(float_feat_name[idx].size());
+        if (float_fea_num_ > 0) node->set_float_feature_size(float_feat_name[idx].size());
         for (int i = 2; i < num; ++i) {
           auto &v = vals[i];
           int ret = parse_feature(idx, v.ptr, v.len, node);

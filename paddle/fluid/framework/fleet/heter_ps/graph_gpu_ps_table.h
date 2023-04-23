@@ -38,7 +38,6 @@ class GpuPsGraphTable
     return gpu_id * (graph_table_num_ + feature_table_num_ + float_feature_table_num_) +
            type_id * graph_table_num_ + idx;
   }
-
   inline int get_graph_list_offset(int gpu_id, int edge_idx) const {
     return gpu_id * graph_table_num_ + edge_idx;
   }
@@ -69,7 +68,6 @@ class GpuPsGraphTable
 
     tables_ = std::vector<Table *>(
         gpu_num * (graph_table_num_ + feature_table_num_ + float_feature_table_num_), NULL);
-
     for (int i = 0; i < gpu_num; i++) {
       global_device_map[resource_->dev_id(i)] = i;
       for (int j = 0; j < graph_table_num_; j++) {
@@ -97,7 +95,6 @@ class GpuPsGraphTable
   void build_graph_on_single_gpu(const GpuPsCommGraph &g, int gpu_id, int idx);
   void build_graph_fea_on_single_gpu(const GpuPsCommGraphFea &g, int gpu_id);
   void build_graph_float_fea_on_single_gpu(const GpuPsCommGraphFloatFea &g, int gpu_id);
-  // void build_float_feat_table(int dev_num, uint64_t* h_keys, GpuPsFloatFeaInfo* fea_info, size_t len, size_t chunk_size, int stream_num, int offset);
   void clear_graph_info(int gpu_id, int index);
   void clear_graph_info(int index);
   void reset_feature_info(int gpu_id, size_t capacity, size_t feature_size);
