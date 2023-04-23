@@ -59,16 +59,16 @@ class GpuPsGraphTable
 
     rw_lock.reset(new pthread_rwlock_t());
     this->graph_table_num_ = graph_table_num;
-    if (sparse_slot_num > 0) this->feature_table_num_ = 1;
-    if (float_slot_num > 0) this->float_feature_table_num_ = 1;
+    this->feature_table_num_ = 1;
+    if (float_slot_num > 0) {
+      VLOG(0) << "float slot num set to 1";
+      this->float_feature_table_num_ = 1;
+    }
     gpu_num = resource_->total_device();
     memset(global_device_map, -1, sizeof(global_device_map));
 
     tables_ = std::vector<Table *>(
         gpu_num * (graph_table_num_ + feature_table_num_ + float_feature_table_num_), NULL);
-    // float table
-    // float_tables_ = std::vector<FloatTable *>(
-    //    gpu_num * float_feature_table_num_, NULL);
 
     for (int i = 0; i < gpu_num; i++) {
       global_device_map[resource_->dev_id(i)] = i;
