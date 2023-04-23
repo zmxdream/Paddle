@@ -1634,7 +1634,8 @@ int GraphDataGenerator::FillSlotFeature(uint64_t *d_walk, size_t key_num) {
     VLOG(0) << "all fea_num is " << fea_num << " calc fea_num is "
             << h_feature_size_list[key_num - 1] +
                    h_feature_size_list_prefixsum[key_num - 1];
-    for (int i = 0; i < conf_.slot_num; ++i) {
+
+    for (int i = 0; i < slot_num; ++i) {
       std::vector<int64_t> h_slot_lod_tensor(key_num + 1, 0);
       CUDA_CHECK(
           cudaMemcpyAsync(reinterpret_cast<char *>(h_slot_lod_tensor.data()),
@@ -1955,7 +1956,7 @@ int GraphDataGenerator::FillFloatFeature(uint64_t *d_walk, size_t key_num) {
     VLOG(0) << "all fea_num is " << fea_num << " calc fea_num is "
             << h_feature_size_list[key_num - 1] +
                    h_feature_size_list_prefixsum[key_num - 1];
-    for (int i = 0; i < conf_.slot_num; ++i) {
+    for (int i = 0; i < float_slot_num_; ++i) {
       std::vector<int64_t> h_slot_lod_tensor(key_num + 1, 0);
       CUDA_CHECK(
           cudaMemcpyAsync(reinterpret_cast<char *>(h_slot_lod_tensor.data()),
