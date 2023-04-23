@@ -225,7 +225,7 @@ paddle::framework::GpuPsCommGraphFloatFea GraphTable::make_gpu_ps_graph_float_fe
             x.feature_offset = feature_array[i].size();
             int total_feature_size = 0;
             for (int k = 0; k < float_slot_num; ++k) {
-              auto float_feature_size = // 其实就是float特征的shape,只可能有两种取值，0或者shape
+              auto float_feature_size =
                   v->get_float_feature(k, feature_array[i], slot_id_array[i]);
               if (float_feature_num_map_[k] < float_feature_size) {
                  float_feature_num_map_[k] = float_feature_size;
@@ -269,7 +269,7 @@ paddle::framework::GpuPsCommGraphFloatFea GraphTable::make_gpu_ps_graph_float_fe
           for (size_t j = 0; j < node_id_array[i].size(); j++) {
             res.node_list[start] = node_id_array[i][j];
             res.fea_info_list[start] = node_fea_info_array[i][j];
-            res.fea_info_list[start++].feature_offset += offset; // 如果节点不在呢
+            res.fea_info_list[start++].feature_offset += offset;
           }
           for (size_t j = 0; j < feature_array[i].size(); j++) {
             res.feature_list[offset + j] = feature_array[i][j];
@@ -2660,31 +2660,33 @@ int GraphTable::parse_feature(int idx,
       return 0;
     }
   } else {
-    auto float_it = float_feat_id_map[idx].find(name);
-    if (float_it != float_feat_id_map[idx].end()) {
-      int32_t id = float_it->second;
-      std::string *fea_ptr = node->mutable_float_feature(id);
-      std::string dtype = this->float_feat_dtype[idx][id];
-      if (dtype == "float32") {
-        int ret = FeatureNode::parse_value_to_bytes<float>(
-            fea_fields.begin(), fea_fields.end(), fea_ptr);
-        if (ret != 0) {
-          VLOG(0) << "Fail to parse value";
-          return -1;
+    if (float_feat_id_map.size() > (size_t)idx) {
+      auto float_it = float_feat_id_map[idx].find(name);
+      if (float_it != float_feat_id_map[idx].end()) {
+        int32_t id = float_it->second;
+        std::string *fea_ptr = node->mutable_float_feature(id);
+        std::string dtype = this->float_feat_dtype[idx][id];
+        if (dtype == "float32") {
+          int ret = FeatureNode::parse_value_to_bytes<float>(
+              fea_fields.begin(), fea_fields.end(), fea_ptr);
+          if (ret != 0) {
+            VLOG(0) << "Fail to parse value";
+            return -1;
+          }
+          return 0;
+        } else if (dtype == "float64") { // not used
+          int ret = FeatureNode::parse_value_to_bytes<double>(
+              fea_fields.begin(), fea_fields.end(), fea_ptr);
+          if (ret != 0) {
+            VLOG(0) << "Fail to parse value";
+            return -1;
+          }
+          return 0;
         }
-        return 0;
-      } else if (dtype == "float64") { // not used
-        int ret = FeatureNode::parse_value_to_bytes<double>(
-            fea_fields.begin(), fea_fields.end(), fea_ptr);
-        if (ret != 0) {
-          VLOG(0) << "Fail to parse value";
-          return -1;
-        }
-        return 0;
+      } else {
+        VLOG(4) << "feature_name[" << name << "] is not in feat_id_map, ntype_id["
+                << idx << "] feat_id_map_size[" << feat_id_map.size() << "]";
       }
-    } else {
-      VLOG(4) << "feature_name[" << name << "] is not in feat_id_map, ntype_id["
-              << idx << "] feat_id_map_size[" << feat_id_map.size() << "]";
     }
   }
   return 0;
