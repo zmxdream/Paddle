@@ -514,6 +514,7 @@ void BoxWrapper::PushSparseGradCaseXPU(const paddle::platform::Place& place,
   DeviceBoxData& dev = device_caches_[device_id];
   auto dev_ctx = platform::DeviceContextPool::Instance().Get(place);
   auto ctx_xpu = static_cast<platform::XPUDeviceContext*>(dev_ctx)->x_context();
+  ctx_xpu = ctx_xpu;//avoid unused error without TRACE_PROFILE
 
   platform::Timer& all_timer = dev.all_push_timer;
   platform::Timer& push_boxps_timer = dev.boxps_push_timer;
