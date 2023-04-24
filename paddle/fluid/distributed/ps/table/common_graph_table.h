@@ -122,7 +122,7 @@ class GraphShard {
   }
   GraphNode *add_graph_node(uint64_t id);
   GraphNode *add_graph_node(Node *node);
-  FeatureNode *add_feature_node(uint64_t id, bool is_overlap = true, int float_fea_num=-1);
+  FeatureNode *add_feature_node(uint64_t id, bool is_overlap = true, int float_fea_num = 0);
   Node *find_node(uint64_t id);
   void delete_node(uint64_t id);
   void clear();
@@ -781,11 +781,11 @@ class GraphTable : public Table {
   std::vector<std::vector<std::string>> feat_name;
   std::vector<std::vector<std::string>> feat_dtype;
   std::vector<std::vector<int32_t>> feat_shape;
-  std::vector<std::vector<std::string>> float_feat_name;
+  // std::vector<std::vector<std::string>> float_feat_name;
   // std::vector<std::vector<std::string>> float_feat_dtype;
-  std::vector<std::vector<int32_t>> float_feat_shape;
-  int slot_fea_num_{-1};
-  int float_fea_num_{-1};
+  // std::vector<std::vector<int32_t>> float_feat_shape;
+  // int slot_fea_num_{-1};
+  // int float_fea_num_{-1};
   std::vector<std::unordered_map<std::string, int32_t>> feat_id_map;
   std::vector<std::unordered_map<std::string, int32_t>> float_feat_id_map;
   std::unordered_map<std::string, int> feature_to_id, edge_to_id;
