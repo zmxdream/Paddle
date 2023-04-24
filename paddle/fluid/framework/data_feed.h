@@ -1065,8 +1065,6 @@ class GraphDataGenerator {
   size_t buf_size_;
   int repeat_time_;
   BufState buf_state_;
-  // int first_slot_idx_ = -1; // the idx of first slot feature
-  // int first_float_idx_ = -1; // the idx of first float feature
   int float_slot_num_ = 0; // float slot num
   int uint_slot_num_ = 0; // uint slot num
   std::vector<int> h_slot_feature_num_map_;
@@ -1283,7 +1281,6 @@ class DataFeed {
 
   // The data read by DataFeed will be stored here
   std::vector<phi::DenseTensor*> feed_vec_;
-  // std::vector<std::string> use_slots_type_;
   phi::DenseTensor* rank_offset_;
 
   // the batch size defined by user
