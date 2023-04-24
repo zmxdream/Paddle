@@ -2053,7 +2053,7 @@ void SlotRecordInMemoryDataFeed::Init(const DataFeedDesc& data_feed_desc) {
       }
 
       use_slots_.push_back(slot.name());
-      use_slots_type_.push_back(slot.type());
+      // use_slots_type_.push_back(slot.type());
 
       if (slot.is_dense()) {
         for (int j = 0; j < slot.shape_size(); ++j) {
@@ -2672,7 +2672,7 @@ bool SlotRecordInMemoryDataFeed::Start() {
 #if defined(PADDLE_WITH_GPU_GRAPH) && defined(PADDLE_WITH_HETERPS)
   gpu_graph_data_generator_.SetFeedVec(feed_vec_);
   // adapt for dense feature
-  gpu_graph_data_generator_.SetFeedType(use_slots_type_);
+  gpu_graph_data_generator_.SetFeedInfo(&used_slots_info_);
 #endif
   return true;
 }

@@ -736,9 +736,6 @@ class GraphTable : public Table {
   std::vector<int> slot_feature_num_map() const {
     return slot_feature_num_map_;
   }
-  std::vector<int> float_feature_num_map() const {
-    return float_feature_num_map_;
-  }
   std::vector<uint64_t> get_partition(size_t idx, size_t index) {
     if (idx >= partitions.size() || index >= partitions[idx].size())
       return std::vector<uint64_t>();
@@ -785,7 +782,7 @@ class GraphTable : public Table {
   std::vector<std::vector<std::string>> feat_dtype;
   std::vector<std::vector<int32_t>> feat_shape;
   std::vector<std::vector<std::string>> float_feat_name;
-  std::vector<std::vector<std::string>> float_feat_dtype;
+  // std::vector<std::vector<std::string>> float_feat_dtype;
   std::vector<std::vector<int32_t>> float_feat_shape;
   int slot_fea_num_{-1};
   int float_fea_num_{-1};
@@ -821,7 +818,6 @@ class GraphTable : public Table {
   std::string slot_feature_separator_ = std::string(" ");
   std::string feature_separator_ = std::string(" ");
   std::vector<int> slot_feature_num_map_;
-  std::vector<int> float_feature_num_map_;
   bool is_parse_node_fail_ = false;
   int node_num_ = 1;
   int node_id_ = 0;

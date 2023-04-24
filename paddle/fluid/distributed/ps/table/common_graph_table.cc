@@ -200,12 +200,12 @@ paddle::framework::GpuPsCommGraphFloatFea GraphTable::make_gpu_ps_graph_float_fe
   }
 
   std::vector<std::future<int>> tasks;
-  if (float_feature_num_map_.size() == 0) {
-     float_feature_num_map_.resize(float_slot_num);
-     for (int k = 0; k < float_slot_num; ++k) {
-        float_feature_num_map_[k] = 0;
-     }
-  }
+  // if (float_feature_num_map_.size() == 0) {
+  //    float_feature_num_map_.resize(float_slot_num);
+  //    for (int k = 0; k < float_slot_num; ++k) {
+  //       float_feature_num_map_[k] = 0;
+  //    }
+  // }
 
   for (size_t i = 0; i < bags.size(); i++) {
     if (bags[i].size() > 0) {
@@ -227,9 +227,9 @@ paddle::framework::GpuPsCommGraphFloatFea GraphTable::make_gpu_ps_graph_float_fe
             for (int k = 0; k < float_slot_num; ++k) {
               auto float_feature_size =
                   v->get_float_feature(k, feature_array[i], slot_id_array[i]);
-              if (float_feature_num_map_[k] < float_feature_size) {
-                 float_feature_num_map_[k] = float_feature_size;
-              }
+              // if (float_feature_num_map_[k] < float_feature_size) {
+              //    float_feature_num_map_[k] = float_feature_size;
+              // }
               total_feature_size += float_feature_size;
             }
             x.feature_size = total_feature_size;
@@ -243,13 +243,13 @@ paddle::framework::GpuPsCommGraphFloatFea GraphTable::make_gpu_ps_graph_float_fe
   }
   for (size_t i = 0; i < tasks.size(); i++) tasks[i].get();
 
-  if (FLAGS_v > 0) {
-     std::stringstream ss;
-     for (int k = 0; k < float_slot_num; ++k) {
-        ss << float_feature_num_map_[k] << " ";
-     }
-     VLOG(1) << "float_feature_num_map: " << ss.str();
-  }
+  // if (FLAGS_v > 0) {
+  //    std::stringstream ss;
+  //    for (int k = 0; k < float_slot_num; ++k) {
+  //       ss << float_feature_num_map_[k] << " ";
+  //    }
+  //    VLOG(1) << "float_feature_num_map: " << ss.str();
+  // }
 
   tasks.clear();
 
@@ -2665,8 +2665,8 @@ int GraphTable::parse_feature(int idx,
       if (float_it != float_feat_id_map[idx].end()) {
         int32_t id = float_it->second;
         std::string *fea_ptr = node->mutable_float_feature(id);
-        std::string dtype = this->float_feat_dtype[idx][id];
-        if (dtype == "float32") {
+        // std::string dtype = this->float_feat_dtype[idx][id];
+        // if (dtype == "float32") {
           int ret = FeatureNode::parse_value_to_bytes<float>(
               fea_fields.begin(), fea_fields.end(), fea_ptr);
           if (ret != 0) {
@@ -2674,15 +2674,16 @@ int GraphTable::parse_feature(int idx,
             return -1;
           }
           return 0;
-        } else if (dtype == "float64") { // not used
-          int ret = FeatureNode::parse_value_to_bytes<double>(
-              fea_fields.begin(), fea_fields.end(), fea_ptr);
-          if (ret != 0) {
-            VLOG(0) << "Fail to parse value";
-            return -1;
-          }
-          return 0;
-        }
+        // } 
+        // else if (dtype == "float64") { // not used
+        //  int ret = FeatureNode::parse_value_to_bytes<double>(
+        //      fea_fields.begin(), fea_fields.end(), fea_ptr);
+        //  if (ret != 0) {
+        //    VLOG(0) << "Fail to parse value";
+        //    return -1;
+        //  }
+        //  return 0;
+        // }
       } else {
         VLOG(4) << "feature_name[" << name << "] is not in feat_id_map, ntype_id["
                 << idx << "] feat_id_map_size[" << feat_id_map.size() << "]";
@@ -3070,12 +3071,12 @@ int32_t GraphTable::Initialize(const GraphParameter &graph) {
         if (float_feat_name.size() < (size_t)node_types.size()) {
           float_feat_name.resize(node_types.size());
           float_feat_shape.resize(node_types.size());
-          float_feat_dtype.resize(node_types.size());
+          // float_feat_dtype.resize(node_types.size());
           float_feat_id_map.resize(node_types.size());
         }
         float_feat_name[k].push_back(f_name);
         float_feat_shape[k].push_back(f_shape);
-        float_feat_dtype[k].push_back(f_dtype);
+        // float_feat_dtype[k].push_back(f_dtype);
         float_feat_id_map[k][f_name] = float_idx++;
       }
       VLOG(0) << "init graph table feat conf name:" << f_name
