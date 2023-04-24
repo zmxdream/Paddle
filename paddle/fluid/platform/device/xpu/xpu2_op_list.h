@@ -71,6 +71,7 @@ XPUOpMap& get_kl2_ops() {
        XPUKernelSet({pOpKernelType(vartype::FP32, XPUPlace()),
                      pOpKernelType(vartype::FP16, XPUPlace())})},
       {"clip", XPUKernelSet({pOpKernelType(vartype::FP32, XPUPlace())})},
+      {"clip_grad", XPUKernelSet({pOpKernelType(vartype::FP32, XPUPlace())})},
       {"coalesce_tensor",
        XPUKernelSet({pOpKernelType(vartype::FP32, XPUPlace())})},
       {"concat_grad",
