@@ -21,6 +21,7 @@
 #include "paddle/fluid/framework/op_registry.h"
 #include "paddle/fluid/framework/tensor.h"
 #include "paddle/phi/kernels/funcs/math_function.h"
+#include "paddle/fluid/operators/tensor_formatter.h"
 
 DECLARE_bool(enable_pull_box_padding_zero);
 
@@ -165,6 +166,22 @@ static void PullBoxSparseFunctor(const framework::ExecutionContext &ctx) {
   auto expand_dim = box_ptr->GetExpandEmbedDim();
   box_ptr->PullSparse(ctx.GetPlace(), all_keys, all_values, slot_lengths,
                       hidden_size, expand_dim, skip_offset, true);
+  if (std::getenv("DUMP_XPU_PUSH_SPARSE_INPUT") != nullptr) {
+    auto names = ctx.OutputNames("Out");
+    for (int i = 0; i <int(outputs.size()); i++) {
+      TensorFormatter formatter;
+      // const std::string &name = ctx.InputNames(framework::GradVarName("Out"))[i];
+      const std::string &name = names[i];
+      formatter.SetPrintTensorType(true);
+      formatter.SetPrintTensorShape(true);
+      formatter.SetPrintTensorLod(true);
+      formatter.SetPrintTensorLayout(true);
+      // formatter.SetSummarize(static_cast<int64_t>(Attr<int>("summarize")));
+      formatter.SetPrintFilePath("dev"+std::to_string(ctx.GetPlace().device)+".push_sparse_input.txt");
+      std::string message = std::string("---embs_all_")+std::to_string(i)+std::string("---");
+      formatter.Print(*(outputs[i]), name, message);
+    }
+  }
 #endif
 }
 
@@ -217,6 +234,22 @@ static void PushBoxSparseFunctor(const framework::ExecutionContext &ctx) {
   int skip_offset = ctx.Attr<int>("offset");
   auto box_ptr = paddle::framework::BoxWrapper::GetInstance();
   auto expand_dim = box_ptr->GetExpandEmbedDim();
+  if (std::getenv("DUMP_XPU_PUSH_SPARSE_INPUT") != nullptr) {
+    auto names = ctx.InputNames(framework::GradVarName("Out"));
+    for (int i = (d_output.size()-1); i >=0; i--) {
+      TensorFormatter formatter;
+      // const std::string &name = ctx.InputNames(framework::GradVarName("Out"))[i];
+      const std::string &name = names[i];
+      formatter.SetPrintTensorType(true);
+      formatter.SetPrintTensorShape(true);
+      formatter.SetPrintTensorLod(true);
+      formatter.SetPrintTensorLayout(true);
+      // formatter.SetSummarize(static_cast<int64_t>(Attr<int>("summarize")));
+      formatter.SetPrintFilePath("dev"+std::to_string(ctx.GetPlace().device)+".push_sparse_input.txt");
+      std::string message = std::string("---embs_all_")+std::to_string(i)+std::string("---");
+      formatter.Print(*(d_output[i]), name, message);
+    }
+  }
   box_ptr->PushSparseGrad(ctx.GetPlace(), all_keys, all_grad_values,
                           slot_lengths, hidden_size, expand_dim, batch_size,
                           skip_offset, true);
