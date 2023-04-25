@@ -1425,26 +1425,28 @@ void GpuPsGraphTable::clear_feature_info(int gpu_id) {
   }
   graph.feature_capacity = 0;
 
-  // float fea
-  idx = 1;
-  int float_offset = get_table_offset(gpu_id, GraphTableType::FEATURE_TABLE, idx);
-  if (float_offset < tables_.size()) {
-    delete tables_[float_offset];
-    tables_[float_offset] = NULL;
-  }
+  if (float_feature_table_num_ > 0) {
+    // float fea
+    idx = 1;
+    int float_offset = get_table_offset(gpu_id, GraphTableType::FEATURE_TABLE, idx);
+    if (float_offset < tables_.size()) {
+      delete tables_[float_offset];
+      tables_[float_offset] = NULL;
+    }
 
-  int graph_float_fea_idx = get_graph_float_fea_list_offset(gpu_id);
-  auto& float_graph = gpu_graph_float_fea_list_[graph_float_fea_idx];
-  if (float_graph.feature_list != NULL) {
-    cudaFree(float_graph.feature_list);
-    float_graph.feature_list = NULL;
-  }
+    int graph_float_fea_idx = get_graph_float_fea_list_offset(gpu_id);
+    auto& float_graph = gpu_graph_float_fea_list_[graph_float_fea_idx];
+    if (float_graph.feature_list != NULL) {
+      cudaFree(float_graph.feature_list);
+      float_graph.feature_list = NULL;
+    }
 
-  if (float_graph.slot_id_list != NULL) {
-    cudaFree(float_graph.slot_id_list);
-    float_graph.slot_id_list = NULL;
+    if (float_graph.slot_id_list != NULL) {
+      cudaFree(float_graph.slot_id_list);
+      float_graph.slot_id_list = NULL;
+    }
+    float_graph.feature_capacity = 0;
   }
-  float_graph.feature_capacity = 0;
 }
 
 void GpuPsGraphTable::reset_feature_info(int gpu_id,
