@@ -339,7 +339,7 @@ class MetricMsg {
     auto* gpu_data = gpu_tensor.data<T>();
     auto len = gpu_tensor.numel();
     data->resize(len);
-    SyncCopyD2H(data->data(), gpu_data, len);
+    SyncCopyD2H(data->data(), gpu_data, len, gpu_tensor.place());
   }
   static inline std::pair<int, int> parse_cmatch_rank(uint64_t x) {
     // first 32 bit store cmatch and second 32 bit store rank
@@ -815,6 +815,24 @@ class BoxWrapper {
                      std::function<void(const size_t&, const size_t&)> func) {
     boxps_ptr_->ExecRangeFunc(GetPlaceDeviceId(place), num, func);
   }
+  // get slot vector
+  const std::vector<int>& GetSlotVector(void) { return slot_vector_; }
+  // add skip gc var
+  void AddSkipGCVar(const std::string& str) {
+    if (str.empty()) {
+      return;
+    }
+    auto var_names = string::split_string(str);
+    for (auto& name : var_names) {
+      auto it = std::find(skip_gc_vars_.begin(), skip_gc_vars_.end(), name);
+      if (it != skip_gc_vars_.end()) {
+        return;
+      }
+      skip_gc_vars_.push_back(name);
+    }
+  }
+  // get need skip gc var
+  const std::vector<std::string>& GetSkipGCVars(void) { return skip_gc_vars_; }
 
  private:
   static cudaStream_t stream_list_[MAX_GPU_NUM];
@@ -962,6 +980,8 @@ class BoxWrapper {
   std::set<std::string> slot_eval_set_;
   std::atomic<uint16_t> dataset_id_{0};
   std::atomic<uint16_t> round_id_{0};
+  // skip gc vars
+  std::vector<std::string> skip_gc_vars_;
 };
 /**
  * @brief file mgr
