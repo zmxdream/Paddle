@@ -550,12 +550,12 @@ struct GpuPsCommGraphFloatFea {
         fea_info_list(NULL),
         feature_size(0),
         node_size(0) {}
-  GpuPsCommGraphFloatFea(uint64_t *node_list_, // node0
-                         float *feature_list_, // 30 = 20 + 10
-                         uint8_t *slot_id_list_, // slot0, slot1
+  GpuPsCommGraphFloatFea(uint64_t *node_list_,
+                         float *feature_list_,
+                         uint8_t *slot_id_list_,
                          GpuPsFeaInfo *fea_info_list_,
-                         uint64_t feature_size_, // 30
-                         uint64_t node_size_) // 1
+                         uint64_t feature_size_,
+                         uint64_t node_size_)
       : node_list(node_list_),
         feature_list(feature_list_),
         slot_id_list(slot_id_list_),
