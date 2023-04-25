@@ -101,8 +101,8 @@ void BasicAucCalculator::add_data(
     thread_local std::vector<int64_t> h_label;
     h_pred.resize(batch_size);
     h_label.resize(batch_size);
-    SyncCopyD2H(h_pred.data(), d_pred, batch_size);
-    SyncCopyD2H(h_label.data(), d_label, batch_size);
+    SyncCopyD2H(h_pred.data(), d_pred, batch_size, place);
+    SyncCopyD2H(h_label.data(), d_label, batch_size, place);
 
     std::lock_guard<std::mutex> lock(_table_mutex);
     for (int i = 0; i < batch_size; ++i) {
@@ -125,8 +125,8 @@ void BasicAucCalculator::add_sample_data(
     thread_local std::vector<int64_t> h_label;
     h_pred.resize(batch_size);
     h_label.resize(batch_size);
-    SyncCopyD2H(h_pred.data(), d_pred, batch_size);
-    SyncCopyD2H(h_label.data(), d_label, batch_size);
+    SyncCopyD2H(h_pred.data(), d_pred, batch_size, place);
+    SyncCopyD2H(h_label.data(), d_label, batch_size, place);
 
     std::lock_guard<std::mutex> lock(_table_mutex);
     for (int i = 0; i < batch_size; ++i) {
@@ -152,9 +152,9 @@ void BasicAucCalculator::add_mask_data(const float* d_pred,
     h_pred.resize(batch_size);
     h_label.resize(batch_size);
     h_mask.resize(batch_size);
-    SyncCopyD2H(h_pred.data(), d_pred, batch_size);
-    SyncCopyD2H(h_label.data(), d_label, batch_size);
-    SyncCopyD2H(h_mask.data(), d_mask, batch_size);
+    SyncCopyD2H(h_pred.data(), d_pred, batch_size, place);
+    SyncCopyD2H(h_label.data(), d_label, batch_size, place);
+    SyncCopyD2H(h_mask.data(), d_mask, batch_size, place);
 
     std::lock_guard<std::mutex> lock(_table_mutex);
     for (int i = 0; i < batch_size; ++i) {
@@ -184,9 +184,9 @@ void BasicAucCalculator::add_float_mask_data(const float* d_pred,
     h_label.resize(batch_size);
     h_mask.resize(batch_size);
 
-    SyncCopyD2H(h_pred.data(), d_pred, batch_size);
-    SyncCopyD2H(h_label.data(), d_label, batch_size);
-    SyncCopyD2H(h_mask.data(), d_mask, batch_size);
+    SyncCopyD2H(h_pred.data(), d_pred, batch_size, place);
+    SyncCopyD2H(h_label.data(), d_label, batch_size, place);
+    SyncCopyD2H(h_mask.data(), d_mask, batch_size, place);
 
     std::lock_guard<std::mutex> lock(_table_mutex);
     for (int i = 0; i < batch_size; ++i) {
@@ -219,9 +219,9 @@ void BasicAucCalculator::add_continue_mask_data(
     h_label.resize(batch_size);
     h_mask.resize(batch_size);
 
-    SyncCopyD2H(h_pred.data(), d_pred, batch_size);
-    SyncCopyD2H(h_label.data(), d_label, batch_size);
-    SyncCopyD2H(h_mask.data(), d_mask, batch_size);
+    SyncCopyD2H(h_pred.data(), d_pred, batch_size, place);
+    SyncCopyD2H(h_label.data(), d_label, batch_size, place);
+    SyncCopyD2H(h_mask.data(), d_mask, batch_size, place);
 
     std::lock_guard<std::mutex> lock(_table_mutex);
     for (int i = 0; i < batch_size; ++i) {
@@ -394,9 +394,9 @@ void BasicAucCalculator::add_uid_data(const float* d_pred,
     h_label.resize(batch_size);
     h_uid.resize(batch_size);
 
-    SyncCopyD2H(h_pred.data(), d_pred, batch_size);
-    SyncCopyD2H(h_label.data(), d_label, batch_size);
-    SyncCopyD2H(h_uid.data(), reinterpret_cast<const uint64_t *>(d_uid), batch_size);
+    SyncCopyD2H(h_pred.data(), d_pred, batch_size, place);
+    SyncCopyD2H(h_label.data(), d_label, batch_size, place);
+    SyncCopyD2H(h_uid.data(), reinterpret_cast<const uint64_t *>(d_uid), batch_size, place);
 
     std::lock_guard<std::mutex> lock(_table_mutex);
     for (int i = 0; i < batch_size; ++i) {
