@@ -402,7 +402,7 @@ class FloatFeatureNode : public FeatureNode {
   virtual int get_float_feature(int slot_idx,
                                 std::vector<float> &float_feature,      // NOLINT
                                 std::vector<uint8_t> &slot_id) const {  // NOLINT
-    // errno = 0;
+    errno = 0;
     size_t num = 0;
     if (offset + slot_idx < static_cast<int>(this->feature.size())) {
       const std::string &s = this->feature[offset + slot_idx];
@@ -415,11 +415,11 @@ class FloatFeatureNode : public FeatureNode {
         slot_id.push_back(slot_idx);
       }
     }
-    // PADDLE_ENFORCE_EQ(
-    //    errno,
-    //    0,
-    //    paddle::platform::errors::InvalidArgument(
-    //         "get_feature_ids get errno should be 0, but got %d.", errno));
+    PADDLE_ENFORCE_EQ(
+        errno,
+        0,
+        paddle::platform::errors::InvalidArgument(
+             "get_feature_ids get errno should be 0, but got %d.", errno));
     return num;
   }
 
