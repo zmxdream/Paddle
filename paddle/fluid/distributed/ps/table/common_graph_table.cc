@@ -2283,7 +2283,7 @@ Node *GraphTable::find_node(GraphTableType table_type, uint64_t id) {
                                 "search_shard[%d] should not be null.", index));
     node = search_shard[index]->find_node(id);
     if (node != nullptr) {
-      break; 
+      break;
     }
   }
   return node;
