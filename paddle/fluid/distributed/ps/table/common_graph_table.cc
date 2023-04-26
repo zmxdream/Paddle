@@ -200,12 +200,6 @@ paddle::framework::GpuPsCommGraphFloatFea GraphTable::make_gpu_ps_graph_float_fe
   }
 
   std::vector<std::future<int>> tasks;
-  // if (float_feature_num_map_.size() == 0) {
-  //    float_feature_num_map_.resize(float_slot_num);
-  //    for (int k = 0; k < float_slot_num; ++k) {
-  //       float_feature_num_map_[k] = 0;
-  //    }
-  // }
 
   for (size_t i = 0; i < bags.size(); i++) {
     if (bags[i].size() > 0) {
@@ -227,9 +221,6 @@ paddle::framework::GpuPsCommGraphFloatFea GraphTable::make_gpu_ps_graph_float_fe
             for (int k = 0; k < float_slot_num; ++k) {
               auto float_feature_size =
                   v->get_float_feature(k, feature_array[i], slot_id_array[i]);
-              // if (float_feature_num_map_[k] < float_feature_size) {
-              //    float_feature_num_map_[k] = float_feature_size;
-              // }
               total_feature_size += float_feature_size;
             }
             x.feature_size = total_feature_size;
@@ -242,14 +233,6 @@ paddle::framework::GpuPsCommGraphFloatFea GraphTable::make_gpu_ps_graph_float_fe
     }
   }
   for (size_t i = 0; i < tasks.size(); i++) tasks[i].get();
-
-  // if (FLAGS_v > 0) {
-  //    std::stringstream ss;
-  //    for (int k = 0; k < float_slot_num; ++k) {
-  //       ss << float_feature_num_map_[k] << " ";
-  //    }
-  //    VLOG(1) << "float_feature_num_map: " << ss.str();
-  // }
 
   tasks.clear();
 
@@ -2059,7 +2042,7 @@ std::pair<uint64_t, uint64_t> GraphTable::parse_node_file(
     }
     local_valid_count++;
   }
-  VLOG(2) << local_valid_count << "/" << local_count << " nodes from filepath->"
+  VLOG(0) << local_valid_count << "/" << local_count << " nodes from filepath->"
           << path;
   return {local_count, local_valid_count};
 }
