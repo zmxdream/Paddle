@@ -2053,7 +2053,6 @@ void SlotRecordInMemoryDataFeed::Init(const DataFeedDesc& data_feed_desc) {
       }
 
       use_slots_.push_back(slot.name());
-      // use_slots_type_.push_back(slot.type());
 
       if (slot.is_dense()) {
         for (int j = 0; j < slot.shape_size(); ++j) {
