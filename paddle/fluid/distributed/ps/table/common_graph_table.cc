@@ -2018,15 +2018,11 @@ std::pair<uint64_t, uint64_t> GraphTable::parse_node_file(
       }
     }
     size_t index = shard_id - shard_start;
-    int slot_fea_num = 0;
-    if (feat_name.size() > 0) slot_fea_num = feat_name[idx].size(); 
     int float_fea_num = 0;
     if (float_feat_id_map.size() > 0) float_fea_num = float_feat_id_map[idx].size();
     if (load_slot) {
       auto node = feature_shards[idx][index]->add_feature_node(id, false, float_fea_num);
       if (node != NULL) {
-        if (slot_fea_num > 0) node->set_feature_size(slot_fea_num);
-        if (float_fea_num > 0) node->set_float_feature_size(float_fea_num);
         for (int i = 2; i < num; ++i) {
           auto &v = vals[i];
           int ret = parse_feature(idx, v.ptr, v.len, node);
