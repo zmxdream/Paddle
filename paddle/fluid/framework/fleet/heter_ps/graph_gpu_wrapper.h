@@ -168,7 +168,7 @@ class GraphGpuWrapper {
   std::vector<std::shared_ptr<phi::Allocation>> get_edge_type_graph(
       int gpu_id, int edge_type_len);
   std::vector<int> slot_feature_num_map() const;
-  void set_feature_info(int sparse_slot_num, int float_slot_num);
+  void set_feature_info(int slot_num_for_pull_feature, int float_slot_num);
   void set_feature_separator(std::string ch);
   void set_slot_feature_separator(std::string ch);
   int get_feature_of_nodes(int gpu_id,
@@ -224,7 +224,7 @@ class GraphGpuWrapper {
   int search_level = 1;
   void* graph_table;
   int upload_num = 8;
-  int sparse_slot_num_ = 0;
+  int slot_num_for_pull_feature_ = 0;
   int float_slot_num_ = 0;
   std::shared_ptr<::ThreadPool> upload_task_pool;
   std::string feature_separator_ = std::string(" ");

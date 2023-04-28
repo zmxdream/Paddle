@@ -49,7 +49,7 @@ class GpuPsGraphTable
   }
 
   GpuPsGraphTable(std::shared_ptr<HeterPsResource> resource,
-                  int graph_table_num, int sparse_slot_num = 0, int float_slot_num = 0)
+                  int graph_table_num, int slot_num_for_pull_feature = 0, int float_slot_num = 0)
       : HeterComm<uint64_t, uint64_t, int, CommonFeatureValueAccessor>(
             0, resource) {
     load_factor_ = FLAGS_gpugraph_hbm_table_load_factor;
@@ -60,7 +60,7 @@ class GpuPsGraphTable
     this->graph_table_num_ = graph_table_num;
     this->feature_table_num_ = 1;
     if (float_slot_num > 0) {
-      VLOG(0) << "float slot num set to 1";
+      VLOG(0) << "float_feature_table_num set to 1";
       this->float_feature_table_num_ = 1;
     }
     gpu_num = resource_->total_device();

@@ -781,9 +781,9 @@ class GraphTable : public Table {
   std::vector<std::vector<std::string>> feat_name;
   std::vector<std::vector<std::string>> feat_dtype;
   std::vector<std::vector<int32_t>> feat_shape;
-  // std::vector<std::vector<std::string>> float_feat_name;
-  // std::vector<std::vector<std::string>> float_feat_dtype;
-  // std::vector<std::vector<int32_t>> float_feat_shape;
+  std::vector<std::vector<std::string>> float_feat_name;
+  std::vector<std::vector<std::string>> float_feat_dtype;
+  std::vector<std::vector<int32_t>> float_feat_shape;
   // int slot_fea_num_{-1};
   // int float_fea_num_{-1};
   std::vector<std::unordered_map<std::string, int32_t>> feat_id_map;

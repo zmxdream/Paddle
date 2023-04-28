@@ -2652,8 +2652,8 @@ int GraphTable::parse_feature(int idx,
       if (float_it != float_feat_id_map[idx].end()) {
         int32_t id = float_it->second;
         std::string *fea_ptr = node->mutable_float_feature(id);
-        // std::string dtype = this->float_feat_dtype[idx][id];
-        // if (dtype == "float32") {
+        std::string dtype = this->float_feat_dtype[idx][id];
+        if (dtype == "float32") {
           int ret = FeatureNode::parse_value_to_bytes<float>(
               fea_fields.begin(), fea_fields.end(), fea_ptr);
           if (ret != 0) {
@@ -2661,7 +2661,7 @@ int GraphTable::parse_feature(int idx,
             return -1;
           }
           return 0;
-        // } 
+        } 
         // else if (dtype == "float64") { // not used
         //  int ret = FeatureNode::parse_value_to_bytes<double>(
         //      fea_fields.begin(), fea_fields.end(), fea_ptr);
@@ -3056,14 +3056,14 @@ int32_t GraphTable::Initialize(const GraphParameter &graph) {
       } 
       else if (f_dtype == "float32"){
         if (float_feat_id_map.size() < (size_t)node_types.size()) {
-          // float_feat_name.resize(node_types.size());
-          // float_feat_shape.resize(node_types.size());
-          // float_feat_dtype.resize(node_types.size());
+          float_feat_name.resize(node_types.size());
+          float_feat_shape.resize(node_types.size());
+          float_feat_dtype.resize(node_types.size());
           float_feat_id_map.resize(node_types.size());
         }
-        // float_feat_name[k].push_back(f_name);
-        // float_feat_shape[k].push_back(f_shape);
-        // float_feat_dtype[k].push_back(f_dtype);
+        float_feat_name[k].push_back(f_name);
+        float_feat_shape[k].push_back(f_shape);
+        float_feat_dtype[k].push_back(f_dtype);
         float_feat_id_map[k][f_name] = float_idx++;
       }
       VLOG(0) << "init graph table feat conf name:" << f_name

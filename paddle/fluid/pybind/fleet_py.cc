@@ -371,7 +371,6 @@ void BindGraphGpuWrapper(py::module* m) {
                &GraphGpuWrapper::graph_neighbor_sample))
       .def("set_device", &GraphGpuWrapper::set_device)
       .def("set_feature_separator", &GraphGpuWrapper::set_feature_separator)
-      .def("set_feature_info", &GraphGpuWrapper::set_feature_info)
       .def("set_slot_feature_separator",
            &GraphGpuWrapper::set_slot_feature_separator)
       .def("init_service", &GraphGpuWrapper::init_service)
