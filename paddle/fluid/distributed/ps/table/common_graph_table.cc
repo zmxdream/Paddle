@@ -3069,8 +3069,6 @@ int32_t GraphTable::Initialize(const GraphParameter &graph) {
       VLOG(0) << "init graph table feat conf name:" << f_name
               << " shape:" << f_shape << " dtype:" << f_dtype;
     }
-    // if (slot_fea_num_ < 0) slot_fea_num_ = feasign_idx;
-    // if (float_fea_num_ < 0) float_fea_num_ = float_idx;
   }
   // this->table_name = common.table_name();
   // this->table_type = common.name();
