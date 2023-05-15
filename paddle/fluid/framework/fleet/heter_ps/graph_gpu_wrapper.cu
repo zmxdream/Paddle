@@ -658,6 +658,39 @@ void GraphGpuWrapper::add_table_feat_conf(std::string table_name,
   }
   VLOG(0) << "add conf over";
 }
+
+// ====edge feature =====
+void GraphGpuWrapper::add_table_edge_feat_conf(std::string table_name,
+                                               std::string feat_name,
+                                               std::string feat_dtype,
+                                               int feat_shape) {
+  if (edge_to_id.find(table_name) != edge_to_id.end()) {
+    int idx = edge_to_id[table_name];
+    if (table_edge_feat_mapping[idx].find(feat_name) ==
+        table_edge_feat_mapping[idx].end()) {
+      int res = table_edge_feat_mapping[idx].size();
+      table_edge_feat_mapping[idx][feat_name] = res;
+    }
+    int feat_idx = table_edge_feat_mapping[idx][feat_name];
+    VLOG(0) << "table_edge_name " << table_name << " mapping id " << idx;
+    VLOG(0) << " edge feat name " << feat_name << " feat id" << feat_idx;
+    if (feat_idx < table_edge_feat_conf_feat_name[idx].size()) {
+      // overide
+      table_edge_feat_conf_feat_name[idx][feat_idx] = feat_name;
+      table_edge_feat_conf_feat_dtype[idx][feat_idx] = feat_dtype;
+      table_edge_feat_conf_feat_shape[idx][feat_idx] = feat_shape;
+    } else {
+      // new
+      table_edge_feat_conf_feat_name[idx].push_back(feat_name);
+      table_edge_feat_conf_feat_dtype[idx].push_back(feat_dtype);
+      table_edge_feat_conf_feat_shape[idx].push_back(feat_shape);
+    }
+  }
+  VLOG(0) << "add edge conf over";
+}
+// ====edge feature =====
+
+
 void GraphGpuWrapper::init_search_level(int level) { search_level = level; }
 
 gpuStream_t GraphGpuWrapper::get_local_stream(int gpuid) {

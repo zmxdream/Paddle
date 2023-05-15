@@ -216,9 +216,16 @@ class GraphGpuWrapper {
   std::unordered_map<std::string, int> edge_to_id, node_to_id;
   std::vector<std::string> id_to_feature, id_to_edge;
   std::vector<std::unordered_map<std::string, int>> table_feat_mapping;
+  std::vector<std::unordered_map<std::string, int>> table_edge_feat_mapping;
   std::vector<std::vector<std::string>> table_feat_conf_feat_name;
   std::vector<std::vector<std::string>> table_feat_conf_feat_dtype;
   std::vector<std::vector<int>> table_feat_conf_feat_shape;
+  // === edge feature
+  std::vector<std::vector<std::string>> table_edge_feat_conf_feat_name;
+  std::vector<std::vector<std::string>> table_edge_feat_conf_feat_dtype;
+  std::vector<std::vector<int>> table_edge_feat_conf_feat_shape;
+  // === edge feature
+ 
   ::paddle::distributed::GraphParameter table_proto;
   std::vector<int> device_id_mapping;
   int search_level = 1;
