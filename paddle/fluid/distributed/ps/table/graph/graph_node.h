@@ -427,6 +427,7 @@ class FloatFeatureNode : public FeatureNode {
     if (idx >= static_cast<int>(this->feature.size())) {
       this->feature.resize(idx + 1);
     }
+    if (idx > offset) offset = idx;
     return &(this->feature[idx]);
   }
 
