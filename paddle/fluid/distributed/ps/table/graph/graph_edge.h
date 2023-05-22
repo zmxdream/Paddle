@@ -73,44 +73,52 @@ class WeightedGraphEdgeBlobWithFeature : public GraphEdgeBlob {
   virtual half get_weight(int idx) { return weight_arr[idx]; }
 
   // === to adapt ====
-  virtual int get_feature_ids(int slot_idx,
+  virtual int get_feature_ids(int edge_idx,
+                              int slot_idx,
                               std::vector<uint64_t> &feature_id,      // NOLINT
                               std::vector<uint8_t> &slot_id) const {  // NOLINT
     errno = 0;
     size_t num = 0;
-    if (slot_idx < static_cast<int>(offset)) {
-      const std::string &s = this->feature[slot_idx];
-      const uint64_t *feas = (const uint64_t *)(s.c_str());
-      num = s.length() / sizeof(uint64_t);
-      CHECK((s.length() % sizeof(uint64_t)) == 0)
-          << "bad feature_item: [" << s << "]";
-      for (size_t i = 0; i < num; ++i) {
-        feature_id.push_back(feas[i]);
-        slot_id.push_back(slot_idx);
+    if (edge_idx < this->feature.size()) {
+      int offset = this->offset[edge_idx];
+      if (slot_idx < static_cast<int>(offset)) {
+        const std::string &s = this->feature[edge_idx][slot_idx];
+        const uint64_t *feas = (const uint64_t *)(s.c_str());
+        num = s.length() / sizeof(uint64_t);
+        CHECK((s.length() % sizeof(uint64_t)) == 0)
+            << "bad feature_item: [" << s << "]";
+        for (size_t i = 0; i < num; ++i) {
+          feature_id.push_back(feas[i]);
+          slot_id.push_back(slot_idx);
+        }
       }
+      PADDLE_ENFORCE_EQ(
+          errno,
+          0,
+          paddle::platform::errors::InvalidArgument(
+              "get_feature_ids get errno should be 0, but got %d.", errno));
+      return num;
     }
-    PADDLE_ENFORCE_EQ(
-        errno,
-        0,
-        paddle::platform::errors::InvalidArgument(
-            "get_feature_ids get errno should be 0, but got %d.", errno));
-    return num;
   }
-
-  virtual int get_float_feature(int slot_idx,
+  
+  virtual int get_float_feature(int edge_idx,
+                                int slot_idx,
                                 std::vector<float> &float_feature,      // NOLINT
                                 std::vector<uint8_t> &slot_id) const {  // NOLINT
     errno = 0;
     size_t num = 0;
-    if (offset + slot_idx < static_cast<int>(this->feature.size())) {
-      const std::string &s = this->feature[offset + slot_idx];
-      const float *feas = (const float *)(s.c_str());
-      num = s.length() / sizeof(float);
-      CHECK((s.length() % sizeof(float)) == 0)
-          << "bad feature_item: [" << s << "]";
-      for (size_t i = 0; i < num; ++i) {
-        float_feature.push_back(feas[i]);
-        slot_id.push_back(slot_idx);
+    if (edge_idx < this->feature.size()) {
+      int offset = this->offset[edge_idx];
+      if (offset + slot_idx < static_cast<int>(this->feature[edge_idx].size())) {
+        const std::string &s = this->feature[edge_idx][offset + slot_idx];
+        const float *feas = (const float *)(s.c_str());
+        num = s.length() / sizeof(float);
+        CHECK((s.length() % sizeof(float)) == 0)
+            << "bad feature_item: [" << s << "]";
+        for (size_t i = 0; i < num; ++i) {
+          float_feature.push_back(feas[i]);
+          slot_id.push_back(slot_idx);
+        }
       }
     }
     PADDLE_ENFORCE_EQ(
@@ -125,6 +133,7 @@ class WeightedGraphEdgeBlobWithFeature : public GraphEdgeBlob {
     if (idx >= static_cast<int>(this->feature.back().size())) {
       this->feature.back().resize(idx + 1);
     }
+    if (idx + 1 > this->offset.back()) this->offset.back() = idx + 1;
     return &(this->feature.back()[idx]);
   }
 
@@ -134,6 +143,7 @@ class WeightedGraphEdgeBlobWithFeature : public GraphEdgeBlob {
     }
     return &(this->feature.back()[offset + idx]);
   }
+
   virtual void shrink_to_fit() {
     feature.shrink_to_fit();
     for (auto &edge : feature) {
@@ -146,10 +156,9 @@ class WeightedGraphEdgeBlobWithFeature : public GraphEdgeBlob {
  // === to adapt ==== 
  protected:
   std::vector<half> weight_arr;
-  int offset;
+  std::vector<int> offset;
   std::vector<std::vector<std::string>> feature;
 };
-
 
 class GraphEdgeBlobWithFeature : public GraphEdgeBlob {
  public:
@@ -158,20 +167,25 @@ class GraphEdgeBlobWithFeature : public GraphEdgeBlob {
   virtual void add_edge(int64_t id, float weight);
 
  // === to adapt ====
- virtual int get_feature_ids(int slot_idx,
-                              std::vector<uint64_t> &feature_id,      // NOLINT
-                              std::vector<uint8_t> &slot_id) const {  // NOLINT
+ template <typename T>
+ virtual int get_feature_ids(int edge_idx,
+                             int slot_idx,
+                             std::vector<uint64_t> &feature_id,      // NOLINT
+                             std::vector<uint8_t> &slot_id) const {  // NOLINT
     errno = 0;
     size_t num = 0;
-    if (slot_idx < static_cast<int>(offset)) {
-      const std::string &s = this->feature[slot_idx];
-      const uint64_t *feas = (const uint64_t *)(s.c_str());
-      num = s.length() / sizeof(uint64_t);
-      CHECK((s.length() % sizeof(uint64_t)) == 0)
-          << "bad feature_item: [" << s << "]";
-      for (size_t i = 0; i < num; ++i) {
-        feature_id.push_back(feas[i]);
-        slot_id.push_back(slot_idx);
+    if (edge_idx < this->feature.size()) {
+      int offset = this->offset[edge_idx];
+      if (slot_idx < static_cast<int>(offset)) {
+        const std::string &s = this->feature[edge_idx][slot_idx];
+        const uint64_t *feas = (const uint64_t *)(s.c_str());
+        num = s.length() / sizeof(uint64_t);
+        CHECK((s.length() % sizeof(uint64_t)) == 0)
+            << "bad feature_item: [" << s << "]";
+        for (size_t i = 0; i < num; ++i) {
+          feature_id.push_back(feas[i]);
+          slot_id.push_back(slot_idx);
+        }
       }
     }
     PADDLE_ENFORCE_EQ(
@@ -182,20 +196,25 @@ class GraphEdgeBlobWithFeature : public GraphEdgeBlob {
     return num;
   }
 
-  virtual int get_float_feature(int slot_idx,
+  virtual int get_float_feature(int edge_idx,
+                                int slot_idx,
                                 std::vector<float> &float_feature,      // NOLINT
                                 std::vector<uint8_t> &slot_id) const {  // NOLINT
     errno = 0;
     size_t num = 0;
-    if (offset + slot_idx < static_cast<int>(this->feature.size())) {
-      const std::string &s = this->feature[offset + slot_idx];
-      const float *feas = (const float *)(s.c_str());
-      num = s.length() / sizeof(float);
-      CHECK((s.length() % sizeof(float)) == 0)
-          << "bad feature_item: [" << s << "]";
-      for (size_t i = 0; i < num; ++i) {
-        float_feature.push_back(feas[i]);
-        slot_id.push_back(slot_idx);
+
+    if (edge_idx < static_cast<int>(this->feature.size())) {
+      int offset = this->offset[edge_idx];
+      if (offset + slot_idx < static_cast<int>(this->feature[edge_idx].size())) {
+        const std::string &s = this->feature[edge_idx][offset + slot_idx];
+        const float *feas = (const float *)(s.c_str());
+        num = s.length() / sizeof(float);
+        CHECK((s.length() % sizeof(float)) == 0)
+            << "bad feature_item: [" << s << "]";
+        for (size_t i = 0; i < num; ++i) {
+          float_feature.push_back(feas[i]);
+          slot_id.push_back(slot_idx);
+        }
       }
     }
     PADDLE_ENFORCE_EQ(
@@ -210,6 +229,7 @@ class GraphEdgeBlobWithFeature : public GraphEdgeBlob {
     if (idx >= static_cast<int>(this->feature.back().size())) {
       this->feature.back().resize(idx + 1);
     }
+    if (idx  + 1 > this->offset.back()) this->offset.back() = idx + 1;
     return &(this->feature.back().[idx]);
   }
 
@@ -230,7 +250,7 @@ class GraphEdgeBlobWithFeature : public GraphEdgeBlob {
   }
  // === to adapt ==== 
  protected:
-  int offset;
+ std::vector<int> offset;
   std::vector<std::vector<std::string>> feature;
 };
 

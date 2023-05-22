@@ -114,7 +114,7 @@ struct GpuPsFeaInfo {
 };
 
 template<typename T>
-struct GpuPsCommGraphWithFeature {
+struct GpuPsCommGraphEdgeFea {
   uint64_t *node_list;
   // when FLAGS_gpugraph_load_node_list_into_hbm is true locate on both side
   // else only locate on host side
@@ -126,10 +126,10 @@ struct GpuPsCommGraphWithFeature {
   half *weight_list;             // locate on both side, which length is the same as neighbor_list
   bool is_weighted;
   T* feature_list;             // edge feature
-  uint64_t* slot_list;         // edge slot
+  uint8_t* slot_list;         // edge slot
   GpuPsFeaInfo
       *fea_info_list;           // only locate on host side, the list of edge fea_info
-  GpuPsCommGraphWithFeature()
+  GpuPsCommGraphEdgeFea()
       : node_list(nullptr),
         node_size(0),
         node_info_list(nullptr),
@@ -141,7 +141,7 @@ struct GpuPsCommGraphWithFeature {
         slot_list(nullptr),
         weight_list(nullptr),
         is_weighted(false) {}
-  GpuPsCommGraphWithFeature(uint64_t *node_list_,
+  GpuPsCommGraphEdgeFea(uint64_t *node_list_,
                  int64_t node_size_,
                  GpuPsNodeInfo *node_info_list_,
                  GpuPsFeaInfo *fea_info_list_,
@@ -184,7 +184,7 @@ struct GpuPsCommGraphWithFeature {
     if (fea_size_ > 0) {
       this->feature_size = fea_size_;
       this->feature_list = new T[fea_size_];
-      this->slot_list = new uint64_t[fea_size_];
+      this->slot_list = new uint8_t[fea_size_];
     }
   }
   void release_on_cpu() {

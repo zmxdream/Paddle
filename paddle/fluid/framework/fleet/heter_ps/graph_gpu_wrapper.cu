@@ -920,6 +920,45 @@ std::vector<GpuPsCommGraphFloatFea> GraphGpuWrapper::get_sub_graph_float_fea(
   return sub_graph_float_feas;
 }
 
+// === edge fea ==
+// get sub_graph_edge_fea
+std::vector<GpuPsCommGraphEdgeFea<uint64_t>> GraphGpuWrapper::get_sub_graph_edge_fea(
+    std::vector<std::vector<uint64_t>> &node_ids, int edge_slot_num) {
+  // GpuPsGraphTable *g = reinterpret_cast<GpuPsGraphTable *>(graph_table);
+  std::vector<std::future<int>> tasks;
+  std::vector<GpuPsCommGraphEdgeFea<uint64_t>> sub_graph_edge_feas(node_ids.size());
+  for (int i = 0; i < node_ids.size(); i++) {
+    tasks.push_back(upload_task_pool->enqueue([&, i, this]() -> int {
+      GpuPsGraphTable *g = reinterpret_cast<GpuPsGraphTable *>(graph_table);
+      sub_graph_edge_feas[i] =
+          g->cpu_graph_table_->make_gpu_ps_graph_edge_fea<uint64_t>(i, node_ids[i], edge_slot_num);
+      return 0;
+    }));
+  }
+  for (size_t i = 0; i < tasks.size(); i++) tasks[i].get();
+  return sub_graph_edge_feas;
+}
+
+// get sub_graph_edge_float_fea
+std::vector<GpuPsCommGraphEdgeFea<float>> GraphGpuWrapper::get_sub_graph_edge_float_fea(
+    std::vector<std::vector<uint64_t>> &node_ids, int edge_float_slot_num) {
+  if (edge_float_slot_num == 0) return {};
+  // GpuPsGraphTable *g = reinterpret_cast<GpuPsGraphTable *>(graph_table);
+  std::vector<std::future<int>> tasks;
+  std::vector<GpuPsCommGraphEdgeFea<float>> sub_graph_edge_float_feas(node_ids.size());
+  for (int i = 0; i < node_ids.size(); i++) {
+    tasks.push_back(upload_task_pool->enqueue([&, i, this]() -> int {
+      GpuPsGraphTable *g = reinterpret_cast<GpuPsGraphTable *>(graph_table);
+      sub_graph_edge_float_feas[i] =
+          g->cpu_graph_table_->make_gpu_ps_graph_edge_fea<float>(i, node_ids[i], edge_float_slot_num);
+      return 0;
+    }));
+  }
+  for (size_t i = 0; i < tasks.size(); i++) tasks[i].get();
+  return sub_graph_edge_float_feas;
+}
+// === edge fea ===
+
 // build_gpu_graph_fea
 void GraphGpuWrapper::build_gpu_graph_fea(GpuPsCommGraphFea &sub_graph_fea,
                                           int i) {
@@ -927,6 +966,26 @@ void GraphGpuWrapper::build_gpu_graph_fea(GpuPsCommGraphFea &sub_graph_fea,
   g->build_graph_fea_on_single_gpu(sub_graph_fea, i);
   sub_graph_fea.release_on_cpu();
   VLOG(1) << "sub graph fea on gpu " << i << " is built";
+  return;
+}
+
+// build_gpu_graph_edge_fea
+void GraphGpuWrapper::build_gpu_graph_edge_fea(GpuPsCommGraphEdgeFea<uint64_t> &sub_graph_edge_fea,
+                                               int i) {
+  GpuPsGraphTable *g = reinterpret_cast<GpuPsGraphTable *>(graph_table);
+  g->build_graph_edge_fea_on_single_gpu(sub_graph_edge_fea, i);
+  sub_graph_edge_fea.release_on_cpu();
+  VLOG(1) << "sub graph edge fea on gpu " << i << " is built";
+  return;
+}
+
+// build_gpu_graph_edge_float_fea
+void GraphGpuWrapper::build_gpu_graph_edge_float_fea(GpuPsCommGraphEdgeFea<float> &sub_graph_edge_float_fea,
+                                                     int i) {
+  GpuPsGraphTable *g = reinterpret_cast<GpuPsGraphTable *>(graph_table);
+  g->build_graph_edge_float_fea_on_single_gpu(sub_graph_edge_float_fea, i);
+  sub_graph_edge_float_fea.release_on_cpu();
+  VLOG(1) << "sub graph edge float fea on gpu " << i << " is built";
   return;
 }
 

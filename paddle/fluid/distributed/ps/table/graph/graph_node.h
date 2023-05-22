@@ -92,6 +92,15 @@ class GraphNode : public Node {
   }
   
   // === edge feature ===
+  template <typename T>
+  virtual int get_feature_ids(int edge_idx,
+                              int slot_idx,
+                              std::vector<T> &feature_id,      // NOLINT
+                              std::vector<uint8_t> &slot_id) const {  // NOLINT
+ 
+    return edges->get_feature_ids(edge_idx, slot_idx, feature_id, slot_id);
+  }
+
   virtual std::string *mutable_feature(int idx) {
     return edges->mutable_feature(idx);
   }
@@ -391,7 +400,6 @@ class FloatFeatureNode : public FeatureNode {
                                 "get_feature_ids res should not be null"));
     res->clear();
     errno = 0;
-    // if (slot_idx < static_cast<int>(this->feature.size())) {
     if (slot_idx < static_cast<int>(offset)) {
       const std::string &s = this->feature[slot_idx];
       const uint64_t *feas = (const uint64_t *)(s.c_str());
@@ -417,7 +425,6 @@ class FloatFeatureNode : public FeatureNode {
                               std::vector<uint8_t> &slot_id) const {  // NOLINT
     errno = 0;
     size_t num = 0;
-    // if (slot_idx < static_cast<int>(this->feature.size())) {
     if (slot_idx < static_cast<int>(offset)) {
       const std::string &s = this->feature[slot_idx];
       const uint64_t *feas = (const uint64_t *)(s.c_str());

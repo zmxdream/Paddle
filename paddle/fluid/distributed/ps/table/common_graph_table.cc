@@ -348,6 +348,119 @@ paddle::framework::GpuPsCommGraph GraphTable::make_gpu_ps_graph(
   return res;
 }
 
+// ====  edge feature ====
+template <typename T>
+paddle::framework::GpuPsCommGraphEdgeFea<T> GraphTable::make_gpu_ps_graph_edge_fea(
+    int idx, const std::vector<uint64_t> &ids, int slot_num) {
+  std::vector<std::vector<uint64_t>> bags(task_pool_size_);
+  for (int i = 0; i < task_pool_size_; i++) {
+    auto predsize = ids.size() / task_pool_size_;
+    bags[i].reserve(predsize * 1.2);
+  }
+  for (auto x : ids) {
+    int location = x % shard_num % task_pool_size_;
+    bags[location].push_back(x);
+  }
+
+  std::vector<std::future<int>> tasks;
+  std::vector<uint64_t> node_array[task_pool_size_];  // node id list
+  std::vector<paddle::framework::GpuPsNodeInfo> info_array[task_pool_size_];
+  std::vector<T> feature_array[task_pool_size_];
+  std::vector<uint8_t> slot_id_array[task_pool_size_];
+  std::vector<paddle::framework::GpuPsFeaInfo> edge_fea_info_array[task_pool_size_];
+  std::vector<uint64_t> edge_array[task_pool_size_];  // edge id list
+
+  // get edge weight
+  std::vector<half> weight_array[task_pool_size_];  // neighbor weight list
+
+  for (size_t i = 0; i < bags.size(); i++) {
+    if (bags[i].size() > 0) {
+      tasks.push_back(_shards_task_pool[i]->enqueue([&, i, this]() -> int {
+        node_array[i].resize(bags[i].size());
+        info_array[i].resize(bags[i].size());
+        edge_array[i].reserve(bags[i].size()); // 最好reserve bags[i].siz() * 每个节点邻居数的均值
+        edge_fea_info_array[i].reserve(bags[i].size()) // 算它每个节点边数均值为1
+        feature_array[i].reserve(bags[i].size() * 1.2 * slot_num);
+        slot_id_array[i].reserve(bags[i].size() * 1.2 * slot_num);
+        if (is_weighted_) {
+          weight_array[i].reserve(bags[i].size());
+        }
+
+        for (size_t j = 0; j < bags[i].size(); j++) {
+          auto node_id = bags[i][j];
+          node_array[i][j] = node_id;
+          Node *v = find_node(GraphTableType::EDGE_TABLE, idx, node_id);
+          if (v != nullptr) {
+            info_array[i][j].neighbor_offset = edge_array[i].size();
+            info_array[i][j].neighbor_size = v->get_neighbor_size();
+            // add edge feature
+            paddle::framework::GpuPsFeaInfo x;        
+            for (size_t k = 0; k < v->get_neighbor_size(); k++) {
+              edge_array[i].push_back(v->get_neighbor_id(k));
+              if (is_weighted_) {
+                weight_array[i].push_back(v->get_neighbor_weight(k));
+              }
+              //// ====  feature array ====
+              x.feature_offset = feature_array[i].size();
+              int total_feature_size = 0;
+              for (int t = 0; t < slot_num; ++t) {
+                auto feature_ids_size =
+                  v->get_feature_ids(k, t, feature_array[i], slot_id_array[i]);
+                total_feature_size += feature_ids_size;
+              }
+              x.feature_size = total_feature_size;
+              edge_fea_info_array[i].push_back(x);
+              //// ====  feature array ====
+            }
+          } else {
+            info_array[i][j].neighbor_offset = 0;
+            info_array[i][j].neighbor_size = 0;
+          }
+        }
+        return 0;
+      }));
+    }
+  }
+
+  for (size_t i = 0; i < tasks.size(); i++) tasks[i].get();
+
+  int64_t tot_len = 0;
+  int64_t total_fea_len = 0;
+  for (int i = 0; i < task_pool_size_; i++) {
+    tot_len += edge_array[i].size();
+    total_fea_len += feature_array[i].size();
+  }
+
+  paddle::framework::GpuPsCommGraphEdgeFea<T> res;
+  res.init_on_cpu(tot_len, ids.size(), total_fea_len, is_weighted_);
+  int64_t offset = 0, ind = 0, feature_offset = 0;
+  for (int i = 0; i < task_pool_size_; i++) {
+    for (size_t j = 0; j < node_array[i].size(); j++) {
+      res.node_list[ind] = node_array[i][j];
+      res.node_info_list[ind] = info_array[i][j];
+      res.node_info_list[ind++].neighbor_offset += offset;
+    }
+    for (size_t j = 0; j < edge_array[i].size(); j++) {
+      res.neighbor_list[offset + j] = edge_array[i][j];
+
+      if (is_weighted_) {
+        res.weight_list[offset + j] = weight_array[i][j];
+      }
+    }
+    // ===== edge feature  ===
+    for (size_t k = 0; k < feature_array[i].size(); k++) {
+      res.feature_list[feature_offset + k] = feature_array[i][k];
+      res.slot_id_list[feature_offset + k] = slot_id_array[i][k];
+    }
+    // ===== edge feature  ===
+    offset += edge_array[i].size();
+    feature_offset += feature_array[i].size();
+  }
+  return res;
+}
+
+// ====  edge feature ==== 
+
 int32_t GraphTable::add_node_to_ssd(
     int type_id, int idx, uint64_t src_id, char *data, int len) {
   if (_db != NULL) {
