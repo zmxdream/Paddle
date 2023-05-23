@@ -1780,16 +1780,6 @@ void GpuPsGraphTable::build_graph_edge_fea_on_single_gpu(const GpuPsCommGraphEdg
   int table_offset =
       get_table_offset(gpu_id, GraphTableType::FEATURE_TABLE, ntype_id);
   if (g.node_size > 0) {
-    
-    // build_ps(gpu_id,
-    //         g.node_list,
-    //         reinterpret_cast<uint64_t*>(g.fea_info_list),
-    //         g.node_size,
-    //         HBMPS_MAX_BUFF,
-    //         8,
-    //         table_offset);
-    //gpu_graph_edge_fea_list_[offset].node_size = g.node_size;
-    
     build_ps(gpu_id,
              g.node_list,
              reinterpret_cast<uint64_t*>(g.node_info_list),
@@ -1798,14 +1788,9 @@ void GpuPsGraphTable::build_graph_edge_fea_on_single_gpu(const GpuPsCommGraphEdg
              8,
              table_offset);
     gpu_graph_edge_fea_list_[offset].node_size = g.node_size;
-    
-
-
   } else {
-
     build_ps(gpu_id, NULL, NULL, 0, HBMPS_MAX_BUFF, 8, table_offset);
     gpu_graph_edge_fea_list_[offset].node_size = 0;
-
   }
   if (g.neighbor_size) {
     auto stream = get_local_stream(gpu_id);
@@ -1832,28 +1817,10 @@ void GpuPsGraphTable::build_graph_edge_fea_on_single_gpu(const GpuPsCommGraphEdg
                                stream));
     gpu_graph_edge_fea_list_[offset].neighbor_size = g.neighbor_size;
 
-    // if (g.is_weighted) {
-    //  cudaError_t cudaStatus = cudaMalloc(&gpu_graph_edge_fea_list_[offset].weight_list,
-    //                                      g.neighbor_size * sizeof(half));
-    //  PADDLE_ENFORCE_EQ(cudaStatus,
-    //                    cudaSuccess,
-    //                    platform::errors::InvalidArgument(
-    //                        "failed to allocate memory for graph edge weight on gpu %d",
-    //                        resource_->dev_id(gpu_id)));
-    //  VLOG(0) << "successfully allocate " << g.neighbor_size * sizeof(half)
-    //          << " bytes of memory for graph-edges-weight on gpu "
-    //          << resource_->dev_id(gpu_id);
-    //  CUDA_CHECK(cudaMemcpyAsync(gpu_graph_edge_fea_list_[offset].weight_list,
-    //                             g.weight_list,
-    //                             g.neighbor_size * sizeof(half),
-    //                             cudaMemcpyHostToDevice,
-    //                             stream));
-    // }
     cudaStreamSynchronize(stream);
   } else {
     gpu_graph_edge_fea_list_[offset].neighbor_list = NULL;
     gpu_graph_edge_fea_list_[offset].neighbor_size = 0;
-    // gpu_graph_edge_fea_list_[offset].weight_list = NULL;
   }
   if (g.feature_size) {
     auto stream = get_local_stream(gpu_id);
@@ -1930,28 +1897,10 @@ void GpuPsGraphTable::build_graph_edge_float_fea_on_single_gpu(const GpuPsCommGr
                                stream));
     gpu_graph_edge_float_fea_list_[offset].neighbor_size = g.neighbor_size;
 
-    // if (g.is_weighted) {
-    //  cudaError_t cudaStatus = cudaMalloc(&gpu_graph_edge_float_fea_list_[offset].weight_list,
-    //                                      g.neighbor_size * sizeof(half));
-    //  PADDLE_ENFORCE_EQ(cudaStatus,
-    //                    cudaSuccess,
-    //                    platform::errors::InvalidArgument(
-    //                        "failed to allocate memory for graph edge weight on gpu %d",
-    //                        resource_->dev_id(gpu_id)));
-    //  VLOG(0) << "successfully allocate " << g.neighbor_size * sizeof(half)
-    //          << " bytes of memory for graph-edges-weight on gpu "
-    //          << resource_->dev_id(gpu_id);
-    //  CUDA_CHECK(cudaMemcpyAsync(gpu_graph_edge_fea_list_[offset].weight_list,
-    //                             g.weight_list,
-    //                             g.neighbor_size * sizeof(half),
-    //                             cudaMemcpyHostToDevice,
-    //                             stream));
-    // }
     cudaStreamSynchronize(stream);
   } else {
     gpu_graph_edge_float_fea_list_[offset].neighbor_list = NULL;
     gpu_graph_edge_float_fea_list_[offset].neighbor_size = 0;
-    // gpu_graph_edge_fea_list_[offset].weight_list = NULL;
   }
 
   if (g.feature_size) {
