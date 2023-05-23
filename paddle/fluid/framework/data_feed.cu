@@ -3544,14 +3544,8 @@ void GraphDataGenerator::SetFeedInfo(std::vector<UsedSlotInfo>* feed_info) {
   for (int i = 0; i < conf_.slot_num; i++) {
     int offset = id_offset_of_feed_vec_ + 2 * i; 
     if ((*feed_info_)[offset].type[0] == 'f') { // float feature
-      // if (first_float_idx_ == -1) { 
-      //  first_float_idx_ = i;
-      // }
       float_slot_num_++;
     } else if ((*feed_info_)[offset].type[0] == 'u') { // slot feature
-      // if (first_slot_idx_ == -1) { 
-      //   first_slot_idx_ = i;
-      // }
       uint_slot_num_++;
     }
   }
