@@ -123,8 +123,8 @@ struct GpuPsCommGraphEdgeFea {
   uint64_t *neighbor_list;        // locate on both side
   int64_t neighbor_size;          // the size of neighbor_list
   int64_t feature_size;          // featue size of each edge
-  half *weight_list;             // locate on both side, which length is the same as neighbor_list
-  bool is_weighted;
+  // half *weight_list;             // locate on both side, which length is the same as neighbor_list
+  // bool is_weighted;
   T* feature_list;             // edge feature
   uint8_t* slot_list;         // edge slot
   GpuPsFeaInfo
@@ -138,9 +138,9 @@ struct GpuPsCommGraphEdgeFea {
         neighbor_size(0),
         feature_size(0),
         feature_list(nullptr),
-        slot_list(nullptr),
-        weight_list(nullptr),
-        is_weighted(false) {}
+        slot_list(nullptr) {}
+        // weight_list(nullptr),
+        // is_weighted(false) {}
   GpuPsCommGraphEdgeFea(uint64_t *node_list_,
                  int64_t node_size_,
                  GpuPsNodeInfo *node_info_list_,
@@ -149,9 +149,9 @@ struct GpuPsCommGraphEdgeFea {
                  int64_t neighbor_size_,
                  int64_t feature_size_,
                  T** feature_list_,
-                 uint64_t** slot_list,
-                 half *weight_list_,
-                 bool is_weighted_)
+                 uint64_t** slot_list)
+                 // half *weight_list_,
+                 // bool is_weighted_)
       : node_list(node_list_),
         node_size(node_size_),
         node_info_list(node_info_list_),
@@ -160,22 +160,22 @@ struct GpuPsCommGraphEdgeFea {
         neighbor_size(neighbor_size_),
         feature_size(feature_size_),
         feature_list(feature_list_),
-        slot_list(slot_list_),
-        weight_list(weight_list_),
-        is_weighted(is_weighted_) {}
-  void init_on_cpu(int64_t neighbor_size_, int64_t node_size_, int64_t fea_size_, bool is_weighted_) {
+        slot_list(slot_list_) {}
+        // weight_list(weight_list_),
+        // is_weighted(is_weighted_) {}
+  void init_on_cpu(int64_t neighbor_size_, int64_t node_size_, int64_t fea_size_) {
     if (node_size_ > 0) {
       this->node_size = node_size_;
       this->node_list = new uint64_t[node_size_];
       this->node_info_list = new paddle::framework::GpuPsNodeInfo[node_size_];
     }
     if (neighbor_size_) {
-      this->is_weighted = is_weighted_;
+      // this->is_weighted = is_weighted_;
       this->neighbor_size = neighbor_size_;
       this->neighbor_list = new uint64_t[neighbor_size_];
-      if (is_weighted_) {
-        this->weight_list = new half[neighbor_size_];
-      }
+      // if (is_weighted_) {
+      //  this->weight_list = new half[neighbor_size_];
+      // } 
       // edge feature
       // node->neighbor_offet + offset拿到GpuPsFeaInfo
       this->fea_info_lsit = new paddle::framework::GpuPsFeaInfo[neighbor_size_];
@@ -196,7 +196,7 @@ struct GpuPsCommGraphEdgeFea {
     DEL_PTR_ARRAY(node_list);
     DEL_PTR_ARRAY(neighbor_list);
     DEL_PTR_ARRAY(node_info_list);
-    DEL_PTR_ARRAY(weight_list);
+    // DEL_PTR_ARRAY(weight_list);
     DEL_PTR_ARRAY(fea_info_list);
     DEL_PTR_ARRAY(feature_list);
     DEL_PTR_ARRAY(slot_list);

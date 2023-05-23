@@ -1781,14 +1781,25 @@ void GpuPsGraphTable::build_graph_edge_fea_on_single_gpu(const GpuPsCommGraphEdg
       get_table_offset(gpu_id, GraphTableType::FEATURE_TABLE, ntype_id);
   if (g.node_size > 0) {
     
+    // build_ps(gpu_id,
+    //         g.node_list,
+    //         reinterpret_cast<uint64_t*>(g.fea_info_list),
+    //         g.node_size,
+    //         HBMPS_MAX_BUFF,
+    //         8,
+    //         table_offset);
+    //gpu_graph_edge_fea_list_[offset].node_size = g.node_size;
+    
     build_ps(gpu_id,
              g.node_list,
-             reinterpret_cast<uint64_t*>(g.fea_info_list),
+             reinterpret_cast<uint64_t*>(g.node_info_list),
              g.node_size,
              HBMPS_MAX_BUFF,
              8,
              table_offset);
     gpu_graph_edge_fea_list_[offset].node_size = g.node_size;
+    
+
 
   } else {
 
@@ -1796,14 +1807,62 @@ void GpuPsGraphTable::build_graph_edge_fea_on_single_gpu(const GpuPsCommGraphEdg
     gpu_graph_edge_fea_list_[offset].node_size = 0;
 
   }
+  if (g.neighbor_size) {
+    auto stream = get_local_stream(gpu_id);
+    cudaError_t cudaStatus;
+    if (!FLAGS_enable_neighbor_list_use_uva) {
+      cudaStatus = cudaMalloc(&gpu_graph_edge_fea_list_[offset].neighbor_list,
+                                        g.neighbor_size * sizeof(uint64_t));
+    } else {
+      cudaStatus = cudaMallocManaged(&gpu_graph_edge_fea_list_[offset].neighbor_list,
+                                        g.neighbor_size * sizeof(uint64_t));
+    }
+    PADDLE_ENFORCE_EQ(cudaStatus,
+                      cudaSuccess,
+                      platform::errors::InvalidArgument(
+                          "failed to allocate memory for graph on gpu %d",
+                          resource_->dev_id(gpu_id)));
+    VLOG(0) << "successfully allocate " << g.neighbor_size * sizeof(uint64_t)
+            << " bytes of memory for graph-edges on gpu "
+            << resource_->dev_id(gpu_id);
+    CUDA_CHECK(cudaMemcpyAsync(gpu_graph_edge_fea_list_[offset].neighbor_list,
+                               g.neighbor_list,
+                               g.neighbor_size * sizeof(uint64_t),
+                               cudaMemcpyHostToDevice,
+                               stream));
+    gpu_graph_edge_fea_list_[offset].neighbor_size = g.neighbor_size;
+
+    // if (g.is_weighted) {
+    //  cudaError_t cudaStatus = cudaMalloc(&gpu_graph_edge_fea_list_[offset].weight_list,
+    //                                      g.neighbor_size * sizeof(half));
+    //  PADDLE_ENFORCE_EQ(cudaStatus,
+    //                    cudaSuccess,
+    //                    platform::errors::InvalidArgument(
+    //                        "failed to allocate memory for graph edge weight on gpu %d",
+    //                        resource_->dev_id(gpu_id)));
+    //  VLOG(0) << "successfully allocate " << g.neighbor_size * sizeof(half)
+    //          << " bytes of memory for graph-edges-weight on gpu "
+    //          << resource_->dev_id(gpu_id);
+    //  CUDA_CHECK(cudaMemcpyAsync(gpu_graph_edge_fea_list_[offset].weight_list,
+    //                             g.weight_list,
+    //                             g.neighbor_size * sizeof(half),
+    //                             cudaMemcpyHostToDevice,
+    //                             stream));
+    // }
+    cudaStreamSynchronize(stream);
+  } else {
+    gpu_graph_edge_fea_list_[offset].neighbor_list = NULL;
+    gpu_graph_edge_fea_list_[offset].neighbor_size = 0;
+    // gpu_graph_edge_fea_list_[offset].weight_list = NULL;
+  }
   if (g.feature_size) {
     auto stream = get_local_stream(gpu_id);
-    CUDA_CHECK(cudaMemcpyAsync(gpu_graph_fea_list_[offset].feature_list,
+    CUDA_CHECK(cudaMemcpyAsync(gpu_graph_edge_fea_list_[offset].feature_list,
                                g.feature_list,
                                g.feature_size * sizeof(uint64_t),
                                cudaMemcpyHostToDevice,
                                stream));
-    CUDA_CHECK(cudaMemcpyAsync(gpu_graph_fea_list_[offset].slot_id_list,
+    CUDA_CHECK(cudaMemcpyAsync(gpu_graph_edge_fea_list_[offset].slot_id_list,
                                g.slot_id_list,
                                g.feature_size * sizeof(uint8_t),
                                cudaMemcpyHostToDevice,
@@ -1815,7 +1874,8 @@ void GpuPsGraphTable::build_graph_edge_fea_on_single_gpu(const GpuPsCommGraphEdg
     gpu_graph_edge_fea_list_[offset].feature_size = 0;
   }
   VLOG(1) << "gpu edge_feature info card :" << gpu_id << " ,node_size is "
-          << gpu_graph_edge_fea_list_[offset].node_size << ", feature_size is "
+          << gpu_graph_edge_fea_list_[offset].node_size << " ,neighbor_size is "
+          << gpu_graph_edge_fea_list_[offset].neighbor_size << " ,feature_size is "
           << gpu_graph_edge_fea_list_[offset].feature_size;
 }
 
@@ -1830,13 +1890,13 @@ void GpuPsGraphTable::build_graph_edge_float_fea_on_single_gpu(const GpuPsCommGr
       get_table_offset(gpu_id, GraphTableType::FEATURE_TABLE, ntype_id);
   if (g.node_size > 0) {
 
-       build_ps(gpu_id,
-                g.node_list,
-                reinterpret_cast<uint64_t*>(g.fea_info_list),
-                g.node_size,
-                HBMPS_MAX_BUFF,
-                8,
-                table_offset);
+    build_ps(gpu_id,
+             g.node_list,
+             reinterpret_cast<uint64_t*>(g.node_info_list),
+             g.node_size,
+             HBMPS_MAX_BUFF,
+             8,
+             table_offset);
     gpu_graph_edge_float_fea_list_[offset].node_size = g.node_size;
 
   } else {
@@ -1845,6 +1905,55 @@ void GpuPsGraphTable::build_graph_edge_float_fea_on_single_gpu(const GpuPsCommGr
     gpu_graph_edge_float_fea_list_[offset].node_size = 0;
 
   }
+  if (g.neighbor_size) {
+    auto stream = get_local_stream(gpu_id);
+    cudaError_t cudaStatus;
+    if (!FLAGS_enable_neighbor_list_use_uva) {
+      cudaStatus = cudaMalloc(&gpu_graph_edge_float_fea_list_[offset].neighbor_list,
+                                        g.neighbor_size * sizeof(uint64_t));
+    } else {
+      cudaStatus = cudaMallocManaged(&gpu_graph_edge_float_fea_list_[offset].neighbor_list,
+                                        g.neighbor_size * sizeof(uint64_t));
+    }
+    PADDLE_ENFORCE_EQ(cudaStatus,
+                      cudaSuccess,
+                      platform::errors::InvalidArgument(
+                          "failed to allocate memory for graph on gpu %d",
+                          resource_->dev_id(gpu_id)));
+    VLOG(0) << "successfully allocate " << g.neighbor_size * sizeof(uint64_t)
+            << " bytes of memory for graph-edges on gpu "
+            << resource_->dev_id(gpu_id);
+    CUDA_CHECK(cudaMemcpyAsync(gpu_graph_edge_float_fea_list_[offset].neighbor_list,
+                               g.neighbor_list,
+                               g.neighbor_size * sizeof(uint64_t),
+                               cudaMemcpyHostToDevice,
+                               stream));
+    gpu_graph_edge_float_fea_list_[offset].neighbor_size = g.neighbor_size;
+
+    // if (g.is_weighted) {
+    //  cudaError_t cudaStatus = cudaMalloc(&gpu_graph_edge_float_fea_list_[offset].weight_list,
+    //                                      g.neighbor_size * sizeof(half));
+    //  PADDLE_ENFORCE_EQ(cudaStatus,
+    //                    cudaSuccess,
+    //                    platform::errors::InvalidArgument(
+    //                        "failed to allocate memory for graph edge weight on gpu %d",
+    //                        resource_->dev_id(gpu_id)));
+    //  VLOG(0) << "successfully allocate " << g.neighbor_size * sizeof(half)
+    //          << " bytes of memory for graph-edges-weight on gpu "
+    //          << resource_->dev_id(gpu_id);
+    //  CUDA_CHECK(cudaMemcpyAsync(gpu_graph_edge_fea_list_[offset].weight_list,
+    //                             g.weight_list,
+    //                             g.neighbor_size * sizeof(half),
+    //                             cudaMemcpyHostToDevice,
+    //                             stream));
+    // }
+    cudaStreamSynchronize(stream);
+  } else {
+    gpu_graph_edge_float_fea_list_[offset].neighbor_list = NULL;
+    gpu_graph_edge_float_fea_list_[offset].neighbor_size = 0;
+    // gpu_graph_edge_fea_list_[offset].weight_list = NULL;
+  }
+
   if (g.feature_size) {
     auto stream = get_local_stream(gpu_id);
     CUDA_CHECK(cudaMemcpyAsync(gpu_graph_float_fea_list_[offset].feature_list,
