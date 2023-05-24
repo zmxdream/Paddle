@@ -1925,8 +1925,6 @@ void GpuPsGraphTable::build_graph_edge_float_fea_on_single_gpu(const GpuPsCommGr
           << gpu_graph_edge_float_fea_list_[offset].node_size << ", feature_size is "
           << gpu_graph_edge_float_fea_list_[offset].feature_size;
 }
-
-
 // ===== edge feature =====
 
 std::vector<std::shared_ptr<phi::Allocation>>
