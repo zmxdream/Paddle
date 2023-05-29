@@ -289,6 +289,9 @@ void BoxWrapper::PullSparseCaseXPU(const paddle::platform::Place& place,
 #ifdef PADDLE_WITH_XPU_KP
   auto dev_ctx = platform::DeviceContextPool::Instance().Get(place);
   auto ctx_xpu = static_cast<platform::XPUDeviceContext*>(dev_ctx)->x_context();
+  static bool use_l3_tensor = std::getenv("XPU_PADDLE_L3_TENSOR")!=NULL ?
+                    (std::strcmp(std::getenv("XPU_PADDLE_L3_TENSOR"), "1") == 0 ? true:false) :
+                    false;
   phi::Place l3_place =
    static_cast<platform::XPUDeviceContext*>(dev_ctx)->GetL3Place();
   int device_id = place.GetDeviceId();
@@ -312,10 +315,14 @@ void BoxWrapper::PullSparseCaseXPU(const paddle::platform::Place& place,
   TRACE_SCOPE_START("copy keys", xpu_wait(ctx_xpu->xpu_stream));
   VLOG(3) << "Begin copy keys, key_num[" << total_length << "]";
   LoDTensor& total_keys_tensor = dev.keys_tensor;
-  uint32_t* total_keys = reinterpret_cast<uint32_t*>(
-     total_keys_tensor.mutable_data<int32_t>({total_length, 1}, l3_place));
-//   uint32_t* total_keys = reinterpret_cast<uint32_t*>(
-//       total_keys_tensor.mutable_data<int32_t>({total_length, 1}, place));
+  uint32_t* total_keys;
+  if(use_l3_tensor) {
+    total_keys = reinterpret_cast<uint32_t*>(
+        total_keys_tensor.mutable_data<int32_t>({total_length, 1}, l3_place));
+  } else {
+    total_keys = reinterpret_cast<uint32_t*>(
+        total_keys_tensor.mutable_data<int32_t>({total_length, 1}, place));
+  }
   int* key2slot = nullptr;
   key2slot = reinterpret_cast<int*>(
       dev.keys2slot.mutable_data<int>({total_length, 1}, place));
