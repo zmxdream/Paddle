@@ -563,7 +563,15 @@ void BoxWrapper::PushSparseGradCaseXPU(const paddle::platform::Place& place,
   TRACE_SCOPE_END("CopyForPush's xpu::copy", xpu_wait(ctx_xpu->xpu_stream));
 
   TRACE_SCOPE_START("CopyForPush", xpu_wait(ctx_xpu->xpu_stream));
-  box_wrapper_kernel_->CopyForPush(place, const_cast<float*>(grad_values[0]), total_grad_values_xpu,
+
+  float* real_grad_values;
+  for (int i = 0; i < slot_num; i++) {
+    if(grad_values[i] != nullptr) {
+      real_grad_values = const_cast<float*>(grad_values[i]);
+      break;
+    }
+  }
+  box_wrapper_kernel_->CopyForPush(place, real_grad_values, total_grad_values_xpu,
       push_offset, total_length, slot_vector, slot_lens, slot_num,
       hidden_size, batch_size, total_dims, skip_offset, key2slot);
 
