@@ -3429,11 +3429,12 @@ int GpuPsGraphTable::get_edge_feature_info_of_nodes_normal(
                     node_num * sizeof(uint64_t),
                     phi::Stream(reinterpret_cast<phi::StreamId>(stream)));
   uint64_t* d_shard_keys_ptr = reinterpret_cast<uint64_t*>(d_shard_keys->ptr());
+
   split_idx_to_shard(
-      d_nodes, d_idx_ptr, node_num, d_left_ptr, d_right_ptr, gpu_id, stream);
+      edge_src, d_idx_ptr, node_num, d_left_ptr, d_right_ptr, gpu_id, stream);
 
   heter_comm_kernel_->fill_shard_key(
-      d_shard_keys_ptr, d_nodes, d_idx_ptr, node_num, stream);
+      d_shard_keys_ptr, edge_src, d_idx_ptr, node_num, stream);
 
   // slot feature
   std::vector<void*> d_fea_info(total_gpu, NULL);
