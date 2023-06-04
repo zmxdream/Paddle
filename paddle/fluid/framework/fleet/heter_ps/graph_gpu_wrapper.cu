@@ -1130,50 +1130,50 @@ int GraphGpuWrapper::get_float_feature_info_of_nodes(
 
 int GraphGpuWrapper::get_edge_feature_info_of_nodes(
     int gpu_id,
-    uint64_t *d_nodes,
+    uint64_t *edge_src,
+    uint64_t *edge_dst,
     int node_num,
     std::shared_ptr<phi::Allocation> &size_list,
     std::shared_ptr<phi::Allocation> &size_list_prefix_sum,
     std::shared_ptr<phi::Allocation> &feature_list,
-    std::shared_ptr<phi::Allocation> &slot_list,
-    bool is_sage_mode) {
+    std::shared_ptr<phi::Allocation> &slot_list) {
   platform::CUDADeviceGuard guard(gpu_id);
   PADDLE_ENFORCE_NOT_NULL(graph_table,
                           paddle::platform::errors::InvalidArgument(
                               "graph_table should not be null"));
   return reinterpret_cast<GpuPsGraphTable *>(graph_table)
       ->get_edge_feature_info_of_nodes(gpu_id,
-                                       d_nodes,
+                                       edge_src,
+                                       edge_dst,
                                        node_num,
                                        size_list,
                                        size_list_prefix_sum,
                                        feature_list,
-                                       slot_list,
-                                       is_sage_mode);
+                                       slot_list);
 }
 
 int GraphGpuWrapper::get_edge_float_feature_info_of_nodes(
     int gpu_id,
-    uint64_t *d_nodes,
+    uint64_t *edge_src,
+    uint64_t *edge_dst,
     int node_num,
     uint32_t *size_list,
     uint32_t *size_list_prefix_sum,
     std::shared_ptr<phi::Allocation> &feature_list,
-    std::shared_ptr<phi::Allocation> &slot_list,
-    bool is_sage_mode) {
+    std::shared_ptr<phi::Allocation> &slot_list) {
   platform::CUDADeviceGuard guard(gpu_id);
   PADDLE_ENFORCE_NOT_NULL(graph_table,
                           paddle::platform::errors::InvalidArgument(
                               "graph_table should not be null"));
   return reinterpret_cast<GpuPsGraphTable *>(graph_table)
       ->get_edge_float_feature_info_of_nodes(gpu_id,
-                                             d_nodes,
+                                             edge_src,
+                                             edge_dst,
                                              node_num,
                                              size_list,
                                              size_list_prefix_sum,
                                              feature_list,
-                                             slot_list,
-                                             is_sage_mode);
+                                             slot_list);
 }
 
 // === edge feature ===

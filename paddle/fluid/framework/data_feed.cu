@@ -1478,7 +1478,8 @@ int GraphDataGenerator::FillEdgeSlotFeature(uint64_t *edge_src, uint64_t *edge_d
     }
     int edge_fea_num =
         gpu_graph_ptr->get_edge_feature_info_of_nodes(conf_.gpuid,
-                                                      d_walk,
+                                                      edge_src,
+                                                      edge_dst,
                                                       key_num,
                                                       d_feature_size_list_buf_,
                                                       d_feature_size_prefixsum_buf_,
@@ -1787,13 +1788,14 @@ int GraphDataGenerator::FillEdgeFloatFeature(uint64_t *edge_src, uint64_t *edge_
           memory::AllocShared(this->place_, temp_bytes);
     }
     int edge_fea_num =
-        gpu_graph_ptr->get_edge_feature_info_of_nodes(conf_.gpuid,
-                                                      d_walk,
-                                                      key_num,
-                                                      d_feature_size_list_buf_,
-                                                      d_feature_size_prefixsum_buf_,
-                                                      d_feature_list,
-                                                      d_slot_list);
+        gpu_graph_ptr->get_edge_float_feature_info_of_nodes(conf_.gpuid,
+                                                            edge_src,
+                                                            edge_dst,
+                                                            key_num,
+                                                            d_feature_size_list_buf_,
+                                                            d_feature_size_prefixsum_buf_,
+                                                            d_feature_list,
+                                                            d_slot_list);
     // num of edge slot feature
     // conf_.slot_num - float_slot_num_ - edge_float_slot_num_;
     int edge_slot_num = conf_.slot_num - float_slot_num_ - edge_float_slot_num;
