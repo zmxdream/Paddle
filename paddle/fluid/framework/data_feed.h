@@ -910,6 +910,7 @@ struct GraphDataGeneratorConfig {
   bool return_weight;
   int batch_size;
   int slot_num;
+  int edge_slot_num;
   int walk_degree;
   int walk_len;
   int window;
@@ -1047,6 +1048,8 @@ class GraphDataGenerator {
   BufState buf_state_;
   int float_slot_num_ = 0; // float slot num
   int uint_slot_num_ = 0; // uint slot num
+  int edge_float_slot_num_ = 0; // edge_float_slot_num
+  int edge_uint_slot_num_ = 0; // edge_uint_slot_num
   std::vector<int> h_slot_feature_num_map_;
   int fea_num_per_node_;
   int shuffle_seed_;

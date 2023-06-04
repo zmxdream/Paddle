@@ -723,8 +723,6 @@ if (slot_num_for_pull_feature_ > 0 || edge_slot_num_for_pull_feature_ > 0) {
           << " get_feature_id_cost " << get_feature_id_cost
           << " add_feature_to_set_cost " << add_feature_to_set_cost
           << " add_feature_to_key_cost " << add_feature_to_key_cost;
-
-
 }
 #if defined(PADDLE_WITH_PSCORE) && defined(PADDLE_WITH_GPU_GRAPH)
   if (float_slot_num_ > 0) {

@@ -1087,6 +1087,58 @@ int GraphGpuWrapper::get_float_feature_info_of_nodes(
                                         slot_list);
 }
 
+// === edge feature ===
+
+int GraphGpuWrapper::get_edge_feature_info_of_nodes(
+    int gpu_id,
+    uint64_t *d_nodes,
+    int node_num,
+    std::shared_ptr<phi::Allocation> &size_list,
+    std::shared_ptr<phi::Allocation> &size_list_prefix_sum,
+    std::shared_ptr<phi::Allocation> &feature_list,
+    std::shared_ptr<phi::Allocation> &slot_list,
+    bool is_sage_mode) {
+  platform::CUDADeviceGuard guard(gpu_id);
+  PADDLE_ENFORCE_NOT_NULL(graph_table,
+                          paddle::platform::errors::InvalidArgument(
+                              "graph_table should not be null"));
+  return reinterpret_cast<GpuPsGraphTable *>(graph_table)
+      ->get_edge_feature_info_of_nodes(gpu_id,
+                                       d_nodes,
+                                       node_num,
+                                       size_list,
+                                       size_list_prefix_sum,
+                                       feature_list,
+                                       slot_list,
+                                       is_sage_mode);
+}
+
+int GraphGpuWrapper::get_edge_float_feature_info_of_nodes(
+    int gpu_id,
+    uint64_t *d_nodes,
+    int node_num,
+    uint32_t *size_list,
+    uint32_t *size_list_prefix_sum,
+    std::shared_ptr<phi::Allocation> &feature_list,
+    std::shared_ptr<phi::Allocation> &slot_list,
+    bool is_sage_mode) {
+  platform::CUDADeviceGuard guard(gpu_id);
+  PADDLE_ENFORCE_NOT_NULL(graph_table,
+                          paddle::platform::errors::InvalidArgument(
+                              "graph_table should not be null"));
+  return reinterpret_cast<GpuPsGraphTable *>(graph_table)
+      ->get_edge_float_feature_info_of_nodes(gpu_id,
+                                             d_nodes,
+                                             node_num,
+                                             size_list,
+                                             size_list_prefix_sum,
+                                             feature_list,
+                                             slot_list,
+                                             is_sage_mode);
+}
+
+// === edge feature ===
+
 int GraphGpuWrapper::get_feature_of_nodes(int gpu_id,
                                           uint64_t *d_walk,
                                           uint64_t *d_offset,

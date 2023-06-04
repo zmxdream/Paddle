@@ -3322,6 +3322,45 @@ NodeQueryResult GpuPsGraphTable::query_node_list(int gpu_id,
   return result;
 }
 
+// == edge feature ===
+
+int GpuPsGraphTable::get_edge_feature_info_of_nodes(
+    int gpu_id,
+    uint64_t* d_nodes,
+    int node_num,
+    std::shared_ptr<phi::Allocation> &size_list,
+    std::shared_ptr<phi::Allocation> &size_list_prefix_sum,
+    std::shared_ptr<phi::Allocation>& feature_list,
+    std::shared_ptr<phi::Allocation>& slot_list) {
+   if (node_num == 0) {
+     return 0;
+   }
+
+   int all_fea_num = 0;
+   if (multi_node_) {
+     if (infer_mode_) {
+       all_fea_num = get_feature_info_of_nodes_normal(gpu_id, d_nodes, node_num, size_list,
+                                             size_list_prefix_sum, feature_list, slot_list);
+     } else {
+       if (FLAGS_enable_graph_multi_node_sampling) {
+         all_fea_num = get_feature_info_of_nodes_all2all(gpu_id, d_nodes, node_num, size_list,
+                                           size_list_prefix_sum, feature_list, slot_list);
+       }
+     }
+   } else {
+     all_fea_num = get_feature_info_of_nodes_normal(gpu_id, d_nodes, node_num, size_list,
+                                           size_list_prefix_sum, feature_list, slot_list);
+   }
+   VLOG(2) << "end get feature info of nodes, all_fea_num: " << all_fea_num;
+   return all_fea_num;
+}
+
+
+
+
+
+// == edge feature ===
+
 int GpuPsGraphTable::get_feature_info_of_nodes(
     int gpu_id,
     uint64_t* d_nodes,
