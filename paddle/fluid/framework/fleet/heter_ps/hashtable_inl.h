@@ -418,6 +418,11 @@ void HashTable<KeyType, ValType>::update(const KeyType* d_keys,
 }
 
 template <typename KeyType, typename ValType>
+void HashTable<KeyType, ValType>::clear(cudaStream_t stream) {
+  container_->clear_async(stream);
+}
+
+template <typename KeyType, typename ValType>
 void HashTable<KeyType, ValType>::set_sparse_sgd(
     const OptimizerConfig& optimizer_config) {
   host_optimizer_config_.set_sparse_sgd(optimizer_config);

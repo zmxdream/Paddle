@@ -63,6 +63,10 @@ class HashTable {
 
   template <typename GPUAccessor>
   void get(const KeyType* d_keys, char* d_vals, size_t len, gpuStream_t stream, GPUAccessor& gpu_accessor);
+  /**
+   * Clear the hash table
+   */
+  void clear(cudaStream_t stream);
 
   void show();
   void dump_to_cpu(int devid, cudaStream_t stream);
