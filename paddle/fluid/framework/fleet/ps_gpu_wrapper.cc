@@ -709,7 +709,6 @@ void PSGPUWrapper::BuildPull(std::shared_ptr<HeterContext> gpu_task) {
       value_dim_ptr[i][j].clear();
     }
   }
-  
 
   auto& local_dim_keys = gpu_task->feature_dim_keys_;
   auto& local_dim_ptr = value_dim_ptr;
@@ -748,7 +747,7 @@ void PSGPUWrapper::BuildPull(std::shared_ptr<HeterContext> gpu_task) {
   int day_id = seconds_from_1970 / 86400;
   fleet_ptr->pslib_ptr_->_worker_ptr->set_day_id(table_id_, day_id);
 #endif
-  fleet_ptr->pslib_ptr_->_worker_ptr->acquire_table_mutex(0);
+  // fleet_ptr->pslib_ptr_->_worker_ptr->acquire_table_mutex(0);
 
   timeline.Start();
 
@@ -848,7 +847,6 @@ void PSGPUWrapper::BuildPull(std::shared_ptr<HeterContext> gpu_task) {
       //     reinterpret_cast<char**>(local_dim_ptr[i][j].data()), this->table_id_,
       //     local_dim_keys[i][j].data(), key_size, gpu_task->pass_id_);
 
-      VLOG(0) << "yxf add pull sparse i: " << i << " mf_dim: " << this->index_dim_vec_[j];
       auto tt = fleet_ptr->pslib_ptr_->_worker_ptr->add_pull_sparse_task(i,
           reinterpret_cast<char**>(local_dim_ptr[i][j].data()), this->table_id_,
           local_dim_keys[i][j].data(), key_size, gpu_task->pass_id_, this->index_dim_vec_[j]);
@@ -857,28 +855,6 @@ void PSGPUWrapper::BuildPull(std::shared_ptr<HeterContext> gpu_task) {
 
       tt.wait();
 
-/*
-      VLOG(0) << "test local shard i:" << i << ", mf_id:" << j;
-      // =======  for debug remote shard ==========
-      // if (i < 34) {
-          for(size_t u = 0; u < local_dim_ptr[i][j].size(); u++) {
-              paddle::ps::DownpourFixedFeatureValue* downpour_val_ptr = local_dim_ptr[i][j][u];
-              // auto* cpu_val = downpour_val_ptr->data();
-              // VLOG(0) << "[debug]shard:"<< i << ", mf_id:" << j << "before test downpour size meet requirement!!!";
-              size_t d_size = downpour_val_ptr->size();
-              if (d_size != 8 && d_size != 24 && d_size != 136) {
-                VLOG(0) << "[debug]shard:" << i << "mf_id:" << j << "[debug] d_size not meet requirement!!!";
-              }
-          }
-      // }
-
-      // =======  for debug remote shard ==========
-
-      // bool flag = true;
-
-      // tt.wait();
-*/
-
       try {
         status = tt.get();
       } catch (const std::future_error& e) {
@@ -886,7 +862,6 @@ void PSGPUWrapper::BuildPull(std::shared_ptr<HeterContext> gpu_task) {
                 << ", Message:" << e.what();
       }
       if (status != 0) {
-        VLOG(0) << "fleet pull sparse failed, status[" << status << "]" << ", mf_dim:" << this->index_dim_vec_[j] << ", key_size:" << key_size << ", shard_id:" << i;
         sleep(sleep_seconds_before_fail_exit_);
         flag = false;
         cnt++;
@@ -907,7 +882,7 @@ void PSGPUWrapper::BuildPull(std::shared_ptr<HeterContext> gpu_task) {
       exit(-1);
     } else {
       VLOG(3) << "FleetWrapper Pull sparse to local done with table size: "
-              << local_dim_keys[i][j].size();
+              << local_dim_keys[i][j].size() << ", shard: " << i << ", mf_dim: " << index_dim_vec_[j];
     }
 #endif
   };
@@ -938,7 +913,7 @@ void PSGPUWrapper::BuildPull(std::shared_ptr<HeterContext> gpu_task) {
     // test_i += 1;
   }
 
-  fleet_ptr->pslib_ptr_->_worker_ptr->release_table_mutex(0);
+  // fleet_ptr->pslib_ptr_->_worker_ptr->release_table_mutex(0);
 
   timeline.Pause();
   VLOG(0) << "pull sparse from CpuPS into GpuPS cost " << timeline.ElapsedSec()
@@ -958,7 +933,7 @@ void PSGPUWrapper::BuildPull(std::shared_ptr<HeterContext> gpu_task) {
       gloo_wrapper->Init();
     }
     gloo_wrapper->Barrier();
-    VLOG(0) << "yxf::GlooBarrier";
+    VLOG(0) << "GlooBarrier after build pull";
   } else {
     VLOG(0) << "yxf::set single node";
   }
@@ -1177,13 +1152,13 @@ void PSGPUWrapper::BuildPull(std::shared_ptr<HeterContext> gpu_task) {
                   task_kv[shard], shard_sum);
                task_kv[shard].clear();
              }
-
            }
           // int shard = local_dim_keys[i][j][k] % device_num;
           // if (task_keys_ptr[shard].find(record_values[k].first) == task_keys_ptr[shard].end()) {
           //  task_keys_ptr[shard][record_values[k].first] = (paddle::ps::DownpourFixedFeatureValue*)(record_values[k].second);
           //}
         }
+        // pass级的clear
         record_values.clear();
       }
     }
@@ -1340,6 +1315,7 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
   HeterPs_->set_trans_inter_comm(trans_inter_comms_);
   HeterPs_->set_thread_keys_shard_num(thread_keys_shard_num_);
 
+  this->HeterPs_->set_multi_mf_dim(multi_mf_dim_, max_mf_dim_);
   HeterPs_->set_sparse_sgd(optimizer_config_);
   HeterPs_->set_embedx_sgd(optimizer_config_);
 
@@ -1355,16 +1331,16 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
 
   // multi-thread process
   auto build_dymf_mem_pool = [this, &gpu_task, &accessor_wrapper_ptr](int i, int j) {
-    this->HeterPs_->set_multi_mf_dim(multi_mf_dim_, max_mf_dim_);
+    // this->HeterPs_->set_multi_mf_dim(multi_mf_dim_, max_mf_dim_);
     int mf_dim = this->index_dim_vec_[j];
     size_t feature_value_size =
         accessor_wrapper_ptr->GetFeatureValueSize(mf_dim);
-    VLOG(0) << "build dymf mem pool with device:" << i << " dim:" << mf_dim << " feature_value_size:" << feature_value_size;
     auto& device_dim_keys = gpu_task->device_dim_keys_[i][j];
     auto& device_dim_ptrs = gpu_task->device_dim_ptr_[i][j];
     size_t len = device_dim_keys.size();
     CHECK(len == device_dim_ptrs.size());
     this->mem_pools_[i * this->multi_mf_dim_ + j] = new MemoryPool(len, feature_value_size);
+    VLOG(0) << "build dymf mem pool with device:" << i << " dim:" << mf_dim << " len:" << len << " feature_value_size:" << feature_value_size;
   };
 
   auto build_dymf_hbm_pool = [this, &gpu_task, &accessor_wrapper_ptr](int i, int j) {
@@ -1406,7 +1382,6 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
   int thread_num = 16;
   auto build_dynamic_mf_func = [this, &gpu_task, thread_num, &accessor_wrapper_ptr](int i, int j, int z) {
     int mf_dim = this->index_dim_vec_[j];
-    VLOG(3) << "building table: " << i << "with mf dim: " << mf_dim;
 
     auto& device_dim_keys = gpu_task->device_dim_keys_[i][j];
     auto& device_dim_ptrs = gpu_task->device_dim_ptr_[i][j];
@@ -1434,33 +1409,6 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
     // ============ add for multi-thread ================ 
 
     for (int k = left; k < right; k++) {
-/*
-      FeatureValue* val = (FeatureValue*)(mem_pool->mem_address(k));
-      float* ptr_val = device_dim_ptrs[k]->data();
-      size_t dim = device_dim_ptrs[k]->size();
-      val->delta_score = ptr_val[paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::delta_score_index()];
-      val->show = ptr_val[paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::show_index()];
-      val->clk = ptr_val[paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::click_index()];
-      val->slot = int(ptr_val[paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::slot_index()]);
-      val->lr = ptr_val[paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::embed_w_index()];
-      val->lr_g2sum = ptr_val[paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::embed_g2sum_index()];
-      val->cpu_ptr = (uint64_t)(device_dim_ptrs[k]);
-
-      // TODO(xuefeng) set mf_dim while using DownpourCtrDymfAccessor
-      // ptr_val[paddle::ps::DownpourCtrDymfAccessor::DownpourCtrDymfFeatureValue::mf_dim_index()] = float(mf_dim);
-      val->mf_dim = mf_dim;
-      if (dim > 8) {  // CpuPS alreay expand as mf_dim
-        val->mf_size = mf_dim + 1;
-        for (int x = 0; x < val->mf_dim + 1; x++) {
-          val->mf[x] = ptr_val[x + 8];
-        }
-      } else {
-        val->mf_size = 0;
-        for (int x = 0; x < val->mf_dim + 1; x++) {
-          val->mf[x] = 0;
-        }
-      }
-*/
       float* val = (float*)mem_pool->mem_address(k);
       accessor_wrapper_ptr->BuildFill(val, device_dim_ptrs[k], cpu_accessor_, mf_dim);
     }
@@ -1608,14 +1556,13 @@ void PSGPUWrapper::start_build_thread() {
   running_ = true;
   VLOG(3) << "start build CPU ps thread.";
   pre_build_threads_ = std::thread([this] { pre_build_thread(); });
-  buildpull_threads_ = std::thread([this] { build_pull_thread(); });
+  // buildpull_threads_ = std::thread([this] { build_pull_thread(); });
 }
 
 void PSGPUWrapper::pre_build_thread() {
   // prebuild: process load_data
   while (running_) {
     std::shared_ptr<HeterContext> gpu_task = nullptr;
-    // VLOG (0) << "[debug] before data ready channel";
     if (!data_ready_channel_->Get(gpu_task)) {
       continue;
     }
@@ -1632,6 +1579,7 @@ void PSGPUWrapper::pre_build_thread() {
   VLOG(3) << "build cpu thread end";
 }
 
+/*
 void PSGPUWrapper::build_pull_thread() {
   while (running_) {
     std::shared_ptr<HeterContext> gpu_task = nullptr;
@@ -1650,27 +1598,28 @@ void PSGPUWrapper::build_pull_thread() {
   }
   VLOG(3) << "build cpu thread end";
 }
+*/
 
 void PSGPUWrapper::build_task() {
   // build_task: build_pull + build_gputask
   std::shared_ptr<HeterContext> gpu_task = nullptr;
 
-  VLOG(0) << "[debug] before gpu free channel get task";
-  
   // train end, gpu free
   if (!gpu_free_channel_->Get(gpu_task)) {
     return;
   }
-  VLOG(0) << "[debug] before build pull get task";
   // ins and pre_build end
-  if (!buildpull_ready_channel_->Get(gpu_task)) {
+  // if (!buildpull_ready_channel_->Get(gpu_task)) {
+  //   return;
+  // }
+  if (!buildcpu_ready_channel_->Get(gpu_task)) {
     return;
   }
 
   VLOG(0) << "BuildGPUTask start.";
   platform::Timer timer;
   timer.Start();
-
+  BuildPull(gpu_task);
   BuildGPUTask(gpu_task);
   timer.Pause();
   VLOG(0) << " BuildGPUTask end, cost time: " << timer.ElapsedSec()

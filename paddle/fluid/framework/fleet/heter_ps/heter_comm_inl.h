@@ -5900,8 +5900,6 @@ size_t HeterComm<KeyType, ValType, GradType, GPUAccessor>::send_keys_by_all2all_
   size_t total_fea_num = 0;
   auto &my_cache = storage_[gpu_id];
 
-  // 如果设备不支持rdma???
-  //  
   if (!rdma_checker_->is_device_support_rdma(gpu_id)) {
     int trans_id = get_transfer_devid(gpu_id);
     auto &trans = storage_[trans_id];

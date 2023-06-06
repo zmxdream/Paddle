@@ -108,7 +108,8 @@ GpuRDMAChecker::GpuRDMAChecker(int device_num) {
   rdma_trans_ = check_device_status(device_num, &rdma_status_);
 }
 bool GpuRDMAChecker::need_rdma_trans(void) {
-  return rdma_trans_;
+  return false;
+  // return rdma_trans_;
 }
 bool GpuRDMAChecker::is_device_support_rdma(int devid) {
   if (rdma_status_.empty()) {
