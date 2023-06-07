@@ -1757,7 +1757,9 @@ def fused_seqpool_cvm(input,
                       cvm_offset=2,
                       quant_ratio=0,
                       clk_filter=False,
-                      embed_thres_size=0):
+                      embed_thres_size=0,
+                      embedx_concate_size=1,
+                      embedx_concate_filter=False):
     """
      **Notes: The Op only receives List of LoDTensor as input, only support SUM pooling now.
     :attr:`input`.
@@ -1767,6 +1769,7 @@ def fused_seqpool_cvm(input,
         cvm(Variable): cvm Variable.
         pad_value(float): padding value of sequence pool.
         use_cvm(bool): use cvm or not.
+        embedx_concate_size(uint): is expand slot's feasign into matrix
     Returns:
         Variable|list of Variable: The tensor variable storing sequence pool and cvm
         of input.
@@ -1813,7 +1816,9 @@ def fused_seqpool_cvm(input,
             "embed_threshold": embed_threshold,
             "quant_ratio": quant_ratio,
             "clk_filter": clk_filter,
-            "embed_thres_size": embed_thres_size
+            "embed_thres_size": embed_thres_size,
+            "embedx_concate_size": embedx_concate_size,
+            "embedx_concate_filter": embedx_concate_filter
         })
 
     return outs
