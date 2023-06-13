@@ -633,6 +633,30 @@ __global__ void FillActualNeighbors(int64_t *vals,
   }
 }
 
+
+__global__ void FillActualFeaInfo(uint32_t *src_feature_size,
+                                  uint32_t *src_feature_size_prefixsum,
+                                  uint32_t *dst_feature_size,
+                                  uint32_t *dst_feature_size_prefixsum,
+                                  int *actual_sample_size,
+                                  int *cumsum_actual_sample_size,
+                                  int sample_size,
+                                  int len,
+                                  int mod) {
+  const size_t i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i < len) {
+    int offset1 = cumsum_actual_sample_size[i];
+    int offset2 = sample_size * i;
+    for (int j = 0; j < actual_sample_size[i]; j++) {
+      dst_feature_size[offset1 + j] = src_feature_size[offset2 + j];
+      dst_feature_size_prefixsum[offset1 + j] = src_feature_size_prefixsum[offset2 + j];
+    }
+  }
+}
+
+
+
+
 int GraphDataGenerator::FillIdShowClkTensor(int total_instance,
                                             bool gpu_graph_training) {
   show_tensor_ptr_ =
@@ -802,8 +826,8 @@ int GraphDataGenerator::FillGraphIdShowClkTensor(int uniq_instance,
       }
       // === edge feature ===
       if (conf_.edge_slot_num > 0) {
-        FillEdgeSlotFeature(edges_dst_tensor_ptr_[i], edges_src_tensor_ptr_[i], neighbor_len);
-        FillEdgeFloatFeature(edges_dst_tensor_ptr_[i], edges_src_tensor_ptr_[i], neighbor_len);
+        // FillEdgeSlotFeature(edges_dst_tensor_ptr_[i], edges_src_tensor_ptr_[i], neighbor_len);
+        // FillEdgeFloatFeature(edges_dst_tensor_ptr_[i], edges_src_tensor_ptr_[i], neighbor_len);
       }
       // === edge feature ===
     } // end for (int i = 0; i < len_samples; i++) {
@@ -1457,44 +1481,54 @@ void FillOneStep(
 }
 
 // ==== edge feature ===
-int GraphDataGenerator::FillEdgeSlotFeature(uint64_t *edge_src, uint64_t *edge_dst, size_t key_num) {
+int GraphDataGenerator::FillEdgeSlotFeature(std::shared_ptr<phi::Allocation> d_feature_list,
+                                            std::shared_ptr<phi::Allocation> d_slot_list,
+                                            std::shared_ptr<phi::Allocation> d_feature_size_list,
+                                            std::shared_ptr<phi::Allocation> d_feature_size_prefixsum,
+                                            size_t key_num) {
   platform::CUDADeviceGuard guard(conf_.gpuid);
   auto gpu_graph_ptr = GraphGpuWrapper::GetInstance();
-  std::shared_ptr<phi::Allocation> d_feature_list;
-  std::shared_ptr<phi::Allocation> d_slot_list;
+
+  // std::shared_ptr<phi::Allocation> d_feature_list;
+  // std::shared_ptr<phi::Allocation> d_slot_list;
 
   // sage模式才会使用边特征
   if (conf_.sage_mode) {
 
-    size_t temp_bytes = (key_num + 1) * sizeof(uint32_t);
-    if (d_feature_size_list_buf_ == NULL ||
-        d_feature_size_list_buf_->size() < temp_bytes) {
-      d_feature_size_list_buf_ = memory::AllocShared(this->place_, temp_bytes);
-    }
-    if (d_feature_size_prefixsum_buf_ == NULL ||
-        d_feature_size_prefixsum_buf_->size() < temp_bytes) {
-      d_feature_size_prefixsum_buf_ =
-          memory::AllocShared(this->place_, temp_bytes);
-    }
-    int edge_fea_num =
-        gpu_graph_ptr->get_edge_feature_info_of_nodes(conf_.gpuid,
-                                                      edge_src,
-                                                      edge_dst,
-                                                      key_num,
-                                                      d_feature_size_list_buf_,
-                                                      d_feature_size_prefixsum_buf_,
-                                                      d_feature_list,
-                                                      d_slot_list);
+    // size_t temp_bytes = (key_num + 1) * sizeof(uint32_t);
+    // if (d_feature_size_list_buf_ == NULL ||
+    //     d_feature_size_list_buf_->size() < temp_bytes) {
+    //   d_feature_size_list_buf_ = memory::AllocShared(this->place_, temp_bytes);
+    // }
+    // if (d_feature_size_prefixsum_buf_ == NULL ||
+    //     d_feature_size_prefixsum_buf_->size() < temp_bytes) {
+    //   d_feature_size_prefixsum_buf_ =
+    //       memory::AllocShared(this->place_, temp_bytes);
+    // }
+    // int edge_fea_num =
+    //     gpu_graph_ptr->get_edge_feature_info_of_nodes(conf_.gpuid,
+    //                                                   edge,
+    //                                                   key_num,
+    //                                                   d_feature_size_list_buf_,
+    //                                                   d_feature_size_prefixsum_buf_,
+    //                                                   d_feature_list,
+    //                                                   d_slot_list);
     // num of edge slot feature
     // conf_.slot_num - float_slot_num_ - edge_float_slot_num_;
-    int edge_slot_num = conf_.slot_num - float_slot_num_ - edge_float_slot_num;
-    int64_t *slot_tensor_ptr_[edge_slot_num];
-    int64_t *slot_lod_tensor_ptr_[edge_slot_num];
+    int fea_num = 0;
+    if (d_feature_list != nullptr) {
+      fea_num = d_feature_list->size() / sizeof(uint64_t); 
+    }
+
+    int slot_num = conf_.edge_slot_num  - edge_float_slot_num_;
+    int64_t *slot_tensor_ptr_[slot_num];
+    int64_t *slot_lod_tensor_ptr_[slot_num];
 
     if (fea_num == 0) {
       int64_t default_lod = 1;
       int ii = 0;
-      for (int i = 0; i < conf_.slot_num; ++i) {
+      for (int i = 0; i < conf_.edge_slot_num; ++i) {
+        // 确认下offset
         auto& slot_info = (*feed_info_)[id_offset_of_feed_vec_ + 2 * i];
         if (slot_info.type[0] == 'u' && slot_info.slot.find("edge") != std::string::npos) {
           slot_lod_tensor_ptr_[ii] =
@@ -1523,30 +1557,36 @@ int GraphDataGenerator::FillEdgeSlotFeature(uint64_t *edge_src, uint64_t *edge_d
       return 0;
     }
 
-  uint64_t *d_feature_list_ptr =
+    uint64_t *d_feature_list_ptr =
       reinterpret_cast<uint64_t *>(d_feature_list->ptr());
-  uint8_t *d_slot_list_ptr = reinterpret_cast<uint8_t *>(d_slot_list->ptr());
-  uint32_t *d_feature_size_list_ptr =
-      reinterpret_cast<uint32_t *>(d_feature_size_list_buf_->ptr());
-  uint32_t *d_feature_size_prefixsum_ptr =
-      reinterpret_cast<uint32_t *>(d_feature_size_prefixsum_buf_->ptr());
-  VLOG(2) << "end trans feature list and slot list";
+    uint8_t *d_slot_list_ptr = reinterpret_cast<uint8_t *>(d_slot_list->ptr());
 
-  CUDA_CHECK(cudaStreamSynchronize(train_stream_));
+    // uint32_t *d_feature_size_list_ptr =
+    //  reinterpret_cast<uint32_t *>(d_feature_size_list_buf_->ptr());
+    // uint32_t *d_feature_size_prefixsum_ptr =
+    //   reinterpret_cast<uint32_t *>(d_feature_size_prefixsum_buf_->ptr());
+    uint32_t *d_feature_size_list_ptr =
+      reinterpret_cast<uint32_t *>(d_feature_size_list->ptr());
+    uint32_t *d_feature_size_prefixsum_ptr =
+      reinterpret_cast<uint32_t *>(d_feature_size_prefixsum->ptr());
 
-  std::shared_ptr<phi::Allocation> d_each_ins_slot_num_inner_prefix =
-      memory::AllocShared(place_,
-                          (conf_.slot_num * key_num) * sizeof(uint32_t));
-  std::shared_ptr<phi::Allocation> d_each_ins_slot_num = memory::AllocShared(
-      place_, (conf_.slot_num * key_num) * sizeof(uint32_t));
-  uint32_t *d_each_ins_slot_num_ptr =
-      reinterpret_cast<uint32_t *>(d_each_ins_slot_num->ptr());
-  uint32_t *d_each_ins_slot_num_inner_prefix_ptr =
-      reinterpret_cast<uint32_t *>(d_each_ins_slot_num_inner_prefix->ptr());
-  CUDA_CHECK(cudaMemsetAsync(d_each_ins_slot_num_ptr,
-                             0,
-                             conf_.slot_num * key_num * sizeof(uint32_t),
-                             train_stream_));
+    VLOG(2) << "end trans edge feature list and slot list";
+
+    CUDA_CHECK(cudaStreamSynchronize(train_stream_));
+
+    std::shared_ptr<phi::Allocation> d_each_ins_slot_num_inner_prefix =
+        memory::AllocShared(place_,
+                          (slot_num * key_num) * sizeof(uint32_t));
+    std::shared_ptr<phi::Allocation> d_each_ins_slot_num = memory::AllocShared(
+        place_, (slot_num * key_num) * sizeof(uint32_t));
+    uint32_t *d_each_ins_slot_num_ptr =
+        reinterpret_cast<uint32_t *>(d_each_ins_slot_num->ptr());
+    uint32_t *d_each_ins_slot_num_inner_prefix_ptr =
+        reinterpret_cast<uint32_t *>(d_each_ins_slot_num_inner_prefix->ptr());
+    CUDA_CHECK(cudaMemsetAsync(d_each_ins_slot_num_ptr,
+                               0,
+                               slot_num * key_num * sizeof(uint32_t),
+                               train_stream_));
 
   dim3 grid((key_num - 1) / 256 + 1);
   dim3 block(1, 256);
@@ -1568,14 +1608,18 @@ int GraphDataGenerator::FillEdgeSlotFeature(uint64_t *edge_src, uint64_t *edge_d
       reinterpret_cast<uint64_t **>(d_ins_slot_num_vector->ptr());
 
   int ii = 0;
-  for (int i = 0; i < conf_.slot_num; i++) {
-    if ((*feed_info_)[id_offset_of_feed_vec_ + 2 * i].type[0] == 'u') {
+  for (int i = 0; i < conf_.edge_slot_num; i++) {
+    auto& slot_info = (*feed_info_)[id_offset_of_feed_vec_ + 2 * i];
+    if (slot_info.type[0] == 'u' && slot_info.slot.find("edge") != std::string::npos) {
       ins_slot_num[ii] = memory::AllocShared(place_, key_num * sizeof(uint64_t));
       ins_slot_num_vecotr[ii] =
           reinterpret_cast<uint64_t *>(ins_slot_num[ii]->ptr());
       ii++;
     }
   }
+
+
+
   if (slot_num > 0) {
     CUDA_CHECK(
         cudaMemcpyAsync(reinterpret_cast<char *>(d_ins_slot_num_vector_ptr),
@@ -1589,9 +1633,11 @@ int GraphDataGenerator::FillEdgeSlotFeature(uint64_t *edge_src, uint64_t *edge_d
                                                      slot_num);
     CUDA_CHECK(cudaStreamSynchronize(train_stream_));
 
+    // 确认下offset
     ii = 0;
-    for (int i = 0; i < conf_.slot_num; ++i) {
-      if ((*feed_info_)[id_offset_of_feed_vec_ + 2 * i].type[0] == 'u') {
+    for (int i = 0; i < conf_.edge_slot_num; ++i) {
+      auto& slot_info = (*feed_info_)[id_offset_of_feed_vec_ + 2 * i];
+      if (slot_info.type[0] == 'u' && slot_info.slot.find("edge") != std::string::npos) {
         slot_lod_tensor_ptr_[ii] =
         feed_vec_[id_offset_of_feed_vec_ + 2 * i + 1]->mutable_data<int64_t>(
             {(long)key_num + 1}, this->place_);  // NOLINT
@@ -1616,8 +1662,9 @@ int GraphDataGenerator::FillEdgeSlotFeature(uint64_t *edge_src, uint64_t *edge_d
 
     ii = 0;
     std::vector<int64_t> each_slot_fea_num(slot_num, 0);
-    for (int i = 0; i < conf_.slot_num; ++i) {
-      if ((*feed_info_)[id_offset_of_feed_vec_ + 2 * i].type[0] == 'u') {
+    for (int i = 0; i < conf_.edge_slot_num; ++i) {
+      auto& slot_info = (*feed_info_)[id_offset_of_feed_vec_ + 2 * i];
+      if (slot_info.type[0] == 'u' && slot_info.slot.find("edge") != std::string::npos) {
         CUDA_CHECK(cudaMemsetAsync(
             slot_lod_tensor_ptr_[ii], 0, sizeof(uint64_t), train_stream_));
         CUDA_CHECK(cub::DeviceScan::InclusiveSum(d_temp_storage->ptr(),
@@ -1635,18 +1682,22 @@ int GraphDataGenerator::FillEdgeSlotFeature(uint64_t *edge_src, uint64_t *edge_d
       }
     }
     CUDA_CHECK(cudaStreamSynchronize(train_stream_));
+
     ii = 0;
-    for (int i = 0; i < conf_.slot_num; ++i) {
-      if ((*feed_info_)[id_offset_of_feed_vec_ + 2 * i].type[0] == 'u') {
+    for (int i = 0; i < conf_.edge_slot_num; ++i) {
+      auto& slot_info = (*feed_info_)[id_offset_of_feed_vec_ + 2 * i];
+      if (slot_info.type[0] == 'u' && slot_info.slot.find("edge") != std::string::npos) {
         slot_tensor_ptr_[ii] = feed_vec_[id_offset_of_feed_vec_ + 2 * i]->mutable_data<int64_t>(
             {each_slot_fea_num[ii], 1}, this->place_);
         ii++;
       }
     }
+
     ii = 0;
     int64_t default_lod = 1;
-    for (int i = 0; i < conf_.slot_num; ++i) {
-      if ((*feed_info_)[id_offset_of_feed_vec_ + 2 * i].type[0] == 'u') {
+    for (int i = 0; i < conf_.edge_slot_num; ++i) {
+      auto& slot_info = (*feed_info_)[id_offset_of_feed_vec_ + 2 * i];
+      if (slot_info.type[0] == 'u' && slot_info.slot.find("edge") != std::string::npos) {
         fill_slot_tensor<<<grid, block, 0, train_stream_>>>(
             d_feature_list_ptr,
             d_feature_size_prefixsum_ptr,
@@ -1676,7 +1727,7 @@ int GraphDataGenerator::FillEdgeSlotFeature(uint64_t *edge_src, uint64_t *edge_d
     }
     CUDA_CHECK(cudaStreamSynchronize(train_stream_));
   }
-  /*
+/*
   if (conf_.debug_mode) {
     std::vector<uint32_t> h_feature_size_list(key_num, 0);
     std::vector<uint32_t> h_feature_size_list_prefixsum(key_num, 0);
@@ -1767,56 +1818,64 @@ int GraphDataGenerator::FillEdgeSlotFeature(uint64_t *edge_src, uint64_t *edge_d
 
 }
 
-
-int GraphDataGenerator::FillEdgeFloatFeature(uint64_t *edge_src, uint64_t *edge_dst, size_t key_num) {
+int GraphDataGenerator::FillEdgeFloatFeature(std::shared_ptr<phi::Allocation> d_feature_list,
+                                             std::shared_ptr<phi::Allocation> d_slot_list,
+                                             std::shared_ptr<phi::Allocation> d_feature_size_list,
+                                             std::shared_ptr<phi::Allocation> d_feature_size_prefixsum,
+                                             size_t key_num) {
   platform::CUDADeviceGuard guard(conf_.gpuid);
   auto gpu_graph_ptr = GraphGpuWrapper::GetInstance();
-  std::shared_ptr<phi::Allocation> d_feature_list;
-  std::shared_ptr<phi::Allocation> d_slot_list;
+
+  // std::shared_ptr<phi::Allocation> d_feature_list;
+  // std::shared_ptr<phi::Allocation> d_slot_list;
 
   // sage模式才会使用边特征
   if (conf_.sage_mode) {
 
-    size_t temp_bytes = (key_num + 1) * sizeof(uint32_t);
-    if (d_feature_size_list_buf_ == NULL ||
-        d_feature_size_list_buf_->size() < temp_bytes) {
-      d_feature_size_list_buf_ = memory::AllocShared(this->place_, temp_bytes);
-    }
-    if (d_feature_size_prefixsum_buf_ == NULL ||
-        d_feature_size_prefixsum_buf_->size() < temp_bytes) {
-      d_feature_size_prefixsum_buf_ =
-          memory::AllocShared(this->place_, temp_bytes);
-    }
-    int edge_fea_num =
-        gpu_graph_ptr->get_edge_float_feature_info_of_nodes(conf_.gpuid,
-                                                            edge_src,
-                                                            edge_dst,
-                                                            key_num,
-                                                            d_feature_size_list_buf_,
-                                                            d_feature_size_prefixsum_buf_,
-                                                            d_feature_list,
-                                                            d_slot_list);
+    // size_t temp_bytes = (key_num + 1) * sizeof(uint32_t);
+    // if (d_feature_size_list_buf_ == NULL ||
+    //     d_feature_size_list_buf_->size() < temp_bytes) {
+    //   d_feature_size_list_buf_ = memory::AllocShared(this->place_, temp_bytes);
+    // }
+    // if (d_feature_size_prefixsum_buf_ == NULL ||
+    //     d_feature_size_prefixsum_buf_->size() < temp_bytes) {
+    //   d_feature_size_prefixsum_buf_ =
+    //       memory::AllocShared(this->place_, temp_bytes);
+    // }
+    // int edge_fea_num =
+    //     gpu_graph_ptr->get_edge_float_feature_info_of_nodes(conf_.gpuid,
+    //                                                         edge_src,
+    //                                                         edge_dst,
+    //                                                         key_num,
+    //                                                         d_feature_size_list_buf_,
+    //                                                         d_feature_size_prefixsum_buf_,
+    //                                                         d_feature_list,
+    //                                                         d_slot_list);
     // num of edge slot feature
     // conf_.slot_num - float_slot_num_ - edge_float_slot_num_;
-    int edge_slot_num = conf_.slot_num - float_slot_num_ - edge_float_slot_num;
-    int64_t *slot_tensor_ptr_[edge_slot_num];
-    int64_t *slot_lod_tensor_ptr_[edge_slot_num];
+
+    int fea_num = 0;
+    if (d_feature_list != nullptr) {
+      fea_num = d_feature_list->size() / sizeof(float); 
+    }
+    float *slot_tensor_ptr_[edge_float_slot_num_];
+    int64_t *slot_lod_tensor_ptr_[edge_float_slot_num_];
 
     if (fea_num == 0) {
       int64_t default_lod = 1;
       int ii = 0;
-      for (int i = 0; i < conf_.slot_num; ++i) {
+      for (int i = 0; i < conf_.edge_slot_num; ++i) {
         auto& slot_info = (*feed_info_)[id_offset_of_feed_vec_ + 2 * i];
-        if (slot_info.type[0] == 'u' && slot_info.slot.find("edge") != std::string::npos) {
+        if (slot_info.type[0] == 'f' && slot_info.slot.find("edge") != std::string::npos) {
           slot_lod_tensor_ptr_[ii] =
               feed_vec_[id_offset_of_feed_vec_ + 2 * i + 1]->mutable_data<int64_t>(
                   {(long)key_num + 1}, this->place_);  // NOLINT
           slot_tensor_ptr_[ii] =
-              feed_vec_[id_offset_of_feed_vec_ + 2 * i]->mutable_data<int64_t>(
+              feed_vec_[id_offset_of_feed_vec_ + 2 * i]->mutable_data<float>(
                   {1, 1}, this->place_);
 
           CUDA_CHECK(cudaMemsetAsync(
-              slot_tensor_ptr_[ii], 0, sizeof(int64_t), train_stream_));
+              slot_tensor_ptr_[ii], 0, sizeof(float), train_stream_));
           CUDA_CHECK(cudaMemsetAsync(slot_lod_tensor_ptr_[ii],
                                      0,
                                      sizeof(int64_t) * key_num,
@@ -1834,29 +1893,34 @@ int GraphDataGenerator::FillEdgeFloatFeature(uint64_t *edge_src, uint64_t *edge_
       return 0;
     }
 
-  uint64_t *d_feature_list_ptr =
-      reinterpret_cast<uint64_t *>(d_feature_list->ptr());
-  uint8_t *d_slot_list_ptr = reinterpret_cast<uint8_t *>(d_slot_list->ptr());
-  uint32_t *d_feature_size_list_ptr =
-      reinterpret_cast<uint32_t *>(d_feature_size_list_buf_->ptr());
-  uint32_t *d_feature_size_prefixsum_ptr =
-      reinterpret_cast<uint32_t *>(d_feature_size_prefixsum_buf_->ptr());
-  VLOG(2) << "end trans feature list and slot list";
+    float *d_feature_list_ptr =
+        reinterpret_cast<float *>(d_feature_list->ptr());
+    uint8_t *d_slot_list_ptr = reinterpret_cast<uint8_t *>(d_slot_list->ptr());
 
-  CUDA_CHECK(cudaStreamSynchronize(train_stream_));
+    // uint32_t *d_feature_size_list_ptr =
+    //     reinterpret_cast<uint32_t *>(d_feature_size_list_buf_->ptr());
+    // uint32_t *d_feature_size_prefixsum_ptr =
+    //     reinterpret_cast<uint32_t *>(d_feature_size_prefixsum_buf_->ptr());
+    uint32_t *d_feature_size_list_ptr =
+        reinterpret_cast<uint32_t *>(d_feature_size_list->ptr());
+    uint32_t *d_feature_size_prefixsum_ptr =
+        reinterpret_cast<uint32_t *>(d_feature_size_prefixsum->ptr());
+    VLOG(2) << "end trans edge float feature list and slot list";
+
+    CUDA_CHECK(cudaStreamSynchronize(train_stream_));
 
   std::shared_ptr<phi::Allocation> d_each_ins_slot_num_inner_prefix =
       memory::AllocShared(place_,
-                          (conf_.slot_num * key_num) * sizeof(uint32_t));
+                          (edge_float_slot_num_ * key_num) * sizeof(uint32_t));
   std::shared_ptr<phi::Allocation> d_each_ins_slot_num = memory::AllocShared(
-      place_, (conf_.slot_num * key_num) * sizeof(uint32_t));
+      place_, (edge_float_slot_num_ * key_num) * sizeof(uint32_t));
   uint32_t *d_each_ins_slot_num_ptr =
       reinterpret_cast<uint32_t *>(d_each_ins_slot_num->ptr());
   uint32_t *d_each_ins_slot_num_inner_prefix_ptr =
       reinterpret_cast<uint32_t *>(d_each_ins_slot_num_inner_prefix->ptr());
   CUDA_CHECK(cudaMemsetAsync(d_each_ins_slot_num_ptr,
                              0,
-                             conf_.slot_num * key_num * sizeof(uint32_t),
+                             edge_float_slot_num_ * key_num * sizeof(uint32_t),
                              train_stream_));
 
   dim3 grid((key_num - 1) / 256 + 1);
@@ -1868,41 +1932,43 @@ int GraphDataGenerator::FillEdgeFloatFeature(uint64_t *edge_src, uint64_t *edge_
       d_each_ins_slot_num_ptr,
       d_each_ins_slot_num_inner_prefix_ptr,
       key_num,
-      slot_num);
+      edge_float_slot_num_);
 
-  std::vector<std::shared_ptr<phi::Allocation>> ins_slot_num(slot_num,
+  std::vector<std::shared_ptr<phi::Allocation>> ins_slot_num(edge_float_slot_num_,
                                                              nullptr);
-  std::vector<uint64_t *> ins_slot_num_vecotr(slot_num, NULL);
+  std::vector<uint64_t *> ins_slot_num_vecotr(edge_float_slot_num_, NULL);
   std::shared_ptr<phi::Allocation> d_ins_slot_num_vector =
-      memory::AllocShared(place_, (slot_num) * sizeof(uint64_t *));
+      memory::AllocShared(place_, (edge_float_slot_num_) * sizeof(uint64_t *));
   uint64_t **d_ins_slot_num_vector_ptr =
       reinterpret_cast<uint64_t **>(d_ins_slot_num_vector->ptr());
 
   int ii = 0;
-  for (int i = 0; i < conf_.slot_num; i++) {
-    if ((*feed_info_)[id_offset_of_feed_vec_ + 2 * i].type[0] == 'u') {
+  for (int i = 0; i < conf_.edge_slot_num; i++) {
+    auto& slot_info = (*feed_info_)[id_offset_of_feed_vec_ + 2 * i];
+    if (slot_info.type[0] == 'f' && slot_info.slot.find("edge") != std::string::npos) {
       ins_slot_num[ii] = memory::AllocShared(place_, key_num * sizeof(uint64_t));
       ins_slot_num_vecotr[ii] =
           reinterpret_cast<uint64_t *>(ins_slot_num[ii]->ptr());
       ii++;
     }
   }
-  if (slot_num > 0) {
+  if (edge_float_slot_num_ > 0) {
     CUDA_CHECK(
         cudaMemcpyAsync(reinterpret_cast<char *>(d_ins_slot_num_vector_ptr),
                         ins_slot_num_vecotr.data(),
-                        sizeof(uint64_t *) * slot_num,
+                        sizeof(uint64_t *) * edge_float_slot_num_,
                         cudaMemcpyHostToDevice,
                         train_stream_));
     fill_slot_num<<<grid, block, 0, train_stream_>>>(d_each_ins_slot_num_ptr,
                                                      d_ins_slot_num_vector_ptr,
                                                      key_num,
-                                                     slot_num);
+                                                     edge_float_slot_num_);
     CUDA_CHECK(cudaStreamSynchronize(train_stream_));
 
     ii = 0;
-    for (int i = 0; i < conf_.slot_num; ++i) {
-      if ((*feed_info_)[id_offset_of_feed_vec_ + 2 * i].type[0] == 'u') {
+    for (int i = 0; i < conf_.edge_slot_num; ++i) {
+      auto& slot_info = (*feed_info_)[id_offset_of_feed_vec_ + 2 * i];
+      if (slot_info.type[0] == 'f' && slot_info.slot.find("edge") != std::string::npos) {
         slot_lod_tensor_ptr_[ii] =
         feed_vec_[id_offset_of_feed_vec_ + 2 * i + 1]->mutable_data<int64_t>(
             {(long)key_num + 1}, this->place_);  // NOLINT
@@ -1926,9 +1992,10 @@ int GraphDataGenerator::FillEdgeFloatFeature(uint64_t *edge_src, uint64_t *edge_
         phi::Stream(reinterpret_cast<phi::StreamId>(train_stream_)));
 
     ii = 0;
-    std::vector<int64_t> each_slot_fea_num(slot_num, 0);
-    for (int i = 0; i < conf_.slot_num; ++i) {
-      if ((*feed_info_)[id_offset_of_feed_vec_ + 2 * i].type[0] == 'u') {
+    std::vector<int64_t> each_slot_fea_num(edge_float_slot_num_, 0);
+    for (int i = 0; i < conf_.edge_slot_num; ++i) {
+      auto& slot_info = (*feed_info_)[id_offset_of_feed_vec_ + 2 * i];
+      if (slot_info.type[0] == 'f' && slot_info.slot.find("edge") != std::string::npos) {
         CUDA_CHECK(cudaMemsetAsync(
             slot_lod_tensor_ptr_[ii], 0, sizeof(uint64_t), train_stream_));
         CUDA_CHECK(cub::DeviceScan::InclusiveSum(d_temp_storage->ptr(),
@@ -1947,17 +2014,19 @@ int GraphDataGenerator::FillEdgeFloatFeature(uint64_t *edge_src, uint64_t *edge_
     }
     CUDA_CHECK(cudaStreamSynchronize(train_stream_));
     ii = 0;
-    for (int i = 0; i < conf_.slot_num; ++i) {
-      if ((*feed_info_)[id_offset_of_feed_vec_ + 2 * i].type[0] == 'u') {
-        slot_tensor_ptr_[ii] = feed_vec_[id_offset_of_feed_vec_ + 2 * i]->mutable_data<int64_t>(
+    for (int i = 0; i < conf_.edge_slot_num; ++i) {
+      auto& slot_info = (*feed_info_)[id_offset_of_feed_vec_ + 2 * i];
+      if (slot_info.type[0] == 'f' && slot_info.slot.find("edge") != std::string::npos) {
+        slot_tensor_ptr_[ii] = feed_vec_[id_offset_of_feed_vec_ + 2 * i]->mutable_data<float>(
             {each_slot_fea_num[ii], 1}, this->place_);
         ii++;
       }
     }
     ii = 0;
     int64_t default_lod = 1;
-    for (int i = 0; i < conf_.slot_num; ++i) {
-      if ((*feed_info_)[id_offset_of_feed_vec_ + 2 * i].type[0] == 'u') {
+    for (int i = 0; i < conf_.edge_slot_num; ++i) {
+      auto& slot_info = (*feed_info_)[id_offset_of_feed_vec_ + 2 * i];
+      if (slot_info.type[0] == 'f' && slot_info.slot.find("edge") != std::string::npos) {
         fill_slot_tensor<<<grid, block, 0, train_stream_>>>(
             d_feature_list_ptr,
             d_feature_size_prefixsum_ptr,
@@ -1966,15 +2035,15 @@ int GraphDataGenerator::FillEdgeFloatFeature(uint64_t *edge_src, uint64_t *edge_
             slot_lod_tensor_ptr_[ii],
             slot_tensor_ptr_[ii],
             ii,
-            slot_num,
+            edge_float_slot_num_,
             key_num);
 
         // trick for empty tensor
         if (each_slot_fea_num[ii] == 0) {
           slot_tensor_ptr_[ii] =
-              feed_vec_[id_offset_of_feed_vec_ + 2 * i]->mutable_data<int64_t>({1, 1}, this->place_);
+              feed_vec_[id_offset_of_feed_vec_ + 2 * i]->mutable_data<float>({1, 1}, this->place_);
           CUDA_CHECK(cudaMemsetAsync(
-              slot_tensor_ptr_[ii], 0, sizeof(uint64_t), train_stream_));
+              slot_tensor_ptr_[ii], 0, sizeof(float), train_stream_));
           CUDA_CHECK(cudaMemcpyAsync(
               reinterpret_cast<char *>(slot_lod_tensor_ptr_[ii] + key_num),
               &default_lod,
@@ -1987,7 +2056,7 @@ int GraphDataGenerator::FillEdgeFloatFeature(uint64_t *edge_src, uint64_t *edge_
     }
     CUDA_CHECK(cudaStreamSynchronize(train_stream_));
   }
-  /*
+/*
   if (conf_.debug_mode) {
     std::vector<uint32_t> h_feature_size_list(key_num, 0);
     std::vector<uint32_t> h_feature_size_list_prefixsum(key_num, 0);
@@ -2079,7 +2148,6 @@ int GraphDataGenerator::FillEdgeFloatFeature(uint64_t *edge_src, uint64_t *edge_
 }
 
 // ==== edge feature ===
-
 int GraphDataGenerator::FillSlotFeature(uint64_t *d_walk, size_t key_num, int tensor_pair_idx) {
   platform::CUDADeviceGuard guard(conf_.gpuid);
   auto gpu_graph_ptr = GraphGpuWrapper::GetInstance();
@@ -2096,6 +2164,7 @@ int GraphDataGenerator::FillSlotFeature(uint64_t *d_walk, size_t key_num, int te
     d_feature_size_prefixsum_buf_ =
         memory::AllocShared(this->place_, temp_bytes);
   }
+
   int fea_num =
       gpu_graph_ptr->get_feature_info_of_nodes(conf_.gpuid,
                                                d_walk,
@@ -2158,16 +2227,16 @@ int GraphDataGenerator::FillSlotFeature(uint64_t *d_walk, size_t key_num, int te
 
   std::shared_ptr<phi::Allocation> d_each_ins_slot_num_inner_prefix =
       memory::AllocShared(place_,
-                          (conf_.slot_num * key_num) * sizeof(uint32_t));
+                          (slot_num * key_num) * sizeof(uint32_t));
   std::shared_ptr<phi::Allocation> d_each_ins_slot_num = memory::AllocShared(
-      place_, (conf_.slot_num * key_num) * sizeof(uint32_t));
+      place_, (slot_num * key_num) * sizeof(uint32_t));
   uint32_t *d_each_ins_slot_num_ptr =
       reinterpret_cast<uint32_t *>(d_each_ins_slot_num->ptr());
   uint32_t *d_each_ins_slot_num_inner_prefix_ptr =
       reinterpret_cast<uint32_t *>(d_each_ins_slot_num_inner_prefix->ptr());
   CUDA_CHECK(cudaMemsetAsync(d_each_ins_slot_num_ptr,
                              0,
-                             conf_.slot_num * key_num * sizeof(uint32_t),
+                             slot_num * key_num * sizeof(uint32_t),
                              train_stream_));
 
   dim3 grid((key_num - 1) / 256 + 1);
@@ -2805,19 +2874,53 @@ std::vector<std::shared_ptr<phi::Allocation>> SampleNeighbors(
     std::vector<std::shared_ptr<phi::Allocation>> *edge_type_graph_ptr,
     const paddle::platform::Place &place,
     cudaStream_t stream) {
-  auto gpu_graph_ptr = GraphGpuWrapper::GetInstance();
-  auto sample_res = gpu_graph_ptr->graph_neighbor_sample_sage(
-      conf.gpuid,
-      conf.edge_to_id_len,
-      reinterpret_cast<uint64_t *>(uniq_nodes),
-      sample_size,
-      len,
-      *edge_type_graph_ptr,
-      conf.weighted_sample,
-      conf.return_weight);
 
-  int *all_sample_count_ptr =
+  auto gpu_graph_ptr = GraphGpuWrapper::GetInstance();
+  int *all_sample_count_ptr = nullptr;
+  int64_t *all_sample_val_ptr = nullptr;
+  float* all_sample_weight_ptr = nullptr;
+  
+  std::shared_ptr<phi::Allocation> d_feature_list;
+  std::shared_ptr<phi::Allocation> d_slot_list;
+
+  if (conf_.edge_slot_num > 0) {
+    auto sample_res = gpu_graph_ptr->graph_neighbor_feature_sample_sage(
+        conf.gpuid,
+        conf.edge_to_id_len,
+        reinterpret_cast<uint64_t *>(uniq_nodes),
+        sample_size,
+        len,
+        *edge_type_graph_ptr,
+        conf.weighted_sample,
+        conf.return_weight,
+        d_feature_size_list_buf_,
+        d_feature_size_prefixsum_buf_,
+        d_feature_list,
+        d_slot_list);
+
+    all_sample_count_ptr =
       reinterpret_cast<int *>(sample_res.actual_sample_size_mem->ptr());
+    all_sample_val_ptr =
+      reinterpret_cast<int64_t *>(sample_res.val_mem->ptr());
+    all_sample_weight_ptr =
+        reinterpret_cast<float *>(sample_res.weight_mem->ptr());
+  } else {
+      auto sample_res = gpu_graph_ptr->graph_neighbor_sample_sage(
+          conf.gpuid,
+          conf.edge_to_id_len,
+          reinterpret_cast<uint64_t *>(uniq_nodes),
+          sample_size,
+          len,
+          *edge_type_graph_ptr,
+          conf.weighted_sample,
+          conf.return_weight);
+    all_sample_count_ptr =
+      reinterpret_cast<int *>(sample_res.actual_sample_size_mem->ptr());
+    all_sample_val_ptr =
+      reinterpret_cast<int64_t *>(sample_res.val_mem->ptr());
+    all_sample_weight_ptr =
+        reinterpret_cast<float *>(sample_res.weight_mem->ptr());
+  }
 
   auto cumsum_actual_sample_size =
       memory::Alloc(place,
@@ -2850,6 +2953,7 @@ std::vector<std::shared_ptr<phi::Allocation>> SampleNeighbors(
   cudaStreamSynchronize(stream);
 
   edges_split_num_ptr->resize(conf.edge_to_id_len);
+
   for (int i = 0; i < conf.edge_to_id_len; i++) {
     cudaMemcpyAsync(edges_split_num_ptr->data() + i,
                     cumsum_actual_sample_size_ptr + (i + 1) * len,
@@ -2873,8 +2977,7 @@ std::vector<std::shared_ptr<phi::Allocation>> SampleNeighbors(
       reinterpret_cast<int64_t *>(final_sample_val->ptr());
   int64_t *final_sample_val_dst_ptr =
       reinterpret_cast<int64_t *>(final_sample_val_dst->ptr());
-  int64_t *all_sample_val_ptr =
-      reinterpret_cast<int64_t *>(sample_res.val_mem->ptr());
+
 
   std::shared_ptr<phi::Allocation> final_sample_weight;
   float *final_sample_weight_ptr = nullptr, *all_sample_weight_ptr = nullptr;
@@ -2885,8 +2988,6 @@ std::vector<std::shared_ptr<phi::Allocation>> SampleNeighbors(
         phi::Stream(reinterpret_cast<phi::StreamId>(stream)));
     final_sample_weight_ptr =
         reinterpret_cast<float *>(final_sample_weight->ptr());
-    all_sample_weight_ptr =
-        reinterpret_cast<float *>(sample_res.weight_mem->ptr());
   }
   FillActualNeighbors<<<GET_BLOCKS(len * conf.edge_to_id_len),
                         CUDA_NUM_THREADS,
@@ -2903,11 +3004,69 @@ std::vector<std::shared_ptr<phi::Allocation>> SampleNeighbors(
                                   len,
                                   conf.return_weight);
   *neighbor_len = all_sample_size;
+
+  // 对d_feature_size_list_buf_紧凑表示
+  std::shared_ptr<phi::Allocation> final_feature_size_list;
+  std::shared_ptr<phi::Allocation> final_feature_size_prefixsum_list;
+  
+
+  if (conf_.edge_slot_num > 0) {
+    final_feature_size_list =
+        memory::AllocShared(place,
+                            all_sample_size * sizeof(uint32_t),
+                            phi::Stream(reinterpret_cast<phi::StreamId>(stream)));
+    final_feature_size_prefixsum_list =
+        memory::AllocShared(place,
+                            all_sample_size * sizeof(uint32_t),
+                            phi::Stream(reinterpret_cast<phi::StreamId>(stream)));
+ 
+    uint32_t* d_final_feature_size_list_ptr = reinterpret_cast<uint32_t*>(final_feature_size_list->ptr());
+    uint32_t* d_final_feature_size_prefixsum_ptr = reinterpret_cast<uint32_t*>(final_feature_size_prefixsum_list->ptr());
+
+ 
+    uint32_t *d_feature_size_list_ptr =
+      reinterpret_cast<uint32_t *>(d_feature_size_list_buf_->ptr());
+    uint32_t *d_feature_size_prefixsum_ptr =
+      reinterpret_cast<uint32_t *>(d_feature_size_prefixsum_buf_->ptr());
+
+
+    FillActualFeaInfo<<<GET_BLOCKS(len * conf.edge_to_id_len),
+                        CUDA_NUM_THREADS,
+                        0,
+                        stream>>>(d_feature_size_list_ptr,
+                                  d_feature_size_prefixsum_ptr,
+                                  d_final_feature_size_list_ptr,
+                                  d_final_feature_size_prefixsum_ptr,
+                                  all_sample_count_ptr,
+                                  cumsum_actual_sample_size_ptr,
+                                  sample_size,
+                                  len * conf.edge_to_id_len,
+                                  len);
+  }
+
   cudaStreamSynchronize(stream);
+ 
+
+  // fill edge feature
+  if (edge_uint_slot_num_ > 0) {
+    FillEdgeSlotFeature(d_feature_list,
+                        d_slot_list,
+                        final_feature_size_list,
+                        final_feature_size_prefixsum_list,
+                        all_sample_size);
+  }
+  if (edge_float_slot_num_ > 0) {
+    FillEdgeFloatFeature(d_feature_list,
+                        d_slot_list,
+                        final_feature_size_list,
+                        final_feature_size_prefixsum_list,
+                        all_sample_size);
+  }
 
   std::vector<std::shared_ptr<phi::Allocation>> sample_results;
   sample_results.emplace_back(final_sample_val);
   sample_results.emplace_back(final_sample_val_dst);
+
   if (conf.return_weight) {
     sample_results.emplace_back(final_sample_weight);
   }

@@ -177,6 +177,16 @@ class GpuPsGraphTable
       bool weighted,
       bool return_weight,
       bool for_all2all = false);
+  NeighborSampleResultV2 graph_neighbor_sample_and_feature_all_edge_type(
+      int gpu_id,
+      int edge_type_len,
+      uint64_t *key,
+      int sample_size,
+      int len,
+      std::vector<std::shared_ptr<phi::Allocation>> edge_type_graphs,
+      bool weighted,
+      bool return_weight,
+      bool for_all2all = false);
   NeighborSampleResultV2 graph_neighbor_sample_sage_all2all(
       int gpu_id,
       int edge_type_len,
@@ -337,6 +347,7 @@ class GpuPsGraphTable
                                                uint64_t *src_sample_res,
                                                int *actual_sample_size,
                                                float *weight,
+                                               GpuPsFeaInfo* src_fea_info_res,
                                                int edge_type_len,
                                                int len,
                                                bool return_weight);

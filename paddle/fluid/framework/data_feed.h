@@ -958,8 +958,8 @@ class GraphDataGenerator {
       std::shared_ptr<phi::Allocation> final_sage_nodes = nullptr);
   int FillSlotFeature(uint64_t* d_walk, size_t key_num, int tensor_pair_idx);
   int FillFloatFeature(uint64_t* d_walk, size_t key_num, int tensor_pair_idx);
-  int FillEdgeSlotFeature(uint64_t *edge_src, uint64_t *edge_dst, size_t key_num) {
-  int FillEdgeFloatFeature(uint64_t *edge_src, uint64_t *edge_dst, size_t key_num) {
+  // int FillEdgeSlotFeature(uint64_t *edge_src, uint64_t *edge_dst, size_t key_num) {
+  // int FillEdgeFloatFeature(uint64_t *edge_src, uint64_t *edge_dst, size_t key_num) {
   int GetPathNum() { return total_row_[0]; }
   void ResetPathNum() { total_row_[0] = 0; }
   int GetGraphBatchsize() { return conf_.batch_size; }

@@ -1061,6 +1061,29 @@ NeighborSampleResultV2 GraphGpuWrapper::graph_neighbor_sample_sage(
           weighted, return_weight);
 }
 
+
+NeighborSampleResultV2 GraphGpuWrapper::graph_neighbor_feature_sample_sage(
+    int gpu_id,
+    int edge_type_len,
+    uint64_t *key,
+    int sample_size,
+    int len,
+    std::vector<std::shared_ptr<phi::Allocation>> edge_type_graphs,
+    bool weighted,
+    bool return_weight,
+    std::shared_ptr<phi::Allocation> &size_list,
+    std::shared_ptr<phi::Allocation> &size_list_prefix_sum,
+    std::shared_ptr<phi::Allocation> &feature_list,
+    std::shared_ptr<phi::Allocation> &slot_list) {
+  return reinterpret_cast<GpuPsGraphTable *>(graph_table)
+      ->graph_neighbor_feature_sample_sage(
+          gpu_id, edge_type_len, key, sample_size, len, edge_type_graphs,
+          weighted, return_weight, size_list, size_list_prefix_sum, feature_list,
+           slot_list);
+}
+
+
+
 std::vector<std::shared_ptr<phi::Allocation>>
 GraphGpuWrapper::get_edge_type_graph(int gpu_id, int edge_type_len) {
   return reinterpret_cast<GpuPsGraphTable *>(graph_table)
@@ -1127,7 +1150,7 @@ int GraphGpuWrapper::get_float_feature_info_of_nodes(
 }
 
 // === edge feature ===
-
+/*
 int GraphGpuWrapper::get_edge_feature_info_of_nodes(
     int gpu_id,
     uint64_t *edge_src,
@@ -1175,7 +1198,7 @@ int GraphGpuWrapper::get_edge_float_feature_info_of_nodes(
                                              feature_list,
                                              slot_list);
 }
-
+*/
 // === edge feature ===
 
 int GraphGpuWrapper::get_feature_of_nodes(int gpu_id,

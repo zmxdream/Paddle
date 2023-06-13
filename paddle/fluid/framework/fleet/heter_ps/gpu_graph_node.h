@@ -126,7 +126,7 @@ struct GpuPsCommGraphEdgeFea {
   // half *weight_list;             // locate on both side, which length is the same as neighbor_list
   // bool is_weighted;
   T* feature_list;             // edge feature
-  uint8_t* slot_list;         // edge slot
+  uint8_t* slot_id_list;         // edge slot
   GpuPsFeaInfo
       *fea_info_list;           // only locate on host side, the list of edge fea_info
   GpuPsCommGraphEdgeFea()
@@ -515,6 +515,90 @@ struct NeighborSampleResultV2 {
   NeighborSampleResultV2() {}
   ~NeighborSampleResultV2() {}
 };
+
+
+struct NeighborSampleResultV3 {
+  // Used in graphsage.
+  uint64_t *val;
+  int *actual_sample_size;
+  float *weight;
+  GpuPsFeaInfo* edge_fea_info;
+  int sample_size, key_size, edge_to_id_len;
+  std::shared_ptr<memory::Allocation> val_mem, actual_sample_size_mem, weight_mem;
+  cudaStream_t stream = 0;
+
+  void set_stream(cudaStream_t stream_t) { stream = stream_t; }
+  void initialize(int _sample_size,
+                  int _key_size,
+                  int _edge_to_id_len,
+                  bool _return_weight,
+                  int dev_id) {
+    sample_size = _sample_size;
+    key_size = _key_size;
+    edge_to_id_len = _edge_to_id_len;
+    platform::CUDADeviceGuard guard(dev_id);
+    platform::CUDAPlace place = platform::CUDAPlace(dev_id);
+    if (stream != 0) {
+      val_mem = memory::AllocShared(
+          place,
+          _sample_size * _key_size * _edge_to_id_len * sizeof(uint64_t),
+          phi::Stream(reinterpret_cast<phi::StreamId>(stream)));
+      edge_fea_info_mem = memory::AllocShared(
+          place,
+          _sample_size * _key_size * _edge_to_id_len * sizeof(GpuPsFeaInfo),
+          phi::Stream(reinterpret_cast<phi::StreamId>(stream)));
+      actual_sample_size_mem = memory::AllocShared(
+          place,
+          _key_size * _edge_to_id_len * sizeof(int),
+          phi::Stream(reinterpret_cast<phi::StreamId>(stream)));
+      if (_return_weight) {
+        weight_mem = memory::AllocShared(
+            place,
+            _sample_size * _key_size * _edge_to_id_len * sizeof(float),
+            phi::Stream(reinterpret_cast<phi::StreamId>(stream)));
+      }
+    } else {
+      val_mem = memory::AllocShared(
+          place, _sample_size * _key_size * _edge_to_id_len * sizeof(uint64_t));
+      edge_fea_info_mem = memory::AllocShared(
+          place, _sample_size * _key_size * _edge_to_id_len * sizeof(GpuPsFeaInfo));
+      actual_sample_size_mem =
+          memory::AllocShared(place, _key_size * _edge_to_id_len * sizeof(int));
+      if (_return_weight) {
+        weight_mem = memory::AllocShared(
+            place,
+            _sample_size * _key_size * _edge_to_id_len * sizeof(float));
+      }
+    }
+    val = reinterpret_cast<uint64_t *>(val_mem->ptr());
+    edge_fea_info = reinterpret_cast<GpuPsFeaInfo*>(edge_fea_info_mem->ptr());
+    actual_sample_size = reinterpret_cast<int *>(actual_sample_size_mem->ptr());
+    if (_return_weight) {
+      weight = reinterpret_cast<float *>(weight_mem->ptr());
+    } else {
+      weight = nullptr;
+    }
+  }
+  void display() {
+    int *ac_size = new int[key_size * edge_to_id_len];
+    cudaMemcpy(ac_size,
+               actual_sample_size,
+               key_size * edge_to_id_len * sizeof(int),
+               cudaMemcpyDeviceToHost); // 0, 0, 0...
+    std::string print_ac;
+    for (int i = 0; i < key_size * edge_to_id_len; i++) {
+      print_ac += std::to_string(ac_size[i]);
+      print_ac += ";";
+    }
+    VLOG(0) << "actual_sample_size for all keys are: " << print_ac;
+    delete[] ac_size;
+  }
+  NeighborSampleResultV3() {}
+  ~NeighborSampleResultV3() {}
+};
+
+
+
 
 struct NodeQueryResult {
   uint64_t *val;
