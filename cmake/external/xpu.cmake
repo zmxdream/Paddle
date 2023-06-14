@@ -93,7 +93,8 @@ set(XPU_XCTR_URL
 set(XPU_PACK_DEPENCE_URL
     "https://baidu-kunlun-public.su.bcebos.com/paddle_depence/pack_paddle_box_depence.sh"
     CACHE STRING "" FORCE)
-if(WITH_BOX_PS)
+# if(WITH_BOX_PS)
+if (WITH_BOX_PS OR WITH_XPU_KP)
     set(XPU_XRE_DIR_NAME "xre-bdcentos_x86_64")
     set(XPU_XDNN_DIR_NAME "xdnn-bdcentos_x86_64")
     set(XPU_XCCL_DIR_NAME "xccl-bdcentos_x86_64")
