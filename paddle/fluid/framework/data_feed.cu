@@ -764,7 +764,9 @@ int GraphDataGenerator::FillGraphIdShowClkTensor(int uniq_instance,
     int64_t *edges_dst_tensor_ptr_[len_samples];
     // === edge feature ===
     int64_t* edge_slot_feature_tensor_ptr_[len_samples];
+    int64_t* edge_slot_feature_lod_tensor_ptr_[len_samples];
     float* edge_float_feature_tensor_ptr_[len_samples];
+    float* edge_float_feature_lod_tensor_ptr_[len_samples];
     // === edge feature ===
     int *edges_split_tensor_ptr_[len_samples];
     float *edges_weight_tensor_ptr_[len_samples];
@@ -773,6 +775,8 @@ int GraphDataGenerator::FillGraphIdShowClkTensor(int uniq_instance,
     std::vector<std::shared_ptr<phi::Allocation>> graph_edges =
         graph_edges_vec_[index];
     int graph_edges_index = 0;
+
+
     for (int i = 0; i < len_samples; i++) {
       std::vector<int> edges_split_num = edges_split_num_for_graph[i];
     
@@ -791,6 +795,22 @@ int GraphDataGenerator::FillGraphIdShowClkTensor(int uniq_instance,
         edges_weight_tensor_ptr_[i] = feed_vec_[feed_vec_idx++]->mutable_data<float>(
             {neighbor_len, 1}, this->place_);
       }
+  
+      // === edge feature == =
+      // if (edge_uint_slot_num_ > 0) {
+      //  for (int j = 0; j < edge_uint_slot_num_; j++) {
+      //    edge_slot_feature_tensor_ptr_[i] = feed_vec_[feed_vec_idx++]->mutable_data<int64_t>(this->place_);
+      //    edge_slot_feature_lod_tensor_ptr_[i] = feed_vec_[feed_vec_idx++]->mutable_data<int64_t>(this->place_);
+      //  }
+      // }
+      // if (edge_float_slot_num_ > 0) {
+      //   for (int j = 0; j < edge_float_slot_num_; j++) {
+      //    edge_float_feature_tensor_ptr_[i] = feed_vec_[feed_vec_idx++]->mutable_data<int64_t>(this->place_);
+      //     edge_float_feature_lod_tensor_ptr_[i] = feed_vec_[feed_vec_idx++]->mutable_data<int64_t>(this->place_);
+      //   }
+      // }
+      // === edge feature == =
+
       // [edges_split_num, next_num_nodes, num_nodes, neighbor_len]
       cudaMemcpyAsync(next_num_nodes_tensor_ptr_[i],
                       edges_split_num.data() + conf_.edge_to_id_len,
@@ -824,12 +844,6 @@ int GraphDataGenerator::FillGraphIdShowClkTensor(int uniq_instance,
                         cudaMemcpyDeviceToDevice,
                         train_stream_);
       }
-      // === edge feature ===
-      if (conf_.edge_slot_num > 0) {
-        // FillEdgeSlotFeature(edges_dst_tensor_ptr_[i], edges_src_tensor_ptr_[i], neighbor_len);
-        // FillEdgeFloatFeature(edges_dst_tensor_ptr_[i], edges_src_tensor_ptr_[i], neighbor_len);
-      }
-      // === edge feature ===
     } // end for (int i = 0; i < len_samples; i++) {
 
     index_tensor_ptr_ = feed_vec_[feed_vec_idx++]->mutable_data<int>(
@@ -889,12 +903,6 @@ int GraphDataGenerator::FillGraphSlotFeature(
         ret += FillFloatFeature(sage_nodes_ptr, total_instance, tensor_pair_idx);
       }
     }
-    // if (edge_uint_slot_num_ > 0) {
-    //   ret += FillEdegeSlotFeature(sage_nodes_ptr, total_instance);
-    // }
-    // if (edge_float_slot_num_ > 0) {
-    //  ret += FillEdgeFloatFeature(sage_nodes_ptr, total_instance);
-    // }
   }
 
   return ret;
@@ -1481,7 +1489,9 @@ void FillOneStep(
 }
 
 // ==== edge feature ===
-int GraphDataGenerator::FillEdgeSlotFeature(std::shared_ptr<phi::Allocation> d_feature_list,
+int GraphDataGenerator::FillEdgeSlotFeature(int tensor_pair_idx,
+                                            int sample_idx,
+                                            std::shared_ptr<phi::Allocation> d_feature_list,
                                             std::shared_ptr<phi::Allocation> d_slot_list,
                                             std::shared_ptr<phi::Allocation> d_feature_size_list,
                                             std::shared_ptr<phi::Allocation> d_feature_size_prefixsum,
@@ -1520,42 +1530,61 @@ int GraphDataGenerator::FillEdgeSlotFeature(std::shared_ptr<phi::Allocation> d_f
       fea_num = d_feature_list->size() / sizeof(uint64_t); 
     }
 
+    int feed_vec_idx = 2 + tensor_pair_idx * conf_.tensor_num_of_one_pair;
+    feed_vec_idx++;
+    if (conf_.enable_pair_label) {
+      feed_vec_idx++;
+    }
+    feed_vec_idx += conf_.slot_num * 2;
+    // 分两部分
+    int feed_per_sample = 5;
+    if (conf_.return_weight) feed_per_sample++;
+
+    int feature_feed_idx = 0;
+    int uint_feature_feed_idx = 0;
+    int float_feature_feed_idx = 0;
+    if (edge_uint_slot_num_ > 0) uint_feature_feed_idx += 2 * edge_uint_slot_num;
+    if (edge_float_slot_num_ > 0) float_feature_feed_idx += 2 * edge_float_slot_num;
+    feature_feed_idx = uint_feature_feed_idx + float_feature_feed_idx;
+    feed_vec_idx += sample_idx * (feed_per_sample + feature_feed_idx) + feed_per_sample; 
+
+
     int slot_num = conf_.edge_slot_num  - edge_float_slot_num_;
     int64_t *slot_tensor_ptr_[slot_num];
     int64_t *slot_lod_tensor_ptr_[slot_num];
 
-    if (fea_num == 0) {
-      int64_t default_lod = 1;
-      int ii = 0;
-      for (int i = 0; i < conf_.edge_slot_num; ++i) {
-        // 确认下offset
-        auto& slot_info = (*feed_info_)[id_offset_of_feed_vec_ + 2 * i];
-        if (slot_info.type[0] == 'u' && slot_info.slot.find("edge") != std::string::npos) {
-          slot_lod_tensor_ptr_[ii] =
-              feed_vec_[id_offset_of_feed_vec_ + 2 * i + 1]->mutable_data<int64_t>(
-                  {(long)key_num + 1}, this->place_);  // NOLINT
-          slot_tensor_ptr_[ii] =
-              feed_vec_[id_offset_of_feed_vec_ + 2 * i]->mutable_data<int64_t>(
-                  {1, 1}, this->place_);
+      if (fea_num == 0) {
+        int64_t default_lod = 1;
+        int ii = 0;
+        for (int i = 0; i < conf_.edge_slot_num; ++i) {
+          // 确认下offset
+          auto& slot_info = (*feed_info_)[id_offset_of_feed_vec_ + 2 * i];
+          if (slot_info.type[0] == 'u' && slot_info.slot.find("edge") != std::string::npos) {
+            slot_lod_tensor_ptr_[ii] =
+                feed_vec_[feed_vec_idx + 2 * i + 1]->mutable_data<int64_t>(
+                    {(long)key_num + 1}, this->place_);  // NOLINT
+            slot_tensor_ptr_[ii] =
+                feed_vec_[feed_vec_idx + 2 * i]->mutable_data<int64_t>(
+                    {1, 1}, this->place_);
 
-          CUDA_CHECK(cudaMemsetAsync(
-              slot_tensor_ptr_[ii], 0, sizeof(int64_t), train_stream_));
-          CUDA_CHECK(cudaMemsetAsync(slot_lod_tensor_ptr_[ii],
-                                     0,
-                                     sizeof(int64_t) * key_num,
-                                     train_stream_));
-          CUDA_CHECK(cudaMemcpyAsync(
-              reinterpret_cast<char *>(slot_lod_tensor_ptr_[ii] + key_num),
-            &default_lod,
-            sizeof(int64_t),
-            cudaMemcpyHostToDevice,
-            train_stream_));
-          ii++;
+            CUDA_CHECK(cudaMemsetAsync(
+                slot_tensor_ptr_[ii], 0, sizeof(int64_t), train_stream_));
+            CUDA_CHECK(cudaMemsetAsync(slot_lod_tensor_ptr_[ii],
+                                       0,
+                                       sizeof(int64_t) * key_num,
+                                       train_stream_));
+            CUDA_CHECK(cudaMemcpyAsync( 
+                reinterpret_cast<char *>(slot_lod_tensor_ptr_[ii] + key_num),
+              &default_lod,
+              sizeof(int64_t),
+              cudaMemcpyHostToDevice,
+              train_stream_));
+            ii++;
+          }
         }
+        CUDA_CHECK(cudaStreamSynchronize(train_stream_));
+        return 0;
       }
-      CUDA_CHECK(cudaStreamSynchronize(train_stream_));
-      return 0;
-    }
 
     uint64_t *d_feature_list_ptr =
       reinterpret_cast<uint64_t *>(d_feature_list->ptr());
@@ -1618,8 +1647,6 @@ int GraphDataGenerator::FillEdgeSlotFeature(std::shared_ptr<phi::Allocation> d_f
     }
   }
 
-
-
   if (slot_num > 0) {
     CUDA_CHECK(
         cudaMemcpyAsync(reinterpret_cast<char *>(d_ins_slot_num_vector_ptr),
@@ -1639,7 +1666,7 @@ int GraphDataGenerator::FillEdgeSlotFeature(std::shared_ptr<phi::Allocation> d_f
       auto& slot_info = (*feed_info_)[id_offset_of_feed_vec_ + 2 * i];
       if (slot_info.type[0] == 'u' && slot_info.slot.find("edge") != std::string::npos) {
         slot_lod_tensor_ptr_[ii] =
-        feed_vec_[id_offset_of_feed_vec_ + 2 * i + 1]->mutable_data<int64_t>(
+        feed_vec_[feed_vec_idx + 2 * i + 1]->mutable_data<int64_t>(
             {(long)key_num + 1}, this->place_);  // NOLINT
         ii++;
       }
@@ -1687,7 +1714,7 @@ int GraphDataGenerator::FillEdgeSlotFeature(std::shared_ptr<phi::Allocation> d_f
     for (int i = 0; i < conf_.edge_slot_num; ++i) {
       auto& slot_info = (*feed_info_)[id_offset_of_feed_vec_ + 2 * i];
       if (slot_info.type[0] == 'u' && slot_info.slot.find("edge") != std::string::npos) {
-        slot_tensor_ptr_[ii] = feed_vec_[id_offset_of_feed_vec_ + 2 * i]->mutable_data<int64_t>(
+        slot_tensor_ptr_[ii] = feed_vec_[feed_vec_idx + 2 * i]->mutable_data<int64_t>(
             {each_slot_fea_num[ii], 1}, this->place_);
         ii++;
       }
@@ -1712,7 +1739,7 @@ int GraphDataGenerator::FillEdgeSlotFeature(std::shared_ptr<phi::Allocation> d_f
         // trick for empty tensor
         if (each_slot_fea_num[ii] == 0) {
           slot_tensor_ptr_[ii] =
-              feed_vec_[id_offset_of_feed_vec_ + 2 * i]->mutable_data<int64_t>({1, 1}, this->place_);
+              feed_vec_[feed_vec_idx + 2 * i]->mutable_data<int64_t>({1, 1}, this->place_);
           CUDA_CHECK(cudaMemsetAsync(
               slot_tensor_ptr_[ii], 0, sizeof(uint64_t), train_stream_));
           CUDA_CHECK(cudaMemcpyAsync(
@@ -1818,7 +1845,9 @@ int GraphDataGenerator::FillEdgeSlotFeature(std::shared_ptr<phi::Allocation> d_f
 
 }
 
-int GraphDataGenerator::FillEdgeFloatFeature(std::shared_ptr<phi::Allocation> d_feature_list,
+int GraphDataGenerator::FillEdgeFloatFeature(int tensor_pair_idx,
+                                             int sample_idx,
+                                             std::shared_ptr<phi::Allocation> d_feature_list,
                                              std::shared_ptr<phi::Allocation> d_slot_list,
                                              std::shared_ptr<phi::Allocation> d_feature_size_list,
                                              std::shared_ptr<phi::Allocation> d_feature_size_prefixsum,
@@ -1853,6 +1882,24 @@ int GraphDataGenerator::FillEdgeFloatFeature(std::shared_ptr<phi::Allocation> d_
     //                                                         d_slot_list);
     // num of edge slot feature
     // conf_.slot_num - float_slot_num_ - edge_float_slot_num_;
+    int feed_vec_idx = 2 + tensor_pair_idx * conf_.tensor_num_of_one_pair;
+    feed_vec_idx++;
+    if (conf_.enable_pair_label) {
+      feed_vec_idx++;
+    }
+    feed_vec_idx += conf_.slot_num * 2;
+
+    // 分两部分
+    int feed_per_sample = 5;
+    if (conf_.return_weight) feed_per_sample++;
+
+    int feature_feed_idx = 0;
+    int uint_feature_feed_idx = 0;
+    int float_feature_feed_idx = 0;
+    if (edge_uint_slot_num_ > 0) uint_feature_feed_idx += 2 * edge_uint_slot_num;
+    if (edge_float_slot_num_ > 0) float_feature_feed_idx += 2 * edge_float_slot_num;
+    feature_feed_idx = uint_feature_feed_idx + float_feature_feed_idx;
+    feed_vec_idx += sample_idx * (feed_per_sample + feature_feed_idx) + feed_per_sample + uint_feature_feed_idx; 
 
     int fea_num = 0;
     if (d_feature_list != nullptr) {
@@ -1868,10 +1915,10 @@ int GraphDataGenerator::FillEdgeFloatFeature(std::shared_ptr<phi::Allocation> d_
         auto& slot_info = (*feed_info_)[id_offset_of_feed_vec_ + 2 * i];
         if (slot_info.type[0] == 'f' && slot_info.slot.find("edge") != std::string::npos) {
           slot_lod_tensor_ptr_[ii] =
-              feed_vec_[id_offset_of_feed_vec_ + 2 * i + 1]->mutable_data<int64_t>(
+              feed_vec_[feed_vec_idx + 2 * i + 1]->mutable_data<int64_t>(
                   {(long)key_num + 1}, this->place_);  // NOLINT
           slot_tensor_ptr_[ii] =
-              feed_vec_[id_offset_of_feed_vec_ + 2 * i]->mutable_data<float>(
+              feed_vec_[feed_vec_idx + 2 * i]->mutable_data<float>(
                   {1, 1}, this->place_);
 
           CUDA_CHECK(cudaMemsetAsync(
@@ -1970,7 +2017,7 @@ int GraphDataGenerator::FillEdgeFloatFeature(std::shared_ptr<phi::Allocation> d_
       auto& slot_info = (*feed_info_)[id_offset_of_feed_vec_ + 2 * i];
       if (slot_info.type[0] == 'f' && slot_info.slot.find("edge") != std::string::npos) {
         slot_lod_tensor_ptr_[ii] =
-        feed_vec_[id_offset_of_feed_vec_ + 2 * i + 1]->mutable_data<int64_t>(
+        feed_vec_[feed_vec_idx + 2 * i + 1]->mutable_data<int64_t>(
             {(long)key_num + 1}, this->place_);  // NOLINT
         ii++;
       }
@@ -2017,7 +2064,7 @@ int GraphDataGenerator::FillEdgeFloatFeature(std::shared_ptr<phi::Allocation> d_
     for (int i = 0; i < conf_.edge_slot_num; ++i) {
       auto& slot_info = (*feed_info_)[id_offset_of_feed_vec_ + 2 * i];
       if (slot_info.type[0] == 'f' && slot_info.slot.find("edge") != std::string::npos) {
-        slot_tensor_ptr_[ii] = feed_vec_[id_offset_of_feed_vec_ + 2 * i]->mutable_data<float>(
+        slot_tensor_ptr_[ii] = feed_vec_[feed_vec_idx + 2 * i]->mutable_data<float>(
             {each_slot_fea_num[ii], 1}, this->place_);
         ii++;
       }
@@ -2041,7 +2088,7 @@ int GraphDataGenerator::FillEdgeFloatFeature(std::shared_ptr<phi::Allocation> d_
         // trick for empty tensor
         if (each_slot_fea_num[ii] == 0) {
           slot_tensor_ptr_[ii] =
-              feed_vec_[id_offset_of_feed_vec_ + 2 * i]->mutable_data<float>({1, 1}, this->place_);
+              feed_vec_[feed_vec_idx + 2 * i]->mutable_data<float>({1, 1}, this->place_);
           CUDA_CHECK(cudaMemsetAsync(
               slot_tensor_ptr_[ii], 0, sizeof(float), train_stream_));
           CUDA_CHECK(cudaMemcpyAsync(
@@ -2865,6 +2912,8 @@ int InsertTable(const uint64_t *d_keys,  // Input
 }
 
 std::vector<std::shared_ptr<phi::Allocation>> SampleNeighbors(
+    int tensor_pair_idx,
+    int sample_idx,
     int64_t *uniq_nodes,
     int len,
     int sample_size,
@@ -3049,18 +3098,22 @@ std::vector<std::shared_ptr<phi::Allocation>> SampleNeighbors(
 
   // fill edge feature
   if (edge_uint_slot_num_ > 0) {
-    FillEdgeSlotFeature(d_feature_list,
+    FillEdgeSlotFeature(tensor_pair_idx,
+                        sample_idx,
+                        d_feature_list,
                         d_slot_list,
                         final_feature_size_list,
                         final_feature_size_prefixsum_list,
                         all_sample_size);
   }
   if (edge_float_slot_num_ > 0) {
-    FillEdgeFloatFeature(d_feature_list,
-                        d_slot_list,
-                        final_feature_size_list,
-                        final_feature_size_prefixsum_list,
-                        all_sample_size);
+    FillEdgeFloatFeature(tensor_pair_idx,
+                         sample_idx,
+                         d_feature_list,
+                         d_slot_list,
+                         final_feature_size_list,
+                         final_feature_size_prefixsum_list,
+                         all_sample_size);
   }
 
   std::vector<std::shared_ptr<phi::Allocation>> sample_results;
@@ -3223,6 +3276,7 @@ std::shared_ptr<phi::Allocation> GetReindexResult(
 }
 
 std::shared_ptr<phi::Allocation> GenerateSampleGraph(
+    int tensor_pair_idx,
     uint64_t *node_ids,  // input
     int len,             // input
     int *final_len,
@@ -3264,7 +3318,9 @@ std::shared_ptr<phi::Allocation> GenerateSampleGraph(
     std::shared_ptr<phi::Allocation> neighbors, reindex_dst, weights;
     int64_t neighbors_len = 0;
     if (i == 0) {
-      auto sample_results = SampleNeighbors(uniq_nodes_data,
+      auto sample_results = SampleNeighbors(tensor_pair_idx,
+                                            i,
+                                            uniq_nodes_data,
                                             uniq_len,
                                             conf.samples[i],
                                             conf,
@@ -3282,7 +3338,9 @@ std::shared_ptr<phi::Allocation> GenerateSampleGraph(
     } else {
       int64_t *final_nodes_data =
           reinterpret_cast<int64_t *>(final_nodes_vec[i - 1]->ptr());
-      auto sample_results = SampleNeighbors(final_nodes_data,
+      auto sample_results = SampleNeighbors(tensor_pair_idx,
+                                            i,
+                                            final_nodes_data,
                                             final_nodes_len_vec[i - 1],
                                             conf.samples[i],
                                             conf,
@@ -4213,7 +4271,8 @@ void GraphDataGenerator::DoSageForTrain() {
 
       ins_buf = reinterpret_cast<uint64_t *>(d_ins_buf_[tensor_pair_idx]->ptr());
       ins_cursor = ins_buf + ins_buf_pair_len_[tensor_pair_idx] * 2 - total_instance;
-      auto final_sage_nodes = GenerateSampleGraph(ins_cursor,
+      auto final_sage_nodes = GenerateSampleGraph(tensor_pair_idx,
+                                                  ins_cursor,
                                                   total_instance,
                                                   &uniq_instance,
                                                   conf_,
@@ -4302,7 +4361,8 @@ void GraphDataGenerator::DoSageForInfer() {
                           0,
                           sample_stream_>>>(
           node_buf_ptr, d_type_keys, total_instance / 2);
-      auto final_sage_nodes = GenerateSampleGraph(reinterpret_cast<uint64_t *>(node_buf->ptr()),
+      auto final_sage_nodes = GenerateSampleGraph(tensor_pair_idx,
+                                                  reinterpret_cast<uint64_t *>(node_buf->ptr()),
                                                   total_instance,
                                                   &uniq_instance,
                                                   conf_,
@@ -4754,15 +4814,19 @@ void GraphDataGenerator::AllocResource(
 
     conf_.slot_num = (conf_.tensor_num_of_one_pair - 1 - tensor_num_of_one_subgraph) / 2;
     assert((1 + conf_.slot_num * 2 + tensor_num_of_one_subgraph) == conf_.tensor_num_of_one_pair);
+
     VLOG(1) << "tensor_num_of_one_pair[" << conf_.tensor_num_of_one_pair
         << "] tensor_num_of_one_sample[" << tensor_num_of_one_sample
         << "] tensor_num_of_one_subgraph[" << tensor_num_of_one_subgraph << "]";
   }
+
   VLOG(1) << "slot_num[" << conf_.slot_num << "]";
   conf_.tensor_num_of_one_pair = 1 + conf_.slot_num * 2; // id and slot
+
   if (conf_.sage_mode) {
     conf_.tensor_num_of_one_pair += 5 * conf_.samples.size() + 1; // sage[] and inverse_index
   }
+
   if (conf_.enable_pair_label) {
     conf_.tensor_num_of_one_pair++;
   }

@@ -1733,16 +1733,16 @@ void GpuPsGraphTable::reset_float_feature_info(int gpu_id,
 
 
 void GpuPsGraphTable::reset_edge_feature_info(int gpu_id,
-                                              size_t capacity,
+                                              int idx,
                                               size_t feature_size) {
-  int idx = 2;
+  if (idx >= graph_table_num_) return;
   auto stream = get_local_stream(gpu_id);
-  int offset = get_table_offset(gpu_id, GraphTableType::FEATURE_TABLE, idx);
-  if (offset < tables_.size()) {
-    delete tables_[offset];
-    tables_[offset] = new Table(capacity, stream);
-  }
-  int graph_edge_fea_idx = get_graph_edge_fea_list_offset(gpu_id);
+  // int offset = get_table_offset(gpu_id, GraphTableType::EDGE_TABLE, idx);
+  // if (offset < tables_.size()) {
+  //   delete tables_[offset];
+  //   tables_[offset] = new Table(capacity, stream);
+  // }
+  int graph_edge_fea_idx = get_graph_list_offset(gpu_id, idx);
   auto& graph = gpu_graph_edge_fea_list_[graph_edge_fea_idx];
   graph.node_list = NULL;
 
@@ -1770,17 +1770,17 @@ void GpuPsGraphTable::reset_edge_feature_info(int gpu_id,
 }
 
 void GpuPsGraphTable::reset_edge_float_feature_info(int gpu_id,
-                                                    size_t capacity,
+                                                    int idx,
                                                     size_t feature_size) {
-  int idx = 3;
+  if (idx >= graph_table_num_) return;
   auto stream = get_local_stream(gpu_id);
-  int offset =
-      get_table_offset(gpu_id, GraphTableType::FEATURE_TABLE, idx);
-  if (offset < tables_.size()) {
-    delete tables_[offset];
-    tables_[offset] = new Table(capacity, stream);
-  }
-  int graph_edge_float_fea_idx = get_graph_edge_float_fea_list_offset(gpu_id);
+  // int offset =
+  //    get_table_offset(gpu_id, GraphTableType::EDGE_TABLE, idx);
+  // if (offset < tables_.size()) {
+  //   delete tables_[offset];
+  //  tables_[offset] = new Table(capacity, stream);
+  // }
+  int graph_edge_float_fea_idx = get_graph_list_offset(gpu_id, idx);
   auto& graph = gpu_graph_edge_float_fea_list_[graph_edge_float_fea_idx];
   graph.node_list = NULL;
 
@@ -1806,6 +1806,49 @@ void GpuPsGraphTable::reset_edge_float_feature_info(int gpu_id,
     cudaStreamSynchronize(stream);
   }
 }
+
+
+void GpuPsGraphTable::clear_graph_and_edge_info(int gpu_id, int idx) {
+  if (idx >= graph_table_num_) return;
+  int table_offset = get_table_offset(gpu_id, GraphTableType::EDGE_TABLE, idx);
+  if (table_offset < tables_.size()) {
+    delete tables_[table_offset];
+    tables_[table_offset] = NULL;
+  }
+  int offset = get_graph_list_offset(gpuid, idx);
+  if (gpu_graph_edge_fea_list_.size() > offset) {
+    auto& graph = gpu_graph_edge_fea_list_[offset];
+    if (graph.neighbor_list != NULL) {
+      cudaFree(graph.neighbor_list);
+      graph.neighbor_list = nullptr;
+    }
+    if (graph.node_list != NULL) {
+      cudaFree(graph.node_list);
+      graph.node_list = nullptr;
+    }
+    if (graph.feature_list != NULL) {
+      cudaFree(graph.feature_list);
+      graph.feature_list = nullptr;
+    }
+  }
+  if (gpu_graph_edge_float_fea_list_.size() > offset) {
+    auto& graph = gpu_graph_edge_float_fea_list_[offset];
+    if (graph.neighbor_list != NULL) {
+      cudaFree(graph.neighbor_list);
+      graph.neighbor_list = nullptr;
+    }
+    if (graph.node_list != NULL) {
+      cudaFree(graph.node_list);
+      graph.node_list = nullptr;
+    }
+    if (graph.feature_list != NULL) {
+      cudaFree(graph.feature_list);
+      graph.feature_list = nullptr;
+    }
+  }
+
+}
+
 // ==== edge feature ===
 
 void GpuPsGraphTable::clear_graph_info(int gpu_id, int idx) {
@@ -1929,57 +1972,64 @@ void GpuPsGraphTable::build_graph_float_fea_on_single_gpu(const GpuPsCommGraphFl
 
 // ===== edge feature =====
 void GpuPsGraphTable::build_graph_edge_fea_on_single_gpu(const GpuPsCommGraphEdgeFea<uint64_t>& g,
-                                                         int gpu_id) {
+                                                             int gpu_id,
+                                                             int edge_idx,
+                                                             bool build_table) {
   platform::CUDADeviceGuard guard(resource_->dev_id(gpu_id));
   size_t capacity = std::max((uint64_t)1, g.node_size) / load_factor_;
-  int ntype_id = 2; // edge slot feature
-  reset_edge_feature_info(gpu_id, capacity, g.feature_size);
-  int offset = get_graph_edge_fea_list_offset(gpu_id);
-  int table_offset =
-      get_table_offset(gpu_id, GraphTableType::FEATURE_TABLE, ntype_id);
-  if (g.node_size > 0) {
-    build_ps(gpu_id,
-             g.node_list,
-             reinterpret_cast<uint64_t*>(g.node_info_list),
-             g.node_size,
-             HBMPS_MAX_BUFF,
-             8,
-             table_offset);
-    gpu_graph_edge_fea_list_[offset].node_size = g.node_size;
-  } else {
-    build_ps(gpu_id, NULL, NULL, 0, HBMPS_MAX_BUFF, 8, table_offset);
-    gpu_graph_edge_fea_list_[offset].node_size = 0;
+  reset_edge_feature_info(gpu_id, edge_idx, g.feature_size);
+  int offset = get_graph_list_offset(gpu_id, edge_idx);
+  gpu_graph_edge_fea_list_[offset] = GpuPsCommGraphEdgeFea<uint64_t>();
+  if (build_table) {
+    clear_graph_and_edge_info(gpu_id, edge_idx);
+    int table_offset =
+       get_table_offset(gpu_id, GraphTableType::EDGE_TABLE, edge_idx);
+    auto stream = get_local_stream(gpu_id);
+    tables_[table_offset] = new Table(capacity, stream);
+
+    if (g.node_size > 0) {
+       build_ps(gpu_id,
+                g.node_list,
+                reinterpret_cast<uint64_t*>(g.node_info_list),
+                g.node_size,
+                HBMPS_MAX_BUFF,
+                8,
+                table_offset);
+       gpu_graph_edge_fea_list_[offset].node_size = g.node_size;
+    } else {
+       build_ps(gpu_id, NULL, NULL, 0, HBMPS_MAX_BUFF, 8, table_offset);
+       gpu_graph_edge_fea_list_[offset].node_size = 0;
+    }
   }
   if (g.neighbor_size) {
-    auto stream = get_local_stream(gpu_id);
-    cudaError_t cudaStatus;
-    if (!FLAGS_enable_neighbor_list_use_uva) {
-      cudaStatus = cudaMalloc(&gpu_graph_edge_fea_list_[offset].neighbor_list,
+     auto stream = get_local_stream(gpu_id);
+     cudaError_t cudaStatus;
+     if (!FLAGS_enable_neighbor_list_use_uva) {
+       cudaStatus = cudaMalloc(&gpu_graph_edge_fea_list_[offset].neighbor_list,
                                         g.neighbor_size * sizeof(uint64_t));
-    } else {
-      cudaStatus = cudaMallocManaged(&gpu_graph_edge_fea_list_[offset].neighbor_list,
-                                        g.neighbor_size * sizeof(uint64_t));
-    }
-    PADDLE_ENFORCE_EQ(cudaStatus,
-                      cudaSuccess,
-                      platform::errors::InvalidArgument(
-                          "failed to allocate memory for graph on gpu %d",
-                          resource_->dev_id(gpu_id)));
-    VLOG(0) << "successfully allocate " << g.neighbor_size * sizeof(uint64_t)
-            << " bytes of memory for graph-edges on gpu "
-            << resource_->dev_id(gpu_id);
-    CUDA_CHECK(cudaMemcpyAsync(gpu_graph_edge_fea_list_[offset].neighbor_list,
-                               g.neighbor_list,
-                               g.neighbor_size * sizeof(uint64_t),
-                               cudaMemcpyHostToDevice,
-                               stream));
-    gpu_graph_edge_fea_list_[offset].neighbor_size = g.neighbor_size;
-
-    cudaStreamSynchronize(stream);
-  } else {
-    gpu_graph_edge_fea_list_[offset].neighbor_list = NULL;
-    gpu_graph_edge_fea_list_[offset].neighbor_size = 0;
-  }
+     } else {
+       cudaStatus = cudaMallocManaged(&gpu_graph_edge_fea_list_[offset].neighbor_list,
+                                         g.neighbor_size * sizeof(uint64_t));
+     }
+     PADDLE_ENFORCE_EQ(cudaStatus,
+                       cudaSuccess,
+                       platform::errors::InvalidArgument(
+                           "failed to allocate memory for graph on gpu %d",
+                           resource_->dev_id(gpu_id)));
+     VLOG(0) << "successfully allocate " << g.neighbor_size * sizeof(uint64_t)
+             << " bytes of memory for graph-edges on gpu "
+             << resource_->dev_id(gpu_id);
+     CUDA_CHECK(cudaMemcpyAsync(gpu_graph_edge_fea_list_[offset].neighbor_list,
+                                g.neighbor_list,
+                                g.neighbor_size * sizeof(uint64_t),
+                                cudaMemcpyHostToDevice,
+                                stream));
+     gpu_graph_edge_fea_list_[offset].neighbor_size = g.neighbor_size;
+     cudaStreamSynchronize(stream);
+   } else {
+     gpu_graph_edge_fea_list_[offset].neighbor_list = NULL;
+     gpu_graph_edge_fea_list_[offset].neighbor_size = 0;
+   }
   if (g.feature_size) {
     auto stream = get_local_stream(gpu_id);
     CUDA_CHECK(cudaMemcpyAsync(gpu_graph_edge_fea_list_[offset].feature_list,
@@ -1999,36 +2049,37 @@ void GpuPsGraphTable::build_graph_edge_fea_on_single_gpu(const GpuPsCommGraphEdg
     gpu_graph_edge_fea_list_[offset].feature_size = 0;
   }
   VLOG(1) << "gpu edge_feature info card :" << gpu_id << " ,node_size is "
-          << gpu_graph_edge_fea_list_[offset].node_size << " ,neighbor_size is "
-          << gpu_graph_edge_fea_list_[offset].neighbor_size << " ,feature_size is "
-          << gpu_graph_edge_fea_list_[offset].feature_size;
+           << g.node_size << " ,neighbor_size is "
+           << gpu_graph_edge_fea_list_[offset].neighbor_size << " ,feature_size is "
+           << gpu_graph_edge_fea_list_[offset].feature_size;
 }
 
 void GpuPsGraphTable::build_graph_edge_float_fea_on_single_gpu(const GpuPsCommGraphEdgeFea<float>& g,
-                                                               int gpu_id) {
+                                                               int gpu_id,
+                                                               int edge_idx,
+                                                               bool build_table) {
   platform::CUDADeviceGuard guard(resource_->dev_id(gpu_id));
   size_t capacity = std::max((uint64_t)1, g.node_size) / load_factor_;
-  int ntype_id = 3; // edge float feature
-  reset_edge_float_feature_info(gpu_id, capacity, g.feature_size);
-  int offset = get_graph_edge_float_fea_list_offset(gpu_id);
-  int table_offset =
-      get_table_offset(gpu_id, GraphTableType::FEATURE_TABLE, ntype_id);
-  if (g.node_size > 0) {
-
-    build_ps(gpu_id,
-             g.node_list,
-             reinterpret_cast<uint64_t*>(g.node_info_list),
-             g.node_size,
-             HBMPS_MAX_BUFF,
-             8,
-             table_offset);
-    gpu_graph_edge_float_fea_list_[offset].node_size = g.node_size;
-
-  } else {
-
-    build_ps(gpu_id, NULL, NULL, 0, HBMPS_MAX_BUFF, 8, table_offset);
-    gpu_graph_edge_float_fea_list_[offset].node_size = 0;
-
+  reset_edge_float_feature_info(gpu_id, edge_idx, g.feature_size);
+  int offset = get_graph_list_offset(gpu_id, edge_idx);
+  gpu_graph_edge_float_fea_list_[offset] = GpuPsCommGraphEdgeFea<float>();
+  if (build_table) {
+    clear_graph_and_edge_info(gpu_id, edge_idx);
+    int table_offset =
+        get_table_offset(gpu_id, GraphTableType::EDGE_TABLE, edge_idx);
+    if (g.node_size > 0) {
+      build_ps(gpu_id,
+               g.node_list,
+               reinterpret_cast<uint64_t*>(g.node_info_list),
+               g.node_size,
+               HBMPS_MAX_BUFF,
+               8,
+               table_offset);
+      gpu_graph_edge_float_fea_list_[offset].node_size = g.node_size;
+    } else {
+      build_ps(gpu_id, NULL, NULL, 0, HBMPS_MAX_BUFF, 8, table_offset);
+      gpu_graph_edge_float_fea_list_[offset].node_size = 0;
+    }
   }
   if (g.neighbor_size) {
     auto stream = get_local_stream(gpu_id);
@@ -2060,7 +2111,6 @@ void GpuPsGraphTable::build_graph_edge_float_fea_on_single_gpu(const GpuPsCommGr
     gpu_graph_edge_float_fea_list_[offset].neighbor_list = NULL;
     gpu_graph_edge_float_fea_list_[offset].neighbor_size = 0;
   }
-
   if (g.feature_size) {
     auto stream = get_local_stream(gpu_id);
     CUDA_CHECK(cudaMemcpyAsync(gpu_graph_float_fea_list_[offset].feature_list,
@@ -2080,7 +2130,7 @@ void GpuPsGraphTable::build_graph_edge_float_fea_on_single_gpu(const GpuPsCommGr
     gpu_graph_edge_float_fea_list_[offset].feature_size = 0;
   }
   VLOG(0) << "gpu edge_float_feature info card :" << gpu_id << " ,node_size is "
-          << gpu_graph_edge_float_fea_list_[offset].node_size << ", feature_size is "
+          << g.node_size << ", feature_size is "
           << gpu_graph_edge_float_fea_list_[offset].feature_size;
 }
 // ===== edge feature =====
@@ -3521,6 +3571,7 @@ NeighborSampleResultV2 GpuPsGraphTable::graph_neighbor_sample_and_feature_all_ed
           (shard_len * edge_type_len) % 2);
     }
 
+/*
     thread_local std::random_device rd;
     thread_local std::mt19937 gen(rd());
     auto& node = path_[gpu_id][i].nodes_.back();
@@ -3563,6 +3614,7 @@ NeighborSampleResultV2 GpuPsGraphTable::graph_neighbor_sample_and_feature_all_ed
           actual_size_base + shard_len * edge_type_len +
           (shard_len * edge_type_len) % 2);
     }
+*/
 
     thread_local std::random_device rd;
     thread_local std::mt19937 gen(rd());
@@ -3582,7 +3634,7 @@ NeighborSampleResultV2 GpuPsGraphTable::graph_neighbor_sample_and_feature_all_ed
         if (return_weight) {
           weight_array = weight_array_base + edge_idx * shard_len * sample_size;
         }
-        int offset = get_graph_edge_fea_list_offset(i, edge_idx);
+        int offset = get_graph_list_offset(i, edge_idx);
         auto graph = gpu_graph_edge_fea_list_[offset];
         unweighted_sample(graph.neighbor_list, graph.weight_list, graph.fea_info_list, node_info_list, actual_size_array, sample_array,
                           fea_info_array, gpu_id, i, sample_size, shard_len, random_seed,
@@ -3609,10 +3661,10 @@ NeighborSampleResultV2 GpuPsGraphTable::graph_neighbor_sample_and_feature_all_ed
         if (return_weight) {
           weight_array = weight_array_base + edge_idx * shard_len * sample_size;
         }
-        int offset = get_graph_edge_fea_list_offset(i, edge_idx);
+        int offset = get_graph_list_offset(i, edge_idx);
         auto& graph = gpu_graph_edge_fea_list_[offset];
 
-        weighted_sample(graph.neighbor_list, graph.weight_list, graph.fea_info_list, node_info_list, graph.fea_info_list, actual_size_array, sample_array,
+        weighted_sample(graph.neighbor_list, graph.weight_list, graph.fea_info_list, node_info_list, actual_size_array, sample_array,
                         fea_info_array, neighbor_count_ptr, gpu_id, i, sample_size, shard_len,
                         need_neighbor_count, random_seed, weight_array, return_weight);
       }

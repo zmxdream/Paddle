@@ -840,7 +840,9 @@ void GraphGpuWrapper::show_mem(const char* msg)
 // edge table
 void GraphGpuWrapper::upload_batch(int table_type,
                                    int slice_num,
-                                   const std::string &edge_type) {
+                                   const std::string &edge_type,
+                                   int slot_num,
+                                   int float_slot_num) {
   VLOG(0) << "begin upload edge, etype[" << edge_type << "]";
   auto iter = edge_to_id.find(edge_type);
   int edge_idx = iter->second;
@@ -857,10 +859,29 @@ void GraphGpuWrapper::upload_batch(int table_type,
     tasks.push_back(upload_task_pool->enqueue([&, i, edge_idx, this]() -> int {
       VLOG(0) << "begin make_gpu_ps_graph, node_id[" << i << "]_size["
               << ids[i].size() << "]";
-      GpuPsCommGraph sub_graph =
-          g->cpu_graph_table_->make_gpu_ps_graph(edge_idx, ids[i]);
-      g->build_graph_on_single_gpu(sub_graph, i, edge_idx);
-      sub_graph.release_on_cpu();
+
+      if (slot_num > 0 || float_slot_num > 0) {
+        build_table = true;
+        if (slot_num > 0) {
+          GpuPsCommGraphEdgeFea<uint64_t> sub_graph =
+              g->cpu_graph_table_->make_gpu_ps_graph_edge_fea<uint64_t>(edge_idx, ids[i], slot_num);
+          g->build_graph_edge_fea_on_single_gpu(sub_graph, i, edge_idx, build_table);
+          build_table = false;
+          sub_graph.release_on_cpu();
+        }
+        if (float_slot_num > 0) {
+          GpuPsCommGraph<float> sub_graph =
+              g->cpu_graph_table_->make_gpu_ps_graph_edge_fea<float>(edge_idx, ids[i], float_slot_num);
+          g->build_graph_edge_float_fea_on_single_gpu(sub_graph, i, edge_idx, build_table);
+          sub_graph.release_on_cpu();
+        }
+
+      } else { 
+        GpuPsCommGraph sub_graph =
+            g->cpu_graph_table_->make_gpu_ps_graph(edge_idx, ids[i]);
+        g->build_graph_on_single_gpu(sub_graph, i, edge_idx);
+        sub_graph.release_on_cpu();
+      }
       VLOG(1) << "sub graph on gpu " << i << " is built";
       return 0;
     }));
