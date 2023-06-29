@@ -763,10 +763,10 @@ int GraphDataGenerator::FillGraphIdShowClkTensor(int uniq_instance,
     int64_t *edges_src_tensor_ptr_[len_samples];
     int64_t *edges_dst_tensor_ptr_[len_samples];
     // === edge feature ===
-    int64_t* edge_slot_feature_tensor_ptr_[len_samples];
-    int64_t* edge_slot_feature_lod_tensor_ptr_[len_samples];
-    float* edge_float_feature_tensor_ptr_[len_samples];
-    float* edge_float_feature_lod_tensor_ptr_[len_samples];
+    // int64_t* edge_slot_feature_tensor_ptr_[len_samples];
+    // int64_t* edge_slot_feature_lod_tensor_ptr_[len_samples];
+    // float* edge_float_feature_tensor_ptr_[len_samples];
+    // float* edge_float_feature_lod_tensor_ptr_[len_samples];
     // === edge feature ===
     int *edges_split_tensor_ptr_[len_samples];
     float *edges_weight_tensor_ptr_[len_samples];
@@ -795,7 +795,7 @@ int GraphDataGenerator::FillGraphIdShowClkTensor(int uniq_instance,
         edges_weight_tensor_ptr_[i] = feed_vec_[feed_vec_idx++]->mutable_data<float>(
             {neighbor_len, 1}, this->place_);
       }
-  
+      // 下面这快就是slot feature + float feature 
       // === edge feature == =
       // if (edge_uint_slot_num_ > 0) {
       //  for (int j = 0; j < edge_uint_slot_num_; j++) {
@@ -4838,14 +4838,14 @@ void GraphDataGenerator::AllocResource(
   }
   VLOG(1) << "tensor_num_of_one_pair[" << conf_.tensor_num_of_one_pair << "]";
 
-  d_slot_tensor_ptr_ = memory::AllocShared(
-      place_,
-      conf_.slot_num * sizeof(uint64_t *),
-      phi::Stream(reinterpret_cast<phi::StreamId>(sample_stream_)));
-  d_slot_lod_tensor_ptr_ = memory::AllocShared(
-      place_,
-      conf_.slot_num * sizeof(uint64_t *),
-      phi::Stream(reinterpret_cast<phi::StreamId>(sample_stream_)));
+  // d_slot_tensor_ptr_ = memory::AllocShared(
+  //     place_,
+  //     conf_.slot_num * sizeof(uint64_t *),
+  //     phi::Stream(reinterpret_cast<phi::StreamId>(sample_stream_)));
+  // d_slot_lod_tensor_ptr_ = memory::AllocShared(
+  //     place_,
+  //     conf_.slot_num * sizeof(uint64_t *),
+  //     phi::Stream(reinterpret_cast<phi::StreamId>(sample_stream_)));
 
   if (conf_.sage_mode) {
     conf_.reindex_table_size = conf_.batch_size * 2;
