@@ -665,6 +665,10 @@ class GraphTable : public Table {
                             size_t len,
                             FeatureNode *node);
 
+  virtual int parse_edge_feature(int idx,
+                                 const char *feat_str,
+                                 size_t len,
+                                 GraphNode *node);
   virtual int32_t get_node_feat(
       int idx,
       const std::vector<uint64_t> &node_ids,
@@ -726,7 +730,7 @@ class GraphTable : public Table {
   virtual paddle::framework::GpuPsCommGraph make_gpu_ps_graph(
       int idx, const std::vector<uint64_t> &ids);
   template <typename T>
-  virtual paddle::framework::GpuPsCommGraphEdgeFea<T> make_gpu_ps_graph_edge_fea(
+  paddle::framework::GpuPsCommGraphEdgeFea<T> make_gpu_ps_graph_edge_fea(
       int idx, const std::vector<uint64_t> &ids, int slot_num);
   virtual paddle::framework::GpuPsCommGraphFea make_gpu_ps_graph_fea(
       int gpu_id, std::vector<uint64_t> &node_ids, int slot_num);  // NOLINT

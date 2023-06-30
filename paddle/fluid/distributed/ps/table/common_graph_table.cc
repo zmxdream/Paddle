@@ -379,7 +379,7 @@ paddle::framework::GpuPsCommGraphEdgeFea<T> GraphTable::make_gpu_ps_graph_edge_f
         node_array[i].resize(bags[i].size());
         info_array[i].resize(bags[i].size());
         edge_array[i].reserve(bags[i].size()); // 最好reserve bags[i].siz() * 每个节点邻居数的均值
-        edge_fea_info_array[i].reserve(bags[i].size()) // 算它每个节点边数均值为1
+        edge_fea_info_array[i].reserve(bags[i].size()); // 算它每个节点边数均值为1
         feature_array[i].reserve(bags[i].size() * 1.2 * slot_num);
         slot_id_array[i].reserve(bags[i].size() * 1.2 * slot_num);
         if (is_weighted_) {
@@ -2297,7 +2297,7 @@ std::pair<uint64_t, uint64_t> GraphTable::parse_edge_file(
     }
 
     bool has_edge_feature = false;
-    if ((has_weight && vals.size() > 3) || (!has_weight && vals.size() > 2)) has_edge_feature = true
+    if ((has_weight && vals.size() > 3) || (!has_weight && vals.size() > 2)) has_edge_feature = true;
 
     // size_t last = line.find_last_of('\t');
     // if (start != last) {
@@ -2309,22 +2309,19 @@ std::pair<uint64_t, uint64_t> GraphTable::parse_edge_file(
     if (node != NULL) {
       node->build_edges(is_weighted_, has_edge_feature);
       node->add_edge(dst_id, weight);
- 
       if (load_edge_slot) {
         if (has_edge_feature) {
           int start_id = 2;
           if (has_weight) start_id = 3;
-
           for (int i = start_id; i < num; ++i) {
             auto &v = vals[i];
             int ret = parse_edge_feature(idx, v.ptr, v.len, node); // idx是边类型id
             if (ret != 0) {
-              VLOG(0) << "Fail to parse edge feature, node_id[" << id << "]";
+              VLOG(0) << "Fail to parse edge feature, src_id[" << src_id << "], dst_id[" << dst_id << "]";
               is_parse_edge_fail_ = true;
               return {0, 0};
             }
           }
-
         }
       }
 
@@ -3334,7 +3331,7 @@ int32_t GraphTable::Initialize(const GraphParameter &graph) {
     edge_feature_to_id[edge_types[k]] = k;
     auto edge_type = edge_types[k];
     auto edge_feature = graph_edge_feature[k]; // add table conf
-    edge_id_to_feature.push_back(edge_type);
+    id_to_edge_feature.push_back(edge_type);
     int edge_feat_conf_size = static_cast<int>(edge_feature.name().size());
     int feasign_idx = 0, float_idx = 0;
     for (int i = 0; i < edge_feat_conf_size; i++) {

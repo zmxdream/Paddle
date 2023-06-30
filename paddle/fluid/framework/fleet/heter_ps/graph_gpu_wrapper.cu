@@ -494,9 +494,11 @@ void GraphGpuWrapper::set_feature_separator(std::string ch) {
   }
 }
 
-void GraphGpuWrapper::set_feature_info(int slot_num_for_pull_feature, int float_slot_num) {
+void GraphGpuWrapper::set_feature_info(int slot_num_for_pull_feature, int float_slot_num, int edge_slot_num_for_pull_feature, int edge_float_slot_num) {
   this->slot_num_for_pull_feature_ = slot_num_for_pull_feature;
   this->float_slot_num_ = float_slot_num;
+  this->edge_slot_num_for_pull_feature_ = edge_slot_num_for_pull_feature;
+  this->edge_float_slot_num_ = edge_float_slot_num;
 }
 
 void GraphGpuWrapper::set_slot_feature_separator(std::string ch) {

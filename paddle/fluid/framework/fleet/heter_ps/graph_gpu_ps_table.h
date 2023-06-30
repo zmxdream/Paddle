@@ -50,7 +50,7 @@ class GpuPsGraphTable
     return gpu_id * float_feature_table_num_;
   }
   GpuPsGraphTable(std::shared_ptr<HeterPsResource> resource,
-                  int graph_table_num, int slot_num_for_pull_feature = 0, int float_slot_num = 0)
+                  int graph_table_num, int slot_num_for_pull_feature = 0, int float_slot_num = 0, int edge_uint_slot_num = 0, int edge_float_slot_num = 0)
       : HeterComm<uint64_t, uint64_t, int, CommonFeatureValueAccessor>(
             0, resource) {
     load_factor_ = FLAGS_gpugraph_hbm_table_load_factor;
@@ -73,9 +73,9 @@ class GpuPsGraphTable
     for (int i = 0; i < gpu_num; i++) {
       global_device_map[resource_->dev_id(i)] = i;
 
-      if (edge_slot_num > 0 || edge_float_slot_num > 0) {
+      if (edge_uint_slot_num > 0 || edge_float_slot_num > 0) {
         for (int j = 0; j < graph_table_num_; j++) {
-          if (edge_slot_num >  0) gpu_graph_edge_fea_list_.push_back(GpuPsCommGraphEdgeFea<uint64_t>());
+          if (edge_uint_slot_num >  0) gpu_graph_edge_fea_list_.push_back(GpuPsCommGraphEdgeFea<uint64_t>());
           if (edge_float_slot_num >  0) gpu_graph_edge_float_fea_list_.push_back(GpuPsCommGraphEdgeFea<float>());
         }
       } else {

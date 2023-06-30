@@ -17,6 +17,10 @@
 #include <cstdint>
 #include <vector>
 #include <cuda_fp16.h>
+#include <string>
+#include "glog/logging.h"
+#include "paddle/fluid/platform/enforce.h"
+#include "paddle/fluid/string/string_helper.h"
 namespace paddle {
 namespace distributed {
 
@@ -31,14 +35,16 @@ class GraphEdgeBlob {
   std::vector<int64_t>& export_id_array() { return id_arr; }
 
   // ==== adapt for edge feature === 
-  virtual int get_feature_ids(int slot_idx,
+  virtual int get_feature_ids(int edge_idx,
+                              int slot_idx,
                               std::vector<uint64_t> &feature_id,      // NOLINT
                               std::vector<uint8_t> &slot_id) const {  // NOLINT
     return 0;
   }
-  virtual int get_float_feature(int slot_idx,
-                              std::vector<float> &feature_id,      // NOLINT
-                              std::vector<uint8_t> &slot_id) const {  // NOLINT
+  virtual int get_float_feature(int edge_idx,
+                                int slot_idx,
+                                std::vector<float> &feature_id,      // NOLINT
+                                std::vector<uint8_t> &slot_id) const {  // NOLINT
     return 0;
   }
   // virtual void set_feature(int idx, const std::string &str) {}
@@ -79,8 +85,8 @@ class WeightedGraphEdgeBlobWithFeature : public GraphEdgeBlob {
                               std::vector<uint8_t> &slot_id) const {  // NOLINT
     errno = 0;
     size_t num = 0;
-    if (edge_idx < this->feature.size()) {
-      int offset = this->offset[edge_idx];
+    if (edge_idx < static_cast<int>(this->feature.size())) {
+      int offset = this->offsets[edge_idx];
       if (slot_idx < static_cast<int>(offset)) {
         const std::string &s = this->feature[edge_idx][slot_idx];
         const uint64_t *feas = (const uint64_t *)(s.c_str());
@@ -92,13 +98,13 @@ class WeightedGraphEdgeBlobWithFeature : public GraphEdgeBlob {
           slot_id.push_back(slot_idx);
         }
       }
-      PADDLE_ENFORCE_EQ(
+    }
+    PADDLE_ENFORCE_EQ(
           errno,
           0,
           paddle::platform::errors::InvalidArgument(
               "get_feature_ids get errno should be 0, but got %d.", errno));
-      return num;
-    }
+    return num;
   }
   
   virtual int get_float_feature(int edge_idx,
@@ -107,8 +113,8 @@ class WeightedGraphEdgeBlobWithFeature : public GraphEdgeBlob {
                                 std::vector<uint8_t> &slot_id) const {  // NOLINT
     errno = 0;
     size_t num = 0;
-    if (edge_idx < this->feature.size()) {
-      int offset = this->offset[edge_idx];
+    if (edge_idx < static_cast<int>(this->feature.size())) {
+      int offset = this->offsets[edge_idx];
       if (offset + slot_idx < static_cast<int>(this->feature[edge_idx].size())) {
         const std::string &s = this->feature[edge_idx][offset + slot_idx];
         const float *feas = (const float *)(s.c_str());
@@ -133,11 +139,12 @@ class WeightedGraphEdgeBlobWithFeature : public GraphEdgeBlob {
     if (idx >= static_cast<int>(this->feature.back().size())) {
       this->feature.back().resize(idx + 1);
     }
-    if (idx + 1 > this->offset.back()) this->offset.back() = idx + 1;
+    if (idx + 1 > this->offsets.back()) this->offsets.back() = idx + 1;
     return &(this->feature.back()[idx]);
   }
 
   virtual std::string *mutable_float_feature(int idx) {
+    int offset = this->offsets.back();
     if (offset + idx >= static_cast<int>(this->feature.back().size())) {
       this->feature.back().resize(offset + idx + 1);
     }
@@ -156,7 +163,7 @@ class WeightedGraphEdgeBlobWithFeature : public GraphEdgeBlob {
  // === to adapt ==== 
  protected:
   std::vector<half> weight_arr;
-  std::vector<int> offset;
+  std::vector<int> offsets;
   std::vector<std::vector<std::string>> feature;
 };
 
@@ -167,15 +174,14 @@ class GraphEdgeBlobWithFeature : public GraphEdgeBlob {
   virtual void add_edge(int64_t id, float weight);
 
  // === to adapt ====
- template <typename T>
  virtual int get_feature_ids(int edge_idx,
                              int slot_idx,
                              std::vector<uint64_t> &feature_id,      // NOLINT
                              std::vector<uint8_t> &slot_id) const {  // NOLINT
     errno = 0;
     size_t num = 0;
-    if (edge_idx < this->feature.size()) {
-      int offset = this->offset[edge_idx];
+    if (edge_idx < static_cast<int>(this->feature.size())) {
+      int offset = this->offsets[edge_idx];
       if (slot_idx < static_cast<int>(offset)) {
         const std::string &s = this->feature[edge_idx][slot_idx];
         const uint64_t *feas = (const uint64_t *)(s.c_str());
@@ -204,7 +210,7 @@ class GraphEdgeBlobWithFeature : public GraphEdgeBlob {
     size_t num = 0;
 
     if (edge_idx < static_cast<int>(this->feature.size())) {
-      int offset = this->offset[edge_idx];
+      int offset = this->offsets[edge_idx];
       if (offset + slot_idx < static_cast<int>(this->feature[edge_idx].size())) {
         const std::string &s = this->feature[edge_idx][offset + slot_idx];
         const float *feas = (const float *)(s.c_str());
@@ -229,15 +235,16 @@ class GraphEdgeBlobWithFeature : public GraphEdgeBlob {
     if (idx >= static_cast<int>(this->feature.back().size())) {
       this->feature.back().resize(idx + 1);
     }
-    if (idx  + 1 > this->offset.back()) this->offset.back() = idx + 1;
-    return &(this->feature.back().[idx]);
+    if (idx  + 1 > this->offsets.back()) this->offsets.back() = idx + 1;
+    return &(this->feature.back()[idx]);
   }
 
   virtual std::string *mutable_float_feature(int idx) {
+    int offset = this->offsets.back();
     if (offset + idx >= static_cast<int>(this->feature.back().size())) {
       this->feature.back().resize(offset + idx + 1);
     }
-    return &(this->feature.back().[offset + idx]);
+    return &(this->feature.back()[offset + idx]);
   }
   virtual void shrink_to_fit() {
     feature.shrink_to_fit();
@@ -250,7 +257,7 @@ class GraphEdgeBlobWithFeature : public GraphEdgeBlob {
   }
  // === to adapt ==== 
  protected:
- std::vector<int> offset;
+  std::vector<int> offsets;
   std::vector<std::vector<std::string>> feature;
 };
 

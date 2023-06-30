@@ -92,13 +92,18 @@ class GraphNode : public Node {
   }
   
   // === edge feature ===
-  template <typename T>
   virtual int get_feature_ids(int edge_idx,
                               int slot_idx,
-                              std::vector<T> &feature_id,      // NOLINT
+                              std::vector<uint64_t> &feature_id,      // NOLINT
                               std::vector<uint8_t> &slot_id) const {  // NOLINT
- 
     return edges->get_feature_ids(edge_idx, slot_idx, feature_id, slot_id);
+  }
+
+  virtual int get_float_feature(int edge_idx,
+                                int slot_idx,
+                                std::vector<float> &feature_id,      // NOLINT
+                                std::vector<uint8_t> &slot_id) const {  // NOLINT
+    return edges->get_float_feature(edge_idx, slot_idx, feature_id, slot_id);
   }
 
   virtual std::string *mutable_feature(int idx) {

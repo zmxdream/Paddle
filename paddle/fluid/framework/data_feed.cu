@@ -1529,7 +1529,7 @@ int GraphDataGenerator::FillEdgeSlotFeature(int tensor_pair_idx,
     }
 
     int feed_vec_idx = 2 + tensor_pair_idx * conf_.tensor_num_of_one_pair;
-    feed_vec_idx++;
+    feed_vec_idx++; // id tensor
     if (conf_.enable_pair_label) {
       feed_vec_idx++;
     }
@@ -1557,8 +1557,9 @@ int GraphDataGenerator::FillEdgeSlotFeature(int tensor_pair_idx,
         int ii = 0;
         for (int i = 0; i < conf_.edge_slot_num; ++i) {
           // 确认下offset
-          auto& slot_info = (*feed_info_)[id_offset_of_feed_vec_ + 2 * i];
-          if (slot_info.type[0] == 'u' && slot_info.slot.find("edge") != std::string::npos) {
+          int offset = id_offset_of_feed_vec_ + conf_.slot_num * 2 + feed_per_sample;
+          auto& slot_info = (*feed_info_)[offset + 2 * i];
+          if (slot_info.type[0] == 'u') {
             slot_lod_tensor_ptr_[ii] =
                 feed_vec_[feed_vec_idx + 2 * i + 1]->mutable_data<int64_t>(
                     {(long)key_num + 1}, this->place_);  // NOLINT
@@ -1637,8 +1638,9 @@ int GraphDataGenerator::FillEdgeSlotFeature(int tensor_pair_idx,
 
   int ii = 0;
   for (int i = 0; i < conf_.edge_slot_num; i++) {
-    auto& slot_info = (*feed_info_)[id_offset_of_feed_vec_ + 2 * i];
-    if (slot_info.type[0] == 'u' && slot_info.slot.find("edge") != std::string::npos) {
+    int offset = id_offset_of_feed_vec_ + conf_.slot_num * 2 + feed_per_sample;
+    auto& slot_info = (*feed_info_)[offset + 2 * i];
+    if (slot_info.type[0] == 'u') {
       ins_slot_num[ii] = memory::AllocShared(place_, key_num * sizeof(uint64_t));
       ins_slot_num_vecotr[ii] =
           reinterpret_cast<uint64_t *>(ins_slot_num[ii]->ptr());
@@ -1662,8 +1664,9 @@ int GraphDataGenerator::FillEdgeSlotFeature(int tensor_pair_idx,
     // 确认下offset
     ii = 0;
     for (int i = 0; i < conf_.edge_slot_num; ++i) {
-      auto& slot_info = (*feed_info_)[id_offset_of_feed_vec_ + 2 * i];
-      if (slot_info.type[0] == 'u' && slot_info.slot.find("edge") != std::string::npos) {
+      int offset = id_offset_of_feed_vec_ + conf_.slot_num * 2 + feed_per_sample;
+      auto& slot_info = (*feed_info_)[offset + 2 * i];
+      if (slot_info.type[0] == 'u') {
         slot_lod_tensor_ptr_[ii] =
         feed_vec_[feed_vec_idx + 2 * i + 1]->mutable_data<int64_t>(
             {(long)key_num + 1}, this->place_);  // NOLINT
@@ -1689,8 +1692,9 @@ int GraphDataGenerator::FillEdgeSlotFeature(int tensor_pair_idx,
     ii = 0;
     std::vector<int64_t> each_slot_fea_num(slot_num, 0);
     for (int i = 0; i < conf_.edge_slot_num; ++i) {
-      auto& slot_info = (*feed_info_)[id_offset_of_feed_vec_ + 2 * i];
-      if (slot_info.type[0] == 'u' && slot_info.slot.find("edge") != std::string::npos) {
+      int offset = id_offset_of_feed_vec_ + conf_.slot_num * 2 + feed_per_sample;
+      auto& slot_info = (*feed_info_)[offset + 2 * i];
+      if (slot_info.type[0] == 'u') {
         CUDA_CHECK(cudaMemsetAsync(
             slot_lod_tensor_ptr_[ii], 0, sizeof(uint64_t), train_stream_));
         CUDA_CHECK(cub::DeviceScan::InclusiveSum(d_temp_storage->ptr(),
@@ -1711,8 +1715,9 @@ int GraphDataGenerator::FillEdgeSlotFeature(int tensor_pair_idx,
 
     ii = 0;
     for (int i = 0; i < conf_.edge_slot_num; ++i) {
-      auto& slot_info = (*feed_info_)[id_offset_of_feed_vec_ + 2 * i];
-      if (slot_info.type[0] == 'u' && slot_info.slot.find("edge") != std::string::npos) {
+      int offset = id_offset_of_feed_vec_ + conf_.slot_num * 2 + feed_per_sample;
+      auto& slot_info = (*feed_info_)[offset + 2 * i];
+      if (slot_info.type[0] == 'u') {
         slot_tensor_ptr_[ii] = feed_vec_[feed_vec_idx + 2 * i]->mutable_data<int64_t>(
             {each_slot_fea_num[ii], 1}, this->place_);
         ii++;
@@ -1722,8 +1727,9 @@ int GraphDataGenerator::FillEdgeSlotFeature(int tensor_pair_idx,
     ii = 0;
     int64_t default_lod = 1;
     for (int i = 0; i < conf_.edge_slot_num; ++i) {
-      auto& slot_info = (*feed_info_)[id_offset_of_feed_vec_ + 2 * i];
-      if (slot_info.type[0] == 'u' && slot_info.slot.find("edge") != std::string::npos) {
+      int offset = id_offset_of_feed_vec_ + conf_.slot_num * 2 + feed_per_sample;
+      auto& slot_info = (*feed_info_)[offset + 2 * i];
+      if (slot_info.type[0] == 'u') {
         fill_slot_tensor<<<grid, block, 0, train_stream_>>>(
             d_feature_list_ptr,
             d_feature_size_prefixsum_ptr,
@@ -1895,7 +1901,7 @@ int GraphDataGenerator::FillEdgeFloatFeature(int tensor_pair_idx,
     if (edge_uint_slot_num_ > 0) uint_feature_feed_idx += 2 * edge_uint_slot_num;
     if (edge_float_slot_num_ > 0) float_feature_feed_idx += 2 * edge_float_slot_num;
     feature_feed_idx = uint_feature_feed_idx + float_feature_feed_idx;
-    feed_vec_idx += sample_idx * (feed_per_sample + feature_feed_idx) + feed_per_sample + uint_feature_feed_idx; 
+    feed_vec_idx += sample_idx * (feed_per_sample + feature_feed_idx) + feed_per_sample; 
 
     int fea_num = 0;
     if (d_feature_list != nullptr) {
@@ -1908,8 +1914,9 @@ int GraphDataGenerator::FillEdgeFloatFeature(int tensor_pair_idx,
       int64_t default_lod = 1;
       int ii = 0;
       for (int i = 0; i < conf_.edge_slot_num; ++i) {
-        auto& slot_info = (*feed_info_)[id_offset_of_feed_vec_ + 2 * i];
-        if (slot_info.type[0] == 'f' && slot_info.slot.find("edge") != std::string::npos) {
+        int offset = id_offset_of_feed_vec_ + conf_.slot_num * 2 + feed_per_sample;
+        auto& slot_info = (*feed_info_)[offset + 2 * i];
+        if (slot_info.type[0] == 'f') {
           slot_lod_tensor_ptr_[ii] =
               feed_vec_[feed_vec_idx + 2 * i + 1]->mutable_data<int64_t>(
                   {(long)key_num + 1}, this->place_);  // NOLINT
@@ -1987,8 +1994,9 @@ int GraphDataGenerator::FillEdgeFloatFeature(int tensor_pair_idx,
 
   int ii = 0;
   for (int i = 0; i < conf_.edge_slot_num; i++) {
-    auto& slot_info = (*feed_info_)[id_offset_of_feed_vec_ + 2 * i];
-    if (slot_info.type[0] == 'f' && slot_info.slot.find("edge") != std::string::npos) {
+    int offset = id_offset_of_feed_vec_ + conf_.slot_num * 2 + feed_per_sample;
+    auto& slot_info = (*feed_info_)[offset + 2 * i];
+    if (slot_info.type[0] == 'f') {
       ins_slot_num[ii] = memory::AllocShared(place_, key_num * sizeof(uint64_t));
       ins_slot_num_vecotr[ii] =
           reinterpret_cast<uint64_t *>(ins_slot_num[ii]->ptr());
@@ -2010,8 +2018,9 @@ int GraphDataGenerator::FillEdgeFloatFeature(int tensor_pair_idx,
 
     ii = 0;
     for (int i = 0; i < conf_.edge_slot_num; ++i) {
-      auto& slot_info = (*feed_info_)[id_offset_of_feed_vec_ + 2 * i];
-      if (slot_info.type[0] == 'f' && slot_info.slot.find("edge") != std::string::npos) {
+      int offset = id_offset_of_feed_vec_ + conf_.slot_num * 2 + feed_per_sample;
+      auto& slot_info = (*feed_info_)[offset + 2 * i];
+      if (slot_info.type[0] == 'f') {
         slot_lod_tensor_ptr_[ii] =
         feed_vec_[feed_vec_idx + 2 * i + 1]->mutable_data<int64_t>(
             {(long)key_num + 1}, this->place_);  // NOLINT
@@ -2037,8 +2046,9 @@ int GraphDataGenerator::FillEdgeFloatFeature(int tensor_pair_idx,
     ii = 0;
     std::vector<int64_t> each_slot_fea_num(edge_float_slot_num_, 0);
     for (int i = 0; i < conf_.edge_slot_num; ++i) {
-      auto& slot_info = (*feed_info_)[id_offset_of_feed_vec_ + 2 * i];
-      if (slot_info.type[0] == 'f' && slot_info.slot.find("edge") != std::string::npos) {
+      int offset = id_offset_of_feed_vec_ + conf_.slot_num * 2 + feed_per_sample;
+      auto& slot_info = (*feed_info_)[offset + 2 * i];
+      if (slot_info.type[0] == 'f') {
         CUDA_CHECK(cudaMemsetAsync(
             slot_lod_tensor_ptr_[ii], 0, sizeof(uint64_t), train_stream_));
         CUDA_CHECK(cub::DeviceScan::InclusiveSum(d_temp_storage->ptr(),
@@ -2058,8 +2068,9 @@ int GraphDataGenerator::FillEdgeFloatFeature(int tensor_pair_idx,
     CUDA_CHECK(cudaStreamSynchronize(train_stream_));
     ii = 0;
     for (int i = 0; i < conf_.edge_slot_num; ++i) {
-      auto& slot_info = (*feed_info_)[id_offset_of_feed_vec_ + 2 * i];
-      if (slot_info.type[0] == 'f' && slot_info.slot.find("edge") != std::string::npos) {
+      int offset = id_offset_of_feed_vec_ + conf_.slot_num * 2 + feed_per_sample;
+      auto& slot_info = (*feed_info_)[offset + 2 * i];
+      if (slot_info.type[0] == 'f') {
         slot_tensor_ptr_[ii] = feed_vec_[feed_vec_idx + 2 * i]->mutable_data<float>(
             {each_slot_fea_num[ii], 1}, this->place_);
         ii++;
@@ -2068,8 +2079,9 @@ int GraphDataGenerator::FillEdgeFloatFeature(int tensor_pair_idx,
     ii = 0;
     int64_t default_lod = 1;
     for (int i = 0; i < conf_.edge_slot_num; ++i) {
-      auto& slot_info = (*feed_info_)[id_offset_of_feed_vec_ + 2 * i];
-      if (slot_info.type[0] == 'f' && slot_info.slot.find("edge") != std::string::npos) {
+      int offset = id_offset_of_feed_vec_ + conf_.slot_num * 2 + feed_per_sample;
+      auto& slot_info = (*feed_info_)[offset + 2 * i];
+      if (slot_info.type[0] == 'f') {
         fill_slot_tensor<<<grid, block, 0, train_stream_>>>(
             d_feature_list_ptr,
             d_feature_size_prefixsum_ptr,
