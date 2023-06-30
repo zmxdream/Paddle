@@ -750,9 +750,9 @@ if (slot_num_for_pull_feature_ > 0 || edge_slot_num_for_pull_feature_ > 0) {
       auto gpu_graph_ptr = GraphGpuWrapper::GetInstance();
       gpu_task->sub_graph_edge_float_feas =
           reinterpret_cast<void*>(new std::vector<GpuPsCommGraphEdgeFea<float>>);
-      std::vector<GpuPsCommGraphEdgeFea<float>>& sub_graph_float_feas =
-          *((std::vector<GpuPsCommGraphFea<float>>*)gpu_task->sub_graph_float_feas);
-      sub_graph_float_feas = gpu_graph_ptr->get_sub_graph_float_fea(node_ids, float_slot_num_);
+      std::vector<GpuPsCommGraphEdgeFea<float>>& sub_graph_edge_float_feas =
+          *((std::vector<GpuPsCommGraphEdgeFea<float>>*)gpu_task->sub_graph_edge_float_feas);
+      sub_graph_edge_float_feas = gpu_graph_ptr->get_sub_graph_edge_float_fea(node_ids, edge_float_slot_num_);
     }
   }
 #endif

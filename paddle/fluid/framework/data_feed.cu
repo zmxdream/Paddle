@@ -1499,8 +1499,6 @@ int GraphDataGenerator::FillEdgeSlotFeature(int tensor_pair_idx,
   platform::CUDADeviceGuard guard(conf_.gpuid);
   auto gpu_graph_ptr = GraphGpuWrapper::GetInstance();
 
-  // std::shared_ptr<phi::Allocation> d_feature_list;
-  // std::shared_ptr<phi::Allocation> d_slot_list;
 
   // sage模式才会使用边特征
   if (conf_.sage_mode) {
@@ -1545,6 +1543,7 @@ int GraphDataGenerator::FillEdgeSlotFeature(int tensor_pair_idx,
     int float_feature_feed_idx = 0;
     if (edge_uint_slot_num_ > 0) uint_feature_feed_idx += 2 * edge_uint_slot_num;
     if (edge_float_slot_num_ > 0) float_feature_feed_idx += 2 * edge_float_slot_num;
+    
     feature_feed_idx = uint_feature_feed_idx + float_feature_feed_idx;
     feed_vec_idx += sample_idx * (feed_per_sample + feature_feed_idx) + feed_per_sample; 
 
@@ -1854,9 +1853,6 @@ int GraphDataGenerator::FillEdgeFloatFeature(int tensor_pair_idx,
                                              size_t key_num) {
   platform::CUDADeviceGuard guard(conf_.gpuid);
   auto gpu_graph_ptr = GraphGpuWrapper::GetInstance();
-
-  // std::shared_ptr<phi::Allocation> d_feature_list;
-  // std::shared_ptr<phi::Allocation> d_slot_list;
 
   // sage模式才会使用边特征
   if (conf_.sage_mode) {
@@ -4588,11 +4584,13 @@ void GraphDataGenerator::SetFeedInfo(std::vector<UsedSlotInfo>* feed_info) {
       int offset = id_offset_of_feed_vec_ + 2 * i;
       auto& slot_info = (*feed_info_)[offset]; 
       if (slot_info.type[0] == 'f') { // float feature
-        if (slot_info.slot.find("edge") == std::string::npos) float_slot_num_++;
-        else edge_float_slot_num_++;
+        // if (slot_info.slot.find("edge") == std::string::npos) float_slot_num_++;
+        // else edge_float_slot_num_++;
+        float_slot_num_++;
       } else if (slot_info.type[0] == 'u') { // slot feature
-        if (slot_info.slot.find("edge") == std::string::npos) uint_slot_num_++;
-        else edge_uint_slot_num_++;
+        // if (slot_info.slot.find("edge") == std::string::npos) uint_slot_num_++;
+        // else edge_uint_slot_num_++;
+        uint_slot_num_++;
       }
     }
   }
@@ -4799,19 +4797,25 @@ void GraphDataGenerator::AllocResource(
   if (!conf_.sage_mode) {
     conf_.slot_num = (feed_vec.size() - id_offset_of_feed_vec_) / 2;
   } else {
+
     conf_.tensor_num_of_one_pair = (feed_vec.size() - 2) / conf_.tensor_pair_num;
     assert((conf_.tensor_num_of_one_pair * conf_.tensor_pair_num + 2) == feed_vec.size());
+
     uint32_t tensor_num_of_one_sample = 5;
     if (conf_.return_weight) {
       tensor_num_of_one_sample++;
     }
-
+    // edge slot feature & edge float feature
+    tensor_num_of_one_sample += (conf_.edge_slot_num * 2);
+    // edge slot feature & edge float feature
     uint32_t tensor_num_of_one_subgraph = tensor_num_of_one_sample * conf_.samples.size();
     tensor_num_of_one_subgraph++; // final_index
+
     if (conf_.get_degree) {
       tensor_num_of_one_subgraph++; // degree_norm
     }
 
+    // -1 干啥, 不是-2??
     conf_.slot_num = (conf_.tensor_num_of_one_pair - 1 - tensor_num_of_one_subgraph) / 2;
     assert((1 + conf_.slot_num * 2 + tensor_num_of_one_subgraph) == conf_.tensor_num_of_one_pair);
 
@@ -4821,6 +4825,7 @@ void GraphDataGenerator::AllocResource(
   }
 
   VLOG(1) << "slot_num[" << conf_.slot_num << "]";
+  VLOG(1) << "edge slot_num[" << conf_.edge_slot_num << "]";
   conf_.tensor_num_of_one_pair = 1 + conf_.slot_num * 2; // id and slot
 
   if (conf_.sage_mode) {
@@ -4930,6 +4935,53 @@ void GraphDataGenerator::SetConfig(
   conf_.weighted_sample = graph_config.weighted_sample();
   conf_.return_weight = graph_config.return_weight();
 
+  // ==== get edge slot_num ====
+  PADDLE_ENFORCE(data_feed_desc.has_multi_slot_desc(),
+                 platform::errors::PreconditionNotMet(
+                     "Multi_slot_desc has not been set in data_feed_desc"));
+  paddle::framework::MultiSlotDesc multi_slot_desc =
+      data_feed_desc.multi_slot_desc();
+  size_t all_slot_num = multi_slot_desc.slots_size();
+  
+  auto samples = paddle::string::split_string<std::string>(str_samples, ";");
+  for (size_t i = 0; i < samples.size(); i++) {
+    int sample_size = std::stoi(samples[i]);
+    conf_.samples.emplace_back(sample_size);
+  }
+ 
+  int tensor_num_one_sample = 5;
+  if (conf_.return_weight) tensor_num_one_sample++; 
+  int sample_start_idx = -1;
+  int sample_end_idx = -1;
+  std::string sample_start_str = "num_nodes";
+  std::string edge_end_str = "final_index";
+  for (size_t i = 0; i < all_slot_num; ++i) {
+    const auto& slot = multi_slot_desc.slots(i);
+    if (!slot.is_used()) continue;
+    const auto& slot_name = slot.name();
+    if (slot_name.find(sample_start_str) != std::string:npos) {
+      sample_start_idx = i;
+    }
+    if (slot_name.find("edge_end_str") != std::string:npos) {
+      // 确认下
+      sample_end_idx = i;
+      conf_.edge_slot_num =((sample_end_idx - sample_start_idx) / conf_.samples.size() - tensor_num_one_sample) / 2;
+      break;
+    }
+  }
+
+  for (size_t i = 0; i < conf_.edge_slot_num; i++) {
+    int offset = sample_start_idx + tensor_num_one_sample + 2 * i;
+    const auto& slot = multi_slot_desc.slots(i);
+    const auto& slot_type = slot.type();
+    if (slot_type[0] == 'u') edge_uint_slot_num_++;
+    else if (slot_type[0] == 'f') edge_float_slot_num_++;  
+  }
+  VLOG(0) << "get edge_slot_num:" << conf_.edge_slot_num
+          << ", edge_uint_slot_num:" << edge_uint_slot_num_
+          << ", edge_float_slot_num:" << edge_float_slot_num_;
+  // ==== get edge slot_num ====
+
   epoch_finish_ = false;
   VLOG(1) << "Confirm GraphConfig, walk_degree : " << conf_.walk_degree
           << ", walk_len : " << conf_.walk_len << ", window : " << conf_.window
@@ -4954,11 +5006,12 @@ void GraphDataGenerator::SetConfig(
   auto edge_to_id = gpu_graph_ptr->edge_to_id;
   conf_.edge_to_id_len = edge_to_id.size();
   sage_batch_count_ = 0;
-  auto samples = paddle::string::split_string<std::string>(str_samples, ";");
-  for (size_t i = 0; i < samples.size(); i++) {
-    int sample_size = std::stoi(samples[i]);
-    conf_.samples.emplace_back(sample_size);
-  }
+
+  // auto samples = paddle::string::split_string<std::string>(str_samples, ";");
+  // for (size_t i = 0; i < samples.size(); i++) {
+  //   int sample_size = std::stoi(samples[i]);
+  //   conf_.samples.emplace_back(sample_size);
+  // }
   copy_unique_len_ = 0;
 
   if (!conf_.gpu_graph_training) {
