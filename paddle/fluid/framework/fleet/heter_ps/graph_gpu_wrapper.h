@@ -69,24 +69,37 @@ class GraphGpuWrapper {
                     const std::vector<std::string>& node_type);
   void upload_batch(int table_type,
                     int slice_num,
-                    const std::string& edge_type);
+                    const std::string& edge_type,
+                    int slot_num,
+                    int float_slot_num);
   void upload_batch(int table_type, int slice_num, int slot_num, int float_slot_num);
   std::vector<GpuPsCommGraphFea> get_sub_graph_fea(
       std::vector<std::vector<uint64_t>>& node_ids, int slot_num);    // NOLINT
   std::vector<GpuPsCommGraphFloatFea> get_sub_graph_float_fea(
       std::vector<std::vector<uint64_t>>& node_ids, int float_slot_num);    // NOLINT
-  std::vector<GpuPsCommGraphEdgeFea<uint64_t>> get_sub_graph_edge_fea(
-      std::vector<std::vector<uint64_t>>& node_ids, int edge_slot_num);    // NOLINT
-  std::vector<GpuPsCommGraphEdgeFea<float>> get_sub_graph_edge_float_fea(
-      std::vector<std::vector<uint64_t>>& node_ids, int edge_float_slot_num);    // NOLINT
+  template <typename T>
+  std::vector<GpuPsCommGraphEdgeFea<T>> get_sub_graph_edge_fea(
+      const std::string& edge_type, std::vector<std::vector<uint64_t>>& node_ids, int edge_slot_num);    // NOLINT
+  // std::vector<GpuPsCommGraphEdgeFea<float>> get_sub_graph_edge_float_fea(
+  //     std::vector<std::vector<uint64_t>>& node_ids, int edge_float_slot_num);    // NOLINT
   void build_gpu_graph_fea(GpuPsCommGraphFea& sub_graph_fea, int i);  // NOLINT
   void build_gpu_graph_float_fea(GpuPsCommGraphFloatFea& sub_graph_float_fea, int i);  // NOLINT
-  void build_gpu_graph_edge_fea(GpuPsCommGraphEdgeFea<uint64_t>& sub_graph_edge_fea, int i);  // NOLINT
-  void build_gpu_graph_edge_float_fea(GpuPsCommGraphEdgeFea<float>& sub_graph_edge_float_fea, int i);  // NOLINT
+  void build_gpu_graph_edge_fea(GpuPsCommGraphEdgeFea<uint64_t> &sub_graph_edge_fea, // NOLINT
+                                int i,
+                                const std::string &edge_type,
+                                bool build_table);
+  void build_gpu_graph_edge_float_fea(GpuPsCommGraphEdgeFea<float> &sub_graph_edge_float_fea,  // NOLINT
+                                      int i,
+                                      const std::string &edge_type,
+                                      bool build_table);
   void add_table_feat_conf(std::string table_name,
                            std::string feat_name,
                            std::string feat_dtype,
                            int feat_shape);
+  void add_table_edge_feat_conf(std::string table_name,
+                                std::string feat_name,
+                                std::string feat_dtype,
+                                int feat_shape);
   void load_edge_file(std::string name, std::string filepath, bool reverse);
   void load_edge_file(std::string etype2files,
                       std::string graph_data_local_path,
@@ -160,6 +173,19 @@ class GraphGpuWrapper {
       std::vector<std::shared_ptr<phi::Allocation>> edge_type_graphs,
       bool weighted,
       bool return_weight);
+  NeighborSampleResultV2 graph_neighbor_feature_sample_sage(
+      int gpu_id,
+      int edge_type_len,
+      uint64_t *key,
+      int sample_size,
+      int len,
+      std::vector<std::shared_ptr<phi::Allocation>> edge_type_graphs,
+      bool weighted,
+      bool return_weight,
+      std::shared_ptr<phi::Allocation> &size_list,
+      std::shared_ptr<phi::Allocation> &size_list_prefix_sum,
+      std::shared_ptr<phi::Allocation> &feature_list,
+      std::shared_ptr<phi::Allocation> &slot_list);
   void get_node_degree(int gpu_id,
                        int edge_idx,
                        uint64_t* key,
