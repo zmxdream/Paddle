@@ -1048,10 +1048,15 @@ void GraphGpuWrapper::build_gpu_graph_edge_fea(GpuPsCommGraphEdgeFea<uint64_t> &
                                                int i,
                                                const std::string &edge_type,
                                                bool build_table) {
+
+
   VLOG(0) << "begin build_gpu_graph_edge_fea, etype[" << edge_type << "]";
   auto iter = edge_to_id.find(edge_type);
   int edge_idx = iter->second;
   VLOG(2) << "cur edge type: " << edge_type << ", edge_idx: " << edge_idx;
+
+
+
   GpuPsGraphTable *g = reinterpret_cast<GpuPsGraphTable *>(graph_table);
   g->build_graph_edge_fea_on_single_gpu(sub_graph_edge_fea, i, edge_idx, build_table);
   sub_graph_edge_fea.release_on_cpu();

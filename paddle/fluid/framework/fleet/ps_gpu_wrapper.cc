@@ -445,7 +445,7 @@ if (slot_num_for_pull_feature_ > 0 || edge_slot_num_for_pull_feature_ > 0) {
   if (edge_slot_num_for_pull_feature_ > 0) {
     // edge_fea
     gpu_task->sub_graph_edge_feas =
-        reinterpret_cast<void*>(new std::vector<GpuPsCommGraphEdgeFea<uint64_t>>);
+        reinterpret_cast<void*>(new std::vector<std::vector<GpuPsCommGraphEdgeFea<uint64_t>>>);
     // std::vector<GpuPsCommGraphEdgeFea<uint64_t>>& sub_graph_edge_feas =
     //     *((std::vector<GpuPsCommGraphEdgeFea<uint64_t>>*)gpu_task->sub_graph_edge_feas);
   }
@@ -453,11 +453,19 @@ if (slot_num_for_pull_feature_ > 0 || edge_slot_num_for_pull_feature_ > 0) {
   std::vector<std::vector<uint64_t>> feature_ids(device_num);
   std::vector<uint64_t*> feature_list(device_num);
   std::vector<size_t> feature_list_size(device_num, 0);
-  std::vector<uint64_t*> edge_feature_list(device_num);
-  std::vector<size_t> edge_feature_list_size(device_num, 0);
+
+  auto gpu_graph_ptr = GraphGpuWrapper::GetInstance();
+  auto& id_to_edge = gpu_graph_ptr->id_to_edge;
+
+  std::vector<std::vector<uint64_t*>> edge_feature_list(id_to_edge.size());
+  std::vector<std::vector<size_t>> edge_feature_list_size(id_to_edge.size());
+  for (size_t edge_idx = 0; edge_idx < id_to_edge.size(); edge_idx++) {
+    edge_feature_list[edge_idx].resize(device_num);
+    edge_feature_list_size[edge_idx].resize(device_num, 0);
+  }
 
 #if defined(PADDLE_WITH_PSCORE) && defined(PADDLE_WITH_GPU_GRAPH)
-  size_t batch = 40000;
+  // size_t batch = 40000;
   size_t slot_num = static_cast<size_t>(
       slot_num_for_pull_feature_);  // node slot 9008 in slot_vector
   size_t edge_slot_num = static_cast<size_t>(
@@ -466,7 +474,8 @@ if (slot_num_for_pull_feature_ > 0 || edge_slot_num_for_pull_feature_ > 0) {
   // 最后适配
   if (FLAGS_gpugraph_storage_mode ==
       paddle::framework::GpuGraphStorageMode::MEM_EMB_AND_GPU_GRAPH) {
-    auto gpu_graph_ptr = GraphGpuWrapper::GetInstance();
+/*
+    // auto gpu_graph_ptr = GraphGpuWrapper::GetInstance();
     auto h_slot_feature_num_map = gpu_graph_ptr->slot_feature_num_map();
     int fea_num_per_node = 0;
     for (size_t i = 0; i < slot_num; ++i) {
@@ -547,6 +556,7 @@ if (slot_num_for_pull_feature_ > 0 || edge_slot_num_for_pull_feature_ > 0) {
       feature_list[i] = feature_ids[i].data();
       feature_list_size[i] = feature_ids[i].size();
     }
+*/
 
   } else if (FLAGS_gpugraph_storage_mode ==
                  paddle::framework::GpuGraphStorageMode::
@@ -565,19 +575,22 @@ if (slot_num_for_pull_feature_ > 0 || edge_slot_num_for_pull_feature_ > 0) {
       }
     }
     if (edge_slot_num_for_pull_feature_ > 0) {
-
       // === edge feature ===
-      std::vector<GpuPsCommGraphEdgeFea<uint64_t>>& sub_graph_edge_feas =
-          *((std::vector<GpuPsCommGraphEdgeFea<uint64_t>>*)gpu_task->sub_graph_edge_feas);
-      sub_graph_edge_feas = gpu_graph_ptr->get_sub_graph_edge_fea(node_ids, edge_slot_num);
-      for (size_t i = 0; i < device_num; i++) {
-        edge_feature_list[i] = sub_graph_edge_feas[i].feature_list;
-        edge_feature_list_size[i] = sub_graph_edge_feas[i].feature_size;
+      // auto& gpu_graph_ptr = GraphGpuWrapper::GetInstance();
+      // auto& id_to_edge = gpu_graph_ptr->id_to_edge;
+      std::vector<std::vector<GpuPsCommGraphEdgeFea<uint64_t>>>& sub_graph_edge_feas =
+            *((std::vector<std::vector<GpuPsCommGraphEdgeFea<uint64_t>>>*)gpu_task->sub_graph_edge_feas);
+      sub_graph_edge_feas.resize(id_to_edge.size());
+      for (size_t edge_idx = 0; edge_idx < id_to_edge.size(); edge_idx++) {
+        auto& edge_type = id_to_edge[edge_idx];
+        sub_graph_edge_feas[edge_idx] = gpu_graph_ptr->get_sub_graph_edge_fea<uint64_t>(edge_type, node_ids, edge_slot_num);
+        for (size_t i = 0; i < device_num; i++) {
+          edge_feature_list[edge_idx][i] = sub_graph_edge_feas[edge_idx][i].feature_list;
+          edge_feature_list_size[edge_idx][i] = sub_graph_edge_feas[edge_idx][i].feature_size;
+        }
       }
       // === edge feature ===
-
     }
-
   } else {
     VLOG(0) << "FLAGS_gpugraph_storage_mode is not adaptived";
   }
@@ -593,12 +606,13 @@ if (slot_num_for_pull_feature_ > 0 || edge_slot_num_for_pull_feature_ > 0) {
   } 
   size_t edge_feature_num = 0;
   if (edge_slot_num_for_pull_feature_ > 0) {
-    for (size_t i = 0; i < device_num; i++) {
-      edge_feature_num += edge_feature_list_size[i];
+    for (size_t edge_idx = 0; edge_idx < id_to_edge.size(); edge_idx++) {
+      for (size_t i = 0; i < device_num; i++) {
+        edge_feature_num += edge_feature_list_size[edge_idx][i];
+      }
     }
   }
   VLOG(1) << "feature_num is " << feature_num << " edge_feature_num is " << edge_feature_num << " node_num is " << node_num ;
-
   size_t set_num = thread_keys_shard_num_;
   std::vector<std::unordered_set<uint64_t>> feature_id_set(set_num);
   std::vector<std::mutex> set_mutex(set_num);
@@ -653,7 +667,6 @@ if (slot_num_for_pull_feature_ > 0 || edge_slot_num_for_pull_feature_ > 0) {
   size_t device_thread_num = 8;
   threads.resize(device_num * device_thread_num);
   time_stage.Start();
-
   // node slot feature & edge slot feature都加入feature id set
   if (slot_num_for_pull_feature_ > 0) {
     // node slot feature
@@ -665,27 +678,7 @@ if (slot_num_for_pull_feature_ > 0 || edge_slot_num_for_pull_feature_ > 0) {
           batch += 1;
         }
         threads[i * device_thread_num + j] =
-            std::thread(add_feature_to_set, feature_list, i, start, start + batch);
-        start += batch;
-      }
-    }
-    for (std::thread& t : threads) {
-      t.join();
-    }
-    threads.clear();
-  }
-  // edge slot feature
-  if (edge_slot_num_for_pull_feature_ > 0) {
-    // node slot feature
-    for (size_t i = 0; i < device_num; i++) {
-      size_t start = 0;
-      for (size_t j = 0; j < device_thread_num; j++) {
-        size_t batch = edge_feature_list_size[i] / device_thread_num;
-        if (j < edge_feature_list_size[i] % device_thread_num) {
-          batch += 1;
-        }
-        threads[i * device_thread_num + j] =
-            std::thread(add_feature_to_set, edge_feature_list, i, start, start + batch);
+            std::thread(add_feature_to_set, i, std::ref(feature_list), start, start + batch);
         start += batch;
       }
     }
@@ -695,6 +688,31 @@ if (slot_num_for_pull_feature_ > 0 || edge_slot_num_for_pull_feature_ > 0) {
     threads.clear();
   }
 
+  // edge slot feature
+  if (edge_slot_num_for_pull_feature_ > 0) {
+    auto gpu_graph_ptr = GraphGpuWrapper::GetInstance();
+    auto& id_to_edge = gpu_graph_ptr->id_to_edge;
+    threads.resize(id_to_edge.size() * device_num * device_thread_num);
+
+    for (size_t edge_idx = 0; edge_idx < id_to_edge.size(); edge_idx++) {
+      for (size_t i = 0; i < device_num; i++) {
+        size_t start = 0;
+        for (size_t j = 0; j < device_thread_num; j++) {
+          size_t batch = edge_feature_list_size[edge_idx][i] / device_thread_num;
+          if (j < edge_feature_list_size[edge_idx][i] % device_thread_num) {
+            batch += 1;
+          }
+          threads[edge_idx * (device_num * device_thread_num) + i * device_thread_num + j] =
+              std::thread(add_feature_to_set, i, std::ref(edge_feature_list[edge_idx]), start, start + batch);
+          start += batch;
+        }
+      }
+    }
+    for (std::thread& t : threads) {
+      t.join();
+    }
+    threads.clear();
+  }
   time_stage.Pause();
   add_feature_to_set_cost = time_stage.ElapsedSec();
 
@@ -749,6 +767,7 @@ if (slot_num_for_pull_feature_ > 0 || edge_slot_num_for_pull_feature_ > 0) {
       sub_graph_float_feas = gpu_graph_ptr->get_sub_graph_float_fea(node_ids, float_slot_num_);
     }
   }
+  /*
   if (edge_float_slot_num_ > 0) {
     if (FLAGS_gpugraph_storage_mode ==
                  paddle::framework::GpuGraphStorageMode::
@@ -758,12 +777,18 @@ if (slot_num_for_pull_feature_ > 0 || edge_slot_num_for_pull_feature_ > 0) {
                      SSD_EMB_AND_MEM_FEATURE_GPU_GRAPH) {
       auto gpu_graph_ptr = GraphGpuWrapper::GetInstance();
       gpu_task->sub_graph_edge_float_feas =
-          reinterpret_cast<void*>(new std::vector<GpuPsCommGraphEdgeFea<float>>);
-      std::vector<GpuPsCommGraphEdgeFea<float>>& sub_graph_edge_float_feas =
-          *((std::vector<GpuPsCommGraphEdgeFea<float>>*)gpu_task->sub_graph_edge_float_feas);
-      sub_graph_edge_float_feas = gpu_graph_ptr->get_sub_graph_edge_float_fea(node_ids, edge_float_slot_num_);
+          reinterpret_cast<void*>(new std::vector<std::vector<GpuPsCommGraphEdgeFea<float>>>);
+      std::vector<std::vector<GpuPsCommGraphEdgeFea<float>>>& sub_graph_edge_float_feas =
+          *((std::vector<std::vector<GpuPsCommGraphEdgeFea<float>>>*)gpu_task->sub_graph_edge_float_feas);
+      auto& id_to_edge = gpu_graph_ptr->id_to_edge;
+      sub_graph_edge_float_feas.resize(id_to_edge.size());
+      for (size_t edge_idx = 0; edge_idx < id_to_edge.size(); edge_idx++) {
+        auto& edge_type = id_to_edge[edge_idx];
+        sub_graph_edge_float_feas[edge_idx] = gpu_graph_ptr->get_sub_graph_edge_fea<float>(edge_type, node_ids, edge_float_slot_num_);
+      }
     }
   }
+  */
 #endif
 }
 
@@ -1514,17 +1539,25 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
       gpu_graph_ptr->build_gpu_graph_float_fea((*float_tmp)[i], i);
     }
    
+    auto gpu_graph_ptr = GraphGpuWrapper::GetInstance();
+    auto& id_to_edge = gpu_graph_ptr->id_to_edge;
     // edge fea
+    std::vector<bool> build_table(id_to_edge.size(), true);
     if (edge_slot_num_for_pull_feature_ > 0 &&
         (FLAGS_gpugraph_storage_mode == paddle::framework::GpuGraphStorageMode::
                                             MEM_EMB_FEATURE_AND_GPU_GRAPH ||
          FLAGS_gpugraph_storage_mode ==
              paddle::framework::GpuGraphStorageMode::
                  SSD_EMB_AND_MEM_FEATURE_GPU_GRAPH)) {
+
       auto gpu_graph_ptr = GraphGpuWrapper::GetInstance();
-      std::vector<GpuPsCommGraphEdgeFea<uint64_t>>* tmp =
-          (std::vector<GpuPsCommGraphEdgeFea<uint64_t>>*)gpu_task->sub_graph_ege_feas;
-      gpu_graph_ptr->build_gpu_graph_edge_fea((*tmp)[i], i);
+      std::vector<std::vector<GpuPsCommGraphEdgeFea<uint64_t>>>* tmp =
+          (std::vector<std::vector<GpuPsCommGraphEdgeFea<uint64_t>>>*)gpu_task->sub_graph_edge_feas;
+      for (size_t edge_idx = 0; edge_idx < id_to_edge.size(); edge_idx++) {
+        auto& edge_type = id_to_edge[edge_idx];
+        gpu_graph_ptr->build_gpu_graph_edge_fea((*tmp)[edge_idx][i], i, edge_type, build_table[edge_idx]);
+        build_table[edge_idx] = false;
+      }
     }
     if (edge_float_slot_num_> 0 &&
         (FLAGS_gpugraph_storage_mode == paddle::framework::GpuGraphStorageMode::
@@ -1533,15 +1566,17 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
              paddle::framework::GpuGraphStorageMode::
                  SSD_EMB_AND_MEM_FEATURE_GPU_GRAPH)) {
       auto gpu_graph_ptr = GraphGpuWrapper::GetInstance();
-      std::vector<GpuPsCommGraphEdgeFea<float>>* float_tmp =
-          (std::vector<GpuPsCommGraphEdgeFea<float>>*)gpu_task->sub_graph_float_feas;
-      gpu_graph_ptr->build_gpu_graph_edge_float_fea((*float_tmp)[i], i);
+      std::vector<std::vector<GpuPsCommGraphEdgeFea<float>>>* float_tmp =
+          (std::vector<std::vector<GpuPsCommGraphEdgeFea<float>>>*)gpu_task->sub_graph_float_feas;
+      for (size_t edge_idx = 0; edge_idx < id_to_edge.size(); edge_idx++) {
+        auto& edge_type = id_to_edge[edge_idx];
+        gpu_graph_ptr->build_gpu_graph_edge_float_fea((*float_tmp)[edge_idx][i], i, edge_type, build_table[edge_idx]);
+      }
     }
 
 #endif
     stagetime.Pause();
     auto build_feature_span = stagetime.ElapsedSec();
-d
     size_t total_len = 0;
     stagetime.Start();
     struct task_info task;
@@ -1618,6 +1653,26 @@ d
         (std::vector<GpuPsCommGraphFloatFea>*)gpu_task->sub_graph_float_feas;
     delete float_tmp;
     gpu_task->sub_graph_float_feas = NULL;
+
+    if (edge_slot_num_for_pull_feature_ > 0) {
+      std::vector<std::vector<GpuPsCommGraphEdgeFea<uint64_t>>>* tmp =
+          (std::vector<std::vector<GpuPsCommGraphEdgeFea<uint64_t>>>*)gpu_task->sub_graph_edge_feas;
+      delete tmp;
+      gpu_task->sub_graph_edge_feas = NULL;
+    } 
+
+    if (float_slot_num_ > 0) {
+      std::vector<std::vector<GpuPsCommGraphEdgeFea<float>>>* tmp =
+          (std::vector<std::vector<GpuPsCommGraphEdgeFea<float>>>*)gpu_task->sub_graph_edge_float_feas;
+      delete tmp;
+      gpu_task->sub_graph_edge_float_feas = NULL;
+    }
+
+
+
+
+
+
   }
 #endif
   stagetime.Pause();

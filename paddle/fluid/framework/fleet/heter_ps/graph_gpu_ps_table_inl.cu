@@ -1974,6 +1974,7 @@ void GpuPsGraphTable::build_graph_edge_fea_on_single_gpu(const GpuPsCommGraphEdg
   int offset = get_graph_list_offset(gpu_id, edge_idx);
   gpu_graph_edge_fea_list_[offset] = GpuPsCommGraphEdgeFea<uint64_t>();
 
+  // 这个build table
   if (build_table) {
     clear_graph_and_edge_info(gpu_id, edge_idx);
     int table_offset =
@@ -1995,7 +1996,6 @@ void GpuPsGraphTable::build_graph_edge_fea_on_single_gpu(const GpuPsCommGraphEdg
        gpu_graph_edge_fea_list_[offset].node_size = 0;
     }
   }
-
 
   if (g.neighbor_size) {
      auto stream = get_local_stream(gpu_id);
