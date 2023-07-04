@@ -1541,8 +1541,8 @@ int GraphDataGenerator::FillEdgeSlotFeature(int tensor_pair_idx,
     int feature_feed_idx = 0;
     int uint_feature_feed_idx = 0;
     int float_feature_feed_idx = 0;
-    if (edge_uint_slot_num_ > 0) uint_feature_feed_idx += 2 * edge_uint_slot_num;
-    if (edge_float_slot_num_ > 0) float_feature_feed_idx += 2 * edge_float_slot_num;
+    if (edge_uint_slot_num_ > 0) uint_feature_feed_idx += 2 * edge_uint_slot_num_;
+    if (edge_float_slot_num_ > 0) float_feature_feed_idx += 2 * edge_float_slot_num_;
     
     feature_feed_idx = uint_feature_feed_idx + float_feature_feed_idx;
     feed_vec_idx += sample_idx * (feed_per_sample + feature_feed_idx) + feed_per_sample; 
@@ -1898,8 +1898,8 @@ int GraphDataGenerator::FillEdgeFloatFeature(int tensor_pair_idx,
     int feature_feed_idx = 0;
     int uint_feature_feed_idx = 0;
     int float_feature_feed_idx = 0;
-    if (edge_uint_slot_num_ > 0) uint_feature_feed_idx += 2 * edge_uint_slot_num;
-    if (edge_float_slot_num_ > 0) float_feature_feed_idx += 2 * edge_float_slot_num;
+    if (edge_uint_slot_num_ > 0) uint_feature_feed_idx += 2 * edge_uint_slot_num_;
+    if (edge_float_slot_num_ > 0) float_feature_feed_idx += 2 * edge_float_slot_num_;
     feature_feed_idx = uint_feature_feed_idx + float_feature_feed_idx;
     feed_vec_idx += sample_idx * (feed_per_sample + feature_feed_idx) + feed_per_sample; 
 
@@ -2082,7 +2082,7 @@ int GraphDataGenerator::FillEdgeFloatFeature(int tensor_pair_idx,
       int offset = id_offset_of_feed_vec_ + conf_.slot_num * 2 + feed_per_sample;
       auto& slot_info = (*feed_info_)[offset + 2 * i];
       if (slot_info.type[0] == 'f') {
-        fill_slot_tensor<<<grid, block, 0, train_stream_>>>(
+        fill_float_tensor<<<grid, block, 0, train_stream_>>>(
             d_feature_list_ptr,
             d_feature_size_prefixsum_ptr,
             d_each_ins_slot_num_inner_prefix_ptr,
@@ -2516,7 +2516,7 @@ int GraphDataGenerator::FillFloatFeature(uint64_t *d_walk, size_t key_num, int t
   std::shared_ptr<phi::Allocation> d_feature_list;
   std::shared_ptr<phi::Allocation> d_slot_list;
 
-  if (conf_.sage_mode) {
+  // if (conf_.sage_mode) {
     size_t temp_storage_bytes = (key_num + 1) * sizeof(uint32_t);
     if (d_feature_size_list_buf_ == NULL ||
         d_feature_size_list_buf_->size() < temp_storage_bytes) {
@@ -2528,7 +2528,7 @@ int GraphDataGenerator::FillFloatFeature(uint64_t *d_walk, size_t key_num, int t
       d_feature_size_prefixsum_buf_ =
           memory::AllocShared(this->place_, temp_storage_bytes);
     }
-  }
+  // }
 
   uint32_t *d_feature_size_list_ptr =
       reinterpret_cast<uint32_t *>(d_feature_size_list_buf_->ptr());
@@ -2940,7 +2940,7 @@ std::vector<std::shared_ptr<phi::Allocation>> SampleNeighbors(
   std::shared_ptr<phi::Allocation> d_feature_list;
   std::shared_ptr<phi::Allocation> d_slot_list;
 
-  if (conf_.edge_slot_num > 0) {
+  if (conf.edge_slot_num > 0) {
     auto sample_res = gpu_graph_ptr->graph_neighbor_feature_sample_sage(
         conf.gpuid,
         conf.edge_to_id_len,
