@@ -278,45 +278,6 @@ class GpuPsGraphTable
        std::shared_ptr<phi::Allocation> &size_list_prefix_sum,
        std::shared_ptr<phi::Allocation> &feature_list,
        std::shared_ptr<phi::Allocation> &slot_list);
-/*
-  int get_edge_feature_info_of_nodes(
-      int gpu_id,
-      uint64_t *edge_src,
-      uint64_t *edge_dst,
-      int node_num,
-      std::shared_ptr<phi::Allocation> &size_list,  // NOLINT
-      std::shared_ptr<phi::Allocation> &size_list_prefix_sum,  // NOLINT
-      std::shared_ptr<phi::Allocation> &feature_list,  // NOLINT
-      std::shared_ptr<phi::Allocation> &slot_list);    // NOLINT
-  int get_edge_float_feature_info_of_nodes(
-      int gpu_id,
-      uint64_t* edge_src,
-      uint64_t* edge_dst,
-      int node_num,
-      std::shared_ptr<phi::Allocation> &size_list,  // NOLINT
-      std::shared_ptr<phi::Allocation> &size_list_prefix_sum, // NOLINT
-      std::shared_ptr<phi::Allocation>& feature_list,  // NOLINT
-      std::shared_ptr<phi::Allocation>& slot_list);  // NOLINT
-
-  int get_edge_feature_info_of_nodes_normal(
-       int gpu_id,
-       uint64_t *edge_src,
-       uint64_t *edge_dst,
-       int node_num,
-       std::shared_ptr<phi::Allocation> &size_list,  // NOLINT
-       std::shared_ptr<phi::Allocation> &size_list_prefix_sum,  // NOLINT
-       std::shared_ptr<phi::Allocation> &feature_list,  // NOLINT
-       std::shared_ptr<phi::Allocation> &slot_list);  // NOLINT
-  int get_edge_float_feature_info_of_nodes_normal(
-       int gpu_id,
-       uint64_t *edge_src,
-       uint64_t *edge_dst,
-       int node_num,
-       std::shared_ptr<phi::Allocation> &size_list,  // NOLINT
-       std::shared_ptr<phi::Allocation> &size_list_prefix_sum,  // NOLINT
-       std::shared_ptr<phi::Allocation> &feature_list,  // NOLINT
-       std::shared_ptr<phi::Allocation> &slot_list);  // NOLINT
-*/
   NodeQueryResult query_node_list(int gpu_id,
                                   int idx,
                                   int start,
