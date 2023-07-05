@@ -1496,6 +1496,7 @@ int GraphDataGenerator::FillEdgeSlotFeature(int tensor_pair_idx,
                                             std::shared_ptr<phi::Allocation> d_feature_size_list,
                                             std::shared_ptr<phi::Allocation> d_feature_size_prefixsum,
                                             size_t key_num) {
+  if (edge_uint_slot_num_ <= 0) return 0;
   platform::CUDADeviceGuard guard(conf_.gpuid);
   auto gpu_graph_ptr = GraphGpuWrapper::GetInstance();
 
@@ -1857,6 +1858,7 @@ int GraphDataGenerator::FillEdgeFloatFeature(int tensor_pair_idx,
                                              std::shared_ptr<phi::Allocation> d_feature_size_list,
                                              std::shared_ptr<phi::Allocation> d_feature_size_prefixsum,
                                              size_t key_num) {
+  if (edge_float_slot_num_ <= 0) return 0;
   platform::CUDADeviceGuard guard(conf_.gpuid);
   auto gpu_graph_ptr = GraphGpuWrapper::GetInstance();
 
@@ -2925,6 +2927,7 @@ std::vector<std::shared_ptr<phi::Allocation>> SampleNeighbors(
     int64_t *uniq_nodes,
     int len,
     int sample_size,
+    GraphDataGenerator& graph_data_generator,
     const GraphDataGeneratorConfig &conf,
     std::vector<int> *edges_split_num_ptr,
     int64_t *neighbor_len,
@@ -2939,7 +2942,8 @@ std::vector<std::shared_ptr<phi::Allocation>> SampleNeighbors(
   
   std::shared_ptr<phi::Allocation> d_feature_list;
   std::shared_ptr<phi::Allocation> d_slot_list;
-
+  std::shared_ptr<phi::Allocation> d_feature_size_list_buf;
+  std::shared_ptr<phi::Allocation> d_feature_size_prefixsum_buf;
   if (conf.edge_slot_num > 0) {
     auto sample_res = gpu_graph_ptr->graph_neighbor_feature_sample_sage(
         conf.gpuid,
@@ -2950,8 +2954,8 @@ std::vector<std::shared_ptr<phi::Allocation>> SampleNeighbors(
         *edge_type_graph_ptr,
         conf.weighted_sample,
         conf.return_weight,
-        d_feature_size_list_buf_,
-        d_feature_size_prefixsum_buf_,
+        d_feature_size_list_buf,
+        d_feature_size_prefixsum_buf,
         d_feature_list,
         d_slot_list);
 
@@ -3037,7 +3041,8 @@ std::vector<std::shared_ptr<phi::Allocation>> SampleNeighbors(
 
 
   std::shared_ptr<phi::Allocation> final_sample_weight;
-  float *final_sample_weight_ptr = nullptr, *all_sample_weight_ptr = nullptr;
+  float *final_sample_weight_ptr = nullptr;
+  // float *all_sample_weight_ptr = nullptr;
   if (conf.return_weight) {
     final_sample_weight = memory::AllocShared(
         place,
@@ -3062,12 +3067,12 @@ std::vector<std::shared_ptr<phi::Allocation>> SampleNeighbors(
                                   conf.return_weight);
   *neighbor_len = all_sample_size;
 
-  // 对d_feature_size_list_buf_紧凑表示
+  // 对d_feature_size_list_buf紧凑表示
   std::shared_ptr<phi::Allocation> final_feature_size_list;
   std::shared_ptr<phi::Allocation> final_feature_size_prefixsum_list;
   
 
-  if (conf_.edge_slot_num > 0) {
+  if (conf.edge_slot_num > 0) {
     final_feature_size_list =
         memory::AllocShared(place,
                             all_sample_size * sizeof(uint32_t),
@@ -3082,9 +3087,9 @@ std::vector<std::shared_ptr<phi::Allocation>> SampleNeighbors(
 
  
     uint32_t *d_feature_size_list_ptr =
-      reinterpret_cast<uint32_t *>(d_feature_size_list_buf_->ptr());
+      reinterpret_cast<uint32_t *>(d_feature_size_list_buf->ptr());
     uint32_t *d_feature_size_prefixsum_ptr =
-      reinterpret_cast<uint32_t *>(d_feature_size_prefixsum_buf_->ptr());
+      reinterpret_cast<uint32_t *>(d_feature_size_prefixsum_buf->ptr());
 
 
     FillActualFeaInfo<<<GET_BLOCKS(len * conf.edge_to_id_len),
@@ -3103,26 +3108,25 @@ std::vector<std::shared_ptr<phi::Allocation>> SampleNeighbors(
 
   cudaStreamSynchronize(stream);
  
-
   // fill edge feature
-  if (edge_uint_slot_num_ > 0) {
-    FillEdgeSlotFeature(tensor_pair_idx,
+  // if (edge_uint_slot_num_ > 0) {
+  graph_data_generator.FillEdgeSlotFeature(tensor_pair_idx,
                         sample_idx,
                         d_feature_list,
                         d_slot_list,
                         final_feature_size_list,
                         final_feature_size_prefixsum_list,
                         all_sample_size);
-  }
-  if (edge_float_slot_num_ > 0) {
-    FillEdgeFloatFeature(tensor_pair_idx,
+  // }
+  // if (edge_float_slot_num_ > 0) {
+  graph_data_generator.FillEdgeFloatFeature(tensor_pair_idx,
                          sample_idx,
                          d_feature_list,
                          d_slot_list,
                          final_feature_size_list,
                          final_feature_size_prefixsum_list,
                          all_sample_size);
-  }
+  // }
 
   std::vector<std::shared_ptr<phi::Allocation>> sample_results;
   sample_results.emplace_back(final_sample_val);
@@ -3288,6 +3292,7 @@ std::shared_ptr<phi::Allocation> GenerateSampleGraph(
     uint64_t *node_ids,  // input
     int len,             // input
     int *final_len,
+    GraphDataGenerator& graph_data_generator,
     const GraphDataGeneratorConfig &conf,
     std::vector<std::shared_ptr<phi::Allocation>> *inverse_vec_ptr,
     std::vector<std::vector<std::shared_ptr<phi::Allocation>>>
@@ -3331,6 +3336,7 @@ std::shared_ptr<phi::Allocation> GenerateSampleGraph(
                                             uniq_nodes_data,
                                             uniq_len,
                                             conf.samples[i],
+                                            graph_data_generator,
                                             conf,
                                             &edges_split_num,
                                             &neighbors_len,
@@ -3343,6 +3349,7 @@ std::shared_ptr<phi::Allocation> GenerateSampleGraph(
         weights = sample_results[2];
       }
       edges_split_num.push_back(uniq_len);
+
     } else {
       int64_t *final_nodes_data =
           reinterpret_cast<int64_t *>(final_nodes_vec[i - 1]->ptr());
@@ -3351,6 +3358,7 @@ std::shared_ptr<phi::Allocation> GenerateSampleGraph(
                                             final_nodes_data,
                                             final_nodes_len_vec[i - 1],
                                             conf.samples[i],
+                                            graph_data_generator,
                                             conf,
                                             &edges_split_num,
                                             &neighbors_len,
@@ -4283,6 +4291,7 @@ void GraphDataGenerator::DoSageForTrain() {
                                                   ins_cursor,
                                                   total_instance,
                                                   &uniq_instance,
+                                                  *this,
                                                   conf_,
                                                   &inverse_vec_,
                                                   &graph_edges_vec_,
@@ -4373,6 +4382,7 @@ void GraphDataGenerator::DoSageForInfer() {
                                                   reinterpret_cast<uint64_t *>(node_buf->ptr()),
                                                   total_instance,
                                                   &uniq_instance,
+                                                  *this,
                                                   conf_,
                                                   &inverse_vec_,
                                                   &graph_edges_vec_,
@@ -4948,13 +4958,14 @@ void GraphDataGenerator::SetConfig(
   conf_.return_weight = graph_config.return_weight();
 
   // ==== get edge slot_num ====
-  PADDLE_ENFORCE(data_feed_desc.has_multi_slot_desc(),
-                 platform::errors::PreconditionNotMet(
-                     "Multi_slot_desc has not been set in data_feed_desc"));
+  // PADDLE_ENFORCE(data_feed_desc.has_multi_slot_desc(),
+  //                platform::errors::PreconditionNotMet(
+  //                   "Multi_slot_desc has not been set in data_feed_desc"));
   paddle::framework::MultiSlotDesc multi_slot_desc =
       data_feed_desc.multi_slot_desc();
   size_t all_slot_num = multi_slot_desc.slots_size();
   
+  std::string str_samples = graph_config.samples();
   auto samples = paddle::string::split_string<std::string>(str_samples, ";");
   for (size_t i = 0; i < samples.size(); i++) {
     int sample_size = std::stoi(samples[i]);
@@ -4971,10 +4982,10 @@ void GraphDataGenerator::SetConfig(
     const auto& slot = multi_slot_desc.slots(i);
     if (!slot.is_used()) continue;
     const auto& slot_name = slot.name();
-    if (slot_name.find(sample_start_str) != std::string:npos) {
+    if (slot_name.find(sample_start_str) != std::string::npos) {
       sample_start_idx = i;
     }
-    if (slot_name.find("edge_end_str") != std::string:npos) {
+    if (slot_name.find(edge_end_str) != std::string::npos) {
       // 确认下
       sample_end_idx = i;
       conf_.edge_slot_num =((sample_end_idx - sample_start_idx) / conf_.samples.size() - tensor_num_one_sample) / 2;
@@ -5005,7 +5016,7 @@ void GraphDataGenerator::SetConfig(
   std::string first_node_type = graph_config.first_node_type();
   std::string meta_path = graph_config.meta_path();
   conf_.sage_mode = graph_config.sage_mode();
-  std::string str_samples = graph_config.samples();
+  // std::string str_samples = graph_config.samples();
   auto gpu_graph_ptr = GraphGpuWrapper::GetInstance();
   debug_gpu_memory_info("init_conf start");
   gpu_graph_ptr->init_conf(first_node_type,
@@ -5079,7 +5090,6 @@ int GraphDataGenerator::dynamic_adjust_batch_num_for_sage() {
       phi::Stream(reinterpret_cast<phi::StreamId>(sample_stream_)));
   int *send_buff_ptr = reinterpret_cast<int *>(send_buff->ptr());
   cudaMemcpyAsync(send_buff_ptr,
-                  &batch_num,
                   &batch_num,
                   sizeof(int),
                   cudaMemcpyHostToDevice,

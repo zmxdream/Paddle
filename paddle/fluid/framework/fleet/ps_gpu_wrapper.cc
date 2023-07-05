@@ -445,7 +445,7 @@ if (slot_num_for_pull_feature_ > 0 || edge_slot_num_for_pull_feature_ > 0) {
   if (edge_slot_num_for_pull_feature_ > 0) {
     // edge_fea
     gpu_task->sub_graph_edge_feas =
-        reinterpret_cast<void*>(new std::vector<std::vector<GpuPsCommGraphEdgeFea<uint64_t>>>);
+        reinterpret_cast<void*>(new std::vector<std::vector<GpuPsCommGraphEdgeFea>>);
     // std::vector<GpuPsCommGraphEdgeFea<uint64_t>>& sub_graph_edge_feas =
     //     *((std::vector<GpuPsCommGraphEdgeFea<uint64_t>>*)gpu_task->sub_graph_edge_feas);
   }
@@ -578,12 +578,12 @@ if (slot_num_for_pull_feature_ > 0 || edge_slot_num_for_pull_feature_ > 0) {
       // === edge feature ===
       // auto& gpu_graph_ptr = GraphGpuWrapper::GetInstance();
       // auto& id_to_edge = gpu_graph_ptr->id_to_edge;
-      std::vector<std::vector<GpuPsCommGraphEdgeFea<uint64_t>>>& sub_graph_edge_feas =
-            *((std::vector<std::vector<GpuPsCommGraphEdgeFea<uint64_t>>>*)gpu_task->sub_graph_edge_feas);
+      std::vector<std::vector<GpuPsCommGraphEdgeFea>>& sub_graph_edge_feas =
+            *((std::vector<std::vector<GpuPsCommGraphEdgeFea>>*)gpu_task->sub_graph_edge_feas);
       sub_graph_edge_feas.resize(id_to_edge.size());
       for (size_t edge_idx = 0; edge_idx < id_to_edge.size(); edge_idx++) {
         auto& edge_type = id_to_edge[edge_idx];
-        sub_graph_edge_feas[edge_idx] = gpu_graph_ptr->get_sub_graph_edge_fea<uint64_t>(edge_type, node_ids, edge_slot_num);
+        sub_graph_edge_feas[edge_idx] = gpu_graph_ptr->get_sub_graph_edge_fea(edge_type, node_ids, edge_slot_num);
         for (size_t i = 0; i < device_num; i++) {
           edge_feature_list[edge_idx][i] = sub_graph_edge_feas[edge_idx][i].feature_list;
           edge_feature_list_size[edge_idx][i] = sub_graph_edge_feas[edge_idx][i].feature_size;
@@ -1551,8 +1551,8 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
                  SSD_EMB_AND_MEM_FEATURE_GPU_GRAPH)) {
 
       auto gpu_graph_ptr = GraphGpuWrapper::GetInstance();
-      std::vector<std::vector<GpuPsCommGraphEdgeFea<uint64_t>>>* tmp =
-          (std::vector<std::vector<GpuPsCommGraphEdgeFea<uint64_t>>>*)gpu_task->sub_graph_edge_feas;
+      std::vector<std::vector<GpuPsCommGraphEdgeFea>>* tmp =
+          (std::vector<std::vector<GpuPsCommGraphEdgeFea>>*)gpu_task->sub_graph_edge_feas;
       for (size_t edge_idx = 0; edge_idx < id_to_edge.size(); edge_idx++) {
         auto& edge_type = id_to_edge[edge_idx];
         gpu_graph_ptr->build_gpu_graph_edge_fea((*tmp)[edge_idx][i], i, edge_type, build_table[edge_idx]);
@@ -1566,8 +1566,8 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
              paddle::framework::GpuGraphStorageMode::
                  SSD_EMB_AND_MEM_FEATURE_GPU_GRAPH)) {
       auto gpu_graph_ptr = GraphGpuWrapper::GetInstance();
-      std::vector<std::vector<GpuPsCommGraphEdgeFea<float>>>* float_tmp =
-          (std::vector<std::vector<GpuPsCommGraphEdgeFea<float>>>*)gpu_task->sub_graph_float_feas;
+      std::vector<std::vector<GpuPsCommGraphEdgeFloatFea>>* float_tmp =
+          (std::vector<std::vector<GpuPsCommGraphEdgeFloatFea>>*)gpu_task->sub_graph_float_feas;
       for (size_t edge_idx = 0; edge_idx < id_to_edge.size(); edge_idx++) {
         auto& edge_type = id_to_edge[edge_idx];
         gpu_graph_ptr->build_gpu_graph_edge_float_fea((*float_tmp)[edge_idx][i], i, edge_type, build_table[edge_idx]);
@@ -1655,15 +1655,15 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
     gpu_task->sub_graph_float_feas = NULL;
 
     if (edge_slot_num_for_pull_feature_ > 0) {
-      std::vector<std::vector<GpuPsCommGraphEdgeFea<uint64_t>>>* tmp =
-          (std::vector<std::vector<GpuPsCommGraphEdgeFea<uint64_t>>>*)gpu_task->sub_graph_edge_feas;
+      std::vector<std::vector<GpuPsCommGraphEdgeFea>>* tmp =
+          (std::vector<std::vector<GpuPsCommGraphEdgeFea>>*)gpu_task->sub_graph_edge_feas;
       delete tmp;
       gpu_task->sub_graph_edge_feas = NULL;
     } 
 
     if (float_slot_num_ > 0) {
-      std::vector<std::vector<GpuPsCommGraphEdgeFea<float>>>* tmp =
-          (std::vector<std::vector<GpuPsCommGraphEdgeFea<float>>>*)gpu_task->sub_graph_edge_float_feas;
+      std::vector<std::vector<GpuPsCommGraphEdgeFloatFea>>* tmp =
+          (std::vector<std::vector<GpuPsCommGraphEdgeFloatFea>>*)gpu_task->sub_graph_edge_float_feas;
       delete tmp;
       gpu_task->sub_graph_edge_float_feas = NULL;
     }

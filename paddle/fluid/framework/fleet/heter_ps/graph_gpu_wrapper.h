@@ -77,18 +77,17 @@ class GraphGpuWrapper {
       std::vector<std::vector<uint64_t>>& node_ids, int slot_num);    // NOLINT
   std::vector<GpuPsCommGraphFloatFea> get_sub_graph_float_fea(
       std::vector<std::vector<uint64_t>>& node_ids, int float_slot_num);    // NOLINT
-  template <typename T>
-  std::vector<GpuPsCommGraphEdgeFea<T>> get_sub_graph_edge_fea(
+  std::vector<GpuPsCommGraphEdgeFea> get_sub_graph_edge_fea(
       const std::string& edge_type, std::vector<std::vector<uint64_t>>& node_ids, int edge_slot_num);    // NOLINT
-  // std::vector<GpuPsCommGraphEdgeFea<float>> get_sub_graph_edge_float_fea(
-  //     std::vector<std::vector<uint64_t>>& node_ids, int edge_float_slot_num);    // NOLINT
+  std::vector<GpuPsCommGraphEdgeFloatFea> get_sub_graph_edge_float_fea(
+      const std::string& edge_type, std::vector<std::vector<uint64_t>>& node_ids, int edge_float_slot_num);    // NOLINT
   void build_gpu_graph_fea(GpuPsCommGraphFea& sub_graph_fea, int i);  // NOLINT
   void build_gpu_graph_float_fea(GpuPsCommGraphFloatFea& sub_graph_float_fea, int i);  // NOLINT
-  void build_gpu_graph_edge_fea(GpuPsCommGraphEdgeFea<uint64_t> &sub_graph_edge_fea, // NOLINT
+  void build_gpu_graph_edge_fea(GpuPsCommGraphEdgeFea &sub_graph_edge_fea, // NOLINT
                                 int i,
                                 const std::string &edge_type,
                                 bool build_table);
-  void build_gpu_graph_edge_float_fea(GpuPsCommGraphEdgeFea<float> &sub_graph_edge_float_fea,  // NOLINT
+  void build_gpu_graph_edge_float_fea(GpuPsCommGraphEdgeFloatFea &sub_graph_edge_float_fea,  // NOLINT
                                       int i,
                                       const std::string &edge_type,
                                       bool build_table);

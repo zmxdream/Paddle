@@ -67,6 +67,19 @@ class Node {
                               std::vector<uint8_t> &slot_id) const {  // NOLINT
     return 0;
   }
+  virtual int get_feature_ids(int edge_idx,
+                              int slot_idx,
+                              std::vector<uint64_t> &feature_id,      // NOLINT
+                              std::vector<uint8_t> &slot_id) const {  // NOLINT
+
+    return 0;
+  }
+  virtual int get_float_feature(int edge_idx,
+                                int slot_idx,
+                                std::vector<float> &feature_id,      // NOLINT
+                                std::vector<uint8_t> &slot_id) const {  // NOLINT
+    return 0;
+  }
   virtual void set_feature(int idx, const std::string &str) {}
   virtual void set_feature_size(int size) {}
   virtual void shrink_to_fit() {}

@@ -1962,7 +1962,7 @@ void GpuPsGraphTable::build_graph_float_fea_on_single_gpu(const GpuPsCommGraphFl
 
 
 // ===== edge feature =====
-void GpuPsGraphTable::build_graph_edge_fea_on_single_gpu(const GpuPsCommGraphEdgeFea<uint64_t>& g,
+void GpuPsGraphTable::build_graph_edge_fea_on_single_gpu(const GpuPsCommGraphEdgeFea& g,
                                                          int gpu_id,
                                                          int edge_idx,
                                                          bool build_table) {
@@ -1972,7 +1972,7 @@ void GpuPsGraphTable::build_graph_edge_fea_on_single_gpu(const GpuPsCommGraphEdg
   reset_edge_feature_info(gpu_id, edge_idx, g.feature_size);
 
   int offset = get_graph_list_offset(gpu_id, edge_idx);
-  gpu_graph_edge_fea_list_[offset] = GpuPsCommGraphEdgeFea<uint64_t>();
+  gpu_graph_edge_fea_list_[offset] = GpuPsCommGraphEdgeFea();
 
   // 这个build table
   if (build_table) {
@@ -2050,7 +2050,7 @@ void GpuPsGraphTable::build_graph_edge_fea_on_single_gpu(const GpuPsCommGraphEdg
            << gpu_graph_edge_fea_list_[offset].feature_size;
 }
 
-void GpuPsGraphTable::build_graph_edge_float_fea_on_single_gpu(const GpuPsCommGraphEdgeFea<float>& g,
+void GpuPsGraphTable::build_graph_edge_float_fea_on_single_gpu(const GpuPsCommGraphEdgeFloatFea& g,
                                                                int gpu_id,
                                                                int edge_idx,
                                                                bool build_table) {
@@ -2058,7 +2058,7 @@ void GpuPsGraphTable::build_graph_edge_float_fea_on_single_gpu(const GpuPsCommGr
   size_t capacity = std::max((const uint64_t)1, g.node_size) / load_factor_;
   reset_edge_float_feature_info(gpu_id, edge_idx, g.feature_size);
   int offset = get_graph_list_offset(gpu_id, edge_idx);
-  gpu_graph_edge_float_fea_list_[offset] = GpuPsCommGraphEdgeFea<float>();
+  gpu_graph_edge_float_fea_list_[offset] = GpuPsCommGraphEdgeFloatFea();
   if (build_table) {
     clear_graph_and_edge_info(gpu_id, edge_idx);
     int table_offset =

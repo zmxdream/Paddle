@@ -75,8 +75,8 @@ class GpuPsGraphTable
 
       if (edge_uint_slot_num > 0 || edge_float_slot_num > 0) {
         for (int j = 0; j < graph_table_num_; j++) {
-          if (edge_uint_slot_num >  0) gpu_graph_edge_fea_list_.push_back(GpuPsCommGraphEdgeFea<uint64_t>());
-          if (edge_float_slot_num >  0) gpu_graph_edge_float_fea_list_.push_back(GpuPsCommGraphEdgeFea<float>());
+          if (edge_uint_slot_num >  0) gpu_graph_edge_fea_list_.push_back(GpuPsCommGraphEdgeFea());
+          if (edge_float_slot_num >  0) gpu_graph_edge_float_fea_list_.push_back(GpuPsCommGraphEdgeFloatFea());
         }
       } else {
         for (int j = 0; j < graph_table_num_; j++) {
@@ -106,8 +106,8 @@ class GpuPsGraphTable
   void build_graph_on_single_gpu(const GpuPsCommGraph &g, int gpu_id, int idx);
   void build_graph_fea_on_single_gpu(const GpuPsCommGraphFea &g, int gpu_id);
   void build_graph_float_fea_on_single_gpu(const GpuPsCommGraphFloatFea &g, int gpu_id);
-  void build_graph_edge_fea_on_single_gpu(const GpuPsCommGraphEdgeFea<uint64_t> &g, int gpu_id, int edge_idx, bool build_table);
-  void build_graph_edge_float_fea_on_single_gpu(const GpuPsCommGraphEdgeFea<float> &g, int gpu_id, int edge_idx, bool build_table);
+  void build_graph_edge_fea_on_single_gpu(const GpuPsCommGraphEdgeFea &g, int gpu_id, int edge_idx, bool build_table);
+  void build_graph_edge_float_fea_on_single_gpu(const GpuPsCommGraphEdgeFloatFea &g, int gpu_id, int edge_idx, bool build_table);
   void clear_graph_info(int gpu_id, int index);
   void clear_graph_and_edge_info(int gpu_id, int idx);
   void clear_graph_info(int index);
@@ -376,8 +376,8 @@ class GpuPsGraphTable
   std::vector<GpuPsCommGraphFea> gpu_graph_fea_list_;
   std::vector<GpuPsCommGraphFloatFea> gpu_graph_float_fea_list_;
 
-  std::vector<GpuPsCommGraphEdgeFea<uint64_t>> gpu_graph_edge_fea_list_;
-  std::vector<GpuPsCommGraphEdgeFea<float>> gpu_graph_edge_float_fea_list_;
+  std::vector<GpuPsCommGraphEdgeFea> gpu_graph_edge_fea_list_;
+  std::vector<GpuPsCommGraphEdgeFloatFea> gpu_graph_edge_float_fea_list_;
 
   int global_device_map[32];
   const int parallel_sample_size = 1;

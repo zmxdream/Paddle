@@ -50,8 +50,8 @@ class GraphEdgeBlob {
   // virtual void set_feature(int idx, const std::string &str) {}
   // virtual void set_feature_size(int size) {}
   virtual void shrink_to_fit() {}
-  virtual std::string *mutable_feature(int idx);
-  virtual std::string *mutable_float_feature(int idx);
+  virtual std::string *mutable_feature(int idx) { return nullptr; }
+  virtual std::string *mutable_float_feature(int idx) { return nullptr; }
   // virtual int get_feature_size() { return 0; }
   // ==== adapt for edge feature === 
 
