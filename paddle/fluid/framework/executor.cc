@@ -561,15 +561,21 @@ void Executor::RunPartialPreparedContext(ExecutorPrepareContext* ctx,
     }
   }
 
+  TRACE_SCOPE_START("executor ops run",);
   for (int64_t i = start_op_index; i < end_op_index; ++i) {
     auto& op = ctx->ops_[i];
+    xpu_wait();
+    RUNTIME_TRACE_SCOPE_START((op->Type()+" run").c_str(),);
     op->Run(*local_scope, place_);
     if (gc) {
       platform::RecordEvent record(
           "CheckGC", platform::TracerEventType::UserDefined, 10);
       DeleteUnusedTensors(*local_scope, op.get(), ctx->unused_vars_, gc.get());
     }
+    RUNTIME_TRACE_SCOPE_END((op->Type()+" run").c_str(),);
+    xpu_wait();
   }
+  TRACE_SCOPE_END("executor ops run",);
 
   auto callback = [scope, local_scope, keep_kids]() {
     if (local_scope != scope) {

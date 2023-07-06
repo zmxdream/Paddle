@@ -45,6 +45,15 @@ class DenseTensor;
 #ifdef PADDLE_WITH_XPU
 #include "paddle/fluid/platform/device/xpu/xpu_info.h"
 #include "paddle/fluid/platform/device/xpu/xpu_op_list.h"
+
+// The producer side.
+#include <scalopus_tracing/tracing.h>
+#include <scalopus_transport/transport_loopback.h>
+// The catapult recorder side.
+#include <scalopus_catapult/catapult_recorder.h>
+#include <scalopus_general/endpoint_manager_poll.h>
+#include <scalopus_general/general_provider.h>
+#include <scalopus_tracing/native_trace_provider.h>
 #endif
 
 #ifdef PADDLE_WITH_MKLDNN
@@ -1660,8 +1669,10 @@ void OperatorWithKernel::RunImpl(const Scope& scope,
                                        1,
                                        platform::EventRole::kInnerOp);
     if (need_prepare_data_) {
+      TRACE_SCOPE_START("PrepareData",);
       transfer_scope = PrepareData(
           scope, *kernel_type_, &transfered_inplace_vars, runtime_ctx);
+      TRACE_SCOPE_END("PrepareData",);//wait?
     }
   }
   // exec scope is the scope that kernel actually executed on.

@@ -61,6 +61,7 @@ template <typename DeviceContext, typename T>
 class FusedSeqpoolCVMOpXPUKernel : public framework::OpKernel<T> {
  public:
   void Compute(const framework::ExecutionContext& ctx) const override {
+    TRACE_SCOPE_START("FusedSeqpoolCVMOpXPUKernel Compute", xpu_wait(ctx.template device_context<DeviceContext>().x_context()->xpu_stream));
     auto ins = ctx.MultiInput<LoDTensor>("X");
     auto out = ctx.MultiOutput<LoDTensor>("Out");
     std::string pooltype = ctx.Attr<std::string>("pooltype");
@@ -126,6 +127,7 @@ class FusedSeqpoolCVMOpXPUKernel : public framework::OpKernel<T> {
 	      lod_index += x_lod.size();
     }
 
+    TRACE_SCOPE_START("xpu::sequence_sum_pool_cvm", xpu_wait(xpu_context->xpu_stream););
     int r = xpu::sequence_sum_pool_cvm<T>(xpu_context,
                                           cpu_x_addr_vec,
                                           cpu_y_addr_vec,
@@ -146,6 +148,8 @@ class FusedSeqpoolCVMOpXPUKernel : public framework::OpKernel<T> {
                      platform::errors::External(
                          "The sequence_sum_pool_cvm_concat XPU OP return wrong value[%d %s]",
                          r, XPUAPIErrorMsg[r]));
+    TRACE_SCOPE_END("xpu::sequence_sum_pool_cvm", xpu_wait(xpu_context->xpu_stream););
+    TRACE_SCOPE_END("FusedSeqpoolCVMOpXPUKernel Compute", xpu_wait(xpu_context->xpu_stream));
   }
 };
 
@@ -153,6 +157,7 @@ template <typename DeviceContext, typename T>
 class FusedSeqpoolCVMGradOpXPUKernel : public framework::OpKernel<T> {
  public:
   void Compute(const framework::ExecutionContext& ctx) const override {
+    TRACE_SCOPE_START("FusedSeqpoolCVMGradOpXPUKernel Compute", xpu_wait(ctx.template device_context<DeviceContext>().x_context()->xpu_stream));
     auto dOut = ctx.MultiInput<framework::LoDTensor>(framework::GradVarName("Out"));
     auto xs = ctx.MultiInput<LoDTensor>("X");
     const Tensor* cvm = ctx.Input<Tensor>("CVM");
@@ -222,6 +227,7 @@ class FusedSeqpoolCVMGradOpXPUKernel : public framework::OpKernel<T> {
             platform::errors::External(
                "The sequence_pool_cvm_grad XPU OP return wrong value[%d %s]",
                r, XPUAPIErrorMsg[r]));
+    TRACE_SCOPE_END("FusedSeqpoolCVMGradOpXPUKernel Compute", xpu_wait(xpu_context->xpu_stream));
   }
 };
 

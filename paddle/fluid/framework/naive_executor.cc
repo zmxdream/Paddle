@@ -48,12 +48,18 @@ void NaiveExecutor::Run() {
   platform::RegisterModelLayout(ops_, place_);
 #endif
   platform::ScopedFlushDenormal flush;
+  TRACE_SCOPE_START("naive_executor ops run",);
   for (auto &op : ops_) {
+    xpu_wait();
+    RUNTIME_TRACE_SCOPE_START((op->Type()+" run").c_str(),);
     VLOG(4) << std::this_thread::get_id() << " run "
             << op->DebugStringEx(scope_) << " on scope " << scope_;
     op->SetIsCalledByExecutor(false);
     op->Run(*scope_, place_);
+    RUNTIME_TRACE_SCOPE_END((op->Type()+" run").c_str(),);
+    xpu_wait();
   }
+  TRACE_SCOPE_END("naive_executor ops run",);
 }
 
 void NaiveExecutor::CreateVariables(const ProgramDesc &desc,

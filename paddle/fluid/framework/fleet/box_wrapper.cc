@@ -144,6 +144,24 @@ void BoxWrapper::EndPass(bool need_save_delta) {
             << "MB, available: " << (available >> 20) << "MB";
   }
 #endif
+#ifdef TRACE_PROFILE
+  static int trace_pass_count = std::getenv("TRACE_PASS_NUM")!=NULL ?
+                      std::stoi(std::string(std::getenv("TRACE_PASS_NUM"))):
+                      1;
+  static int count = 0;
+  if(count==trace_pass_count) {
+    // need to guarantee we propagate the tracepoints before we stop the interval.
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    catapult_recorder->stopInterval();
+    catapult_recorder->setupDumpFile("./traces.json");
+    std::cout<<"end profile in BoxWrapper"<<std::endl;
+
+    factory.reset();
+    manager.reset();
+    catapult_recorder.reset();
+  }
+  count++;
+#endif
 }
 
 void BoxWrapper::RecordReplace(std::vector<SlotRecord>* records,

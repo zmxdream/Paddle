@@ -381,19 +381,7 @@ class BoxWrapper {
   std::deque<GpuReplicaCache> gpu_replica_cache;
   std::deque<InputTable> input_table_deque_;
 
-  virtual ~BoxWrapper() {
-#ifdef TRACE_PROFILE
-    // need to guarantee we propagate the tracepoints before we stop the interval.
-    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-    catapult_recorder->stopInterval();
-    catapult_recorder->setupDumpFile("./traces.json");
-    std::cout<<"end profile in BoxWrapper"<<std::endl;
-
-    factory.reset();
-    manager.reset();
-    catapult_recorder.reset();
-#endif
-  }
+  virtual ~BoxWrapper() {}
   BoxWrapper() {
     fprintf(stdout, "init box wrapper\n");
     boxps::MPICluster::Ins();
