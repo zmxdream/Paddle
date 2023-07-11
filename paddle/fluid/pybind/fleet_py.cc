@@ -378,6 +378,7 @@ void BindGraphGpuWrapper(py::module* m) {
       .def("set_up_types", &GraphGpuWrapper::set_up_types)
       .def("query_node_list", &GraphGpuWrapper::query_node_list)
       .def("add_table_feat_conf", &GraphGpuWrapper::add_table_feat_conf)
+      .def("add_table_edge_feat_conf", &GraphGpuWrapper::add_table_edge_feat_conf)
       .def("load_edge_file",
            py::overload_cast<std::string, std::string, bool>(
                &GraphGpuWrapper::load_edge_file))

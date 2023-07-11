@@ -484,6 +484,11 @@ void GraphGpuWrapper::set_up_types(const std::vector<std::string> &edge_types,
   this->table_feat_conf_feat_name.resize(node_types.size());
   this->table_feat_conf_feat_dtype.resize(node_types.size());
   this->table_feat_conf_feat_shape.resize(node_types.size());
+
+  table_edge_feat_mapping.resize(edge_types.size());
+  this->table_edge_feat_conf_feat_name.resize(edge_types.size());
+  this->table_edge_feat_conf_feat_dtype.resize(edge_types.size());
+  this->table_edge_feat_conf_feat_shape.resize(edge_types.size());
 }
 
 void GraphGpuWrapper::set_feature_separator(std::string ch) {
@@ -746,8 +751,16 @@ void GraphGpuWrapper::init_service() {
   table_proto.set_search_level(search_level);
   table_proto.set_table_name("cpu_graph_table_");
   table_proto.set_use_cache(false);
-  for (int i = 0; i < id_to_edge.size(); i++)
+  for (int i = 0; i < id_to_edge.size(); i++) {
     table_proto.add_edge_types(id_to_edge[i]);
+    ::paddle::distributed::GraphFeature *g_f = table_proto.add_graph_edge_feature();
+    for (int x = 0; x < table_edge_feat_conf_feat_name[i].size(); x++) {
+      g_f->add_name(table_edge_feat_conf_feat_name[i][x]);
+      g_f->add_dtype(table_edge_feat_conf_feat_dtype[i][x]);
+      g_f->add_shape(table_edge_feat_conf_feat_shape[i][x]);
+    }
+  }
+
   for (int i = 0; i < id_to_feature.size(); i++) {
     table_proto.add_node_types(id_to_feature[i]);
     auto feat_node = id_to_feature[i];

@@ -3430,7 +3430,7 @@ int32_t GraphTable::Initialize(const GraphParameter &graph) {
   // ==== node feature ====
 
   // ==== edge feature ====
-
+  edge_feat_id_map.resize(edge_types.size());
   edge_feat_name.resize(edge_types.size());
   edge_feat_shape.resize(edge_types.size());
   edge_feat_dtype.resize(edge_types.size());
@@ -3451,8 +3451,7 @@ int32_t GraphTable::Initialize(const GraphParameter &graph) {
         edge_feat_shape[k].push_back(f_shape);
         edge_feat_dtype[k].push_back(f_dtype);
         edge_feat_id_map[k][f_name] = feasign_idx++;
-      } 
-      else if (f_dtype == "float32"){
+      } else if (f_dtype == "float32"){
         if (edge_float_feat_id_map.size() < (size_t)edge_types.size()) {
           edge_float_feat_name.resize(edge_types.size());
           edge_float_feat_shape.resize(edge_types.size());
