@@ -3463,7 +3463,7 @@ int32_t GraphTable::Initialize(const GraphParameter &graph) {
         edge_float_feat_dtype[k].push_back(f_dtype);
         edge_float_feat_id_map[k][f_name] = float_idx++;
       }
-      VLOG(0) << "init graph table feat conf name:" << f_name
+      VLOG(0) << "init graph table edge feat conf name:" << f_name
               << " shape:" << f_shape << " dtype:" << f_dtype;
     }
   }

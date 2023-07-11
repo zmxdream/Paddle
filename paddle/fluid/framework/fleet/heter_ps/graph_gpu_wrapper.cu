@@ -832,7 +832,8 @@ void GraphGpuWrapper::init_service() {
 #endif
 
   size_t gpu_num = device_id_mapping.size();
-  GpuPsGraphTable *g = new GpuPsGraphTable(resource, id_to_edge.size(), slot_num_for_pull_feature_, float_slot_num_);
+  GpuPsGraphTable *g = new GpuPsGraphTable(resource, id_to_edge.size(), slot_num_for_pull_feature_, float_slot_num_,
+                                           edge_slot_num_for_pull_feature_, edge_float_slot_num_);
   g->init_cpu_table(table_proto, gpu_num);
   g->set_nccl_comm_and_size(inner_comms_, inter_comms_, node_size_, rank_id_);
   g->cpu_graph_table_->set_feature_separator(feature_separator_);
@@ -872,7 +873,7 @@ void GraphGpuWrapper::upload_batch(int table_type,
 
   for (int i = 0; i < slice_num; i++) {
     tasks.push_back(upload_task_pool->enqueue([&, i, edge_idx, this]() -> int {
-      VLOG(0) << "begin make_gpu_ps_graph, node_id[" << i << "]_size["
+      VLOG(0) << "begin make_gpu_ps_graph_edge, node_id[" << i << "]_size["
               << ids[i].size() << "]";
 
       if (slot_num > 0 || float_slot_num > 0) {
@@ -891,7 +892,7 @@ void GraphGpuWrapper::upload_batch(int table_type,
           sub_graph.release_on_cpu();
         }
 
-      } else { 
+      } else {// keep consistent with origin implementation 
         GpuPsCommGraph sub_graph =
             g->cpu_graph_table_->make_gpu_ps_graph(edge_idx, ids[i]);
         g->build_graph_on_single_gpu(sub_graph, i, edge_idx);

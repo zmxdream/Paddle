@@ -1968,11 +1968,10 @@ void GpuPsGraphTable::build_graph_edge_fea_on_single_gpu(const GpuPsCommGraphEdg
                                                          bool build_table) {
   platform::CUDADeviceGuard guard(resource_->dev_id(gpu_id));
   size_t capacity = std::max((const uint64_t)1, g.node_size) / load_factor_;
-
-  reset_edge_feature_info(gpu_id, edge_idx, g.feature_size);
+  // reset_edge_feature_info(gpu_id, edge_idx, g.feature_size);
 
   int offset = get_graph_list_offset(gpu_id, edge_idx);
-  gpu_graph_edge_fea_list_[offset] = GpuPsCommGraphEdgeFea();
+  // gpu_graph_edge_fea_list_[offset] = GpuPsCommGraphEdgeFea();
 
   // 这个build table
   if (build_table) {
@@ -1996,6 +1995,7 @@ void GpuPsGraphTable::build_graph_edge_fea_on_single_gpu(const GpuPsCommGraphEdg
        gpu_graph_edge_fea_list_[offset].node_size = 0;
     }
   }
+  reset_edge_feature_info(gpu_id, edge_idx, g.feature_size);
 
   if (g.neighbor_size) {
      auto stream = get_local_stream(gpu_id);
