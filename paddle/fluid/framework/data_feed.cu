@@ -4885,9 +4885,10 @@ void GraphDataGenerator::AllocResource(
         1 << static_cast<size_t>(1 + std::log2(conf_.reindex_table_size >> 1));
 
     conf_.reindex_table_size = next_pow2 << 1;
-
-    edge_type_graph_ =
-        gpu_graph_ptr->get_edge_type_graph(conf_.gpuid, conf_.edge_to_id_len);
+    if (conf_.edge_slot_num <= 0) { // 这个edge_type_graph_没有用到
+      edge_type_graph_ =
+          gpu_graph_ptr->get_edge_type_graph(conf_.gpuid, conf_.edge_to_id_len);
+    }
   }
 
   // parse infer_node_type
@@ -4976,13 +4977,15 @@ void GraphDataGenerator::SetConfig(
   if (conf_.return_weight) tensor_num_one_sample++; 
   int sample_start_idx = -1;
   int sample_end_idx = -1;
-  std::string sample_start_str = "num_nodes";
+  std::string num_nodes_str = "num_nodes";
+  std::string next_num_nodes_str = "next_num_nodes";
   std::string edge_end_str = "final_index";
   for (size_t i = 0; i < all_slot_num; ++i) {
     const auto& slot = multi_slot_desc.slots(i);
     if (!slot.is_used()) continue;
     const auto& slot_name = slot.name();
-    if (slot_name.find(sample_start_str) != std::string::npos) {
+    if (slot_name.find(next_num_nodes_str) == std::string::npos && 
+        slot_name.find(num_nodes_str) != std::string::npos) {
       sample_start_idx = i;
     }
     if (slot_name.find(edge_end_str) != std::string::npos) {
