@@ -1369,6 +1369,9 @@ def save_inference_model(dirname,
     with program_guard(main_program):
         uniq_target_vars = []
         for i, var in enumerate(target_vars):
+            if isinstance(var, Variable):
+                var = layers.scale(
+                    var, 1., name="save_infer_model/scale_{}".format(i))
             uniq_target_vars.append(var)
         target_vars = uniq_target_vars
     target_var_name_list = [var.name for var in target_vars]
