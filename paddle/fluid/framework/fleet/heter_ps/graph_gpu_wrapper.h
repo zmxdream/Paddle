@@ -86,11 +86,11 @@ class GraphGpuWrapper {
   void build_gpu_graph_edge_fea(GpuPsCommGraphEdgeFea &sub_graph_edge_fea, // NOLINT
                                 int i,
                                 const std::string &edge_type,
-                                bool build_table);
+                                bool build_table, bool upload_batch);
   void build_gpu_graph_edge_float_fea(GpuPsCommGraphEdgeFloatFea &sub_graph_edge_float_fea,  // NOLINT
                                       int i,
                                       const std::string &edge_type,
-                                      bool build_table);
+                                      bool build_table, bool upload_batch);
   void add_table_feat_conf(std::string table_name,
                            std::string feat_name,
                            std::string feat_dtype,

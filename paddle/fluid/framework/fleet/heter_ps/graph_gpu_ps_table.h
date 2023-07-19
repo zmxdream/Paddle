@@ -106,8 +106,8 @@ class GpuPsGraphTable
   void build_graph_on_single_gpu(const GpuPsCommGraph &g, int gpu_id, int idx);
   void build_graph_fea_on_single_gpu(const GpuPsCommGraphFea &g, int gpu_id);
   void build_graph_float_fea_on_single_gpu(const GpuPsCommGraphFloatFea &g, int gpu_id);
-  void build_graph_edge_fea_on_single_gpu(const GpuPsCommGraphEdgeFea &g, int gpu_id, int edge_idx, bool build_table);
-  void build_graph_edge_float_fea_on_single_gpu(const GpuPsCommGraphEdgeFloatFea &g, int gpu_id, int edge_idx, bool build_table);
+  void build_graph_edge_fea_on_single_gpu(const GpuPsCommGraphEdgeFea &g, int gpu_id, int edge_idx, bool build_table, bool upload_batch);
+  void build_graph_edge_float_fea_on_single_gpu(const GpuPsCommGraphEdgeFloatFea &g, int gpu_id, int edge_idx, bool build_table, bool upload_batch);
   void clear_graph_info(int gpu_id, int index);
   void clear_graph_and_edge_info(int gpu_id, int idx);
   void clear_graph_info(int index);
@@ -216,7 +216,9 @@ class GpuPsGraphTable
                        unsigned long long random_seed,
                        float* weight_array,
                        bool return_weight);
-  void unweighted_sample(uint64_t* neighbor_list,
+  void unweighted_sample(int64_t neighbor_size,
+                         uint64_t feature_size,
+                         uint64_t* neighbor_list,
                          half* weight_list,
                          GpuPsNodeInfo* node_info_list,
                          GpuPsFeaInfo* fea_info_list,

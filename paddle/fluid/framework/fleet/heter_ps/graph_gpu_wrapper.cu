@@ -877,18 +877,31 @@ void GraphGpuWrapper::upload_batch(int table_type,
               << ids[i].size() << "]";
 
       if (slot_num > 0 || float_slot_num > 0) {
+
+        bool edge_feature_to_hbm = true;
+        // 如果是下面两种模式，不把edge_feature load进hbm
+        /*
+        if (table_type == GraphTableType::EDGE_TABLE &&
+            (FLAGS_gpugraph_storage_mode == paddle::framework::GpuGraphStorageMode::
+                                          MEM_EMB_FEATURE_AND_GPU_GRAPH ||
+            FLAGS_gpugraph_storage_mode == paddle::framework::GpuGraphStorageMode::
+                                          SSD_EMB_AND_MEM_FEATURE_GPU_GRAPH)) {
+            edge_feature_to_hbm = false;
+       }
+       */
         bool build_table = true;
         if (slot_num > 0) {
+          //如果在两种模式下，按道理make_gpu_ps_graph_edge_fea也该适配的,TODO
           GpuPsCommGraphEdgeFea sub_graph =
               g->cpu_graph_table_->make_gpu_ps_graph_edge_fea(edge_idx, ids[i], slot_num);
-          g->build_graph_edge_fea_on_single_gpu(sub_graph, i, edge_idx, build_table);
+          g->build_graph_edge_fea_on_single_gpu(sub_graph, i, edge_idx, build_table, edge_feature_to_hbm);
           build_table = false;
           sub_graph.release_on_cpu();
         }
         if (float_slot_num > 0) {
           GpuPsCommGraphEdgeFloatFea sub_graph =
               g->cpu_graph_table_->make_gpu_ps_graph_edge_float_fea(edge_idx, ids[i], float_slot_num);
-          g->build_graph_edge_float_fea_on_single_gpu(sub_graph, i, edge_idx, build_table);
+          g->build_graph_edge_float_fea_on_single_gpu(sub_graph, i, edge_idx, build_table, edge_feature_to_hbm);
           sub_graph.release_on_cpu();
         }
 
@@ -1058,7 +1071,7 @@ void GraphGpuWrapper::build_gpu_graph_fea(GpuPsCommGraphFea &sub_graph_fea,
 void GraphGpuWrapper::build_gpu_graph_edge_fea(GpuPsCommGraphEdgeFea &sub_graph_edge_fea,
                                                int i,
                                                const std::string &edge_type,
-                                               bool build_table) {
+                                               bool build_table, bool upload_batch) {
 
 
   VLOG(0) << "begin build_gpu_graph_edge_fea, etype[" << edge_type << "]";
@@ -1069,7 +1082,7 @@ void GraphGpuWrapper::build_gpu_graph_edge_fea(GpuPsCommGraphEdgeFea &sub_graph_
 
 
   GpuPsGraphTable *g = reinterpret_cast<GpuPsGraphTable *>(graph_table);
-  g->build_graph_edge_fea_on_single_gpu(sub_graph_edge_fea, i, edge_idx, build_table);
+  g->build_graph_edge_fea_on_single_gpu(sub_graph_edge_fea, i, edge_idx, build_table, upload_batch);
   sub_graph_edge_fea.release_on_cpu();
   VLOG(1) << "sub graph edge fea on gpu " << i << " is built";
   return;
@@ -1079,13 +1092,13 @@ void GraphGpuWrapper::build_gpu_graph_edge_fea(GpuPsCommGraphEdgeFea &sub_graph_
 void GraphGpuWrapper::build_gpu_graph_edge_float_fea(GpuPsCommGraphEdgeFloatFea &sub_graph_edge_float_fea,
                                                      int i,
                                                      const std::string &edge_type,
-                                                     bool build_table) {
+                                                     bool build_table, bool upload_batch) {
   VLOG(0) << "begin build_gpu_graph_edge_float_fea, etype[" << edge_type << "]";
   auto iter = edge_to_id.find(edge_type);
   int edge_idx = iter->second;
   VLOG(2) << "cur edge type: " << edge_type << ", edge_idx: " << edge_idx;
   GpuPsGraphTable *g = reinterpret_cast<GpuPsGraphTable *>(graph_table);
-  g->build_graph_edge_float_fea_on_single_gpu(sub_graph_edge_float_fea, i, edge_idx, build_table);
+  g->build_graph_edge_float_fea_on_single_gpu(sub_graph_edge_float_fea, i, edge_idx, build_table, upload_batch);
   sub_graph_edge_float_fea.release_on_cpu();
   VLOG(1) << "sub graph edge float fea on gpu " << i << " is built";
   return;

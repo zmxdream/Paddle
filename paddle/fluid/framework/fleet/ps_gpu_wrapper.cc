@@ -1542,7 +1542,7 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
     auto gpu_graph_ptr = GraphGpuWrapper::GetInstance();
     auto& id_to_edge = gpu_graph_ptr->id_to_edge;
     // edge fea
-    std::vector<bool> build_table(id_to_edge.size(), true);
+    // std::vector<bool> build_table(id_to_edge.size(), true);
     if (edge_slot_num_for_pull_feature_ > 0 &&
         (FLAGS_gpugraph_storage_mode == paddle::framework::GpuGraphStorageMode::
                                             MEM_EMB_FEATURE_AND_GPU_GRAPH ||
@@ -1555,8 +1555,8 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
           (std::vector<std::vector<GpuPsCommGraphEdgeFea>>*)gpu_task->sub_graph_edge_feas;
       for (size_t edge_idx = 0; edge_idx < id_to_edge.size(); edge_idx++) {
         auto& edge_type = id_to_edge[edge_idx];
-        gpu_graph_ptr->build_gpu_graph_edge_fea((*tmp)[edge_idx][i], i, edge_type, build_table[edge_idx]);
-        build_table[edge_idx] = false;
+        gpu_graph_ptr->build_gpu_graph_edge_fea((*tmp)[edge_idx][i], i, edge_type, false, true);
+        // build_table[edge_idx] = false;
       }
     }
     if (edge_float_slot_num_> 0 &&
@@ -1570,7 +1570,7 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
           (std::vector<std::vector<GpuPsCommGraphEdgeFloatFea>>*)gpu_task->sub_graph_float_feas;
       for (size_t edge_idx = 0; edge_idx < id_to_edge.size(); edge_idx++) {
         auto& edge_type = id_to_edge[edge_idx];
-        gpu_graph_ptr->build_gpu_graph_edge_float_fea((*float_tmp)[edge_idx][i], i, edge_type, build_table[edge_idx]);
+        gpu_graph_ptr->build_gpu_graph_edge_float_fea((*float_tmp)[edge_idx][i], i, edge_type, false, true);
       }
     }
 
