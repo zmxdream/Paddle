@@ -99,7 +99,7 @@ if (WITH_BOX_PS OR WITH_XPU_KP)
     set(XPU_XDNN_DIR_NAME "xdnn-bdcentos_x86_64")
     set(XPU_XCCL_DIR_NAME "xccl-bdcentos_x86_64")
     set(XPU_XRE_URL
-        "https://klx-sdk-release-public.su.bcebos.com/xre/release/4.0.22.1/${XPU_XRE_DIR_NAME}.tar.gz"
+        "https://klx-sdk-release-public.su.bcebos.com/xre/release/4.0.27.1/${XPU_XRE_DIR_NAME}.tar.gz"
         CACHE STRING "" FORCE)
     set(XPU_XCCL_URL
         "https://klx-sdk-release-public.su.bcebos.com/xccl/release/1.0.14/${XPU_XCCL_DIR_NAME}.tar.gz"
