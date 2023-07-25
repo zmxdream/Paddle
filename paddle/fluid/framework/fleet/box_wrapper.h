@@ -59,14 +59,13 @@ limitations under the License. */
 #include <scalopus_tracing/native_trace_provider.h>
 #define BUF_SIZE 1024 * 1024
 
-DECLARE_int32(fix_dayid);
 DECLARE_bool(padbox_auc_runner_mode);
 DECLARE_bool(enable_dense_nccl_barrier);
 DECLARE_int32(padbox_dataset_shuffle_thread_num);
 
 namespace paddle {
 namespace framework {
-
+extern int make_day_id(const int &y, const int &m, const int &d);
 #ifdef PADDLE_WITH_BOX_PS
 #define MAX_GPU_NUM 16
 
@@ -1115,16 +1114,15 @@ class BoxFileMgr {
   std::shared_ptr<boxps::PaddleFileMgr> mgr_ = nullptr;
 };
 #endif
-
 class BoxHelper {
  public:
   explicit BoxHelper(paddle::framework::Dataset* dataset) : dataset_(dataset) {}
   virtual ~BoxHelper() {}
 
   void SetDate(int year, int month, int day) {
-    year_ = year;
-    month_ = month;
-    day_ = day;
+    day_id_ = make_day_id(year, month, day);
+    VLOG(0) << "BoxHelpler set year=" << year << ", month="
+        << month << ", day=" << day << ", day id=" << day_id_;
   }
   void BeginPass() {
 #ifdef PADDLE_WITH_BOX_PS
@@ -1167,17 +1165,10 @@ class BoxHelper {
     double read_ins_span = 0.0;
 
     timer.Start();
-    struct std::tm b;
-    b.tm_year = year_ - 1900;
-    b.tm_mon = month_ - 1;
-    b.tm_mday = day_;
-    b.tm_min = b.tm_hour = b.tm_sec = 0;
-    std::time_t x = std::mktime(&b);
-
     auto box_ptr = BoxWrapper::GetInstance();
     boxps::PSAgentBase* agent = box_ptr->GetAgent();
     VLOG(3) << "Begin call BeginFeedPass in BoxPS";
-    box_ptr->BeginFeedPass(x / 86400, &agent);
+    box_ptr->BeginFeedPass(day_id_, &agent);
     timer.Pause();
 
     feed_pass_span = timer.ElapsedSec();
@@ -1224,19 +1215,12 @@ class BoxHelper {
   }
   void PreLoadIntoMemory() {
 #ifdef PADDLE_WITH_BOX_PS
-    struct std::tm b;
-    b.tm_year = year_ - 1900;
-    b.tm_mon = month_ - 1;
-    b.tm_mday = day_;
-    b.tm_min = b.tm_hour = b.tm_sec = 0;
-    std::time_t x = std::mktime(&b);
-
     auto box_ptr = BoxWrapper::GetInstance();
     boxps::PSAgentBase* agent = box_ptr->GetAgent();
     PadBoxSlotDataset* dataset = dynamic_cast<PadBoxSlotDataset*>(dataset_);
     VLOG(0) << "passid = " << dataset->GetPassId()
             << ", Begin PreLoadIntoMemory BeginFeedPass in BoxPS";
-    box_ptr->BeginFeedPass(x / 86400, &agent);
+    box_ptr->BeginFeedPass(day_id_, &agent);
     dataset->SetPSAgent(agent);
     // add 0 key
     agent->AddKey(0ul, 0);
@@ -1324,14 +1308,6 @@ class BoxHelper {
   void FeedPass() {
     VLOG(3) << "Begin FeedPass";
 #ifdef PADDLE_WITH_BOX_PS
-    struct std::tm b;
-    b.tm_year = year_ - 1900;
-    b.tm_mon = month_ - 1;
-    b.tm_mday = day_;
-    b.tm_min = b.tm_sec = 0;
-    b.tm_hour = FLAGS_fix_dayid ? 8 : 0;
-    std::time_t x = std::mktime(&b);
-
     auto box_ptr = BoxWrapper::GetInstance();
     auto input_channel_ =
         dynamic_cast<MultiSlotDataset*>(dataset_)->GetInputChannel();
@@ -1356,7 +1332,7 @@ class BoxHelper {
     const size_t tnum = box_ptr->GetFeedpassThreadNum();
     boxps::PSAgentBase* p_agent = box_ptr->GetAgent();
     VLOG(3) << "Begin call BeginFeedPass in BoxPS";
-    box_ptr->BeginFeedPass(x / 86400, &p_agent);
+    box_ptr->BeginFeedPass(day_id_, &p_agent);
 
     std::vector<std::thread> threads;
     size_t len = pass_data.size();
@@ -1388,9 +1364,7 @@ class BoxHelper {
 
  private:
   Dataset* dataset_;
-  int year_;
-  int month_;
-  int day_;
+  int day_id_ = 0;
   bool get_random_replace_done_ = false;
 };
 

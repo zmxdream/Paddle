@@ -2818,10 +2818,11 @@ void SlotRecordInMemoryDataFeed::BuildSlotBatchGPU(const int ins_num) {
 //=============================================
 #ifdef PADDLE_WITH_BOX_PS
 static const int MAX_FILE_BUFF = 4 * 1024 * 1024;
+static const int MAX_EXT_LEN = 1024 * 1024;
 static const int PAGE_BLOCK_SIZE = 4096;
 static const int INT_BYTES = sizeof(int);
 BinaryArchiveWriter::BinaryArchiveWriter() : fd_(-1) {
-  capacity_ = MAX_FILE_BUFF + 64 * 1024;
+  capacity_ = MAX_FILE_BUFF + MAX_EXT_LEN;
   CHECK_EQ(0, posix_memalign(reinterpret_cast<void**>(&buff_), PAGE_BLOCK_SIZE,
                              capacity_));
 }
@@ -2901,7 +2902,7 @@ void BinaryArchiveWriter::close(void) {
 class BinaryArchiveReader {
  public:
   BinaryArchiveReader() {
-    capacity_ = MAX_FILE_BUFF + 64 * 1024;
+    capacity_ = MAX_FILE_BUFF + MAX_EXT_LEN;
     CHECK_EQ(0, posix_memalign(reinterpret_cast<void**>(&buff_),
                                PAGE_BLOCK_SIZE, capacity_));
   }
