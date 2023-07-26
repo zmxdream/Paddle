@@ -1659,7 +1659,8 @@ void SlotRecordDataset::GetRandomData(
   // VLOG(0) << "Begin to get_random data";
   for (const auto& rec : slots_shuffle_original_data) {
     SlotRecordCandidate rand_rec;
-    SlotRecord new_rec = rec;
+    SlotRecord new_rec = make_slotrecord();
+    *new_rec = *rec; 
 
     slots_record_shuffle_rclist_.AddAndGet(rec, &rand_rec);
     // VLOG(0) << "shuffle_done";
@@ -1977,6 +1978,9 @@ inline std::default_random_engine& local_random_engine() {
 void SlotRecordDataset::PrepareTrain() {
 #ifdef PADDLE_WITH_GLOO
   if (enable_heterps_) {
+    if(slots_shuffle_fea_eval_) {
+        pre_input_records_.clear();
+    }
     if (pre_input_records_.size() == 0 && input_channel_ != nullptr &&
         input_channel_->Size() != 0) {
       // channel shuffle 
