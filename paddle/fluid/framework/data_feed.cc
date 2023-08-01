@@ -3166,8 +3166,6 @@ int SlotPaddleBoxDataFeed::Next() {
   }
 #ifdef PADDLE_WITH_XPU_KP
   auto box_ptr = paddle::framework::BoxWrapper::GetInstance();
-  // box_ptr->PrepareNextBatch(this->place_.GetDeviceId());
-  
   std::future<int> prepare_next_batch_rt = std::async(std::launch::async, [this]() {
     auto box_ptr = paddle::framework::BoxWrapper::GetInstance();
     return box_ptr->PrepareNextBatch(this->place_.GetDeviceId());
@@ -3181,10 +3179,14 @@ int SlotPaddleBoxDataFeed::Next() {
       batch_timer_.Resume();
       PutToFeedPvVec(&pv_ins_[batch.first], this->batch_size_);
       batch_timer_.Pause();
-
     } else {
       VLOG(3) << "finish reading, batch size zero, thread_id=" << thread_id_;
     }
+#ifdef PADDLE_WITH_XPU_KP
+    CHECK(prepare_next_batch_rt.get() == 0);
+#endif
+    next_timer_.Pause();
+
     return this->batch_size_;
   } else {
     this->batch_size_ = batch.second;
@@ -3198,7 +3200,9 @@ int SlotPaddleBoxDataFeed::Next() {
     }
 #endif
     batch_timer_.Pause();
+#ifdef PADDLE_WITH_XPU_KP
     CHECK(prepare_next_batch_rt.get() == 0);
+#endif
     next_timer_.Pause();
 
     return this->batch_size_;
