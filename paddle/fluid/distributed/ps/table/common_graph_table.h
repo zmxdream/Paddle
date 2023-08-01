@@ -650,6 +650,9 @@ class GraphTable : public Table {
   virtual int32_t Save(const std::string &path, const std::string &converter) {
     return 0;
   }
+  virtual int32_t Save_v2(const std::string &path, const std::string &converter) {
+    return 0;
+  }
   virtual int32_t InitializeShard() { return 0; }
   virtual int32_t SetShard(size_t shard_idx, size_t server_num) {
     _shard_idx = shard_idx;

@@ -84,6 +84,9 @@ class BarrierTable : public Table {
   virtual int32_t Save(const std::string &path, const std::string &param) {
     return 0;
   }
+  virtual int32_t Save_v2(const std::string &path, const std::string &param) {
+    return 0;
+  }
   virtual int32_t InitializeShard() { return 0; }
 
   int32_t Initialize() override;

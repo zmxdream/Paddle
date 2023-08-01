@@ -90,10 +90,14 @@ class SSDSparseTable : public MemorySparseTable {
   }
 
   int32_t Save(const std::string& path, const std::string& param) override;
+  int32_t Save_v2(const std::string& path, const std::string& param) override;
   int32_t SaveWithString(const std::string& path, const std::string& param);
   int32_t SaveWithStringMultiOutput(const std::string& path,
                                     const std::string& param);
+  int32_t SaveWithStringMultiOutput_v2(const std::string& path,
+                                       const std::string& param);
   int32_t SaveWithBinary(const std::string& path, const std::string& param);
+  int32_t SaveWithBinary_v2(const std::string& path, const std::string& param);
   int32_t SaveCache(
       const std::string& path,
       const std::string& param,

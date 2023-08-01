@@ -113,6 +113,9 @@ class Table {
   // 指定保存路径
   virtual int32_t Save(const std::string &path,
                        const std::string &converter) = 0;
+
+  virtual int32_t Save_v2(const std::string &path,
+                          const std::string &converter) = 0;
   // for cache
   virtual int32_t SaveCache(
       const std::string &path,
