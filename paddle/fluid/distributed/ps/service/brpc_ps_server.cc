@@ -663,7 +663,7 @@ int32_t BrpcPsService::SaveOneTable(Table *table,
   }
   return feasign_size;
 }
-
+/*
 int32_t BrpcPsService::SaveOneTable_v2(Table *table,
                                        const PsRequestMessage &request,
                                        PsResponseMessage &response,
@@ -688,7 +688,7 @@ int32_t BrpcPsService::SaveOneTable_v2(Table *table,
   }
   return feasign_size;
 }
-
+*/
 int32_t BrpcPsService::SaveAllTable(Table *table,
                                     const PsRequestMessage &request,
                                     PsResponseMessage &response,
@@ -697,7 +697,7 @@ int32_t BrpcPsService::SaveAllTable(Table *table,
   int32_t feasign_size = 0;
 
   for (auto &itr : table_map) {
-    feasign_size = SaveOneTable_v2(itr.second.get(), request, response, cntl);
+    feasign_size = SaveOneTable(itr.second.get(), request, response, cntl);
     if (feasign_size < 0) {
       LOG(ERROR) << "save table[" << itr.first << "] failed";
       return -1;

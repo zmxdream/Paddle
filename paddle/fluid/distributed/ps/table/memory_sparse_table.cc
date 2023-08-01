@@ -446,7 +446,9 @@ int32_t MemorySparseTable::Save_v2(const std::string &dirname,
                                    const std::string &param) {
 
   auto* save_filtered_slots = _value_accesor->GetSaveFilteredSlots();
-  if (save_filtered_slots && (save_filtered_slots->size()) <= 0) {
+  VLOG(0) << "[deubg] save_filtered_slots:" << (save_filtered_slots == nullptr);
+  if (save_filtered_slots == nullptr || (save_filtered_slots->size()) <= 0) {
+      VLOG(0) << "[deubg before Save] save_filtered_slots:" << (save_filtered_slots == nullptr);
       return Save(dirname, param);
   }
 

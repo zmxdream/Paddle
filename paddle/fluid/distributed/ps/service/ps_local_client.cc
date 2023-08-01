@@ -66,7 +66,7 @@ int32_t PsLocalClient::Initialize() {
                                            const std::string& mode) {
   auto* table_ptr = GetTable(table_id);
   table_ptr->Flush();
-  table_ptr->Save(epoch, mode);
+  table_ptr->Save_v2(epoch, mode);
   return done();
 }
 

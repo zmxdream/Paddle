@@ -175,7 +175,6 @@ class ValueAccessor {
   }
 
   virtual void UpdatePassId(float* value, uint16_t pass_id) {}
-
   virtual float GetField(float* value, const std::string& name) { return 0.0; }
   robin_hood::unordered_set<float>* GetFilteredSlots() { return nullptr; }
   robin_hood::unordered_set<float>* GetSaveFilteredSlots() { return nullptr; }
