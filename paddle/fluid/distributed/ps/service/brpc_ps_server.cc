@@ -22,7 +22,6 @@
 #include "paddle/fluid/distributed/ps/table/table.h"
 #include "paddle/fluid/framework/archive.h"
 #include "paddle/fluid/platform/profiler.h"
-#include "paddle/utils/string/split.h"
 
 namespace google {
 namespace protobuf {
