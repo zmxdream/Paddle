@@ -600,6 +600,7 @@ int32_t SSDSparseTable::Save(const std::string& path,
 #endif
 }
 
+#ifdef PADDLE_WITH_GPU_GRAPH
 int32_t SSDSparseTable::Save_v2(const std::string& path,
                                 const std::string& param) {
   auto* save_filtered_slots = _value_accesor->GetSaveFilteredSlots();
@@ -621,6 +622,7 @@ int32_t SSDSparseTable::Save_v2(const std::string& path,
   return SaveWithString(path, param);  // batch_model:0  xbox:1
 #endif
 }
+#endif
 
 // save shard_num 个文件
 int32_t SSDSparseTable::SaveWithString(const std::string& path,
@@ -1180,17 +1182,12 @@ int32_t SSDSparseTable::SaveWithStringMultiOutput_v2(const std::string& path,
                            int split_num,
                            const char* prefix = "") {
       if (compress && (save_param == 0 || save_param == 3)) {
-        // return
-        // paddle::string::format_string("%s/part-%03d-%05d-%03d-%03d.gz",
-        //     table_path, node_num, shard_num, part_num, split_num);
         return paddle::string::format_string("%s/%s/part-%05d-%03d.gz",
                                              table_path,
                                              prefix,
                                              shard_num,
                                              split_num);
       } else {
-        // return paddle::string::format_string("%s/part-%03d-%05d-%03d-%03d",
-        //     table_path, node_num,  shard_num, part_num, split_num);
         return paddle::string::format_string(
             "%s/%s/part-%05d-%03d", table_path, prefix, shard_num, split_num);
       }

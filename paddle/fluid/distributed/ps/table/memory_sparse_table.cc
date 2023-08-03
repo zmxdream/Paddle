@@ -441,13 +441,11 @@ int32_t MemorySparseTable::Save(const std::string &dirname,
   return 0;
 }
 
+#ifdef PADDLE_WITH_GPU_GRAPH
 int32_t MemorySparseTable::Save_v2(const std::string &dirname,
                                    const std::string &param) {
   auto *save_filtered_slots = _value_accesor->GetSaveFilteredSlots();
-  VLOG(0) << "[deubg] save_filtered_slots:" << (save_filtered_slots == nullptr);
   if (save_filtered_slots == nullptr || (save_filtered_slots->size()) <= 0) {
-    VLOG(0) << "[deubg before Save] save_filtered_slots:"
-            << (save_filtered_slots == nullptr);
     return Save(dirname, param);
   }
 
@@ -738,6 +736,7 @@ int32_t MemorySparseTable::SavePatch(const std::string &path, int save_param) {
             << ", feasign size: " << feasign_size_all;
   return 0;
 }
+#endif
 
 int64_t MemorySparseTable::CacheShuffle(
     const std::string &path,
