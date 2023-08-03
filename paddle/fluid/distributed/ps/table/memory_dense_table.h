@@ -53,7 +53,9 @@ class MemoryDenseTable : public Table {
 
   int32_t Load(const std::string& path, const std::string& param) override;
   int32_t Save(const std::string& path, const std::string& param) override;
-  int32_t Save_v2(const std::string& path, const std::string& param) override { return 0; }
+  int32_t Save_v2(const std::string& path, const std::string& param) override {
+    return 0;
+  }
 
   int32_t Flush() override { return 0; }
   int32_t Shrink(const std::string& param) override { return 0; }

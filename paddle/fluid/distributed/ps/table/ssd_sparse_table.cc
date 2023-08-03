@@ -601,11 +601,10 @@ int32_t SSDSparseTable::Save(const std::string& path,
 }
 
 int32_t SSDSparseTable::Save_v2(const std::string& path,
-                             const std::string& param) {
-  
+                                const std::string& param) {
   auto* save_filtered_slots = _value_accesor->GetSaveFilteredSlots();
   if (save_filtered_slots && (save_filtered_slots->size()) <= 0) {
-      return Save(path, param);
+    return Save(path, param);
   }
   std::lock_guard<std::mutex> guard(_table_mutex);
 #ifdef PADDLE_WITH_HETERPS
@@ -1091,7 +1090,6 @@ int32_t SSDSparseTable::SaveWithStringMultiOutput(const std::string& path,
   return 0;
 }
 
-
 // save shard_num * n 个文件, n由模型大小决定
 int32_t SSDSparseTable::SaveWithStringMultiOutput_v2(const std::string& path,
                                                      const std::string& param) {
@@ -1168,7 +1166,8 @@ int32_t SSDSparseTable::SaveWithStringMultiOutput_v2(const std::string& path,
     channel_config.deconverter =
         _value_accesor->Converter(save_param).deconverter;
     FsChannelConfig channel_config_for_slot_feature;
-    channel_config_for_slot_feature.converter = _value_accesor->Converter(save_param).converter;
+    channel_config_for_slot_feature.converter =
+        _value_accesor->Converter(save_param).converter;
     channel_config_for_slot_feature.deconverter =
         _value_accesor->Converter(save_param).deconverter;
 
@@ -1184,8 +1183,11 @@ int32_t SSDSparseTable::SaveWithStringMultiOutput_v2(const std::string& path,
         // return
         // paddle::string::format_string("%s/part-%03d-%05d-%03d-%03d.gz",
         //     table_path, node_num, shard_num, part_num, split_num);
-        return paddle::string::format_string(
-            "%s/%s/part-%05d-%03d.gz", table_path, prefix, shard_num, split_num);
+        return paddle::string::format_string("%s/%s/part-%05d-%03d.gz",
+                                             table_path,
+                                             prefix,
+                                             shard_num,
+                                             split_num);
       } else {
         // return paddle::string::format_string("%s/part-%03d-%05d-%03d-%03d",
         //     table_path, node_num,  shard_num, part_num, split_num);
@@ -1250,19 +1252,24 @@ int32_t SSDSparseTable::SaveWithStringMultiOutput_v2(const std::string& path,
     }
 
     // write feature
-    while (busy_channel_for_slot_feature[shard_num]->Get(region_for_slot_feature)) {
-      if (region_for_slot_feature->_file_idx != last_file_idx_for_slot_feature) {
-        filename_for_slot_feature = get_filename(_config.compress_in_save(),
-                                                 save_param,
-                                                 table_path.c_str(),
-                                                 _shard_idx,
-                                                 file_start_idx + shard_num,
-                                                 part_num,
-                                                 region_for_slot_feature->_file_idx,
-                                                 "slot_feature");
+    while (busy_channel_for_slot_feature[shard_num]->Get(
+        region_for_slot_feature)) {
+      if (region_for_slot_feature->_file_idx !=
+          last_file_idx_for_slot_feature) {
+        filename_for_slot_feature =
+            get_filename(_config.compress_in_save(),
+                         save_param,
+                         table_path.c_str(),
+                         _shard_idx,
+                         file_start_idx + shard_num,
+                         part_num,
+                         region_for_slot_feature->_file_idx,
+                         "slot_feature");
         channel_config_for_slot_feature.path = filename_for_slot_feature;
         write_channel_for_slot_feature =
-            _afs_client.open_w(channel_config_for_slot_feature, 1024 * 1024 * 40, &err_no_for_slot_feature);
+            _afs_client.open_w(channel_config_for_slot_feature,
+                               1024 * 1024 * 40,
+                               &err_no_for_slot_feature);
         // afs_writer = _api_wrapper.open_writer(filename);
         last_file_idx_for_slot_feature = region_for_slot_feature->_file_idx;
         // xbox_converter = std::make_shared<XboxConverter>(afs_writer);
@@ -1284,8 +1291,9 @@ int32_t SSDSparseTable::SaveWithStringMultiOutput_v2(const std::string& path,
         int dim = len / sizeof(float);
 
         std::string format_value = _value_accesor->ParseToString(value, dim);
-        if (0 != write_channel_for_slot_feature->write_line(paddle::string::format_string(
-                     "%lu %s", k, format_value.c_str()))) {
+        if (0 != write_channel_for_slot_feature->write_line(
+                     paddle::string::format_string(
+                         "%lu %s", k, format_value.c_str()))) {
           VLOG(0) << "SSDSparseTable save feature failed, retry it! path:"
                   << channel_config_for_slot_feature.path;
         }
@@ -1364,10 +1372,11 @@ int32_t SSDSparseTable::SaveWithStringMultiOutput_v2(const std::string& path,
 
           // write slot feature
           if (_value_accesor->SaveFilterSlot(it.value().data())) {
-
             if (!region_for_slot_feature->buff_remain(len)) {
-              busy_channel_for_slot_feature[region_idx]->Put(region_for_slot_feature);
-              free_channel_for_slot_feature[region_idx]->Get(region_for_slot_feature);
+              busy_channel_for_slot_feature[region_idx]->Put(
+                  region_for_slot_feature);
+              free_channel_for_slot_feature[region_idx]->Get(
+                  region_for_slot_feature);
               // region->_file_idx = 0;
               switch_cnt_for_slot_feature += 1;
               if (switch_cnt_for_slot_feature % 1024 == 0) {
@@ -1392,7 +1401,6 @@ int32_t SSDSparseTable::SaveWithStringMultiOutput_v2(const std::string& path,
             //     false);
             // }
             ++feasign_size_for_slot_feature;
-
           }
         }
       }
@@ -1454,34 +1462,36 @@ int32_t SSDSparseTable::SaveWithStringMultiOutput_v2(const std::string& path,
 
           // write feature
 
-         if (_value_accesor->SaveFilterSlot(paddle::string::str_to_float(it->value().data()))) {
-
-          if (!region_for_slot_feature->buff_remain(len)) {
-            busy_channel_for_slot_feature[region_idx]->Put(region_for_slot_feature);
-            free_channel_for_slot_feature[region_idx]->Get(region_for_slot_feature);
-            switch_cnt_for_slot_feature += 1;
-            if (switch_cnt_for_slot_feature % 1024 == 0) {
-              // if (switch_cnt % 1 == 0) {
-              file_idx_for_slot_feature += 1;
+          if (_value_accesor->SaveFilterSlot(
+                  paddle::string::str_to_float(it->value().data()))) {
+            if (!region_for_slot_feature->buff_remain(len)) {
+              busy_channel_for_slot_feature[region_idx]->Put(
+                  region_for_slot_feature);
+              free_channel_for_slot_feature[region_idx]->Get(
+                  region_for_slot_feature);
+              switch_cnt_for_slot_feature += 1;
+              if (switch_cnt_for_slot_feature % 1024 == 0) {
+                // if (switch_cnt % 1 == 0) {
+                file_idx_for_slot_feature += 1;
+              }
+              region_for_slot_feature->_file_idx = file_idx_for_slot_feature;
             }
-            region_for_slot_feature->_file_idx = file_idx_for_slot_feature;
+            int read_count_2 = 0;
+            char* buf_2 = region_for_slot_feature->acquire(len);
+            *reinterpret_cast<uint32_t*>(buf_2 + read_count_2) = len;
+            read_count_2 += sizeof(uint32_t);
+
+            *reinterpret_cast<uint64_t*>(buf_2 + read_count + 2) = key;
+            read_count_2 += sizeof(uint64_t);
+
+            memcpy(
+                buf_2 + read_count_2, it->value().data(), it->value().size());
+            // if (save_param == 2) {
+            //     _value_accesor->update_time_decay((float*)(buf + read_count),
+            //     false);
+            // }
+            ++feasign_size_for_slot_feature;
           }
-          int read_count_2 = 0;
-          char* buf_2 = region_for_slot_feature->acquire(len);
-          *reinterpret_cast<uint32_t*>(buf_2 + read_count_2) = len;
-          read_count_2 += sizeof(uint32_t);
-
-          *reinterpret_cast<uint64_t*>(buf_2 + read_count+2) = key;
-          read_count_2 += sizeof(uint64_t);
-
-          memcpy(buf_2 + read_count_2, it->value().data(), it->value().size());
-          // if (save_param == 2) {
-          //     _value_accesor->update_time_decay((float*)(buf + read_count),
-          //     false);
-          // }
-          ++feasign_size_for_slot_feature;
-
-         }
         }
       }
       delete it;
@@ -1836,10 +1846,9 @@ int32_t SSDSparseTable::SaveWithBinary(const std::string& path,
 
 int32_t SSDSparseTable::SaveWithBinary_v2(const std::string& path,
                                           const std::string& param) {
-  
   auto* save_filtered_slots = _value_accesor->GetSaveFilteredSlots();
   if (save_filtered_slots && (save_filtered_slots->size()) <= 0) {
-      return SaveWithBinary(path, param);
+    return SaveWithBinary(path, param);
   }
   if (_real_local_shard_num == 0) {
     _local_show_threshold = -1;
@@ -1912,7 +1921,8 @@ int32_t SSDSparseTable::SaveWithBinary_v2(const std::string& path,
     channel_config.converter = _value_accesor->Converter(save_param).converter;
     channel_config.deconverter =
         _value_accesor->Converter(save_param).deconverter;
-    channel_config_for_slot_feature.converter = _value_accesor->Converter(save_param).converter;
+    channel_config_for_slot_feature.converter =
+        _value_accesor->Converter(save_param).converter;
     channel_config_for_slot_feature.deconverter =
         _value_accesor->Converter(save_param).deconverter;
 
@@ -1925,13 +1935,14 @@ int32_t SSDSparseTable::SaveWithBinary_v2(const std::string& path,
                            int split_num,
                            const char* prefix = "") {
       if (compress && (save_param == 0 || save_param == 3)) {
-        return paddle::string::format_string("%s/%s/part-%03d-%05d-%03d-%03d.gz",
-                                             table_path,
-                                             prefix,
-                                             node_num,
-                                             shard_num,
-                                             part_num,
-                                             split_num);
+        return paddle::string::format_string(
+            "%s/%s/part-%03d-%05d-%03d-%03d.gz",
+            table_path,
+            prefix,
+            node_num,
+            shard_num,
+            part_num,
+            split_num);
       } else {
         return paddle::string::format_string("%s/%s/part-%03d-%05d-%03d-%03d",
                                              table_path,
@@ -1974,8 +1985,10 @@ int32_t SSDSparseTable::SaveWithBinary_v2(const std::string& path,
         free_channel[shard_num]->Put(region);
       }
 
-      while (busy_channel_for_slot_feature[shard_num]->Get(region_for_slot_feature)) {
-        if (region_for_slot_feature->_file_idx != last_file_idx_for_slot_feature) {
+      while (busy_channel_for_slot_feature[shard_num]->Get(
+          region_for_slot_feature)) {
+        if (region_for_slot_feature->_file_idx !=
+            last_file_idx_for_slot_feature) {
           filename_for_slot_feature = get_filename(_config.compress_in_save(),
                                                    save_param,
                                                    table_path.c_str(),
@@ -1986,12 +1999,17 @@ int32_t SSDSparseTable::SaveWithBinary_v2(const std::string& path,
                                                    "slot_feature");
           channel_config_for_slot_feature.path = filename_for_slot_feature;
           write_channel_for_slot_feature =
-              _afs_client.open_w(channel_config_for_slot_feature, 1024 * 1024 * 40, &err_no_for_slot_feature);
+              _afs_client.open_w(channel_config_for_slot_feature,
+                                 1024 * 1024 * 40,
+                                 &err_no_for_slot_feature);
           last_file_idx_for_slot_feature = region->_file_idx;
         }
-        if (0 != write_channel_for_slot_feature->write(region_for_slot_feature->_buf, region_for_slot_feature->_cur)) {
-          LOG(FATAL) << "DownpourSparseSSDTable save feature failed, retry it! path:"
-                     << channel_config_for_slot_feature.path;
+        if (0 !=
+            write_channel_for_slot_feature->write(
+                region_for_slot_feature->_buf, region_for_slot_feature->_cur)) {
+          LOG(FATAL)
+              << "DownpourSparseSSDTable save feature failed, retry it! path:"
+              << channel_config_for_slot_feature.path;
           CHECK(false);
         }
         region_for_slot_feature->reset();
@@ -2043,8 +2061,10 @@ int32_t SSDSparseTable::SaveWithBinary_v2(const std::string& path,
       }
 
       // slot feature
-      while (busy_channel_for_slot_feature[shard_num]->Get(region_for_slot_feature)) {
-        if (region_for_slot_feature->_file_idx != last_file_idx_for_slot_feature) {
+      while (busy_channel_for_slot_feature[shard_num]->Get(
+          region_for_slot_feature)) {
+        if (region_for_slot_feature->_file_idx !=
+            last_file_idx_for_slot_feature) {
           filename_for_slot_feature = get_filename(_config.compress_in_save(),
                                                    save_param,
                                                    table_path.c_str(),
@@ -2055,7 +2075,9 @@ int32_t SSDSparseTable::SaveWithBinary_v2(const std::string& path,
                                                    "slot_feature");
           channel_config_for_slot_feature.path = filename_for_slot_feature;
           write_channel_for_slot_feature =
-              _afs_client.open_w(channel_config_for_slot_feature, 1024 * 1024 * 40, &err_no_for_slot_feature);
+              _afs_client.open_w(channel_config_for_slot_feature,
+                                 1024 * 1024 * 40,
+                                 &err_no_for_slot_feature);
           last_file_idx_for_slot_feature = region_for_slot_feature->_file_idx;
         }
         char* cursor = region_for_slot_feature->_buf;
@@ -2075,8 +2097,9 @@ int32_t SSDSparseTable::SaveWithBinary_v2(const std::string& path,
           int dim = len / sizeof(float);
 
           std::string format_value = _value_accesor->ParseToString(value, dim);
-          if (0 != write_channel_for_slot_feature->write_line(paddle::string::format_string(
-                       "%lu %s", k, format_value.c_str()))) {
+          if (0 != write_channel_for_slot_feature->write_line(
+                       paddle::string::format_string(
+                           "%lu %s", k, format_value.c_str()))) {
             LOG(FATAL) << "SSDSparseTable save feature failed, retry it! path:"
                        << channel_config_for_slot_feature.path;
           }
@@ -2144,8 +2167,10 @@ int32_t SSDSparseTable::SaveWithBinary_v2(const std::string& path,
           // write slot feature
           if (_value_accesor->SaveFilterSlot(it.value().data())) {
             if (!region_for_slot_feature->buff_remain(len)) {
-              busy_channel_for_slot_feature[region_idx]->Put(region_for_slot_feature);
-              free_channel_for_slot_feature[region_idx]->Get(region_for_slot_feature);
+              busy_channel_for_slot_feature[region_idx]->Put(
+                  region_for_slot_feature);
+              free_channel_for_slot_feature[region_idx]->Get(
+                  region_for_slot_feature);
               region_for_slot_feature->_file_idx = 0;
             }
             int read_count_2 = 0;
@@ -2215,10 +2240,13 @@ int32_t SSDSparseTable::SaveWithBinary_v2(const std::string& path,
           ++feasign_size;
 
           // write slot feature
-          if (_value_accesor->SaveFilterSlot(paddle::string::str_to_float(it->value().data()))) {
+          if (_value_accesor->SaveFilterSlot(
+                  paddle::string::str_to_float(it->value().data()))) {
             if (!region_for_slot_feature->buff_remain(len)) {
-              busy_channel_for_slot_feature[region_idx]->Put(region_for_slot_feature);
-              free_channel_for_slot_feature[region_idx]->Get(region_for_slot_feature);
+              busy_channel_for_slot_feature[region_idx]->Put(
+                  region_for_slot_feature);
+              free_channel_for_slot_feature[region_idx]->Get(
+                  region_for_slot_feature);
               switch_cnt_for_slot_feature += 1;
               if (switch_cnt_for_slot_feature % 1024 == 0) {
                 file_idx_for_slot_feature += 1;
@@ -2233,7 +2261,8 @@ int32_t SSDSparseTable::SaveWithBinary_v2(const std::string& path,
             *reinterpret_cast<uint64_t*>(buf_2 + read_count_2) = key;
             read_count_2 += sizeof(uint64_t);
 
-            memcpy(buf_2 + read_count_2, it->value().data(), it->value().size());
+            memcpy(
+                buf_2 + read_count_2, it->value().data(), it->value().size());
             // if (save_param == 2) {
             //     _value_accesor->update_time_decay((float*)(buf + read_count),
             //     false);

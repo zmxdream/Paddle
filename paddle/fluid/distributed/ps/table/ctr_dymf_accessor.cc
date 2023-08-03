@@ -51,7 +51,8 @@ int CtrDymfAccessor::Initialize() {
   }
   for (int i = 0; i < _config.ctr_accessor_param().save_filter_slots_size();
        i++) {
-    _save_filtered_slots.insert(_config.ctr_accessor_param().save_filter_slots(i));
+    _save_filtered_slots.insert(
+        _config.ctr_accessor_param().save_filter_slots(i));
     VLOG(0) << "CtrDymfAccessor::Initialize() save filter slot:"
             << _config.ctr_accessor_param().save_filter_slots(i);
   }

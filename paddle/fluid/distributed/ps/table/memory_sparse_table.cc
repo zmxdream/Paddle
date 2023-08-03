@@ -441,15 +441,14 @@ int32_t MemorySparseTable::Save(const std::string &dirname,
   return 0;
 }
 
-
 int32_t MemorySparseTable::Save_v2(const std::string &dirname,
                                    const std::string &param) {
-
-  auto* save_filtered_slots = _value_accesor->GetSaveFilteredSlots();
+  auto *save_filtered_slots = _value_accesor->GetSaveFilteredSlots();
   VLOG(0) << "[deubg] save_filtered_slots:" << (save_filtered_slots == nullptr);
   if (save_filtered_slots == nullptr || (save_filtered_slots->size()) <= 0) {
-      VLOG(0) << "[deubg before Save] save_filtered_slots:" << (save_filtered_slots == nullptr);
-      return Save(dirname, param);
+    VLOG(0) << "[deubg before Save] save_filtered_slots:"
+            << (save_filtered_slots == nullptr);
+    return Save(dirname, param);
   }
 
   if (_real_local_shard_num == 0) {
@@ -477,7 +476,7 @@ int32_t MemorySparseTable::Save_v2(const std::string &dirname,
   std::string table_path = TableDir(dirname);
   _afs_client.remove(paddle::string::format_string(
       "%s/part-%03d-*", table_path.c_str(), _shard_idx));
-  // path to save non 9008 slot's feasign 
+  // path to save non 9008 slot's feasign
   _afs_client.remove(paddle::string::format_string(
       "%s/slot_feature/part-%03d-*", table_path.c_str(), _shard_idx));
   std::atomic<uint32_t> feasign_size_all{0};
@@ -496,7 +495,7 @@ int32_t MemorySparseTable::Save_v2(const std::string &dirname,
   for (int i = 0; i < _real_local_shard_num; ++i) {
     FsChannelConfig channel_config;
     FsChannelConfig channel_config_for_slot_feature;
-    
+
     if (_config.compress_in_save() && (save_param == 0 || save_param == 3)) {
       channel_config.path =
           paddle::string::format_string("%s/part-%03d-%05d.gz",
@@ -513,15 +512,17 @@ int32_t MemorySparseTable::Save_v2(const std::string &dirname,
                                                           table_path.c_str(),
                                                           _shard_idx,
                                                           file_start_idx + i);
-      channel_config_for_slot_feature.path = paddle::string::format_string("%s/slot_featue/part-%03d-%05d",
-                                                          table_path.c_str(),
-                                                          _shard_idx,
-                                                          file_start_idx + i);
+      channel_config_for_slot_feature.path =
+          paddle::string::format_string("%s/slot_featue/part-%03d-%05d",
+                                        table_path.c_str(),
+                                        _shard_idx,
+                                        file_start_idx + i);
     }
     channel_config.converter = _value_accesor->Converter(save_param).converter;
     channel_config.deconverter =
         _value_accesor->Converter(save_param).deconverter;
-    channel_config_for_slot_feature.converter = _value_accesor->Converter(save_param).converter;
+    channel_config_for_slot_feature.converter =
+        _value_accesor->Converter(save_param).converter;
     channel_config_for_slot_feature.deconverter =
         _value_accesor->Converter(save_param).deconverter;
 
@@ -551,7 +552,9 @@ int32_t MemorySparseTable::Save_v2(const std::string &dirname,
       auto write_channel =
           _afs_client.open_w(channel_config, 1024 * 1024 * 40, &err_no);
       auto write_channel_for_slot_feature =
-          _afs_client.open_w(channel_config_for_slot_feature, 1024 * 1024 * 40, &err_no_for_slot_feature);
+          _afs_client.open_w(channel_config_for_slot_feature,
+                             1024 * 1024 * 40,
+                             &err_no_for_slot_feature);
 
       for (auto it = shard.begin(); it != shard.end(); ++it) {
         if (_config.enable_sparse_table_cache() &&
@@ -576,16 +579,18 @@ int32_t MemorySparseTable::Save_v2(const std::string &dirname,
           ++feasign_size;
           // save non 9008 slot's feasign
           if (_value_accesor->SaveFilterSlot(it.value().data())) {
-          if (0 != write_channel_for_slot_feature->write_line(paddle::string::format_string(
-                       "%lu %s", it.key(), format_value.c_str()))) {
-            ++retry_num_for_slot_feature;
-            is_write_failed_for_slot_feature = true;
-            LOG(ERROR)
-                << "MemorySparseTable save slot feature failed, retry it! path:"
-                << channel_config_for_slot_feature.path << " , retry_num=" << retry_num_for_slot_feature;
-            break;
-          }
-          ++feasign_size_for_slot_feature;
+            if (0 != write_channel_for_slot_feature->write_line(
+                         paddle::string::format_string(
+                             "%lu %s", it.key(), format_value.c_str()))) {
+              ++retry_num_for_slot_feature;
+              is_write_failed_for_slot_feature = true;
+              LOG(ERROR) << "MemorySparseTable save slot feature failed, retry "
+                            "it! path:"
+                         << channel_config_for_slot_feature.path
+                         << " , retry_num=" << retry_num_for_slot_feature;
+              break;
+            }
+            ++feasign_size_for_slot_feature;
           }
         }
       }
@@ -603,7 +608,8 @@ int32_t MemorySparseTable::Save_v2(const std::string &dirname,
         is_write_failed_for_slot_feature = true;
         LOG(ERROR)
             << "MemorySparseTable save prefix failed after write, retry it! "
-            << "path:" << channel_config_for_slot_feature.path << " , retry_num=" << retry_num_for_slot_feature;
+            << "path:" << channel_config_for_slot_feature.path
+            << " , retry_num=" << retry_num_for_slot_feature;
       }
       if (is_write_failed) {
         _afs_client.remove(channel_config.path);
@@ -616,7 +622,8 @@ int32_t MemorySparseTable::Save_v2(const std::string &dirname,
         exit(-1);
       }
       if (retry_num_for_slot_feature > FLAGS_pserver_table_save_max_retry) {
-        LOG(ERROR) << "MemorySparseTable save prefix for slot feature failed reach max limit!";
+        LOG(ERROR) << "MemorySparseTable save prefix for slot feature failed "
+                      "reach max limit!";
         exit(-1);
       }
     } while (is_write_failed && is_write_failed_for_slot_feature);
@@ -635,31 +642,14 @@ int32_t MemorySparseTable::Save_v2(const std::string &dirname,
     }
 #endif
     LOG(INFO) << "MemorySparseTable save prefix&feature success, path: "
-              << channel_config.path << " feasign_size: " << feasign_size << ", feature path:" << channel_config_for_slot_feature.path << ", feature feasign size:" << feasign_size_for_slot_feature;
+              << channel_config.path << " feasign_size: " << feasign_size
+              << ", feature path:" << channel_config_for_slot_feature.path
+              << ", feature feasign size:" << feasign_size_for_slot_feature;
   }
   _local_show_threshold = tk.top();
   // int32 may overflow need to change return value
   return 0;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 int32_t MemorySparseTable::SavePatch(const std::string &path, int save_param) {
   if (!_config.enable_revert()) {
