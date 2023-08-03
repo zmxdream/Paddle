@@ -133,10 +133,6 @@ class BrpcPsService : public PsBaseService {
                        const PsRequestMessage &request,
                        PsResponseMessage &response,  // NOLINT
                        brpc::Controller *cntl);
-  // int32_t SaveOneTable_v2(Table *table,
-  //                         const PsRequestMessage &request,
-  //                         PsResponseMessage &response,  // NOLINT
-  //                         brpc::Controller *cntl);
   int32_t SaveAllTable(Table *table,
                        const PsRequestMessage &request,
                        PsResponseMessage &response,  // NOLINT

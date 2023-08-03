@@ -663,32 +663,7 @@ int32_t BrpcPsService::SaveOneTable(Table *table,
   }
   return feasign_size;
 }
-/*
-int32_t BrpcPsService::SaveOneTable_v2(Table *table,
-                                       const PsRequestMessage &request,
-                                       PsResponseMessage &response,
-                                       brpc::Controller *cntl) {
-  CHECK_TABLE_EXIST(table, request, response)
-  if (request.params_size() < 2) {
-    set_response_code(
-        response,
-        -1,
-        "PsRequestMessage.datas is requeired at least 2, path&mode");
-    return -1;
-  }
-  table->Flush();
 
-  int32_t feasign_size = 0;
-
-  VLOG(3) << "save table, path:" << request.params(0) << ", param:" << request.params(1);
-  feasign_size = table->Save_v2(request.params(0), request.params(1));
-  if (feasign_size < 0) {
-    set_response_code(response, -1, "table save failed");
-    return -1;
-  }
-  return feasign_size;
-}
-*/
 int32_t BrpcPsService::SaveAllTable(Table *table,
                                     const PsRequestMessage &request,
                                     PsResponseMessage &response,
