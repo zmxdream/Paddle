@@ -773,7 +773,7 @@ class DistributedStrategy:
             )
             if accessor_class not in support_sparse_accessor_class:
                 raise ValueError(
-                    "support sparse_accessor_class: ['DownpourSparseValueAccessor', 'DownpourCtrAccessor', 'DownpourCtrDoubleAccessor', 'DownpourUnitAccessor', 'DownpourDoubleUnitAccessor'], but actual %s"
+                    "support sparse_accessor_class: ['DownpourSparseValueAccessor', 'DownpourCtrAccessor', 'DownpourCtrDoubleAccessor', 'DownpourUnitAccessor', 'DownpourDoubleUnitAccessor', 'DownpourCtrDymfAccessor'], but actual %s"
                     % (accessor_class)
                 )
 
