@@ -393,14 +393,26 @@ void EmplaceDeviceContexts(
 /*! \brief device context pool singleton */
 class DeviceContextPool {
  public:
+#ifdef PADDLE_WITH_BOX_PS
   static DeviceContextPool& Instance() {
     PADDLE_ENFORCE_NOT_NULL(pool,
                             platform::errors::PreconditionNotMet(
                                 "Need to Create DeviceContextPool firstly!"));
     return *pool;
   }
+#else
+  static DeviceContextPool& Instance() {
+    thread_local DeviceContextPool pool;
+    if (!pool.is_init_) {
+      pool.SetPlaces(places_);
+      pool.is_init_ = true;
+    }
+    return pool;
+  }
+#endif
 
   /*! \brief  Create should only called by Init function */
+#ifdef PADDLE_WITH_BOX_PS
   static DeviceContextPool& Init(const std::vector<platform::Place>& places) {
     if (pool == nullptr) {
       pool = new DeviceContextPool(places);
@@ -411,6 +423,13 @@ class DeviceContextPool {
   static bool IsInitialized() { return pool != nullptr; }
 
   static void SetPool(DeviceContextPool* dev_pool) { pool = dev_pool; }
+#else
+  static void Init(const std::vector<platform::Place>& places) {
+    places_ = places;
+  }
+
+  static bool IsInitialized() { return Instance().is_init_; }
+#endif
 
   /*! \brief  Return handle of single device context. */
   platform::DeviceContext* Get(const platform::Place& place);
@@ -432,9 +451,21 @@ class DeviceContextPool {
                      std::shared_future<std::unique_ptr<DeviceContext>>>*);
 
  private:
+#ifdef PADDLE_WITH_BOX_PS
   explicit DeviceContextPool(const std::vector<platform::Place>& places);
 
   static DeviceContextPool* pool;
+#else
+  explicit DeviceContextPool() {};
+  void SetPlaces(const std::vector<platform::Place>& places) {
+    EmplaceDeviceContexts(&device_contexts_,
+                          places,
+                          /*disable_setting_default_stream_for_allocator=*/false);
+  }
+  static std::vector<platform::Place> places_;
+  static thread_local bool is_init_;
+#endif
+
   std::map<Place, std::shared_future<std::unique_ptr<DeviceContext>>>
       device_contexts_;
   static thread_local const std::
