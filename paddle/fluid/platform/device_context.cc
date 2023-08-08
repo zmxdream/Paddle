@@ -133,11 +133,11 @@ DeviceType Place2DeviceType(const platform::Place& place) {
   }
 }
 
-#ifdef PADDLE_WITH_BOX_PS
-DeviceContextPool* DeviceContextPool::pool = nullptr;
-#else
+#if (defined PADDLE_WITH_XPU) && (defined PADDLE_ON_INFERENCE) && (!defined PADDLE_WITH_BOX_PS)
 std::vector<platform::Place> DeviceContextPool::places_;
 thread_local bool DeviceContextPool::is_init_ = false;
+#else
+DeviceContextPool* DeviceContextPool::pool = nullptr;
 #endif
 thread_local const std::map<Place,
                             std::shared_future<std::unique_ptr<DeviceContext>>>*
@@ -374,7 +374,8 @@ void EmplaceDeviceContexts(
   }
 }
 
-#ifdef PADDLE_WITH_BOX_PS
+#if (defined PADDLE_WITH_XPU) && (defined PADDLE_ON_INFERENCE) && (!defined PADDLE_WITH_BOX_PS)
+#else
 DeviceContextPool::DeviceContextPool(
     const std::vector<platform::Place>& places) {
   EmplaceDeviceContexts(&device_contexts_,
