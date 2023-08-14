@@ -9392,7 +9392,7 @@ def log(x, name=None):
 
 
 @deprecated(since="2.0.0", update_to="paddle.nn.functional.relu")
-def relu(x, name=None):
+def relu(x, name=None, safe=0.):
     """
     ${comment}
 
@@ -9431,9 +9431,13 @@ def relu(x, name=None):
     helper = LayerHelper('relu', **locals())
     dtype = helper.input_dtype(input_param_name='x')
     out = helper.create_variable_for_type_inference(dtype)
+    attrs = {}
+    if safe != 0.:
+        attrs['safe'] = safe
     helper.append_op(type="relu",
                      inputs={"X": helper.input('x')},
-                     outputs={"Out": out})
+                     outputs={"Out": out},
+                     attrs=attrs)
     return out
 
 

@@ -2621,25 +2621,7 @@ def scaled_fc(input,
         attrs={
             'input_scale_factor': input_scale_factor,
             'bias_scale_factor': bias_scale_factor,
-            'grad_scale_factor': grad_scale_factor
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+            'grad_scale_factor': grad_scale_factor,
         },
         outputs={"Out": pre_act})
 
