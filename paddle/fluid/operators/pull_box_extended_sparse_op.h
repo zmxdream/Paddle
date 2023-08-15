@@ -74,13 +74,13 @@ static void PullBoxExtendedSparseFunctor(
     }
   }
 #ifdef PADDLE_WITH_BOX_PS
-  int skip_offset = ctx.Attr<int>("offset");
-  auto emb_size = ctx.Attr<int>("emb_size");
-  auto emb_extended_size = ctx.Attr<int>("emb_extended_size");
-  auto expand_only = ctx.Attr<bool>("expand_only");  
-  auto box_ptr = paddle::framework::BoxWrapper::GetInstance();
-  box_ptr->PullSparse(ctx.GetPlace(), all_keys, all_values, slot_lengths,
-                      emb_size, emb_extended_size, skip_offset, expand_only);
+  // int skip_offset = ctx.Attr<int>("offset");
+  // auto emb_size = ctx.Attr<int>("emb_size");
+  // auto emb_extended_size = ctx.Attr<int>("emb_extended_size");
+  // auto expand_only = ctx.Attr<bool>("expand_only");  
+  // auto box_ptr = paddle::framework::BoxWrapper::GetInstance();
+  // box_ptr->PullSparse(ctx.GetPlace(), all_keys, all_values, slot_lengths,
+  //                     emb_size, emb_extended_size, skip_offset, expand_only);
 #endif
 }
 
@@ -161,14 +161,14 @@ static void PushBoxExtendedSparseFunctor(
     }
   }
 #ifdef PADDLE_WITH_BOX_PS
-  int skip_offset = ctx.Attr<int>("offset");
-  auto emb_size = ctx.Attr<int>("emb_size");
-  auto emb_extended_size = ctx.Attr<int>("emb_extended_size");
-  auto expand_only = ctx.Attr<bool>("expand_only");
-  auto box_ptr = paddle::framework::BoxWrapper::GetInstance();
-  box_ptr->PushSparseGrad(ctx.GetPlace(), all_keys, all_grad_values,
-                          slot_lengths, emb_size, emb_extended_size, batch_size,
-                          skip_offset, expand_only);
+  // int skip_offset = ctx.Attr<int>("offset");
+  // auto emb_size = ctx.Attr<int>("emb_size");
+  // auto emb_extended_size = ctx.Attr<int>("emb_extended_size");
+  // auto expand_only = ctx.Attr<bool>("expand_only");
+  // auto box_ptr = paddle::framework::BoxWrapper::GetInstance();
+  // box_ptr->PushSparseGrad(ctx.GetPlace(), all_keys, all_grad_values,
+  //                         slot_lengths, emb_size, emb_extended_size, batch_size,
+  //                         skip_offset, expand_only);
 #endif
 }
 
