@@ -93,6 +93,15 @@ void BasicAucCalculator::add_unlock_data_with_continue_label(double pred,
   ++_local_total_num;
 }
 
+void BasicAucCalculator::add_nan_inf_unlock_data(float pred, int label){
+  _size++;
+  if(std::isnan(pred)){
+    ++_nan_cnt;
+  } else if(std::isinf(pred)){
+    ++_inf_cnt;
+  }
+}
+
 void BasicAucCalculator::add_data(const float* d_pred,
                                   const int64_t* d_label,
                                   int batch_size,
@@ -426,6 +435,31 @@ void BasicAucCalculator::add_uid_data(const float* d_pred,
   }
 }
 
+void BasicAucCalculator::add_nan_inf_data(const float* d_pred,
+                                          const int64_t* d_label,
+                                          int batch_size,
+                                          const paddle::platform::Place& place){
+  if (platform::is_gpu_place(place) || platform::is_xpu_place(place)) {
+    thread_local std::vector<float> h_pred;
+    thread_local std::vector<int64_t> h_label;
+    h_pred.resize(batch_size);
+    h_label.resize(batch_size);
+    SyncCopyD2H(h_pred.data(), d_pred, batch_size, place);
+    SyncCopyD2H(h_label.data(), d_label, batch_size, place);
+
+    std::lock_guard<std::mutex> lock(_table_mutex);
+    for (int i = 0; i < batch_size; ++i) {
+      add_nan_inf_unlock_data(h_pred[i], h_label[i]);
+    }
+  } else {
+    std::lock_guard<std::mutex> lock(_table_mutex);
+    for (int i = 0; i < batch_size; ++i) {
+      add_nan_inf_unlock_data(d_pred[i], d_label[i]);
+    }
+  }
+
+}
+
 void BasicAucCalculator::add_uid_unlock_data(double pred,
                                              int label,
                                              uint64_t uid) {
@@ -538,6 +572,15 @@ BasicAucCalculator::WuaucRocData BasicAucCalculator::computeSingelUserAuc(
   return {tp, fp, auc};
 }
 
+void BasicAucCalculator::reset_nan_inf(){
+  _nan_cnt = 0;
+  _inf_cnt = 0;
+  _nan_rate = 0;
+  _inf_rate = 0;
+  _nan_inf_rate = 0;
+  _size = 0;
+}
+
 void BasicAucCalculator::computeContinueMsg() {
   int node_size = 1;
 #ifdef PADDLE_WITH_BOX_PS
@@ -588,6 +631,12 @@ void BasicAucCalculator::computeContinueMsg() {
   }
 
   _size = _local_total_num;
+}
+
+void BasicAucCalculator::computeNanInfMsg() {
+  _nan_rate = _nan_cnt / _size;
+  _inf_rate = _inf_cnt / _size;
+  _nan_inf_rate = (_nan_cnt + _inf_cnt) / _size;
 }
 
 }  // namespace framework

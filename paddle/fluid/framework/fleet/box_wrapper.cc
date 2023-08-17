@@ -883,6 +883,42 @@ class CmatchRankMaskMetricMsg : public MetricMsg {
   std::string mask_varname_;
 };
 
+class NanInfMetricMsg : public MetricMsg {
+ public:
+  NanInfMetricMsg(const std::string& label_varname,
+                        const std::string& pred_varname,
+                        int metric_phase,
+                        int bucket_size = 1000000,
+                        bool mode_collect_in_gpu = false,
+                        int max_batch_size = 0) {
+    label_varname_ = label_varname;
+    pred_varname_ = pred_varname;
+    metric_phase_ = metric_phase;
+    calculator = new BasicAucCalculator(mode_collect_in_gpu);
+    calculator->init(bucket_size);
+  }
+  virtual ~NanInfMetricMsg() { } 
+  void add_data(const Scope* exe_scope,
+                const paddle::platform::Place& place) override {
+    int label_len = 0;
+    const int64_t* label_data = NULL;
+    get_data<int64_t>(exe_scope, label_varname_, &label_data, &label_len);
+
+    int pred_len = 0;
+    const float* pred_data = NULL;
+    get_data<float>(exe_scope, pred_varname_, &pred_data, &pred_len);
+    PADDLE_ENFORCE_EQ(label_len,
+                      pred_len,
+                      platform::errors::PreconditionNotMet(
+                          "the predict data length should be consistent with "
+                          "the label data length"));
+    auto cal = GetCalculator();
+    cal->add_nan_inf_data( 
+        pred_data, label_data, label_len, place);
+  }
+};
+
+
 const std::vector<std::string> BoxWrapper::GetMetricNameList(
     int metric_phase) const {
   VLOG(0) << "Want to Get metric phase: " << metric_phase;
@@ -1003,6 +1039,14 @@ void BoxWrapper::InitMetric(const std::string& method,
                                                     bucket_size,
                                                     mode_collect_in_gpu,
                                                     max_batch_size));
+  } else if (method == "NanInfCalculator") {
+    metric_lists_.emplace(name,
+                          new NanInfMetricMsg(label_varname,
+                                              pred_varname,
+                                              metric_phase,
+                                              bucket_size,
+                                              mode_collect_in_gpu,
+                                              max_batch_size));
   } else {
     PADDLE_THROW(platform::errors::Unimplemented(
         "PaddleBox only support AucCalculator, MultiTaskAucCalculator, "
@@ -1050,6 +1094,24 @@ const std::vector<double> BoxWrapper::GetContinueMetricMsg(
   metric_return_values_[3] = continue_cal_->predicted_value();
   metric_return_values_[4] = continue_cal_->size();
   continue_cal_->reset();
+  return metric_return_values_;
+}
+
+const std::vector<double> BoxWrapper::GetNanInfMetricMsg(
+    const std::string& name) {
+  const auto iter = metric_lists_.find(name);
+  PADDLE_ENFORCE_NE(iter,
+                    metric_lists_.end(),
+                    platform::errors::InvalidArgument(
+                        "The metric name you provided is not registered."));
+  std::vector<double> metric_return_values_(4, 0.0);
+  auto* naninf_cal_ = iter->second->GetCalculator();
+  naninf_cal_->computeNanInfMsg();
+  metric_return_values_[0] = naninf_cal_->nan_rate();
+  metric_return_values_[1] = naninf_cal_->inf_rate();
+  metric_return_values_[2] = naninf_cal_->nan_inf_rate();
+  metric_return_values_[3] = naninf_cal_->size();
+  naninf_cal_->reset_nan_inf();
   return metric_return_values_;
 }
 

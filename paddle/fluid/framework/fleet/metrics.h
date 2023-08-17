@@ -63,6 +63,7 @@ class BasicAucCalculator {
   void add_unlock_data(double pred, int label, float sample_scale);
   void add_unlock_data_with_float_label(double pred, double label);
   void add_unlock_data_with_continue_label(double pred, double label);
+  void add_nan_inf_unlock_data(float pred, int label);
   // add batch data
   void add_data(const float* d_pred,
                 const int64_t* d_label,
@@ -104,12 +105,21 @@ class BasicAucCalculator {
                     const paddle::platform::Place& place_pred,
                     const paddle::platform::Place& place_label,
                     const paddle::platform::Place& place_uid);
+
+  void add_nan_inf_data(const float* d_pred,
+                        const int64_t* d_label,
+                        int batch_size,
+                        const paddle::platform::Place& place);
+
   void compute();
   void computeContinueMsg();
   int table_size() const { return _table_size; }
   double bucket_error() const { return _bucket_error; }
   double auc() const { return _auc; }
   double mae() const { return _mae; }
+  double nan_rate() const { return _nan_rate; }
+  double inf_rate() const { return _inf_rate; }
+  double nan_inf_rate() const { return _nan_inf_rate; }
   double actual_ctr() const { return _actual_ctr; }
   double predicted_ctr() const { return _predicted_ctr; }
   double actual_value() const { return _actual_value; }
@@ -130,10 +140,12 @@ class BasicAucCalculator {
   void add_uid_unlock_data(double pred, int label, uint64_t uid);
   void computeWuAuc();
   WuaucRocData computeSingelUserAuc(const std::vector<WuaucRecord>& records);
+  void computeNanInfMsg();
   double uauc() const { return _uauc; }
   double wuauc() const { return _wuauc; }
   double user_cnt() const { return _user_cnt; }
   double size() const { return _size; }
+  void reset_nan_inf();
 
  private:
   void cuda_add_data(const paddle::platform::Place& place,
@@ -167,6 +179,12 @@ class BasicAucCalculator {
   double _uauc = 0;
   double _wuauc = 0;
   std::vector<WuaucRecord> wuauc_records_;
+
+  double _nan_cnt = 0;
+  double _inf_cnt = 0;
+  double _nan_rate = 0;
+  double _inf_rate = 0;
+  double _nan_inf_rate = 0;
 
  private:
   void set_table_size(int table_size) { _table_size = table_size; }

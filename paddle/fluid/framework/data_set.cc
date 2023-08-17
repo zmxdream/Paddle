@@ -2783,7 +2783,7 @@ void PadBoxSlotDataset::PrepareTrain(void) {
 
   std::vector<std::pair<int, int>> offset;
   // join or aucrunner mode enable pv
-  if (enable_pv_merge_ && (box_ptr->Phase() == 1 || box_ptr->Phase() == 3 ||
+  if (enable_pv_merge_ && (box_ptr->Phase() & 0x01 == 1 ||
                            box_ptr->Mode() == 1)) {
     std::shuffle(input_pv_ins_.begin(), input_pv_ins_.end(),
                  BoxWrapper::LocalRandomEngine());
