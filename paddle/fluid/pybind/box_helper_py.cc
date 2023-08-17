@@ -118,6 +118,9 @@ void BindBoxWrapper(py::module* m) {
       .def("get_continue_metric_msg",
            &framework::BoxWrapper::GetContinueMetricMsg,
            py::call_guard<py::gil_scoped_release>())
+      .def("get_nan_inf_metric_msg",
+           &framework::BoxWrapper::GetNanInfMetricMsg,
+           py::call_guard<py::gil_scoped_release>())
       .def("get_metric_name_list",
            &framework::BoxWrapper::GetMetricNameList,
            py::call_guard<py::gil_scoped_release>())

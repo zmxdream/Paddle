@@ -854,6 +854,7 @@ class BoxWrapper {
                   const std::string& sample_scale_varname = "");
   const std::vector<double> GetMetricMsg(const std::string& name);
   const std::vector<double> GetContinueMetricMsg(const std::string& name);
+  const std::vector<double> GetNanInfMetricMsg(const std::string& name);
   // pcoc qvalue tensor
   LoDTensor& GetQTensor(int device) { return device_caches_[device].qvalue; }
   void PrintSyncTimer(int device, double train_span);
