@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifdef PADDLE_WITH_BOX_PS
 #include "paddle/fluid/framework/fleet/box_wrapper.h"
-
+#ifdef PADDLE_WITH_BOX_PS
 #include <algorithm>
 #include <ctime>
 #include <memory>
@@ -32,9 +31,50 @@ DECLARE_int32(gpu_replica_cache_dim);
 DECLARE_bool(enable_force_hbm_recyle);
 DECLARE_bool(enable_force_mem_recyle);
 DECLARE_bool(enbale_slotpool_auto_clear);
+#endif
+DECLARE_int32(fix_dayid);
 namespace paddle {
 namespace framework {
-
+#define MINUTE 60
+#define HOUR   (60 * MINUTE)
+#define DAY    (24 * HOUR)
+#define YEAR   (365 * DAY)
+/* interestingly, we assume leap-years */
+static int GMONTH[12] = {
+  0,
+  DAY * (31),
+  DAY * (31 + 29),
+  DAY * (31 + 29 + 31),
+  DAY * (31 + 29 + 31 + 30),
+  DAY * (31 + 29 + 31 + 30 + 31),
+  DAY * (31 + 29 + 31 + 30 + 31 + 30),
+  DAY * (31 + 29 + 31 + 30 + 31 + 30 + 31),
+  DAY * (31 + 29 + 31 + 30 + 31 + 30 + 31 + 31),
+  DAY * (31 + 29 + 31 + 30 + 31 + 30 + 31 + 31 + 30),
+  DAY * (31 + 29 + 31 + 30 + 31 + 30 + 31 + 31 + 30 + 31),
+  DAY * (31 + 29 + 31 + 30 + 31 + 30 + 31 + 31 + 30 + 31 + 30)
+};
+int make_day_id(const int &y, const int &m, const int &d) {
+  int year = y - 1970;
+  int mon = m - 1;
+  long res = YEAR * year + DAY * ((year + 1) / 4);
+  res += GMONTH[mon];
+  if (mon > 1 && ((year + 2) % 4)) {
+    res -= DAY;
+  }
+  res += DAY * (d - 1);
+  if (FLAGS_fix_dayid) {
+    return static_cast<int>(res / 86400);
+  }
+  return static_cast<int>((res - (8 * 3600)) / 86400);
+}
+inline int make_str2day_id(const std::string &date) {
+  int year = std::stoi(date.substr(0, 4));
+  int month = std::stoi(date.substr(4, 2));
+  int day = std::stoi(date.substr(6, 2));
+  return make_day_id(year, month, day);
+}
+#ifdef PADDLE_WITH_BOX_PS
 std::shared_ptr<BoxWrapper> BoxWrapper::s_instance_ = nullptr;
 std::shared_ptr<boxps::PaddleShuffler> BoxWrapper::data_shuffle_ = nullptr;
 cudaStream_t BoxWrapper::stream_list_[MAX_GPU_NUM];
@@ -810,6 +850,42 @@ class CmatchRankMaskMetricMsg : public MetricMsg {
   std::string mask_varname_;
 };
 
+class NanInfMetricMsg : public MetricMsg {
+ public:
+  NanInfMetricMsg(const std::string& label_varname,
+                        const std::string& pred_varname,
+                        int metric_phase,
+                        int bucket_size = 1000000,
+                        bool mode_collect_in_gpu = false,
+                        int max_batch_size = 0) {
+    label_varname_ = label_varname;
+    pred_varname_ = pred_varname;
+    metric_phase_ = metric_phase;
+    calculator = new BasicAucCalculator(mode_collect_in_gpu);
+    calculator->init(bucket_size);
+  }
+  virtual ~NanInfMetricMsg() { } 
+  void add_data(const Scope* exe_scope,
+                const paddle::platform::Place& place) override {
+    int label_len = 0;
+    const int64_t* label_data = NULL;
+    get_data<int64_t>(exe_scope, label_varname_, &label_data, &label_len);
+
+    int pred_len = 0;
+    const float* pred_data = NULL;
+    get_data<float>(exe_scope, pred_varname_, &pred_data, &pred_len);
+    PADDLE_ENFORCE_EQ(label_len,
+                      pred_len,
+                      platform::errors::PreconditionNotMet(
+                          "the predict data length should be consistent with "
+                          "the label data length"));
+    auto cal = GetCalculator();
+    cal->add_nan_inf_data( 
+        pred_data, label_data, label_len, place);
+  }
+};
+
+
 const std::vector<std::string> BoxWrapper::GetMetricNameList(
     int metric_phase) const {
   VLOG(0) << "Want to Get metric phase: " << metric_phase;
@@ -930,6 +1006,14 @@ void BoxWrapper::InitMetric(const std::string& method,
                                                     bucket_size,
                                                     mode_collect_in_gpu,
                                                     max_batch_size));
+  } else if (method == "NanInfCalculator") {
+    metric_lists_.emplace(name,
+                          new NanInfMetricMsg(label_varname,
+                                              pred_varname,
+                                              metric_phase,
+                                              bucket_size,
+                                              mode_collect_in_gpu,
+                                              max_batch_size));
   } else {
     PADDLE_THROW(platform::errors::Unimplemented(
         "PaddleBox only support AucCalculator, MultiTaskAucCalculator, "
@@ -977,6 +1061,24 @@ const std::vector<double> BoxWrapper::GetContinueMetricMsg(
   metric_return_values_[3] = continue_cal_->predicted_value();
   metric_return_values_[4] = continue_cal_->size();
   continue_cal_->reset();
+  return metric_return_values_;
+}
+
+const std::vector<double> BoxWrapper::GetNanInfMetricMsg(
+    const std::string& name) {
+  const auto iter = metric_lists_.find(name);
+  PADDLE_ENFORCE_NE(iter,
+                    metric_lists_.end(),
+                    platform::errors::InvalidArgument(
+                        "The metric name you provided is not registered."));
+  std::vector<double> metric_return_values_(4, 0.0);
+  auto* naninf_cal_ = iter->second->GetCalculator();
+  naninf_cal_->computeNanInfMsg();
+  metric_return_values_[0] = naninf_cal_->nan_rate();
+  metric_return_values_[1] = naninf_cal_->inf_rate();
+  metric_return_values_[2] = naninf_cal_->nan_inf_rate();
+  metric_return_values_[3] = naninf_cal_->size();
+  naninf_cal_->reset_nan_inf();
   return metric_return_values_;
 }
 
@@ -1192,17 +1294,7 @@ const std::string BoxWrapper::SaveBase(const char* batch_model_path,
         8,
         platform::errors::PreconditionNotMet(
             "date[%s] is invalid, correct example is 20190817", date.c_str()));
-    int year = std::stoi(date.substr(0, 4));
-    int month = std::stoi(date.substr(4, 2));
-    int day = std::stoi(date.substr(6, 2));
-
-    struct std::tm b;
-    b.tm_year = year - 1900;
-    b.tm_mon = month - 1;
-    b.tm_mday = day;
-    b.tm_hour = FLAGS_fix_dayid ? 8 : 0;
-    b.tm_min = b.tm_sec = 0;
-    day_id = std::mktime(&b) / 86400;
+    day_id = make_str2day_id(date);
   }
   std::string ret_str;
   int ret =
@@ -1227,18 +1319,7 @@ const std::string BoxWrapper::SaveDelta(const char* xbox_model_path) {
 // load ssd2mem
 bool BoxWrapper::LoadSSD2Mem(const std::string& date) {
   VLOG(3) << "Begin Load SSD to Memory";
-  int year = std::stoi(date.substr(0, 4));
-  int month = std::stoi(date.substr(4, 2));
-  int day = std::stoi(date.substr(6, 2));
-
-  struct std::tm b;
-  b.tm_year = year - 1900;
-  b.tm_mon = month - 1;
-  b.tm_mday = day;
-  b.tm_hour = FLAGS_fix_dayid ? 8 : 0;
-  b.tm_min = b.tm_sec = 0;
-  std::time_t seconds_from_1970 = std::mktime(&b);
-  int day_id = seconds_from_1970 / 86400;
+  int day_id = make_str2day_id(date);
   return boxps_ptr_->LoadSSD2Mem(day_id);
 }
 //===================== box filemgr ===============================
@@ -1314,7 +1395,7 @@ std::vector<std::pair<std::string, int64_t>> BoxFileMgr::list_info(
   return files;
 }
 int64_t BoxFileMgr::count(const std::string& path) { return mgr_->count(path); }
+#endif
 
 }  // end namespace framework
 }  // end namespace paddle
-#endif
