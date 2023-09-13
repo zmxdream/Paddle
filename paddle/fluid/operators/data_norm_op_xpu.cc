@@ -82,6 +82,7 @@ class  DataNormGradXPUKernel : public framework::OpKernel<T> {
     const float epsilon = ctx.Attr<float>("epsilon");
     const float dr = ctx.Attr<float>("summary_decay_rate");
     const bool need_sync_stats = ctx.Attr<bool>("sync_stats");
+    const bool update_norm = ctx.Attr<bool>("update_norm");
 
     const auto &x_dims = x->dims();
     // Align with CPU version, but should we add this restriction?
@@ -139,20 +140,21 @@ class  DataNormGradXPUKernel : public framework::OpKernel<T> {
           "supported on windows now."));
 #endif
       }
+      if (update_norm) {
+        T *batch_size_data =
+          ctx.Output<Tensor>("BatchSize")->mutable_data<T>(ctx.GetPlace());
 
-      T *batch_size_data =
-        ctx.Output<Tensor>("BatchSize")->mutable_data<T>(ctx.GetPlace());
-
-      T *batch_sum_data =
-        ctx.Output<Tensor>("BatchSum")->mutable_data<T>(ctx.GetPlace());
-      T *batch_square_sum_data =
-        ctx.Output<Tensor>("BatchSquareSum")->mutable_data<T>(ctx.GetPlace());
-      r = xpu::kernel_update_param<T>(dev_ctx.x_context(), d_batch_size, d_batch_sum, d_batch_square_sum,
-                 batch_size_data, batch_sum_data, batch_square_sum_data,  dr,  C);
-      PADDLE_ENFORCE_EQ(
-         r, XPU_SUCCESS,
-        platform::errors::External("XPU kernel_update_param return wrong value[%d %s]",
-                                   r, XPUAPIErrorMsg[r]));
+        T *batch_sum_data =
+          ctx.Output<Tensor>("BatchSum")->mutable_data<T>(ctx.GetPlace());
+        T *batch_square_sum_data =
+          ctx.Output<Tensor>("BatchSquareSum")->mutable_data<T>(ctx.GetPlace());
+        r = xpu::kernel_update_param<T>(dev_ctx.x_context(), d_batch_size, d_batch_sum, d_batch_square_sum,
+                  batch_size_data, batch_sum_data, batch_square_sum_data,  dr,  C);
+        PADDLE_ENFORCE_EQ(
+          r, XPU_SUCCESS,
+          platform::errors::External("XPU kernel_update_param return wrong value[%d %s]",
+                                    r, XPUAPIErrorMsg[r]));
+    } //if !update_norm, will update norm param use BoxPSAsynDenseTable
   }
 };
 
