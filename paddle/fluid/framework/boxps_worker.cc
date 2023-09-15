@@ -37,10 +37,9 @@ DECLARE_bool(enable_dump_main_program);
 DECLARE_bool(enable_sync_dense_moment);
 DECLARE_bool(check_nan_inf);
 PADDLE_DEFINE_EXPORTED_bool(padbox_enable_gc, false, "enable paddlebox gc");
-PADDLE_DEFINE_EXPORTED_bool(
-    gpugraph_enable_print_op_debug,
-    false,
-    "enable print op debug ,default false");
+PADDLE_DEFINE_EXPORTED_bool(gpugraph_enable_print_op_debug,
+                            false,
+                            "enable print op debug ,default false");
 namespace paddle {
 namespace framework {
 
@@ -667,12 +666,11 @@ void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
     }
     ops_.push_back(OpRegistry::CreateOp(*op_desc));
     // change to device stream
-	if (op_name == "c_broadcast"
-	   || op_name == "c_reduce_sum"
-	   || op_name == "c_allreduce_sum") {
-	  ops_[op_index]->SetAttr("use_calc_stream", true);
-	}
-	++op_index;
+    if (op_name == "c_broadcast" || op_name == "c_reduce_sum" ||
+        op_name == "c_allreduce_sum") {
+      ops_[op_index]->SetAttr("use_calc_stream", true);
+    }
+    ++op_index;
   }
   // skip dump fields
   if (need_dump_field_ && dump_fields_ != nullptr) {
@@ -762,15 +760,15 @@ void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
         InitializeVariable(ptr, var->GetType());
       }
     } else {
-      Variable *root_var = root_scope_->FindVar(name);
+      Variable* root_var = root_scope_->FindVar(name);
       if (!root_var) {
-		VLOG(0) << "not found var name=" << name;
-		continue;
-	  }
-	  if (root_var->IsType<phi::SelectedRows>()) {
-		continue;
-	  }
-	  phi::DenseTensor *root_tensor = root_var->GetMutable<phi::DenseTensor>();
+        VLOG(0) << "not found var name=" << name;
+        continue;
+      }
+      if (root_var->IsType<phi::SelectedRows>()) {
+        continue;
+      }
+      phi::DenseTensor* root_tensor = root_var->GetMutable<phi::DenseTensor>();
       size_t len = root_tensor->numel();
       ++persistable_num;
       total_persistable_len += len;
@@ -815,8 +813,8 @@ void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
           var_num += 1;
         }
       }
-      if ((!sharding_mode_) || IsDataNormParam(name)
-    		  || name.find("learning_rate") != std::string::npos) {
+      if ((!sharding_mode_) || IsDataNormParam(name) ||
+          name.find("learning_rate") != std::string::npos) {
         // add gc skip vars
         skip_vars_.push_back(name);
         // data norm copy
@@ -834,9 +832,10 @@ void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
         auto* ptr = thread_scope_->Var(name);
         InitializeVariable(ptr, var->GetType());
         // set dims
-		auto dims = phi::make_ddim(var->GetShape());
-		auto var_dtype = paddle::framework::TransToPhiDataType(var->GetDataType());
-		ptr->GetMutable<phi::DenseTensor>()->Resize(dims).set_type(var_dtype);
+        auto dims = phi::make_ddim(var->GetShape());
+        auto var_dtype =
+            paddle::framework::TransToPhiDataType(var->GetDataType());
+        ptr->GetMutable<phi::DenseTensor>()->Resize(dims).set_type(var_dtype);
       }
     }
   }
@@ -862,12 +861,11 @@ void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
     // add op gc vars
     unused_vars_ = GetUnusedVars(block, ops_, skip_vars_);
   }
-  VLOG(0) << "device[" << device_id_
-		  << "] total op count=" << ops_.size()
+  VLOG(0) << "device[" << device_id_ << "] total op count=" << ops_.size()
           << ", skip vars count=" << skip_vars_.size()
           << ", unused vars count=" << unused_vars_.size()
-          << ", all param count=" << param_total
-		  << ", persist_reset is " << persist_reset;
+          << ", all param count=" << param_total << ", persist_reset is "
+          << persist_reset;
   // debug str
   if (FLAGS_enable_dump_main_program) {
     std::ostringstream str_os;
@@ -1006,10 +1004,10 @@ void BoxPSWorker::TrainFiles() {
     }
     for (auto& op : ops_) {
       if (FLAGS_gpugraph_enable_print_op_debug) {
-        VLOG(0) << "thread id=" << thread_id_ << ", " << op->DebugStringEx(thread_scope_);
+        VLOG(0) << "thread id=" << thread_id_ << ", "
+                << op->DebugStringEx(thread_scope_);
       }
       op->Run(*thread_scope_, place_);
-      dev_ctx_->Wait();
       if (gc) {
         DeleteUnusedTensors(*thread_scope_, op.get(), unused_vars_, gc.get());
       }
