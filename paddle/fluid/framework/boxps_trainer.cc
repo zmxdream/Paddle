@@ -198,6 +198,9 @@ void BoxPSTrainer::InitTrainerEnv(const ProgramDesc& main_program,
     this_worker->CreateDeviceResource(main_program);
     //    CopyParameters(*root_scope_, i);
   }
+  // VLOG(0) << "sleep... boxps trainer";
+  // std::this_thread::sleep_for(std::chrono::seconds(5000));//如果在这里的显存占用不大，那么就是后续的问题
+
 }
 inline std::vector<std::shared_ptr<paddle::framework::ThreadPool>>&
 GetThreadPool(int thread_num) {
@@ -247,6 +250,11 @@ void BoxPSTrainer::Run() {
 void BoxPSTrainer::Finalize() {
   for (auto& th : wait_futures_) {
     th.get();
+  }
+  for (int i = 0; i < thread_num_; ++i) {
+    auto this_worker =
+        std::dynamic_pointer_cast<paddle::framework::BoxPSWorker>(workers_[i]);
+    this_worker->Finalize();
   }
   if (async_mode_) {
     // must be after train thread, otherwise the ps_buffer_ will be closed first

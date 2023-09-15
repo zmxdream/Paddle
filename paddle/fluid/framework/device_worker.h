@@ -856,7 +856,7 @@ class BoxPSWorker : public DeviceWorker {
   ~BoxPSWorker() override {}
 
   void Initialize(const TrainerDesc& desc) override;
-
+  void Finalize();
   void BindingDataFeedMemory() override {}
   void CreateDeviceResource(const ProgramDesc& main_prog) override;
 
@@ -884,6 +884,8 @@ class BoxPSWorker : public DeviceWorker {
   int64_t AllocParamTensor(int64_t* pad_len);
   int64_t AllocParamTensorAsync();
   void SyncParam(void);
+  void BuildShardingDepends(std::shared_ptr<ProgramDesc> program);
+  int IsParameter(const std::string& name, bool full_match);
 
  protected:
   int device_id_;
@@ -891,6 +893,7 @@ class BoxPSWorker : public DeviceWorker {
 
   std::shared_ptr<framework::ProgramDesc> program_;
   std::vector<std::unique_ptr<OperatorBase>> ops_;
+  std::vector<std::unique_ptr<OperatorBase>> debug_remove_ops_;
   platform::DeviceContext* dev_ctx_ = nullptr;
 
   // dense async table
@@ -904,10 +907,26 @@ class BoxPSWorker : public DeviceWorker {
   bool one_ring_ = false;
   int device_num_ = 0;
   int node_size_ = 1;
+  BoxPSWorkerParameter param_;
+
   // skip vars
   std::vector<std::string> skip_vars_;
+  std::vector<std::string> skip_ops_;
   std::unordered_map<const OperatorBase*, std::vector<std::string>>
       unused_vars_;
+  int nccl_rank_id_ = 0;
+  int ring_id_ = 0;
+  std::unordered_map<std::string, int> params2rootid_;
+  std::multiset<std::string> remove_vars_;
+  std::vector<std::string> all_vars_;
+  std::vector<std::string> thread_vars_;
+  std::multiset<std::string> unpersist_vars_;
+  std::multiset<std::string> persist_param_vars_;
+  std::multiset<OpDesc*> remove_ops_;
+  std::vector<std::string> need_copy_vars_;
+  std::vector<std::string> shard_dump_params_;
+  std::vector<std::string> shard_dump_fields_;
+  bool sharding_mode_ = false;
 };
 #endif
 

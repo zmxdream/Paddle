@@ -239,20 +239,27 @@ bool CheckValidOutput(const LoDTensor* tensor, size_t batch_size) {
 
 void DeviceWorker::DumpParam(const Scope& scope, const int batch_id) {
   std::ostringstream os;
+  int device_id = int(place_.GetDeviceId());
   for (auto& param : *dump_param_) {
     os.str("");
     Variable* var = scope.FindVar(param);
-    if (var == nullptr) {
+     if (var == nullptr || !var->IsInitialized()) {
+      continue;
+    }
+    if (!var->IsType<phi::DenseTensor>()) {
       continue;
     }
     LoDTensor* tensor = var->GetMutable<LoDTensor>();
+    if (tensor == nullptr || !tensor->IsInitialized()) {
+      continue;
+    }
     framework::LoDTensor cpu_tensor;
     if (platform::is_gpu_place(tensor->place())) {
       TensorCopySync(*tensor, platform::CPUPlace(), &cpu_tensor);
       tensor = &cpu_tensor;
     }
     int64_t len = tensor->numel();
-    os << "(" << batch_id << "," << param << ")"
+    os << "(" << device_id << "," << batch_id << "," << param << ")"
        << PrintLodTensor(tensor, 0, len);
     writer_ << os.str();
   }
@@ -419,6 +426,11 @@ void DeviceWorker::DumpField(const Scope& scope,
     if (var == nullptr) {
       VLOG(0) << "Note: field[" << field
               << "] cannot be find in scope, so it was skipped.";
+      continue;
+    }
+    if (!var->IsType<phi::DenseTensor>()) {
+      VLOG(3) << "Note: field[" << field
+              << "] is not dense tensor, so it was skipped.";
       continue;
     }
     LoDTensor* tensor = var->GetMutable<LoDTensor>();

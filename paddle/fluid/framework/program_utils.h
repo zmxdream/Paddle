@@ -13,8 +13,9 @@ See the License for the specific language governing permissions and
 limitations under the License. */
 
 #pragma once
+#include <google/protobuf/text_format.h>
 #include "paddle/fluid/framework/program_desc.h"
-
+#include <functional>
 namespace paddle {
 namespace framework {
 
@@ -32,6 +33,18 @@ class ProgramProcessor {
 
   void AddDepToBlockOp(const BlockDesc &block);
 };
-
+void DumpProgramDescFile(const std::string &name, const ProgramDesc &program);
+template<class V>
+void DumpV(const V &v, const char* path ,std::function<std::string(typename V::value_type)> f = [](typename V::value_type it) -> std::string {
+  return it;
+}){
+  std::ostringstream str_os;
+  for(auto it : v){
+    str_os << f(it) << std::endl;;
+  }
+  std::ofstream ofs(path);
+  ofs << str_os.str();
+  ofs.close();
+}
 }  // namespace framework
 }  // namespace paddle
