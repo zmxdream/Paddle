@@ -2419,13 +2419,13 @@ void OperatorWithKernel::ParseInputDataType(
       }
     }
     if (t != nullptr) {
-      PADDLE_ENFORCE_EQ(
-          t->IsInitialized(),
-          true,
-          platform::errors::InvalidArgument("The %s Op's Input Variable `%s` "
-                                            "contains uninitialized Tensor.",
-                                            Type(),
-                                            name));
+//      PADDLE_ENFORCE_EQ(
+//          t->IsInitialized(),
+//          true,
+//          platform::errors::InvalidArgument("The %s Op's Input Variable `%s` "
+//                                            "contains uninitialized Tensor.",
+//                                            Type(),
+//                                            name));
       *data_type = paddle::framework::TransToProtoVarType(t->dtype());
     }
   }

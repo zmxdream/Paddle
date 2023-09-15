@@ -907,7 +907,6 @@ class BoxPSWorker : public DeviceWorker {
   bool one_ring_ = false;
   int device_num_ = 0;
   int node_size_ = 1;
-  BoxPSWorkerParameter param_;
 
   // skip vars
   std::vector<std::string> skip_vars_;

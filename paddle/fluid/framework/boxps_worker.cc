@@ -30,14 +30,17 @@ limitations under the License. */
 #include "paddle/fluid/platform/device/xpu/bkcl_helper.h"
 #include "paddle/fluid/platform/device/xpu/xpu_info.h"
 #endif
-#include "paddle/fluid/framework/program_utils.h"
 #include "paddle/fluid/framework/data_type_transform.h"
-
+#include "paddle/fluid/framework/program_utils.h"
 
 DECLARE_bool(enable_dump_main_program);
 DECLARE_bool(enable_sync_dense_moment);
 DECLARE_bool(check_nan_inf);
 PADDLE_DEFINE_EXPORTED_bool(padbox_enable_gc, false, "enable paddlebox gc");
+PADDLE_DEFINE_EXPORTED_bool(
+    gpugraph_enable_print_op_debug,
+    false,
+    "enable print op debug ,default false");
 namespace paddle {
 namespace framework {
 
@@ -367,13 +370,13 @@ void BoxPSWorker::Initialize(const TrainerDesc& desc) {
 
 void BoxPSWorker::Finalize() {
   if (sharding_mode_ || device_id_ == 0) {
-    for (auto &name : need_copy_vars_) {
-      Variable *root_var = root_scope_->FindVar(name);
+    for (auto& name : need_copy_vars_) {
+      Variable* root_var = root_scope_->FindVar(name);
       if (root_var == nullptr) {
         continue;
       }
       auto root_tensor = root_var->GetMutable<phi::DenseTensor>();
-      Variable *var = thread_scope_->FindVar(name);
+      Variable* var = thread_scope_->FindVar(name);
       auto tensor = var->Get<phi::DenseTensor>();
       TensorCopy(tensor, root_tensor->place(), root_tensor);
     }
@@ -383,7 +386,14 @@ void BoxPSWorker::Finalize() {
 void BoxPSWorker::SetDenseTable(BoxPSAsynDenseTable* dense) {
   dense_table_ = dense;
 }
-
+inline bool IsDataNormParam(const std::string& name) {
+  if (name.find(".batch_size") != std::string::npos ||
+      name.find(".batch_sum") != std::string::npos ||
+      name.find(".batch_square_sum") != std::string::npos) {
+    return true;
+  }
+  return false;
+}
 int BoxPSWorker::CheckNeedParam(VarDesc* var) {
   if (!var->Persistable()) {
     return 0;
@@ -392,9 +402,7 @@ int BoxPSWorker::CheckNeedParam(VarDesc* var) {
   std::string name = var->Name();
   if (sync_mode_ == DenseDataNormal) {
     // data normal param
-    if (name.find(".batch_size") != std::string::npos ||
-        name.find(".batch_sum") != std::string::npos ||
-        name.find(".batch_square_sum") != std::string::npos) {
+    if (IsDataNormParam(name)) {
       return 3;
     }
   } else {
@@ -488,7 +496,7 @@ int64_t BoxPSWorker::AllocParamTensorAsync() {
   return total_param_len;
 }
 
-int BoxPSWorker::IsParameter(const std::string &name, bool full_match) {
+int BoxPSWorker::IsParameter(const std::string& name, bool full_match) {
   if (full_match) {
     auto it = params2rootid_.find(name);
     if (it == params2rootid_.end()) {
@@ -519,10 +527,10 @@ void BoxPSWorker::BuildShardingDepends(std::shared_ptr<ProgramDesc> program) {
   nccl_rank_id_ = box_wrapper->GetNCCLRankId(nccl_rank_id_);
 #endif
 
-  auto &block = program->Block(0);
+  auto& block = program->Block(0);
   auto all_desc = block.AllOps();
 
-  for (auto &op_desc : all_desc) {
+  for (auto& op_desc : all_desc) {
     // broadcast op
     if (op_desc->Type() != "c_broadcast") {
       continue;
@@ -532,15 +540,15 @@ void BoxPSWorker::BuildShardingDepends(std::shared_ptr<ProgramDesc> program) {
     if (ring_id >= 0 && ring_id != ring_id_) {
       ring_id_ = ring_id;
     }
-    for (auto &o : op_desc->Inputs()) {
-      for (auto &name : o.second) {
+    for (auto& o : op_desc->Inputs()) {
+      for (auto& name : o.second) {
         auto var = block.FindVar(name);
         if (!var->Persistable() || !var->IsParameter()) {
           continue;
         }
         if (params2rootid_.find(name) != params2rootid_.end()) {
           auto it = params2rootid_.find(name);
-          if(it->second != root_id){
+          if (it->second != root_id) {
             std::cout << "error: param name conflict" << std::endl;
           }
           continue;
@@ -554,27 +562,30 @@ void BoxPSWorker::BuildShardingDepends(std::shared_ptr<ProgramDesc> program) {
   }
   sharding_mode_ = true;
   // check find
-  for (auto &var : block.AllVars()) {
+  for (auto& var : block.AllVars()) {
     if (!var->Persistable()) {
       continue;
     }
     int ret = IsParameter(var->Name(), var->IsParameter());
     if (ret < 0 || ret == 1) {
       if (ret == 1) {
-        persist_param_vars_.insert(var->Name());//是本GPU的参数
+        persist_param_vars_.insert(var->Name());  // 是本GPU的参数
       }
       continue;
     }
     if (var->IsParameter()) {
-      unpersist_vars_.insert(var->Name());//不是broadcast的参数，是persist parameter，例如data_norm的相关参数
+      unpersist_vars_.insert(
+          var->Name());  // 不是broadcast的参数，是persist
+                         // parameter，例如data_norm的相关参数
     } else {
-      remove_vars_.insert(var->Name());//不是broadcast的参数，是perisist，不是parameter，例如adam的ubmq1_h2_param.b_0_moment1_0
+      remove_vars_.insert(
+          var->Name());  // 不是broadcast的参数，是perisist，不是parameter，例如adam的ubmq1_h2_param.b_0_moment1_0
     }
   }
-  for (auto &op_desc : all_desc) {
+  for (auto& op_desc : all_desc) {
     bool find = false;
-    for (auto &o : op_desc->Inputs()) {
-      for (auto &name : o.second) {
+    for (auto& o : op_desc->Inputs()) {
+      for (auto& name : o.second) {
         if (remove_vars_.find(name) == remove_vars_.end()) {
           continue;
         }
@@ -588,11 +599,11 @@ void BoxPSWorker::BuildShardingDepends(std::shared_ptr<ProgramDesc> program) {
     if (find) {
       remove_ops_.insert(op_desc);
     }
-  }//如果op里有需要移除的变量，那么这个op也移除掉
+  }  // 如果op里有需要移除的变量，那么这个op也移除掉
 
   // reset dump param
   if (need_dump_param_ && dump_param_ != nullptr) {
-    for (auto &name : *dump_param_) {
+    for (auto& name : *dump_param_) {
       auto var = block.FindVar(name);
       if (var == nullptr) {
         continue;
@@ -611,7 +622,7 @@ void BoxPSWorker::BuildShardingDepends(std::shared_ptr<ProgramDesc> program) {
   }
   // reset dump fields
   if (need_dump_field_ && dump_fields_ != nullptr) {
-    for (auto &name : *dump_fields_) {
+    for (auto& name : *dump_fields_) {
       auto var = block.FindVar(name);
       if (var == nullptr) {
         continue;
@@ -623,46 +634,6 @@ void BoxPSWorker::BuildShardingDepends(std::shared_ptr<ProgramDesc> program) {
     }
     dump_fields_ = &shard_dump_fields_;
   }
-  // debug proto
-  if (FLAGS_enable_dump_main_program) {
-    ProgramDesc desc(*program);
-    auto new_block = desc.MutableBlock(0);
-    for (auto &name : remove_vars_) {
-      new_block->RemoveVar(name);
-    }
-    for (auto &name : unpersist_vars_) {
-      auto var = new_block->FindVar(name);
-      var->SetPersistable(false);
-      var->SetIsParameter(false);
-    }
-    std::vector<OpDesc *> remove_ops;
-    for (auto &op_desc : new_block->AllOps()) {
-      bool find = false;
-      for (auto &o : op_desc->Inputs()) {
-        for (auto &name : o.second) {
-          if (remove_vars_.find(name) == remove_vars_.end()) {
-            continue;
-          }
-          find = true;
-          break;
-        }
-        if (find) {
-          break;
-        }
-      }
-      if (find) {
-        remove_ops.push_back(op_desc);
-      }
-    }
-    for (auto &op : remove_ops) {
-      new_block->RemoveOpInternal(op);
-    }
-    desc.Flush();
-    char name[512];
-    snprintf(name, sizeof(name), "thread_program_%d", nccl_rank_id_);
-    DumpProgramDescFile(name, desc);
-  }
-
   VLOG(0) << "device id=" << int(place_.GetDeviceId())
           << ", nccl rank=" << nccl_rank_id_
           << ", total param count=" << params2rootid_.size()
@@ -672,21 +643,21 @@ void BoxPSWorker::BuildShardingDepends(std::shared_ptr<ProgramDesc> program) {
           << ", dump param count=" << shard_dump_params_.size()
           << ", dump fields count=" << shard_dump_fields_.size();
 }
-#include<thread>
-#include<chrono>
 void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
   program_.reset(new ProgramDesc(main_prog));
   BuildShardingDepends(program_);
   auto& block = program_->Block(0);
-  skip_vars_.push_back("rank_offset"); // for op rank_attention2_grad or others
+  skip_vars_.push_back("rank_offset");  // for op rank_attention2_grad or others
+
+  size_t op_index = 0;
   for (auto& op_desc : block.AllOps()) {
     // skip remove ops
     if (remove_ops_.find(op_desc) != remove_ops_.end()) {
-      debug_remove_ops_.push_back(OpRegistry::CreateOp(*op_desc));
       continue;
     }
+    std::string op_name = op_desc->Type();
     // skip feed fetch op
-    if (op_desc->Type() == "feed" || op_desc->Type() == "fetch") {
+    if (op_name == "feed" || op_name == "fetch") {
       for (auto& o : op_desc->Inputs()) {
         skip_vars_.insert(skip_vars_.end(), o.second.begin(), o.second.end());
       }
@@ -695,6 +666,13 @@ void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
       }
     }
     ops_.push_back(OpRegistry::CreateOp(*op_desc));
+    // change to device stream
+	if (op_name == "c_broadcast"
+	   || op_name == "c_reduce_sum"
+	   || op_name == "c_allreduce_sum") {
+	  ops_[op_index]->SetAttr("use_calc_stream", true);
+	}
+	++op_index;
   }
   // skip dump fields
   if (need_dump_field_ && dump_fields_ != nullptr) {
@@ -756,7 +734,7 @@ void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
   for (auto& var : sorted_var) {
     std::string name = var->Name();
     all_vars_.push_back(name);
-    if(remove_vars_.find(name)!= remove_vars_.end()) {
+    if (remove_vars_.find(name) != remove_vars_.end()) {
       continue;
     }
     thread_vars_.push_back(name);
@@ -784,18 +762,44 @@ void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
         InitializeVariable(ptr, var->GetType());
       }
     } else {
-      const LoDTensor& root_tensor =
-          root_scope_->FindVar(name)->Get<LoDTensor>();
-      size_t len = root_tensor.numel();
+      Variable *root_var = root_scope_->FindVar(name);
+      if (!root_var) {
+		VLOG(0) << "not found var name=" << name;
+		continue;
+	  }
+	  if (root_var->IsType<phi::SelectedRows>()) {
+		continue;
+	  }
+	  phi::DenseTensor *root_tensor = root_var->GetMutable<phi::DenseTensor>();
+      size_t len = root_tensor->numel();
       ++persistable_num;
       total_persistable_len += len;
-      // add gc skip vars
-      skip_vars_.push_back(name);
+      // convert one device to other device c_broadcast param
+      if (persist_param_vars_.find(name) != persist_param_vars_.end()) {
+        // add gc skip vars
+        skip_vars_.push_back(name);
+        // same device
+        if (place_ == root_tensor->place()) {
+          ++share_var_num;
+          share_persistable_len += len;
+          continue;
+        }
+        auto stream = static_cast<phi::GPUContext*>(dev_ctx_)->stream();
+        auto src_place = root_tensor->place();
+        auto holder = root_tensor->MoveMemoryHolder();
+        auto dst_ptr = root_tensor->mutable_data(
+            place_, root_tensor->dtype(), holder->size());
+        memory::Copy(
+            place_, dst_ptr, src_place, holder->ptr(), holder->size(), stream);
+        CHECK(platform::is_gpu_place(root_tensor->place()));
+        ++persist_reset;
+        continue;
+      }
 
       LoDTensor* gpu_tensor = thread_scope_->Var(name)->GetMutable<LoDTensor>();
       if (sync_mode_ > 0) {
         if (CheckNeedParam(var)) {
-          auto dim = root_tensor.dims();
+          auto dim = root_tensor->dims();
           gpu_tensor->ShareDataWith(param_sync_.Slice(offset, offset + len))
               .Resize(dim);
           offset += len;
@@ -804,34 +808,36 @@ void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
         if (async_param_name_.find(name) != async_param_name_.end()) {
           VLOG(3) << "device[" << device_id_ << "] Persistable var name "
                   << name;
-          auto dim = root_tensor.dims();
+          auto dim = root_tensor->dims();
           gpu_tensor->ShareDataWith(param_async_.Slice(offset, offset + len))
               .Resize(dim);
           offset += len;
           var_num += 1;
         }
       }
-      if (!gpu_tensor->initialized() && place_ == root_tensor.place()) {
-        auto dim = root_tensor.dims();
-        gpu_tensor->ShareDataWith(root_tensor).Resize(dim);
-        ++share_var_num;
-        share_persistable_len += len;
-      } else if(persist_param_vars_.find(name) != persist_param_vars_.end()){
-          if(place_ == root_tensor->place()) {
-            continue;
-          }
-          auto stream = static_cast<phi::GPUContext *>(dev_ctx_)->stream();
-          auto src_place = root_tensor->place();
-          auto holder = root_tensor->MoveMemoryHolder();
-          auto dst_ptr = root_tensor->mutable_data(place_, root_tensor->dtype(), holder->size());
-          memory::Copy(place_, dst_ptr, src_place, holder->ptr(), holder->size(), stream);
-          CHECK(platform::is_gpu_place(root_tensor->place()));
-          ++persist_reset;
+      if ((!sharding_mode_) || IsDataNormParam(name)
+    		  || name.find("learning_rate") != std::string::npos) {
+        // add gc skip vars
+        skip_vars_.push_back(name);
+        // data norm copy
+        if (!gpu_tensor->initialized() && place_ == root_tensor->place()) {
+          auto dim = root_tensor->dims();
+          gpu_tensor->ShareDataWith(*root_tensor).Resize(dim);
+          ++share_var_num;
+          share_persistable_len += len;
+        } else {
+          TensorCopy(*static_cast<const Tensor*>(root_tensor),
+                     place_,
+                     static_cast<Tensor*>(gpu_tensor));
+        }
       } else {
-        TensorCopy(*static_cast<const Tensor*>(&root_tensor),
-                   place_,
-                   static_cast<Tensor*>(gpu_tensor));
-      } 
+        auto* ptr = thread_scope_->Var(name);
+        InitializeVariable(ptr, var->GetType());
+        // set dims
+		auto dims = phi::make_ddim(var->GetShape());
+		auto var_dtype = paddle::framework::TransToPhiDataType(var->GetDataType());
+		ptr->GetMutable<phi::DenseTensor>()->Resize(dims).set_type(var_dtype);
+      }
     }
   }
   if (sync_mode_ > 0) {
@@ -855,46 +861,33 @@ void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
   if (FLAGS_padbox_enable_gc) {
     // add op gc vars
     unused_vars_ = GetUnusedVars(block, ops_, skip_vars_);
-    //  for (auto &var : unused_vars_) {
-    //    VLOG(0) << "op name=" << var.first->Type() << ", gc names: " <<
-    //    paddle::string::join_strings(var.second, ",");
-    //  }
-    if (sharding_mode_ || device_id_ == 0) {
-      VLOG(0) << "total op count=" << ops_.size()
-              << ", skip vars count=" << skip_vars_.size()
-                << ", unused vars op count=" << unused_vars_.size()
-                << "all param count=" << param_total;
+  }
+  VLOG(0) << "device[" << device_id_
+		  << "] total op count=" << ops_.size()
+          << ", skip vars count=" << skip_vars_.size()
+          << ", unused vars count=" << unused_vars_.size()
+          << ", all param count=" << param_total
+		  << ", persist_reset is " << persist_reset;
+  // debug str
+  if (FLAGS_enable_dump_main_program) {
+    std::ostringstream str_os;
+    for (auto& op : ops_) {
+      str_os << op->DebugStringEx(thread_scope_);
+      // add gc
+      auto it = unused_vars_.find(op.get());
+      if (it != unused_vars_.end()) {
+        str_os << ", gc names: [";
+        for (auto& name : it->second) {
+          str_os << name << ",";
+        }
+        str_os << "]";
+      }
+      str_os << "\n";
     }
-  }
-  VLOG(0) << "total op count=" << ops_.size()
-              << ", skip vars count=" << skip_vars_.size()
-                << ", unused vars count=" << unused_vars_.size()
-                << "all param count=" << param_total
-                << "persist_reset is " << persist_reset << "num";
-  if(FLAGS_enable_dump_main_program){
     char filename[512] = {0};
-    snprintf(filename, sizeof(filename), "./device_%d_remove_vars.txt", thread_id_);
-    DumpV(remove_vars_, filename);
-    snprintf(filename, sizeof(filename), "./device_%d_need_copy_vars.txt", thread_id_);
-    DumpV(need_copy_vars_, filename);
-    snprintf(filename, sizeof(filename), "./device_%d_all_vars.txt", thread_id_);
-    DumpV(all_vars_, filename);
-    snprintf(filename, sizeof(filename), "./device_%d_thread_vars.txt", thread_id_);
-    DumpV(thread_vars_, filename);
-    snprintf(filename, sizeof(filename), "./device_%d_persist_param_vars.txt", thread_id_);
-    DumpV(persist_param_vars_, filename);
-    snprintf(filename, sizeof(filename), "./device_%d_params2rootid.txt", thread_id_);
-    DumpV(params2rootid_, filename, [](std::unordered_map<std::string, int>::value_type v){
-    std::cout << "dumpv" << v.first + std::to_string(v.second) << std::endl;
-      return v.first + std::to_string(v.second);
-    });
-    snprintf(filename, sizeof(filename), "./device_%d_unpersist_vars.txt", thread_id_);
-    DumpV(unpersist_vars_, filename);
-    snprintf(filename, sizeof(filename), "./device_%d_persist_param_vars.txt", thread_id_);
-    DumpV(persist_param_vars_, filename);
+    snprintf(filename, sizeof(filename), "./device_%d_ops.txt", thread_id_);
+    WriteToFile(filename, str_os.str());
   }
-  // VLOG(0) << "sleep...";
-  // std::this_thread::sleep_for(std::chrono::seconds(5000));//如果在这里的显存占用不大，那么就是后续的问题
 }
 void BoxPSWorker::SyncParam(void) {
   if (param_sync_.numel() == 0 ||
@@ -985,8 +978,6 @@ inline void AddAucMonitor(const Scope* scope, const platform::Place& place) {
 }
 
 void BoxPSWorker::TrainFiles() {
-  // VLOG(0) << "sleep...";
-  // std::this_thread::sleep_for(std::chrono::seconds(5000));//如果在这里的显存占用不大，那么就是后续的问题
   VLOG(3) << "begin gpubox_worker TrainFiles";
   platform::Timer timer;
   timer.Start();
@@ -1013,48 +1004,16 @@ void BoxPSWorker::TrainFiles() {
     if (dense_table_) {
       dense_table_->PullDense(place_, &param_async_);
     }
-    if(FLAGS_enable_dump_main_program){
-      std::ostringstream str_os;
-      for(auto &op : ops_){
-        str_os << op->DebugStringEx(thread_scope_);
-        auto it = unused_vars_.find(op.get());
-        if(it != unused_vars_.end()){
-          str_os << "gc names: [";
-          for(auto &name : it->second){
-            str_os << name << ",";
-          }
-          str_os << "]" ;
-        }
-        str_os << std::endl;
-      }
-      char filename[512] = {0};
-      snprintf(filename, sizeof(filename), "./device_%d_ops.txt", thread_id_);
-      std::ofstream ofs(filename);
-      ofs << str_os.str();
-      ofs.close();
-    }
-    if(FLAGS_enable_dump_main_program){
-      std::ostringstream str_os;
-      for(auto &op : debug_remove_ops_){
-        str_os << op->DebugStringEx(thread_scope_) << std::endl;
-      }
-      char filename[512] = {0};
-      snprintf(filename, sizeof(filename), "./device_%d_remove_ops.txt", thread_id_);
-      std::ofstream ofs(filename);
-      ofs << str_os.str();
-      ofs.close();
-    }
     for (auto& op : ops_) {
-      if(FLAGS_enable_dump_main_program){std::cout << "op is" << op->DebugStringEx(thread_scope_) << std::endl;}
+      if (FLAGS_gpugraph_enable_print_op_debug) {
+        VLOG(0) << "thread id=" << thread_id_ << ", " << op->DebugStringEx(thread_scope_);
+      }
       op->Run(*thread_scope_, place_);
-       if(FLAGS_enable_dump_main_program){std::cout << "after op run" << std::endl;}
+      dev_ctx_->Wait();
       if (gc) {
         DeleteUnusedTensors(*thread_scope_, op.get(), unused_vars_, gc.get());
       }
-       if(FLAGS_enable_dump_main_program){std::cout << "after gc run" << std::endl;}
     }
-
-    if(FLAGS_enable_dump_main_program){std::cout << "after all ops run" << std::endl;}
     if (dense_table_) {
       dense_table_->PushDense(place_, &grad_async_);
     } else if (sync_mode_ > 0) {
@@ -1180,7 +1139,7 @@ void BoxPSWorker::TrainFilesWithProfiler() {
       DumpFieldBoxPS(*thread_scope_, dump_mode_, dump_interval_);
       dump_timer.Pause();
     }
-    if (need_dump_param_ &&(sharding_mode_ || device_id_ == 0)) {
+    if (need_dump_param_ && (sharding_mode_ || device_id_ == 0)) {
       dump_timer.Resume();
       DumpParamBoxPS(*thread_scope_, step_cnt);
       dump_timer.Pause();
