@@ -23,11 +23,10 @@ limitations under the License. */
 #include "paddle/fluid/platform/device/xpu/enforce_xpu.h"
 #include "paddle/fluid/framework/fleet/box_wrapper_kernel.h"
 #include "paddle/fluid/platform/device_context.h"
-#include "xpu/kernel/cluster_header.h"  // NOLINT
-//#include "xpu/kernel/debug.h"           // NOLINT
-#include "xpu/kernel/math.h"            // NOLINT
-#include "xpu/kernel/simd.h"
-
+#include "xpu/kernel/xtdk.h"  // NOLINT
+// #include "xpu/kernel/debug.h"           // NOLINT
+#include "xpu/kernel/xtdk_math.h"            // NOLINT
+#include "xpu/kernel/xtdk_simd.h"
 // The producer side.
 #include <scalopus_tracing/tracing.h>
 #include <scalopus_transport/transport_loopback.h>
