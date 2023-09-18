@@ -36,7 +36,7 @@ limitations under the License. */
 DECLARE_bool(enable_dump_main_program);
 DECLARE_bool(enable_sync_dense_moment);
 DECLARE_bool(check_nan_inf);
-PADDLE_DEFINE_EXPORTED_bool(padbox_enable_gc, false, "enable paddlebox gc");
+PADDLE_DEFINE_EXPORTED_bool(padbox_enable_gc, true, "enable paddlebox gc");
 PADDLE_DEFINE_EXPORTED_bool(gpugraph_enable_print_op_debug,
                             false,
                             "enable print op debug ,default false");
@@ -427,8 +427,9 @@ int BoxPSWorker::CheckNeedParam(VarDesc* var) {
   return 0;
 }
 
-int64_t BoxPSWorker::AllocParamTensor(int64_t* pad_len) {
-  auto& block = program_->Block(0);
+int64_t BoxPSWorker::AllocParamTensor(const ProgramDesc& program,
+                                      int64_t* pad_len) {
+  auto& block = program.Block(0);
   // init var and copy persistable
   int64_t total_param_len = 0;
   int64_t total_moment_len = 0;
@@ -467,8 +468,8 @@ int64_t BoxPSWorker::AllocParamTensor(int64_t* pad_len) {
   return total_param_len;
 }
 
-int64_t BoxPSWorker::AllocParamTensorAsync() {
-  auto& block = program_->Block(0);
+int64_t BoxPSWorker::AllocParamTensorAsync(const ProgramDesc& program) {
+  auto& block = program.Block(0);
   // init var and copy persistable
   int64_t total_param_len = 0;
   for (auto& var : block.AllVars()) {
@@ -518,14 +519,14 @@ int BoxPSWorker::IsParameter(const std::string& name, bool full_match) {
     return -1;
   }
 }
-void BoxPSWorker::BuildShardingDepends(std::shared_ptr<ProgramDesc> program) {
+void BoxPSWorker::BuildShardingDepends(const ProgramDesc& program) {
   nccl_rank_id_ = place_.GetDeviceId();
 #if defined(PADDLE_WITH_CUDA)
   auto box_wrapper = BoxWrapper::GetInstance();
   nccl_rank_id_ = box_wrapper->GetNCCLRankId(nccl_rank_id_);
 #endif
 
-  auto& block = program->Block(0);
+  auto& block = program.Block(0);
   auto all_desc = block.AllOps();
 
   for (auto& op_desc : all_desc) {
@@ -567,17 +568,16 @@ void BoxPSWorker::BuildShardingDepends(std::shared_ptr<ProgramDesc> program) {
     int ret = IsParameter(var->Name(), var->IsParameter());
     if (ret < 0 || ret == 1) {
       if (ret == 1) {
-        persist_param_vars_.insert(var->Name());  // 是本GPU的参数
+        persist_param_vars_.insert(var->Name());
       }
       continue;
     }
     if (var->IsParameter()) {
-      unpersist_vars_.insert(
-          var->Name());  // 不是broadcast的参数，是persist
-                         // parameter，例如data_norm的相关参数
+      // persist parameter，eg: data_norm, learning_rate
+      unpersist_vars_.insert(var->Name());
     } else {
-      remove_vars_.insert(
-          var->Name());  // 不是broadcast的参数，是perisist，不是parameter，例如adam的ubmq1_h2_param.b_0_moment1_0
+      // adam ubmq1_h2_param.b_0_moment1_0
+      remove_vars_.insert(var->Name());
     }
   }
 
@@ -600,28 +600,29 @@ void BoxPSWorker::BuildShardingDepends(std::shared_ptr<ProgramDesc> program) {
       for (auto& o : op_desc->Inputs()) {
         for (auto& name : o.second) {
           all_remove_inputs.insert(name);
-    	}
+        }
       }
       remove_ops_.insert(op_desc);
     }
-  }  // 如果op里有需要移除的变量，那么这个op也移除掉
+  }
+
   size_t total_scale_cnt = 0;
   size_t remove_scale_cnt = 0;
   // remove scale op
   for (auto& op_desc : all_desc) {
-	if (op_desc->Type() != "scale") {
-	  continue;
-	}
-	++total_scale_cnt;
-	// check scale output
-	for (auto &name : op_desc->Output("Out")) {
-	  if (all_remove_inputs.find(name) == all_remove_inputs.end()) {
-		continue;
-	  }
-	  ++remove_scale_cnt;
-	  remove_ops_.insert(op_desc);
-	  break;
-	}
+    if (op_desc->Type() != "scale") {
+      continue;
+    }
+    ++total_scale_cnt;
+    // check scale output
+    for (auto& name : op_desc->Output("Out")) {
+      if (all_remove_inputs.find(name) == all_remove_inputs.end()) {
+        continue;
+      }
+      ++remove_scale_cnt;
+      remove_ops_.insert(op_desc);
+      break;
+    }
   }
 
   // reset dump param
@@ -661,16 +662,14 @@ void BoxPSWorker::BuildShardingDepends(std::shared_ptr<ProgramDesc> program) {
           << ", nccl rank=" << nccl_rank_id_
           << ", total param count=" << params2rootid_.size()
           << ", remove op count=" << remove_ops_.size()
-		  << ", total scale op=" << total_scale_cnt << ", remove " << remove_scale_cnt
-          << ", remove var count=" << remove_vars_.size()
+          << ", total scale op=" << total_scale_cnt << ", remove "
+          << remove_scale_cnt << ", remove var count=" << remove_vars_.size()
           << ", unpersist var count=" << unpersist_vars_.size()
           << ", dump param count=" << shard_dump_params_.size()
           << ", dump fields count=" << shard_dump_fields_.size();
 }
-void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
-  program_.reset(new ProgramDesc(main_prog));
-  BuildShardingDepends(program_);
-  auto& block = program_->Block(0);
+void BoxPSWorker::CreateThreadOperators(const ProgramDesc& program) {
+  auto& block = program.Block(0);
   skip_vars_.push_back("rank_offset");  // for op rank_attention2_grad or others
 
   size_t op_index = 0;
@@ -714,12 +713,17 @@ void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
     skip_vars_.insert(
         skip_vars_.end(), monitor_vars.begin(), monitor_vars.end());
   }
-
+  if (FLAGS_padbox_enable_gc) {
+    // add op gc vars
+    unused_vars_ = GetUnusedVars(block, ops_, skip_vars_);
+  }
+}
+void BoxPSWorker::CreateThreadScope(const ProgramDesc& program) {
   int64_t pad_len = 0;
   if (sync_mode_ > 0) {
-    AllocParamTensor(&pad_len);
+    AllocParamTensor(program, &pad_len);
   } else if (dense_table_) {
-    AllocParamTensorAsync();
+    AllocParamTensorAsync(program);
   }
 
   thread_scope_ = &(root_scope_->NewScope());
@@ -727,22 +731,26 @@ void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
   int64_t offset = 0;
   int64_t grad_offset = 0;
   // make param and param@GRAD in same order
+  auto& block = program.Block(0);
   std::vector<VarDesc*> sorted_var = block.AllVars();
-  std::sort(sorted_var.begin(),
-            sorted_var.end(),
-            [](const VarDesc* var1, const VarDesc* var2) {
-              std::string var1_name = var1->Name();
-              std::string var2_name = var2->Name();
-              if (var1_name.find("param") != std::string::npos &&
-                  var2_name.find("param") == std::string::npos) {
-                return true;
-              } else if (var1_name.find("param") == std::string::npos &&
-                         var2_name.find("param") != std::string::npos) {
-                return false;
-              } else {
-                return var1->Name() < var2->Name();
-              }
-            });
+  if (dense_table_) {
+    std::sort(sorted_var.begin(),
+              sorted_var.end(),
+              [](const VarDesc* var1, const VarDesc* var2) {
+                std::string var1_name = var1->Name();
+                std::string var2_name = var2->Name();
+                if (var1_name.find("param") != std::string::npos &&
+                    var2_name.find("param") == std::string::npos) {
+                  return true;
+                } else if (var1_name.find("param") == std::string::npos &&
+                           var2_name.find("param") != std::string::npos) {
+                  return false;
+                } else {
+                  return var1->Name() < var2->Name();
+                }
+              });
+  }
+
   // init var and copy persistable
   int grad_var_num = 0;
   int var_num = 0;
@@ -750,8 +758,6 @@ void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
   int share_var_num = 0;
   int64_t share_persistable_len = 0;
   int64_t total_persistable_len = 0;
-  // int persist_param = 0;
-  // int persist_share = 0;
   int persist_reset = 0;
   int param_total = 0;
   for (auto& var : sorted_var) {
@@ -875,22 +881,29 @@ void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
     CHECK(grad_offset <= grad_async_.numel());
   }
   if (share_var_num > 0) {
-    VLOG(0) << "device[" << device_id_ << "] persistable total num ["
-            << persistable_num << "," << total_persistable_len << ","
+    VLOG(0) << "device[" << device_id_ << "] total op count=" << ops_.size()
+            << ", skip vars count=" << skip_vars_.size()
+            << ", unused vars count=" << unused_vars_.size()
+            << ", all param count=" << param_total << ", persist_reset is "
+            << persist_reset << ", persistable total num [" << persistable_num
+            << "," << total_persistable_len << ","
             << total_persistable_len / 262144.0
             << "MB], share persistable num [" << share_var_num << ","
             << share_persistable_len << "," << share_persistable_len / 262144.0
             << "MB]";
+  } else {
+    VLOG(0) << "device[" << device_id_ << "] total op count=" << ops_.size()
+            << ", skip vars count=" << skip_vars_.size()
+            << ", unused vars count=" << unused_vars_.size()
+            << ", all param count=" << param_total << ", persist_reset is "
+            << persist_reset;
   }
-  if (FLAGS_padbox_enable_gc) {
-    // add op gc vars
-    unused_vars_ = GetUnusedVars(block, ops_, skip_vars_);
-  }
-  VLOG(0) << "device[" << device_id_ << "] total op count=" << ops_.size()
-          << ", skip vars count=" << skip_vars_.size()
-          << ", unused vars count=" << unused_vars_.size()
-          << ", all param count=" << param_total << ", persist_reset is "
-          << persist_reset;
+}
+void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
+  BuildShardingDepends(main_prog);
+  CreateThreadScope(main_prog);
+  CreateThreadOperators(main_prog);
+
   // debug str
   if (FLAGS_enable_dump_main_program) {
     std::ostringstream str_os;

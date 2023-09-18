@@ -15,10 +15,10 @@
 #include "paddle/fluid/framework/data_feed_factory.h"
 #include "paddle/fluid/framework/device_worker_factory.h"
 #include "paddle/fluid/framework/fleet/box_wrapper.h"
+#include "paddle/fluid/framework/io/fs.h"
+#include "paddle/fluid/framework/tensor_util.h"
 #include "paddle/fluid/framework/trainer.h"
 #include "paddle/fluid/framework/trainer_desc.pb.h"
-#include "paddle/fluid/framework/tensor_util.h"
-#include "paddle/fluid/framework/io/fs.h"
 
 DECLARE_bool(enable_binding_train_cpu);
 namespace paddle {
@@ -104,8 +104,8 @@ void BoxPSTrainer::DumpWork(int tid) {
   int fileid = 0;
   size_t file_size = 0;
   while (!is_finish) {
-    std::string path = string::format_string("%s/part-%05d-%05d",
-        dump_fields_path_.c_str(), tid, fileid++);
+    std::string path = string::format_string(
+        "%s/part-%05d-%05d", dump_fields_path_.c_str(), tid, fileid++);
     int err_no = 0;
     std::shared_ptr<FILE> fp = fs_open_write(path, &err_no, dump_converter_);
     // split dump file size
@@ -140,41 +140,6 @@ void BoxPSTrainer::InitDumpEnv() {
   }
   VLOG(0) << "init dump write file thread num=" << dump_thread_num_;
 }
-
-void BoxPSTrainer::InitTrainerEnv(const ProgramDesc& main_program,
-                                  const platform::Place& place) {
-  PADDLE_ENFORCE(root_scope_, "Null root_scope pointer");
-  for (auto& var : main_program.Block(0).AllVars()) {
-    if (async_mode_) {
-      std::string cur_var_name = var->Name();
-      size_t tag_pos = cur_var_name.find("@GRAD");
-      if (tag_pos != std::string::npos && tag_pos == cur_var_name.size() - 5) {
-        VLOG(3) << "BoxPSTrainer async_grad_name_ insert : " << cur_var_name;
-        async_grad_name_.insert(cur_var_name);
-      }
-    }
-    if (var->Persistable()) {
-      persistable_vars_.push_back(var->Name());
-    }
-  }
-
-  std::set<std::string> async_param_name;
-  if (async_mode_) {
-    async_param_name = dense_table_->Init(*root_scope_, *param_need_sync_.get(),
-                                          persistable_vars_,
-                                          async_grad_name_);
-  }
-  for (int i = 0; i < thread_num_; ++i) {
-    auto this_worker =
-        std::dynamic_pointer_cast<paddle::framework::BoxPSWorker>(workers_[i]);
-    this_worker->SetRootScope(root_scope_);
-    if (async_mode_) {
-      this_worker->SetDenseTable(dense_table_.get());
-      this_worker->SetAsyncParamName(async_param_name);
-    }
-    this_worker->CreateDeviceResource(main_program);
-  }
-}
 inline std::vector<std::shared_ptr<paddle::framework::ThreadPool>>&
 GetThreadPool(int thread_num) {
   static std::vector<std::shared_ptr<paddle::framework::ThreadPool>>
@@ -204,6 +169,51 @@ GetThreadPool(int thread_num) {
   }
   return thread_pools;
 }
+void BoxPSTrainer::InitTrainerEnv(const ProgramDesc& main_program,
+                                  const platform::Place& place) {
+  PADDLE_ENFORCE(root_scope_, "Null root_scope pointer");
+  for (auto& var : main_program.Block(0).AllVars()) {
+    if (async_mode_) {
+      std::string cur_var_name = var->Name();
+      size_t tag_pos = cur_var_name.find("@GRAD");
+      if (tag_pos != std::string::npos && tag_pos == cur_var_name.size() - 5) {
+        VLOG(3) << "BoxPSTrainer async_grad_name_ insert : " << cur_var_name;
+        async_grad_name_.insert(cur_var_name);
+      }
+    }
+    if (var->Persistable()) {
+      persistable_vars_.push_back(var->Name());
+    }
+  }
+
+  std::set<std::string> async_param_name;
+  if (async_mode_) {
+    async_param_name = dense_table_->Init(*root_scope_,
+                                          *param_need_sync_.get(),
+                                          persistable_vars_,
+                                          async_grad_name_);
+  }
+  auto pool = GetThreadPool(thread_num_);
+  wait_futures_.clear();
+  CHECK(static_cast<int>(pool.size()) == thread_num_);
+  for (int i = 0; i < thread_num_; ++i) {
+    wait_futures_.emplace_back(
+        pool[i]->Run([this, i, &async_param_name, &main_program]() {
+          auto this_worker =
+              std::dynamic_pointer_cast<paddle::framework::BoxPSWorker>(
+                  workers_[i]);
+          this_worker->SetRootScope(root_scope_);
+          if (async_mode_) {
+            this_worker->SetDenseTable(dense_table_.get());
+            this_worker->SetAsyncParamName(async_param_name);
+          }
+          this_worker->CreateDeviceResource(main_program);
+        }));
+  }
+  for (auto& th : wait_futures_) {
+    th.get();
+  }
+}
 void BoxPSTrainer::Run() {
   VLOG(3) << "Going to run";
   auto pool = GetThreadPool(thread_num_);
@@ -218,12 +228,12 @@ void BoxPSTrainer::Run() {
           pool[i]->Run([this, i]() { workers_[i]->TrainFilesWithProfiler(); }));
     }
   }
-}
-
-void BoxPSTrainer::Finalize() {
   for (auto& th : wait_futures_) {
     th.get();
   }
+}
+
+void BoxPSTrainer::Finalize() {
   for (int i = 0; i < thread_num_; ++i) {
     auto this_worker =
         std::dynamic_pointer_cast<paddle::framework::BoxPSWorker>(workers_[i]);

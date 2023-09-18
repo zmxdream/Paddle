@@ -859,7 +859,6 @@ class BoxPSWorker : public DeviceWorker {
   void Finalize();
   void BindingDataFeedMemory() override {}
   void CreateDeviceResource(const ProgramDesc& main_prog) override;
-
   void TrainFiles() override;
   void TrainFilesWithProfiler() override;
 
@@ -881,17 +880,18 @@ class BoxPSWorker : public DeviceWorker {
  protected:
   int PackBatchTask(void);
   int CheckNeedParam(VarDesc* var);
-  int64_t AllocParamTensor(int64_t* pad_len);
-  int64_t AllocParamTensorAsync();
+  int64_t AllocParamTensor(const ProgramDesc &program, int64_t* pad_len);
+  int64_t AllocParamTensorAsync(const ProgramDesc &program);
   void SyncParam(void);
-  void BuildShardingDepends(std::shared_ptr<ProgramDesc> program);
+  void BuildShardingDepends(const ProgramDesc &program);
+  void CreateThreadScope(const ProgramDesc &program);
+  void CreateThreadOperators(const ProgramDesc &program);
   int IsParameter(const std::string& name, bool full_match);
 
  protected:
   int device_id_;
   int thread_id_;
 
-  std::shared_ptr<framework::ProgramDesc> program_;
   std::vector<std::unique_ptr<OperatorBase>> ops_;
   std::vector<std::unique_ptr<OperatorBase>> debug_remove_ops_;
   platform::DeviceContext* dev_ctx_ = nullptr;
