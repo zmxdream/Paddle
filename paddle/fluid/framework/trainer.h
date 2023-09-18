@@ -401,10 +401,6 @@ class BoxPSTrainer : public TrainerBase {
   virtual void DumpWork(int tid);
 
  protected:
-  void CopyParameters(const Scope& root_scope, int device_id);
-  void DumpParameters(void);
-
- protected:
   int thread_num_;
   BoxPSWorkerParameter param_config_;
 

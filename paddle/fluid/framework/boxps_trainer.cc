@@ -141,29 +141,6 @@ void BoxPSTrainer::InitDumpEnv() {
   VLOG(0) << "init dump write file thread num=" << dump_thread_num_;
 }
 
-void BoxPSTrainer::CopyParameters(const Scope& root_scope, int device_id) {
-  Scope* thread_scope = GetWorkerScope(device_id);
-  for (const std::string& name : *param_need_sync_) {
-    const LoDTensor& root_tensor = root_scope.FindVar(name)->Get<LoDTensor>();
-
-    // TODO(hutxian): check a new var of the same name is created in
-    LoDTensor* gpu_tensor = thread_scope->Var(name)->GetMutable<LoDTensor>();
-    platform::Place place = platform::CUDAPlace(device_id);
-    TensorCopy(*static_cast<const Tensor*>(&root_tensor), place,
-               static_cast<Tensor*>(gpu_tensor));
-  }
-}
-
-void BoxPSTrainer::DumpParameters(void) {
-  Scope* thread_scope = GetWorkerScope(0);
-  for (const auto& var : persistable_vars_) {
-    auto* root_tensor = root_scope_->Var(var)->GetMutable<LoDTensor>();
-    // TODO(hutuxian): Add a final all-reduce?
-    const auto& thread_tensor = thread_scope->FindVar(var)->Get<LoDTensor>();
-    TensorCopy(thread_tensor, root_tensor->place(), root_tensor);
-  }
-}
-
 void BoxPSTrainer::InitTrainerEnv(const ProgramDesc& main_program,
                                   const platform::Place& place) {
   PADDLE_ENFORCE(root_scope_, "Null root_scope pointer");
@@ -196,11 +173,7 @@ void BoxPSTrainer::InitTrainerEnv(const ProgramDesc& main_program,
       this_worker->SetAsyncParamName(async_param_name);
     }
     this_worker->CreateDeviceResource(main_program);
-    //    CopyParameters(*root_scope_, i);
   }
-  // VLOG(0) << "sleep... boxps trainer";
-  // std::this_thread::sleep_for(std::chrono::seconds(5000));//如果在这里的显存占用不大，那么就是后续的问题
-
 }
 inline std::vector<std::shared_ptr<paddle::framework::ThreadPool>>&
 GetThreadPool(int thread_num) {
@@ -263,7 +236,6 @@ void BoxPSTrainer::Finalize() {
   if (need_dump_field_) {
     FinalizeDumpEnv();
   }
-  DumpParameters();
   root_scope_->DropKids();
 }
 

@@ -366,7 +366,6 @@ void BoxPSWorker::Initialize(const TrainerDesc& desc) {
   }
   VLOG(1) << "boxps_worker init device num: " << device_num_;
 }
-
 void BoxPSWorker::Finalize() {
   if (sharding_mode_ || device_id_ == 0) {
     for (auto& name : need_copy_vars_) {
@@ -581,6 +580,8 @@ void BoxPSWorker::BuildShardingDepends(std::shared_ptr<ProgramDesc> program) {
           var->Name());  // 不是broadcast的参数，是perisist，不是parameter，例如adam的ubmq1_h2_param.b_0_moment1_0
     }
   }
+
+  std::multiset<std::string> all_remove_inputs;
   for (auto& op_desc : all_desc) {
     bool find = false;
     for (auto& o : op_desc->Inputs()) {
@@ -596,9 +597,32 @@ void BoxPSWorker::BuildShardingDepends(std::shared_ptr<ProgramDesc> program) {
       }
     }
     if (find) {
+      for (auto& o : op_desc->Inputs()) {
+        for (auto& name : o.second) {
+          all_remove_inputs.insert(name);
+    	}
+      }
       remove_ops_.insert(op_desc);
     }
   }  // 如果op里有需要移除的变量，那么这个op也移除掉
+  size_t total_scale_cnt = 0;
+  size_t remove_scale_cnt = 0;
+  // remove scale op
+  for (auto& op_desc : all_desc) {
+	if (op_desc->Type() != "scale") {
+	  continue;
+	}
+	++total_scale_cnt;
+	// check scale output
+	for (auto &name : op_desc->Output("Out")) {
+	  if (all_remove_inputs.find(name) == all_remove_inputs.end()) {
+		continue;
+	  }
+	  ++remove_scale_cnt;
+	  remove_ops_.insert(op_desc);
+	  break;
+	}
+  }
 
   // reset dump param
   if (need_dump_param_ && dump_param_ != nullptr) {
@@ -637,6 +661,7 @@ void BoxPSWorker::BuildShardingDepends(std::shared_ptr<ProgramDesc> program) {
           << ", nccl rank=" << nccl_rank_id_
           << ", total param count=" << params2rootid_.size()
           << ", remove op count=" << remove_ops_.size()
+		  << ", total scale op=" << total_scale_cnt << ", remove " << remove_scale_cnt
           << ", remove var count=" << remove_vars_.size()
           << ", unpersist var count=" << unpersist_vars_.size()
           << ", dump param count=" << shard_dump_params_.size()
@@ -974,7 +999,6 @@ inline void AddAucMonitor(const Scope* scope, const platform::Place& place) {
     metric_msg->add_data(scope, place);
   }
 }
-
 void BoxPSWorker::TrainFiles() {
   VLOG(3) << "begin gpubox_worker TrainFiles";
   platform::Timer timer;
@@ -993,7 +1017,6 @@ void BoxPSWorker::TrainFiles() {
   if (FLAGS_padbox_enable_gc && max_memory_size >= 0 && !unused_vars_.empty()) {
     gc = CreateGarbageCollector(place_, max_memory_size);
   }
-
   while ((batch_size = PackBatchTask()) > 0) {
     VLOG(2) << "[" << device_id_
             << "]begin running ops, batch size:" << batch_size
