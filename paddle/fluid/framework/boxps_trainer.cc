@@ -15,10 +15,10 @@
 #include "paddle/fluid/framework/data_feed_factory.h"
 #include "paddle/fluid/framework/device_worker_factory.h"
 #include "paddle/fluid/framework/fleet/box_wrapper.h"
+#include "paddle/fluid/framework/io/fs.h"
+#include "paddle/fluid/framework/tensor_util.h"
 #include "paddle/fluid/framework/trainer.h"
 #include "paddle/fluid/framework/trainer_desc.pb.h"
-#include "paddle/fluid/framework/tensor_util.h"
-#include "paddle/fluid/framework/io/fs.h"
 
 DECLARE_bool(enable_binding_train_cpu);
 namespace paddle {
@@ -104,8 +104,8 @@ void BoxPSTrainer::DumpWork(int tid) {
   int fileid = 0;
   size_t file_size = 0;
   while (!is_finish) {
-    std::string path = string::format_string("%s/part-%05d-%05d",
-        dump_fields_path_.c_str(), tid, fileid++);
+    std::string path = string::format_string(
+        "%s/part-%05d-%05d", dump_fields_path_.c_str(), tid, fileid++);
     int err_no = 0;
     std::shared_ptr<FILE> fp = fs_open_write(path, &err_no, dump_converter_);
     // split dump file size
@@ -160,7 +160,8 @@ void BoxPSTrainer::InitTrainerEnv(const ProgramDesc& main_program,
 
   std::set<std::string> async_param_name;
   if (async_mode_) {
-    async_param_name = dense_table_->Init(*root_scope_, *param_need_sync_.get(),
+    async_param_name = dense_table_->Init(*root_scope_,
+                                          *param_need_sync_.get(),
                                           persistable_vars_,
                                           async_grad_name_);
   }

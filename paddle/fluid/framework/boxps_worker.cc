@@ -600,7 +600,7 @@ void BoxPSWorker::BuildShardingDepends(std::shared_ptr<ProgramDesc> program) {
       for (auto& o : op_desc->Inputs()) {
         for (auto& name : o.second) {
           all_remove_inputs.insert(name);
-    	}
+        }
       }
       remove_ops_.insert(op_desc);
     }
@@ -609,19 +609,19 @@ void BoxPSWorker::BuildShardingDepends(std::shared_ptr<ProgramDesc> program) {
   size_t remove_scale_cnt = 0;
   // remove scale op
   for (auto& op_desc : all_desc) {
-	if (op_desc->Type() != "scale") {
-	  continue;
-	}
-	++total_scale_cnt;
-	// check scale output
-	for (auto &name : op_desc->Output("Out")) {
-	  if (all_remove_inputs.find(name) == all_remove_inputs.end()) {
-		continue;
-	  }
-	  ++remove_scale_cnt;
-	  remove_ops_.insert(op_desc);
-	  break;
-	}
+    if (op_desc->Type() != "scale") {
+      continue;
+    }
+    ++total_scale_cnt;
+    // check scale output
+    for (auto& name : op_desc->Output("Out")) {
+      if (all_remove_inputs.find(name) == all_remove_inputs.end()) {
+        continue;
+      }
+      ++remove_scale_cnt;
+      remove_ops_.insert(op_desc);
+      break;
+    }
   }
 
   // reset dump param
@@ -661,8 +661,8 @@ void BoxPSWorker::BuildShardingDepends(std::shared_ptr<ProgramDesc> program) {
           << ", nccl rank=" << nccl_rank_id_
           << ", total param count=" << params2rootid_.size()
           << ", remove op count=" << remove_ops_.size()
-		  << ", total scale op=" << total_scale_cnt << ", remove " << remove_scale_cnt
-          << ", remove var count=" << remove_vars_.size()
+          << ", total scale op=" << total_scale_cnt << ", remove "
+          << remove_scale_cnt << ", remove var count=" << remove_vars_.size()
           << ", unpersist var count=" << unpersist_vars_.size()
           << ", dump param count=" << shard_dump_params_.size()
           << ", dump fields count=" << shard_dump_fields_.size();
