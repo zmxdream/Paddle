@@ -1540,6 +1540,7 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
     }
    
     auto gpu_graph_ptr = GraphGpuWrapper::GetInstance();
+/*
     auto& id_to_edge = gpu_graph_ptr->id_to_edge;
     // edge fea
     // std::vector<bool> build_table(id_to_edge.size(), true);
@@ -1573,6 +1574,7 @@ void PSGPUWrapper::BuildGPUTask(std::shared_ptr<HeterContext> gpu_task) {
         gpu_graph_ptr->build_gpu_graph_edge_float_fea((*float_tmp)[edge_idx][i], i, edge_type, false, true);
       }
     }
+*/
 
 #endif
     stagetime.Pause();

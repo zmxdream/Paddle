@@ -864,9 +864,12 @@ void GraphGpuWrapper::upload_batch(int table_type,
   int edge_idx = iter->second;
   VLOG(2) << "cur edge: " << edge_type << ", edge_idx: " << edge_idx;
   std::vector<std::vector<uint64_t>> ids;
+
+  // 获取edge_idx类型边的所有节点,并分成8卡来构表
   reinterpret_cast<GpuPsGraphTable *>(graph_table)
       ->cpu_graph_table_->get_all_id(
           (GraphTableType)table_type, edge_idx, slice_num, &ids);
+
   debug_gpu_memory_info("upload_batch node start");
   GpuPsGraphTable *g = reinterpret_cast<GpuPsGraphTable *>(graph_table);
   std::vector<std::future<int>> tasks;
