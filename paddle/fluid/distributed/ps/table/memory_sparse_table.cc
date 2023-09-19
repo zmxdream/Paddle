@@ -577,9 +577,12 @@ int32_t MemorySparseTable::Save_v2(const std::string &dirname,
           ++feasign_size;
           // save non 9008 slot's feasign
           if (_value_accesor->SaveFilterSlot(it.value().data())) {
+            // feasign\tvalue1空格value2....
+            std::string format_value_slot_feature = _value_accesor->ParseToString(
+                it.value().data(), it.value().size(), true);
             if (0 != write_channel_for_slot_feature->write_line(
                          paddle::string::format_string(
-                             "%lu %s", it.key(), format_value.c_str()))) {
+                             "%lu\t%s", it.key(), format_value_slot_feature.c_str()))) {
               ++retry_num_for_slot_feature;
               is_write_failed_for_slot_feature = true;
               LOG(ERROR) << "MemorySparseTable save slot feature failed, retry "

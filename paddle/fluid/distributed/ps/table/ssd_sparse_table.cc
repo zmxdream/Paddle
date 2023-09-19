@@ -1287,10 +1287,10 @@ int32_t SSDSparseTable::SaveWithStringMultiOutput_v2(const std::string& path,
         float* value = reinterpret_cast<float*>(cursor);
         int dim = len / sizeof(float);
 
-        std::string format_value = _value_accesor->ParseToString(value, dim);
+        std::string format_value = _value_accesor->ParseToString(value, dim, true);
         if (0 != write_channel_for_slot_feature->write_line(
                      paddle::string::format_string(
-                         "%lu %s", k, format_value.c_str()))) {
+                         "%lu\t%s", k, format_value.c_str()))) {
           VLOG(0) << "SSDSparseTable save feature failed, retry it! path:"
                   << channel_config_for_slot_feature.path;
         }
@@ -2093,10 +2093,10 @@ int32_t SSDSparseTable::SaveWithBinary_v2(const std::string& path,
           float* value = reinterpret_cast<float*>(cursor);
           int dim = len / sizeof(float);
 
-          std::string format_value = _value_accesor->ParseToString(value, dim);
+          std::string format_value = _value_accesor->ParseToString(value, dim, true);
           if (0 != write_channel_for_slot_feature->write_line(
                        paddle::string::format_string(
-                           "%lu %s", k, format_value.c_str()))) {
+                           "%lu\t%s", k, format_value.c_str()))) {
             LOG(FATAL) << "SSDSparseTable save feature failed, retry it! path:"
                        << channel_config_for_slot_feature.path;
           }

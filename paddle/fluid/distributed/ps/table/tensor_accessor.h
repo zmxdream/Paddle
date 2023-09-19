@@ -65,7 +65,7 @@ class CommMergeAccessor : public ValueAccessor {
   virtual int SetWeight(float **values,
                         const float **update_values,
                         size_t num);
-  virtual std::string ParseToString(const float *value, int param) {
+  virtual std::string ParseToString(const float *value, int param, bool only_save_embedx_w = false) {
     return "";
   }
   virtual int ParseFromString(const std::string &str, float *v) { return 0; }

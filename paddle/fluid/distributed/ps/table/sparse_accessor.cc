@@ -272,16 +272,18 @@ float SparseAccessor::ShowClickScore(float show, float click) {
   return (show - click) * nonclk_coeff + click * click_coeff;
 }
 
-std::string SparseAccessor::ParseToString(const float* v, int param) {
+std::string SparseAccessor::ParseToString(const float* v, int param, bool only_save_embedx_w) {
   thread_local std::ostringstream os;
   os.clear();
   os.str("");
-  os << v[0] << " " << v[1] << " " << v[2] << " " << v[3] << " " << v[4] << " "
-     << v[5];
-  for (int i = sparse_feature_value.EmbedG2SumIndex();
-       i < sparse_feature_value.EmbedxWIndex();
-       i++) {
-    os << " " << v[i];
+  if (!only_save_embedx_w) {
+    os << v[0] << " " << v[1] << " " << v[2] << " " << v[3] << " " << v[4] << " "
+       << v[5];
+    for (int i = sparse_feature_value.EmbedG2SumIndex();
+         i < sparse_feature_value.EmbedxWIndex();
+         i++) {
+      os << " " << v[i];
+    }
   }
   auto show = sparse_feature_value.Show(const_cast<float*>(v));
   auto click = sparse_feature_value.Click(const_cast<float*>(v));

@@ -174,7 +174,7 @@ class CtrCommonAccessor : public ValueAccessor {
                          const float** update_values,
                          size_t num);
 
-  std::string ParseToString(const float* value, int param) override;
+  std::string ParseToString(const float* value, int param, bool only_save_embedx_w = false) override;
   int32_t ParseFromString(const std::string& str, float* v) override;
   virtual bool CreateValue(int type, const float* value);
 
