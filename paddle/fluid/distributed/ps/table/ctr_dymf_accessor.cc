@@ -351,7 +351,8 @@ std::string CtrDymfAccessor::ParseToString(const float* v, int param, bool only_
       for (auto i = common_feature_value.EmbedxWIndex();
            i < common_feature_value.Dim(mf_dim);
            ++i) {
-        os << " " << v[i];
+        if (i == common_feature_value.EmbedxWIndex()) os << v[i];
+        else os << " " << v[i];
       }
     }
   }

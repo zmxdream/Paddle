@@ -337,7 +337,8 @@ std::string CtrCommonAccessor::ParseToString(const float* v, int param, bool onl
       for (auto i = common_feature_value.EmbedxWIndex();
            i < common_feature_value.EmbedxG2SumIndex();
            ++i) {
-        os << " " << v[i];
+        if (i == common_feature_value.EmbedxWIndex()) os << v[i];
+        else os << " " << v[i];
       }
     }
   }

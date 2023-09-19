@@ -335,7 +335,8 @@ std::string CtrDoubleAccessor::ParseToString(const float* v, int param_size, boo
       os << " " << v[9];
     }
     for (size_t i = 0; i < _config.embedx_dim(); ++i) {
-      os << " " << v[10 + i];
+      if (i == 0) os << v[10 + i];
+      else os << " " << v[10 + i];
     }
   }
   return os.str();
