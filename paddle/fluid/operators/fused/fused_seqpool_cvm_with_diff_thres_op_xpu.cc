@@ -89,7 +89,6 @@ class FusedSeqpoolCVMWithDiffThresOpXPUKernel : public framework::OpKernel<T> {
     auto y_dims = out[0]->dims();
     auto xpu_context = ctx.template device_context<DeviceContext>().x_context();
     size_t bs = x0_lod[0].size() - 1;
-    int embedding_size = ins[0]->numel() / ins[0]->dims()[0];
     int slot_num = static_cast<int>(ins.size());
     framework::LoD y_lod(1);
     y_lod[0].resize(bs + 1);
@@ -173,7 +172,7 @@ class FusedSeqpoolCVMWithDiffThresGradOpXPUKernel : public framework::OpKernel<T
     TRACE_SCOPE_START("FusedSeqpoolCVMWithDiffThresGradOpXPUKernel Compute", xpu_wait(ctx.template device_context<DeviceContext>().x_context()->xpu_stream));
     auto dOut = ctx.MultiInput<framework::LoDTensor>(framework::GradVarName("Out"));
     auto xs = ctx.MultiInput<LoDTensor>("X");
-    const Tensor* cvm = ctx.Input<Tensor>("CVM");
+    const framework::Tensor* cvm = ctx.Input<framework::Tensor>("CVM");
     auto dxs = ctx.MultiOutput<framework::LoDTensor>(framework::GradVarName("X"));
     auto use_cvm = ctx.Attr<bool>("use_cvm");//TODO:
     bool clk_filter = ctx.Attr<bool>("clk_filter");
