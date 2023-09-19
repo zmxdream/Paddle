@@ -31,32 +31,6 @@ limitations under the License. */
 namespace paddle {
 namespace operators {
 
-#define CHECK_USE_QUANT  \
-    if (need_filter && quant_ratio > 0) { \
-     auto &show = input_data[k * embedding_size]; \
-     auto &click = input_data[k * embedding_size + 1]; \
-     if ((show - click) * show_coeff + click * clk_coeff < threshold) { \
-        continue; \
-     } \
-    }
-
-#define QUANT_VALUE(val)  \
-    (static_cast<int>(val * quant_ratio + 0.5) / static_cast<float>(quant_ratio));
-
-#define CHECK_QUANT_AND_GETVAL(in_val)  \
-    if (quant_ratio > 0) {  \
-      if (need_filter) { \
-        auto &show = input_data[k * embedding_size]; \
-        auto &click = input_data[k * embedding_size + 1]; \
-        if ((show - click) * show_coeff + click * clk_coeff < threshold) {  \
-           continue;  \
-        }  \
-      } \
-      val += QUANT_VALUE(in_val); \
-    } else { \
-      val += in_val; \
-    }
-
 template <typename DeviceContext, typename T>
 class FusedSeqpoolCVMWithDiffThresOpXPUKernel : public framework::OpKernel<T> {
  public:
