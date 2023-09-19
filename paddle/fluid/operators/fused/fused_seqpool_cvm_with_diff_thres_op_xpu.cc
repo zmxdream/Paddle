@@ -173,7 +173,7 @@ class FusedSeqpoolCVMWithDiffThresGradOpXPUKernel : public framework::OpKernel<T
     TRACE_SCOPE_START("FusedSeqpoolCVMWithDiffThresGradOpXPUKernel Compute", xpu_wait(ctx.template device_context<DeviceContext>().x_context()->xpu_stream));
     auto dOut = ctx.MultiInput<framework::LoDTensor>(framework::GradVarName("Out"));
     auto xs = ctx.MultiInput<LoDTensor>("X");
-    const Tensor* cvm = ctx.Input<Tensor>("CVM");
+    const framework::Tensor* cvm = ctx.Input<framework::Tensor>("CVM");
     auto dxs = ctx.MultiOutput<framework::LoDTensor>(framework::GradVarName("X"));
     auto use_cvm = ctx.Attr<bool>("use_cvm");//TODO:
     bool clk_filter = ctx.Attr<bool>("clk_filter");
