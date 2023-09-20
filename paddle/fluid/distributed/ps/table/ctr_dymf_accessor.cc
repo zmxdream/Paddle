@@ -96,7 +96,6 @@ bool CtrDymfAccessor::Shrink(float* value) {
   }
   return false;
 }
-
 bool CtrDymfAccessor::SaveCache(float* value,
                                 int param,
                                 double global_cache_threshold) {
@@ -308,7 +307,9 @@ float CtrDymfAccessor::ShowClickScore(float show, float click) {
   return (show - click) * nonclk_coeff + click * click_coeff;
 }
 
-std::string CtrDymfAccessor::ParseToString(const float* v, int param, bool only_save_embedx_w) {
+std::string CtrDymfAccessor::ParseToString(const float* v,
+                                           int param,
+                                           bool only_save_embedx_w) {
   /*
       float unseen_days;
       float delta_score;
@@ -351,8 +352,10 @@ std::string CtrDymfAccessor::ParseToString(const float* v, int param, bool only_
       for (auto i = common_feature_value.EmbedxWIndex();
            i < common_feature_value.Dim(mf_dim);
            ++i) {
-        if (i == common_feature_value.EmbedxWIndex()) os << v[i];
-        else os << " " << v[i];
+        if (i == common_feature_value.EmbedxWIndex())
+          os << v[i];
+        else
+          os << " " << v[i];
       }
     }
   }

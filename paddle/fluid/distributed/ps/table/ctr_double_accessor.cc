@@ -43,7 +43,6 @@ int CtrDoubleAccessor::Initialize() {
   InitAccessorInfo();
   return 0;
 }
-
 void CtrDoubleAccessor::InitAccessorInfo() {
   auto embedx_dim = _config.embedx_dim();
   _accessor_info.dim = CtrDoubleFeatureValue::Dim(embedx_dim);
@@ -316,7 +315,9 @@ double CtrDoubleAccessor::ShowClickScore(double show, double click) {
   auto click_coeff = _config.ctr_accessor_param().click_coeff();
   return (show - click) * nonclk_coeff + click * click_coeff;
 }
-std::string CtrDoubleAccessor::ParseToString(const float* v, int param_size, bool only_save_embedx_w) {
+std::string CtrDoubleAccessor::ParseToString(const float* v,
+                                             int param_size,
+                                             bool only_save_embedx_w) {
   thread_local std::ostringstream os;
   os.clear();
   os.str("");
@@ -335,8 +336,10 @@ std::string CtrDoubleAccessor::ParseToString(const float* v, int param_size, boo
       os << " " << v[9];
     }
     for (size_t i = 0; i < _config.embedx_dim(); ++i) {
-      if (i == 0) os << v[10 + i];
-      else os << " " << v[10 + i];
+      if (i == 0)
+        os << v[10 + i];
+      else
+        os << " " << v[10 + i];
     }
   }
   return os.str();
