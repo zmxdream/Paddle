@@ -24,9 +24,10 @@ limitations under the License. */
 #include "paddle/fluid/framework/fleet/box_wrapper_kernel.h"
 #include "paddle/fluid/platform/device_context.h"
 #include "xpu/kernel/cluster_header.h"  // NOLINT
-// #include "xpu/kernel/debug.h"           // NOLINT
+//#include "xpu/kernel/debug.h"           // NOLINT
 #include "xpu/kernel/math.h"            // NOLINT
 #include "xpu/kernel/simd.h"
+
 // The producer side.
 #include <scalopus_tracing/tracing.h>
 #include <scalopus_transport/transport_loopback.h>
@@ -69,7 +70,7 @@ static inline __device__ void xpu_sync_all(int group_mask = -1) {
     __asm__("sync_group csr3");
 }
 
-__global__ void CopyKeysKernel(unsigned long long* src_keys,
+__global__ void CopyKeysKernel_u32(unsigned long long* src_keys,
                                uint32_t* dest_total_keys,
                                const long long* len, int slot_num,
                                int total_len, int* key2slots) {
@@ -81,9 +82,6 @@ __global__ void CopyKeysKernel(unsigned long long* src_keys,
   int thread_id = ncores * cluster_id() + cid;
   int nthreads = ncores * cluster_num();
 
-  // __local__ long long local_len[200];
-
-  //__local__ long long local_len[slot_num + 1];
   __shared__ long long slot_lens[BoxWrapperKernel::MAX_SLOT_SIZE + 1];
   __shared__ __global_ptr__ unsigned long long* slot_keys[BoxWrapperKernel::MAX_SLOT_SIZE];
   for (int i = cid; i <= slot_num; i += ncores) {
@@ -95,15 +93,10 @@ __global__ void CopyKeysKernel(unsigned long long* src_keys,
     }
   }
   sync_cluster();
-  //GM2LM(len, local_len, (slot_num + 1) * sizeof(long long));
-
-  //__global_ptr__ unsigned long long* local_keys[slot_num];
-  //GM2LM(src_keys, local_keys, slot_num * sizeof(__global_ptr__ unsigned long long*));
 
   for (int i = thread_id; i < slot_num; i += nthreads) {
     // max core local memory = 8KB
     int slot_len = slot_lens[i + 1] - slot_lens[i];
-    // int read_len = min(slot_len, 1024);
     int read_len = 100;
     int dest_offset = slot_lens[i];
     __local__ unsigned long long local_slot_keys[read_len];
@@ -120,8 +113,57 @@ __global__ void CopyKeysKernel(unsigned long long* src_keys,
       }
       mfence();
       LM2GM(local_slot_uint32, key2slots + dest_offset + k, real_read_len * sizeof(int));
-      LM2GM(local_slot_keys_uint32, dest_total_keys + dest_offset + k,
-            real_read_len * sizeof(uint32_t));
+      LM2GM(local_slot_keys_uint32, dest_total_keys + dest_offset + k, real_read_len * sizeof(uint32_t));
+    }
+  }
+}
+
+__global__ void CopyKeysKernel_u64(unsigned long long* src_keys,
+                               unsigned long long* dest_total_keys,
+                               const long long* len, int slot_num,
+                               int total_len, int* key2slots) {
+  int cid = core_id();
+  int ncores = core_num();
+  if (cid >= ncores) {
+    return;
+  }
+  int thread_id = ncores * cluster_id() + cid;
+  int nthreads = ncores * cluster_num();
+
+  __shared__ long long slot_lens[BoxWrapperKernel::MAX_SLOT_SIZE + 1];
+  __shared__ __global_ptr__ unsigned long long* slot_keys[BoxWrapperKernel::MAX_SLOT_SIZE];
+  for (int i = cid; i <= slot_num; i += ncores) {
+    if (i <= slot_num) {
+      GM2SM(&len[i], &slot_lens[i], sizeof(long long));
+    }
+    if (i < slot_num) {
+      GM2SM(&src_keys[i], &slot_keys[i], sizeof(__global_ptr__ unsigned long long*));
+    }
+  }
+  sync_cluster();
+
+  for (int i = thread_id; i < slot_num; i += nthreads) {
+    // max core local memory = 8KB
+    int slot_len = slot_lens[i + 1] - slot_lens[i];
+    int read_len = 100;
+    int dest_offset = slot_lens[i];
+    __local__ unsigned long long local_slot_keys[read_len];
+    //__local__ uint32_t local_slot_keys_uint32[read_len];
+    //T * local_converted = (T *)local_slot_keys;
+    __local__ int local_slot_uint32[read_len];
+
+    for (int k = 0; k < slot_len; k += read_len) {
+      int real_read_len = min(read_len, slot_len - k);
+      GM2LM(slot_keys[i] + k, local_slot_keys,
+            real_read_len * sizeof(unsigned long long));
+      for (int m = 0; m < real_read_len; m++) {
+          //local_slot_keys_uint32[m] = (uint32_t)local_slot_keys[m];
+          //local_converted[m] = (T)(local_slot_keys[m]);
+          local_slot_uint32[m] = i;
+      }
+      mfence();
+      LM2GM(local_slot_uint32, key2slots + dest_offset + k, real_read_len * sizeof(int));
+      LM2GM(local_slot_keys, dest_total_keys + dest_offset + k, real_read_len * sizeof(unsigned long long));
     }
   }
 }
@@ -139,7 +181,24 @@ void BoxWrapperKernel::CopyKeys(const paddle::platform::Place& place,
       reinterpret_cast<unsigned long long*>(origin_keys);
   const long long* c_len = (const long long*)gpu_len;
   CHECK(slot_num <= BoxWrapperKernel::MAX_SLOT_SIZE);
-  CopyKeysKernel<<<2, 64, stream>>>(o_keys, total_keys, c_len, slot_num, total_len, key2slots);
+  CopyKeysKernel_u32<<<2, 64, stream>>>(o_keys, total_keys, c_len, slot_num, total_len, key2slots);
+  xpu_wait(stream);
+}
+
+void BoxWrapperKernel::CopyKeys(const paddle::platform::Place& place,
+                            uint64_t** origin_keys, unsigned long long* total_keys,
+                            const int64_t* gpu_len, int slot_num,
+                            int total_len, int* key2slots) {
+  XPUStream stream = nullptr;
+  auto dev_ctx = platform::DeviceContextPool::Instance().Get(place);
+  stream = static_cast<platform::XPUDeviceContext*>(dev_ctx)
+               ->x_context()
+               ->xpu_stream;
+  unsigned long long* o_keys =
+      reinterpret_cast<unsigned long long*>(origin_keys);
+  const long long* c_len = (const long long*)gpu_len;
+  CHECK(slot_num <= BoxWrapperKernel::MAX_SLOT_SIZE);
+  CopyKeysKernel_u64<<<2, 64, stream>>>(o_keys, total_keys, c_len, slot_num, total_len, key2slots);
   xpu_wait(stream);
 }
 

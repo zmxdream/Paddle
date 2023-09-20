@@ -315,13 +315,13 @@ void BoxWrapper::PullSparseCaseXPU(const paddle::platform::Place& place,
   TRACE_SCOPE_START("copy keys", xpu_wait(ctx_xpu->xpu_stream));
   VLOG(3) << "Begin copy keys, key_num[" << total_length << "]";
   LoDTensor& total_keys_tensor = dev.keys_tensor;
-  uint32_t* total_keys;
+  uint64_t* total_keys;
   if(use_l3_tensor) {
-    total_keys = reinterpret_cast<uint32_t*>(
-        total_keys_tensor.mutable_data<int32_t>({total_length, 1}, l3_place));
+    total_keys = reinterpret_cast<uint64_t*>(
+        total_keys_tensor.mutable_data<int64_t>({total_length, 1}, l3_place));
   } else {
-    total_keys = reinterpret_cast<uint32_t*>(
-        total_keys_tensor.mutable_data<int32_t>({total_length, 1}, place));
+    total_keys = reinterpret_cast<uint64_t*>(
+        total_keys_tensor.mutable_data<int64_t>({total_length, 1}, place));
   }
   int* key2slot = nullptr;
   key2slot = reinterpret_cast<int*>(
@@ -347,9 +347,15 @@ void BoxWrapper::PullSparseCaseXPU(const paddle::platform::Place& place,
                   XPU_HOST_TO_DEVICE);
 
   TRACE_SCOPE_START("CopyKeys", xpu_wait(ctx_xpu->xpu_stream));
-  box_wrapper_kernel_->CopyKeys(place, xpu_keys, total_keys, slot_lens,
+  if (use_xpu_sparse_map_) {
+    box_wrapper_kernel_->CopyKeys(place, xpu_keys, (unsigned long long *)total_keys, slot_lens,
                   static_cast<int>(slot_lengths.size()),
                   static_cast<int>(total_length), key2slot);
+  } else {
+    box_wrapper_kernel_->CopyKeys(place, xpu_keys, (uint32_t *)total_keys, slot_lens,
+                  static_cast<int>(slot_lengths.size()),
+                  static_cast<int>(total_length), key2slot);
+  }
   VLOG(3) << "Begin call PullSparseXPU in BoxPS, dev: " << device_id
             << " len: " << total_length;
   TRACE_SCOPE_END("CopyKeys", xpu_wait(ctx_xpu->xpu_stream));
@@ -533,8 +539,8 @@ void BoxWrapper::PushSparseGradCaseXPU(const paddle::platform::Place& place,
   int64_t total_bytes = total_length * feature_push_size_;
   void* total_grad_values_xpu =
       dev.pull_push_tensor.mutable_data<void>(total_bytes, place);
-  uint32_t* total_keys =
-      reinterpret_cast<uint32_t*>(dev.keys_tensor.data<int32_t>());
+  uint64_t* total_keys =
+      reinterpret_cast<uint64_t*>(dev.keys_tensor.data<int64_t>());
   int* total_dims = reinterpret_cast<int*>(dev.dims_tensor.data<int>());
   int slot_num = static_cast<int>(slot_lengths.size());
 

@@ -387,6 +387,11 @@ class BoxWrapper {
     boxps::MPICluster::Ins();
 #ifdef PADDLE_WITH_XPU_KP
     box_wrapper_kernel_ = std::make_unique<BoxWrapperKernel>();
+    use_xpu_sparse_map_ = false;
+    auto env_str = std::getenv("USE_XPU_SPARSE_MAP");
+    if (env_str != nullptr && (strcmp(env_str, "true") == 0 || strcmp(env_str, "1") == 0)) {
+        use_xpu_sparse_map_ = true;
+    }
 #endif
 #ifdef TRACE_PROFILE
     // Client side to produce the tracepoints.
@@ -793,6 +798,7 @@ class BoxWrapper {
   size_t input_table_dim_ = 0;
   int gpu_num_ = GetDeviceCount();
 #ifdef PADDLE_WITH_XPU_KP
+  bool use_xpu_sparse_map_;
   std::vector<uint64_t> * fid2sign_map_;
   std::unique_ptr<BoxWrapperKernel> box_wrapper_kernel_;
 #endif
