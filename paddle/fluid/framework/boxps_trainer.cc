@@ -94,7 +94,17 @@ void BoxPSTrainer::InitOtherEnv(const ProgramDesc& main_program) {
   }
   VLOG(3) << "init other env done.";
 }
-
+// dump thread pool
+inline std::shared_ptr<paddle::framework::ThreadPool>& GetDumpThreadPool(
+    int thread_num) {
+  static std::shared_ptr<paddle::framework::ThreadPool> dump_thread_pool =
+      nullptr;
+  if (dump_thread_pool != nullptr) {
+    return dump_thread_pool;
+  }
+  dump_thread_pool.reset(new paddle::framework::ThreadPool(thread_num));
+  return dump_thread_pool;
+}
 std::string BoxPSTrainer::GetDumpPath(int tid) {
   return string::format_string("%s/part-%05d", dump_fields_path_.c_str(), tid);
 }
@@ -134,11 +144,22 @@ void BoxPSTrainer::InitDumpEnv() {
     workers_[i]->SetChannelWriter(queue_.get());
   }
   // TODO(hutuxian): should make it as a config
+  dump_futures_.clear();
+  auto pool = GetDumpThreadPool(dump_thread_num_);
   for (int i = 0; i < dump_thread_num_; i++) {
-    dump_thread_.push_back(
-        std::thread(std::bind(&TrainerBase::DumpWork, this, i)));
+    dump_futures_.emplace_back(pool->Run([this, i]() { this->DumpWork(i); }));
   }
-  VLOG(0) << "init dump write file thread num=" << dump_thread_num_;
+  VLOG(0) << "init dump none write file thread num=" << dump_thread_num_;
+}
+// final dump env
+void BoxPSTrainer::FinalizeDumpEnv() {
+  queue_->Close();
+  for (auto& th : dump_futures_) {
+    th.get();
+  }
+  dump_futures_.clear();
+  queue_.reset();
+  VLOG(0) << "finalize dump write file thread";
 }
 inline std::vector<std::shared_ptr<paddle::framework::ThreadPool>>&
 GetThreadPool(int thread_num) {
@@ -252,7 +273,6 @@ void BoxPSTrainer::Finalize() {
 Scope* BoxPSTrainer::GetWorkerScope(int thread_id) {
   return workers_[thread_id]->GetThreadScope();
 }
-
 }  // end namespace framework
 }  // end namespace paddle
 #endif

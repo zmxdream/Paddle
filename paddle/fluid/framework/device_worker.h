@@ -226,10 +226,6 @@ class DeviceWorker {
   virtual void DumpField(const Scope& scope,
                          int dump_mode,
                          int dump_interval = 10000);
-  virtual void DumpParamBoxPS(const Scope& scope, const int batch_id);
-  virtual void DumpFieldBoxPS(const Scope& scope,
-                              int dump_mode,
-                              int dump_interval = 10000);
 
   Scope* root_scope_ = nullptr;
   Scope* thread_scope_;
@@ -880,13 +876,19 @@ class BoxPSWorker : public DeviceWorker {
  protected:
   int PackBatchTask(void);
   int CheckNeedParam(VarDesc* var);
-  int64_t AllocParamTensor(const ProgramDesc &program, int64_t* pad_len);
-  int64_t AllocParamTensorAsync(const ProgramDesc &program);
+  int64_t AllocParamTensor(const ProgramDesc& program, int64_t* pad_len);
+  int64_t AllocParamTensorAsync(const ProgramDesc& program);
   void SyncParam(void);
-  void BuildShardingDepends(const ProgramDesc &program);
-  void CreateThreadScope(const ProgramDesc &program);
-  void CreateThreadOperators(const ProgramDesc &program);
+  void BuildShardingDepends(const ProgramDesc& program);
+  void CreateThreadScope(const ProgramDesc& program);
+  void CreateThreadOperators(const ProgramDesc& program);
   int IsParameter(const std::string& name, bool full_match);
+
+ protected:
+  virtual void DumpParam(const Scope& scope, const int batch_id);
+  virtual void DumpField(const Scope& scope,
+                         int dump_mode,
+                         int dump_interval = 10000);
 
  protected:
   int device_id_;
