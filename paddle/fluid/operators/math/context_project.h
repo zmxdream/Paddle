@@ -84,45 +84,6 @@ using LoDTensor = framework::LoDTensor;
  *          [w1, w2, d1, d2, w3, w4]]
  *
  */
-/*
-template <class T>
-__global__ void im2colOCF_Fuse_2(T** im_data, const int size, const size_t* lod_level, int im_channels, int* im_height,
-                          int im_width, int filter_height, int filter_width,
-                          int stride_height, int stride_width,
-                          int padding_height, int padding_width, int* col_height,
-                          int col_width, T** col_data) {
-  int swid = blockIdx.x;
-  int shid = blockIdx.y; 
-  int sid = blockIdx.z;
-  if (sid >= size) return;
-  if (shid >= col_height[sid]) return;
-  if (lod_level[sid] == lod_level[sid + 1]) return;
-
-  for (int channelid = threadIdx.z; channelid < im_channels;
-       channelid += blockDim.z) {
-    for (int idy = threadIdx.y; idy < filter_height; idy += blockDim.y) {
-      for (int idx = threadIdx.x; idx < filter_width; idx += blockDim.x) {
-        int width_offset = idx + swid * stride_width - padding_width;
-        int height_offset = idy + shid * stride_height - padding_height;
-        int im_offset = width_offset + height_offset * im_width +
-                        channelid * im_height[sid] * im_width;
-
-        int col_offset = idx + idy * filter_width +
-                         channelid * filter_height * filter_width +
-                         (shid * col_width + swid) *
-                             (im_channels * filter_height * filter_width);
-
-        col_data[sid][col_offset] =
-            (height_offset >= im_height[sid] || height_offset < 0 ||
-             width_offset >= im_width || width_offset < 0)
-                ? T(0)
-                : im_data[sid][im_offset];
-      }
-    }
-  }
-
-}
-*/
 
 template <typename DeviceContext, typename T>
 class ContextProjectFunctor {
