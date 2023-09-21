@@ -579,10 +579,12 @@ class ShardingOptimizer(MetaOptimizerBase):
     def _dump_program_for_debug(self):
         main_block = self._main_program.global_block()
         startup_block = self._startup_program.global_block()
-        with open("start_sharding_%d" % self.role_maker._worker_index(),
+        startup_id = str(id(startup_block.program))
+        with open(("start_sharding_%d_%s" % (self.role_maker._worker_index(), startup_id)),
                   'w') as f:
             f.writelines(str(startup_block.program))
-        with open("main_sharding_%d" % self.role_maker._worker_index(),
+        main_id = str(id(main_block.program))
+        with open(("main_sharding_%d_%s" % (self.role_maker._worker_index(), main_id)),
                   'w') as f:
             f.writelines(str(main_block.program))
 
@@ -1918,6 +1920,18 @@ class ThreadShardingOptimizer(ShardingOptimizer):
             not need process
         """
         block._sync_with_cpp()
+        
+    def _insert_loss_grad_scale_op(self):
+        """
+           paddlebox grad not need scale
+        """
+        main_block = self._main_program.global_block()
+        # # step6: loss div dp_degree
+        # global_dp_degree = self.sharding_degree * self.dp_degree
+        # assert int(global_dp_degree) == global_dp_degree
+        # if global_dp_degree > 1:
+        #     insert_scale_loss_grad_ops(main_block, scale=global_dp_degree)
+        main_block._sync_with_cpp()
             
     def minimize_impl(
         self, loss, startup_program=None, parameter_list=None, no_grad_set=None
