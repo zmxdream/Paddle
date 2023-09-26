@@ -180,6 +180,48 @@ void RecordCandidateList::AddAndGet(const Record& record,
   mutex_.unlock();
 }
 
+void SlotRecordCandidateList::ReSize(size_t length) {
+  mutex_.lock();
+  capacity_ = length;
+  CHECK(capacity_ > 0);  // NOLINT
+  candidate_list_.clear();
+  candidate_list_.resize(capacity_);
+  full_ = false;
+  cur_size_ = 0;
+  total_size_ = 0;
+  mutex_.unlock();
+}
+
+void SlotRecordCandidateList::ReInit() {
+  mutex_.lock();
+  full_ = false;
+  cur_size_ = 0;
+  total_size_ = 0;
+  mutex_.unlock();
+}
+
+void SlotRecordCandidateList::AddAndGet(const SlotRecord& record,
+                                        SlotRecordCandidate* result) {
+  mutex_.lock();
+  size_t index = 0;
+  ++total_size_;
+  auto fleet_ptr = FleetWrapper::GetInstance();
+
+  if (!full_) {
+    candidate_list_[cur_size_++] = record;
+    full_ = (cur_size_ == capacity_);
+  } else {
+    CHECK(cur_size_ == capacity_);
+    index = fleet_ptr->LocalRandomEngine()() % total_size_;
+    if (index < capacity_) {
+      candidate_list_[index] = record;
+    }
+  }
+  index = fleet_ptr->LocalRandomEngine()() % cur_size_;
+  *result = candidate_list_[index];
+  mutex_.unlock();
+}
+
 void DataFeed::AddFeedVar(Variable* var, const std::string& name) {
   CheckInit();
   for (size_t i = 0; i < use_slots_.size(); ++i) {
@@ -1981,7 +2023,6 @@ void SlotRecordInMemoryDataFeed::Init(const DataFeedDesc& data_feed_desc) {
       data_feed_desc.multi_slot_desc();
   SetBatchSize(data_feed_desc.batch_size());
   size_t all_slot_num = multi_slot_desc.slots_size();
-
   all_slots_.resize(all_slot_num);
   all_slots_info_.resize(all_slot_num);
   used_slots_info_.resize(all_slot_num);
@@ -1993,13 +2034,11 @@ void SlotRecordInMemoryDataFeed::Init(const DataFeedDesc& data_feed_desc) {
   for (size_t i = 0; i < all_slot_num; ++i) {
     const auto& slot = multi_slot_desc.slots(i);
     all_slots_[i] = slot.name();
-
     AllSlotInfo& all_slot = all_slots_info_[i];
     all_slot.slot = slot.name();
     all_slot.type = slot.type();
     all_slot.used_idx = slot.is_used() ? use_slot_size_ : -1;
     all_slot.slot_value_idx = -1;
-
     if (slot.is_used()) {
       UsedSlotInfo& info = used_slots_info_[use_slot_size_];
       info.idx = i;
@@ -2018,10 +2057,8 @@ void SlotRecordInMemoryDataFeed::Init(const DataFeedDesc& data_feed_desc) {
         info.slot_value_idx = float_use_slot_size_;
         all_slot.slot_value_idx = float_use_slot_size_;
         ++float_use_slot_size_;
-      }
-
+     }
       use_slots_.push_back(slot.name());
-
       if (slot.is_dense()) {
         for (int j = 0; j < slot.shape_size(); ++j) {
           if (slot.shape(j) > 0) {
@@ -2079,6 +2116,22 @@ void SlotRecordInMemoryDataFeed::Init(const DataFeedDesc& data_feed_desc) {
   }
 }
 
+void SlotRecordInMemoryDataFeed::BeginLoadIntoMemory() {
+  if (so_parser_name_.empty()) return;
+  paddle::framework::CustomParser* parser =
+      global_dlmanager_pool().Load(so_parser_name_, all_slots_info_);
+  CHECK(parser != nullptr);
+  parser->PreLoad(all_slots_info_);
+}
+
+void SlotRecordInMemoryDataFeed::EndLoadIntoMemory() {
+  if (so_parser_name_.empty()) return;
+  paddle::framework::CustomParser* parser =
+      global_dlmanager_pool().Load(so_parser_name_, all_slots_info_);
+  CHECK(parser != nullptr);
+  parser->Reset();
+}
+
 void SlotRecordInMemoryDataFeed::LoadIntoMemory() {
   VLOG(3) << "SlotRecord LoadIntoMemory() begin, thread_id=" << thread_id_;
   if (!so_parser_name_.empty()) {
@@ -2087,6 +2140,25 @@ void SlotRecordInMemoryDataFeed::LoadIntoMemory() {
     LoadIntoMemoryByCommand();
   }
 }
+
+uint64_t SlotRecordInMemoryDataFeed::GetRecordTaskId(const paddle::framework::DataFeedDesc& data_feed_desc, const SlotRecord& record) {
+  int task_id = -1;
+  size_t all_slot_num = all_slots_info_.size();
+  for (size_t i = 0; i < all_slot_num; ++i) {
+    AllSlotInfo& all_slot = all_slots_info_[i];
+    if (all_slot.slot.find("task_id") != std::string::npos) {
+      size_t slot_value_idx = all_slot.slot_value_idx;
+      size_t num = 0;
+      uint64_t* feas = record->slot_uint64_feasigns_.get_values(slot_value_idx, &num);
+      CHECK(num == 1) << "task id size of record must be 1";
+      // return feas[0];
+      task_id = feas[0];
+    }
+  }
+  CHECK(task_id >= 0) << "task id must GE 0";
+  return (uint64_t)task_id;
+}
+
 void SlotRecordInMemoryDataFeed::LoadIntoMemoryByLib(void) {
   if (true) {
     // user defined file format analysis
@@ -2150,7 +2222,6 @@ void SlotRecordInMemoryDataFeed::LoadIntoMemoryByFile(void) {
           filename = filename.substr(7);
         }
         this->fp_ = fs_open_read(filename, &err_no, this->pipe_command_);
-
         CHECK(this->fp_ != nullptr);
         __fsetlocking(&*(this->fp_), FSETLOCKING_BYCALLER);
         is_ok = parser->ParseFileInstance(
@@ -2158,7 +2229,6 @@ void SlotRecordInMemoryDataFeed::LoadIntoMemoryByFile(void) {
               return fread(buf, sizeof(char), len, this->fp_.get());
             },
             pull_record_func, lines);
-
         if (!is_ok) {
           LOG(WARNING) << "parser error, filename=" << filename
                        << ", lines=" << lines;
@@ -2181,7 +2251,6 @@ void SlotRecordInMemoryDataFeed::LoadIntoMemoryByLine(void) {
   BufferedLineFileReader line_reader;
   line_reader.set_sample_rate(sample_rate_);
   BufferedLineFileReader::LineFunc line_func = nullptr;
-
   while (this->PickOneFile(&filename)) {
     VLOG(0) << "PickOneFile, filename=" << filename
             << ", thread_id=" << thread_id_;
@@ -2190,7 +2259,6 @@ void SlotRecordInMemoryDataFeed::LoadIntoMemoryByLine(void) {
     timeline.Start();
     int offset = 0;
     int old_offset = 0;
-
     SlotRecordPool().get(&record_vec, OBJPOOL_BLOCK_SIZE);
     // get slotrecord object function
     auto record_func = [this, &offset, &record_vec, &old_offset](
@@ -2269,7 +2337,6 @@ void SlotRecordInMemoryDataFeed::LoadIntoMemoryByCommand(void) {
   std::string filename;
   BufferedLineFileReader line_reader;
   line_reader.set_sample_rate(sample_rate_);
-
   while (this->PickOneFile(&filename)) {
     VLOG(3) << "PickOneFile, filename=" << filename
             << ", thread_id=" << thread_id_;
@@ -2279,7 +2346,6 @@ void SlotRecordInMemoryDataFeed::LoadIntoMemoryByCommand(void) {
     timeline.Start();
     SlotRecordPool().get(&record_vec, OBJPOOL_BLOCK_SIZE);
     int offset = 0;
-
     do {
       int err_no = 0;
       this->fp_ = fs_open_read(filename, &err_no, this->pipe_command_);
@@ -2377,7 +2443,6 @@ bool SlotRecordInMemoryDataFeed::ParseOneInstance(const std::string& line,
     uint32_t cmatch;
     uint32_t rank;
     parser_log_key(log_key, &search_id, &cmatch, &rank);
-
     rec->ins_id_ = log_key;
     rec->search_id = search_id;
     rec->cmatch = cmatch;
@@ -2633,11 +2698,9 @@ bool SlotRecordInMemoryDataFeed::Start() {
           return;
         }
         auto* pack = free_pack_queue_.Pop();
-
         auto& batch = batch_offsets_[offset_index];
         auto offset = batch.first;
         auto batch_size = batch.second;
-
         paddle::platform::SetDeviceId(place_.GetDeviceId());
         pack->pack_instance(&records_[offset], batch_size);
         this->BuildSlotBatchGPU(batch_size, pack);
@@ -2645,8 +2708,6 @@ bool SlotRecordInMemoryDataFeed::Start() {
       }
     }));
   }
-
-
 #endif
   return true;
 }
@@ -2696,22 +2757,16 @@ void SlotRecordInMemoryDataFeed::BuildSlotBatchGPU(const int ins_num, MiniBatchG
                       pack->get_stream());
 
   size_t* d_slot_offsets = reinterpret_cast<size_t*>(pack->gpu_slot_offsets());
-
   HostBuffer<size_t>& offsets = pack->offsets();
   offsets.resize(slot_total_num);
   HostBuffer<void*>& h_tensor_ptrs = pack->h_tensor_ptrs();
   h_tensor_ptrs.resize(use_slot_size_);
-  // alloc gpu memory
   pack->resize_tensor();
-
   LoDTensor& float_tensor = pack->float_tensor();
   LoDTensor& uint64_tensor = pack->uint64_tensor();
-
-  // copy index
   CUDA_CHECK(cudaMemcpyAsync(offsets.data(), d_slot_offsets,
                         slot_total_num * sizeof(size_t),
                         cudaMemcpyDeviceToHost, pack->get_stream()));
-
   cudaStreamSynchronize(pack->get_stream());
 
   int64_t float_offset = 0;
@@ -2733,12 +2788,10 @@ void SlotRecordInMemoryDataFeed::BuildSlotBatchGPU(const int ins_num, MiniBatchG
     }
 
     size_t* off_start_ptr = &offsets[j * offset_cols_size];
-
     int total_instance = static_cast<int>(off_start_ptr[offset_cols_size - 1]);
     CHECK(total_instance >= 0) << "slot idx:" << j
                                << ", total instance:" << total_instance;
     auto& info = used_slots_info_[j];
-
     // fill slot value with default value 0
     if (info.type[0] == 'f') {  // float
       if (total_instance > 0) {
@@ -2803,7 +2856,6 @@ void SlotRecordInMemoryDataFeed::PackToScope(MiniBatchGpuPack* pack, const Scope
     size_t* off_start_ptr = &offsets[j * offset_cols_size];
     int total_instance = static_cast<int>(off_start_ptr[offset_cols_size - 1]);
     auto& info = used_slots_info_[j];
-
     // fill slot value with default value 0
     if (info.type[0] == 'f') {  // float
       if (total_instance > 0) {
@@ -2828,7 +2880,6 @@ void SlotRecordInMemoryDataFeed::PackToScope(MiniBatchGpuPack* pack, const Scope
         feed->Resize({total_instance, 1});
       }
     }
-
     if (info.dense) {
       if (info.inductive_shape_index != -1) {
         info.local_shape[info.inductive_shape_index] =

@@ -15,6 +15,7 @@
 #pragma once
 
 #include <ThreadPool.h>
+#include <algorithm>
 #include <fstream>
 #include <memory>
 #include <mutex>  // NOLINT
@@ -163,6 +164,7 @@ class Dataset {
 
   virtual void SetPassId(uint32_t pass_id) = 0;
   virtual uint32_t GetPassID() = 0;
+  virtual void SetMultiTaskNum(int multi_task_num = 1) = 0;
 
  protected:
   virtual int ReceiveFromClient(int msg_type, int client_id,
@@ -259,7 +261,10 @@ class DatasetImpl : public Dataset {
   virtual uint32_t GetPassID() {
     return pass_id_;
   }
- 
+  
+  virtual void SetMultiTaskNum(int multi_task_num = 1) {
+    multi_task_num_ = multi_task_num;
+  }
   /* for enable_heterps_
   virtual void EnableHeterps(bool enable_heterps) {
     enable_heterps_ = enable_heterps;
@@ -304,6 +309,7 @@ class DatasetImpl : public Dataset {
   int cur_channel_;
   std::vector<T> slots_shuffle_original_data_;
   RecordCandidateList slots_shuffle_rclist_;
+  SlotRecordCandidateList slots_record_shuffle_rclist_;
   int thread_num_;
   int pull_sparse_to_local_thread_num_;
   paddle::framework::DataFeedDesc data_feed_desc_;
@@ -336,6 +342,11 @@ class DatasetImpl : public Dataset {
   int64_t global_index_ = 0;
   std::vector<std::shared_ptr<ThreadPool>> consume_task_pool_;
   std::vector<T> input_records_;  // only for paddleboxdatafeed
+
+  // for multi-task
+  std::vector<T> pre_input_records_;
+  int multi_task_num_ = 1;
+
   std::vector<std::string> use_slots_;
   bool enable_heterps_ = false;
 };
@@ -390,12 +401,20 @@ class SlotRecordDataset : public DatasetImpl<SlotRecord> {
   virtual void CreateReaders();
   // release memory
   virtual void ReleaseMemory();
+  virtual void PreprocessChannel(
+      const std::set<std::string>& slots_to_replace,
+      std::unordered_set<uint16_t>& index_slot);  // NOLINT
+  virtual void SlotsShuffle(const std::set<std::string>& slots_to_replace);
+  virtual void GetRandomData(
+      const std::unordered_set<uint16_t>& slots_to_replace,
+      std::vector<SlotRecord>* result);
+
   virtual void GlobalShuffle(int thread_num = -1);
   virtual void DynamicAdjustChannelNum(int channel_num,
                                        bool discard_remaining_ins);
   virtual void PrepareTrain();
   virtual void DynamicAdjustReadersNum(int thread_num);
-  virtual std::vector<std::string> GetSlots(); 
+  virtual std::vector<std::string> GetSlots();
 
  protected:
   bool enable_heterps_ = true;

@@ -22,7 +22,7 @@ limitations under the License. */
 #include "paddle/fluid/platform/cuda_graph_with_memory_pool.h"
 #include "paddle/fluid/platform/profiler.h"
 #include "paddle/fluid/platform/profiler/event_tracing.h"
-
+#include "paddle/fluid/framework/fleet/metrics.h"
 #if (defined PADDLE_WITH_NCCL || defined PADDLE_WITH_RCCL) && \
     (defined PADDLE_WITH_PSLIB)
 #include "paddle/fluid/platform/cuda_device_guard.h"
@@ -353,9 +353,354 @@ int PSGPUWorker::OpRunAndShapeCheck(OperatorBase& op,
     return 0;
 }
 
+/**
+ * @brief add auc monitor
+ */
+inline void AddAucMonitor(const Scope* scope, const platform::Place& place) {
+  auto metric_ptr = Metric::GetInstance();
+  auto& metric_list = metric_ptr->GetMetricList();
+  for (auto iter = metric_list.begin(); iter != metric_list.end(); iter++) {
+    auto* metric_msg = iter->second;
+    if (metric_ptr->Phase() != metric_msg->MetricPhase()) {
+      continue;
+    }
+    metric_msg->add_data(scope, place);
+  }
+}
 
 void PSGPUWorker::TrainFiles() {
   VLOG(0) << "Begin to train files";
+  platform::SetNumThreads(1);
+  platform::Timer timeline;
+  timeline.Start();
+
+  // profile
+  std::vector<double> op_total_time;
+  std::vector<std::string> op_name;
+
+  for (auto& op : ops_) {
+    bool need_skip = false;
+    for (auto t = 0u; t < skip_ops_.size(); ++t) {
+      if (op->Type().find(skip_ops_[t]) != std::string::npos) {
+        need_skip = true;
+        break;
+      }
+    }
+    if (!need_skip) {
+      op_name.push_back(op->Type());
+    }
+  }
+
+  VLOG(3) << "op name size: " << op_name.size();
+  op_total_time.resize(op_name.size());
+  for (size_t i = 0; i < op_total_time.size(); ++i) {
+    op_total_time[i] = 0.0;
+  }
+  double total_time = 0.0;
+  double read_time = 0.0;
+  // profile
+
+  int total_ins_num = 0;
+
+  // how to accumulate fetched values here
+  device_reader_->Start();
+  int cur_batch;
+  int batch_cnt = 0;
+  int graph_batch_size = 0;
+  platform::SetDeviceId(place_.GetDeviceId());
+
+  // async infershape
+  pack_is_end_.store(false);
+  if (scope_num_ != 1) {
+    for (size_t i = 0; i < thread_scope_vec_.size(); i++) {
+      TaskData task;
+      task.scope = thread_scope_vec_[i];
+      free_task_queue_.Push(task);
+    }
+    thread_count_.store(task_threads_num_);
+    task_threads_.reserve(task_threads_num_);
+    for (int i = 0; i < task_threads_num_; i++) {
+      task_threads_.emplace_back(std::thread([this]() -> void {
+        while (true) {
+          auto pack = device_reader_->get_pack(nullptr);
+          if (pack == nullptr) {
+            int thread_num = thread_count_.fetch_sub(1);
+            if (thread_num == 1) {
+              pack_is_end_.store(true);
+            }
+            return;
+          }
+          auto task = free_task_queue_.Pop();
+          task.pack = pack;
+          task.ins_num = pack->ins_num();
+          device_reader_->PackToScope(task.pack, task.scope);
+          for (size_t i = 0; i < ops_.size(); i++) {
+            auto& op = ops_[i];
+            bool need_skip = false;
+            for (auto t = 0u; t < skip_ops_.size(); ++t) {
+              if (op->Type().find(skip_ops_[t]) != std::string::npos) {
+                need_skip = true;
+                break;
+              }
+            }
+            if (!need_skip) {
+              op->RuntimeInferShape(*task.scope);
+            }
+          }
+          using_task_queue_.Push(task);
+        }
+      }));
+    }
+  }
+  while (true) {
+    auto thread_scope = thread_scope_;
+    TaskData cur_task;
+    if (scope_num_ == 1) {
+      cur_batch = device_reader_->Next();
+    } else {
+      while (true) {
+        if (using_task_queue_.Size() != 0) {
+          cur_task = using_task_queue_.Pop();
+          cur_batch = cur_task.ins_num;
+          break;
+        }
+        bool is_end = pack_is_end_.load();
+        if (is_end) {
+          if (using_task_queue_.Size() == 0) {
+            cur_batch = 0;
+            break;
+          }
+        }
+        std::this_thread::sleep_for(
+          std::chrono::microseconds(200));
+      }
+      thread_scope = cur_task.scope;
+      auto pack = cur_task.pack;
+      // get insid from pack
+      device_reader_->SetInsIdVec(pack);
+
+      // tensor share buffer
+      std::vector<Variable*>& cur_scope_vars = need_reuse_var_vec_[thread_scope];
+      PADDLE_ENFORCE_EQ(cur_scope_vars.size(), need_reuse_var_.size(),
+                        platform::errors::Fatal(
+                              "reuse vars size must be same."));
+      for (size_t i = 0; i < need_reuse_var_.size(); i++) {
+        Variable* child = cur_scope_vars[i];
+        Variable* parent = need_reuse_var_[i];
+        if (child->IsType<LoDTensor>()) {
+          child->GetMutable<LoDTensor>()->ShareBufferWith(*(parent->GetMutable<LoDTensor>()));
+        }
+      }
+    }
+
+    if (cur_batch <= 0) {
+      break;
+    }
+    // VLOG(0) << "gpu:" << thread_id_ << ", bs:" << cur_batch; 
+    // profile 
+    timeline.Pause();
+    read_time += timeline.ElapsedSec();
+    total_time += timeline.ElapsedSec();
+    int run_op_idx = 0;
+    dev_ctx_->Wait();
+    // profile
+
+    device_reader_->SetCurBatchSize(cur_batch);
+    total_ins_num += cur_batch;
+
+    if (shape_check_flag_.load()) {
+      VLOG(0) << "Begin OpRunAndShapeCheck, "
+            << shape_check_count_.load();
+      if (scope_num_ == 1 || shape_check_count_.fetch_sub(1) <= 0) {
+        VLOG(0) << "End OpRunAndShapeCheck."
+            << shape_check_count_.load();
+        shape_check_flag_ = false;
+      }
+    }
+
+    if (op_or_cudagraphs_.empty()) {
+      // first batch we run original ops to check whethere the tensors has lod
+      for (auto& op : ops_) {
+        bool need_skip = false;
+        for (auto t = 0u; t < skip_ops_.size(); ++t) {
+          if (op->Type().find(skip_ops_[t]) != std::string::npos) {
+            need_skip = true;
+            break;
+          }
+        }
+        if (!need_skip) {
+          timeline.Start();
+          VLOG(3) << "Going to run op " << op_name[run_op_idx];
+          OpRunAndShapeCheck(*op, *thread_scope, place_);
+          dev_ctx_->Wait();
+          VLOG(3) << "Op " << op_name[run_op_idx] << " Finished";
+          timeline.Pause();
+          op_total_time[run_op_idx++] += timeline.ElapsedSec();
+          total_time += timeline.ElapsedSec();
+          
+        }
+      }
+      graph_batch_size = cur_batch;
+      PrepareCudaGraph();
+      // profile
+      /*
+      if (op_or_cudagraphs_.empty()) VLOG(0) << "cudagraph is empty!!!";
+      else {
+          VLOG(0) << "cudagraph is not empty!!!";
+          for (auto& op_or_cuda_graph : op_or_cudagraphs_) {
+              if (op_or_cuda_graph.need_capture) {
+                  for (auto& op: op_or_cuda_graph.ops) {
+                      VLOG(0) << "op:" << op->Type() << " is captured";
+                  }
+              } else {
+                  for (auto& op: op_or_cuda_graph.ops) {
+                      VLOG(0) << "op:" << op->Type() << " is not captured";
+                  }
+              }
+          }
+      }
+      */
+      // profile
+    } else if (graph_batch_size != cur_batch || batch_cnt <= thread_id_) {
+      VLOG(0) << "[zmx debug] thread_id:" << thread_id_ << " batch_size changed, cur:" << cur_batch << ", prev:" << graph_batch_size;
+      // when batch_size changed, run original ops
+      for (auto& op : ops_) {
+        bool need_skip = false;
+        for (auto t = 0u; t < skip_ops_.size(); ++t) {
+          if (op->Type().find(skip_ops_[t]) != std::string::npos) {
+            need_skip = true;
+            break;
+          }
+        }
+        if (!need_skip) {
+          timeline.Start();
+          VLOG(3) << "Going to run op " << op_name[run_op_idx];
+          OpRunAndShapeCheck(*op, *thread_scope, place_);
+          dev_ctx_->Wait();
+          VLOG(3) << "Op " << op_name[run_op_idx] << " Finished";
+          timeline.Pause();
+          op_total_time[run_op_idx++] += timeline.ElapsedSec();
+          total_time += timeline.ElapsedSec();
+        }
+      }
+    } else {
+      // secend batch we capture the cudagraph
+      for (auto& op_or_cuda_graph : op_or_cudagraphs_) {
+        if (op_or_cuda_graph.need_capture) {
+          if (op_or_cuda_graph.cudagraph == nullptr) {
+            static std::mutex _capture_mutex;
+            std::lock_guard<std::mutex> lock(_capture_mutex);
+            platform::BeginCUDAGraphCapture(place_, cudaStreamCaptureModeThreadLocal);
+            for (auto& op : op_or_cuda_graph.ops) {
+              OpRunAndShapeCheck(*op, *thread_scope, place_);
+            }
+            op_or_cuda_graph.cudagraph = platform::EndCUDAGraphCapture();
+          }
+          platform::RecordEvent op_type_record_event(
+              op_or_cuda_graph.name, platform::TracerEventType::Operator, 1);
+          op_or_cuda_graph.cudagraph->Replay();
+        } else {
+          for (auto& op : op_or_cuda_graph.ops) {
+            timeline.Start();
+            VLOG(3) << "Going to run op " << op_name[run_op_idx];
+            OpRunAndShapeCheck(*op, *thread_scope, place_);
+            dev_ctx_->Wait();
+            VLOG(3) << "Op " << op_name[run_op_idx] << " Finished";
+            timeline.Pause();
+            op_total_time[run_op_idx++] += timeline.ElapsedSec();
+            total_time += timeline.ElapsedSec();
+          }
+        }
+      }
+    }
+    if (need_dump_field_) {
+      DumpField(*thread_scope, dump_mode_, dump_interval_);
+    }
+    if (need_dump_param_ && thread_id_ == 0) {
+      DumpParam(*thread_scope, batch_cnt);
+    }
+
+    // add data for MetricMsg
+    if (Metric::GetInstance() != nullptr) {
+      AddAucMonitor(thread_scope, place_);
+    }
+
+    for (std::string& var_name : check_nan_var_names_) {
+      Variable* var = thread_scope->FindVar(var_name);
+      if (var == nullptr) {
+        continue;
+      }
+      LoDTensor* tensor = var->GetMutable<LoDTensor>();
+      if (tensor == nullptr || !tensor->IsInitialized()) {
+        continue;
+      }
+      if (framework::TensorContainsInf(*tensor) ||
+          framework::TensorContainsNAN(*tensor)) {
+        static std::mutex mutex;
+        {
+          std::lock_guard<std::mutex> lock(mutex);
+          VLOG(0) << "worker " << thread_id_ << ": " << var_name
+                  << " cantains inf or nan";
+          auto all_vars = thread_scope->LocalVarNames();
+          std::stringstream ss;
+          ss << "====== worker " << thread_id_ << "======\n";
+          for (auto& local_var : all_vars) {
+            platform::PrintVar(thread_scope, local_var, local_var, &ss);
+            ss << "\n";
+          }
+          std::cout << ss.str() << std::endl;
+          VLOG(0) << "worker " << thread_id_ << "print nan var done....";
+        }
+        sleep(600);
+        exit(-1);
+      }
+    }
+    timeline.Start();
+    // dev_ctx_->Wait();
+    PrintFetchVars();
+    thread_scope->DropKids();
+    dev_ctx_->Wait();
+    timeline.Pause();
+    total_time += timeline.ElapsedSec();
+    ++batch_cnt;
+    
+    if (scope_num_ != 1) {
+      std::vector<Variable*>& cur_scope_vars = need_reuse_var_vec_[thread_scope];
+      PADDLE_ENFORCE_EQ(cur_scope_vars.size(), need_reuse_var_.size(),
+                        platform::errors::Fatal(
+                              "reuse vars size must be same."));
+      for (size_t i = 0; i < need_reuse_var_.size(); i++) {
+        Variable* child = cur_scope_vars[i];
+        Variable* parent = need_reuse_var_[i];
+        if (child->IsType<LoDTensor>()) {
+          parent->GetMutable<LoDTensor>()->ShareBufferWith(*(child->GetMutable<LoDTensor>()));
+        }
+      }
+      device_reader_->get_pack(cur_task.pack);
+      free_task_queue_.Push(cur_task);
+    }
+    timeline.Start();
+  }
+  if (need_dump_field_ || need_dump_param_) {
+    writer_.Flush();
+  }
+  timeline.Pause();
+  // VLOG(0) << "GpuPs worker " << thread_id_ << " train cost "
+  //         << timeline.ElapsedSec() << " seconds, ins_num: " << total_ins_num;
+  VLOG(0) << "GpuPs worker " << thread_id_ << " train cost " << total_time
+          << " seconds, ins_num: " << total_ins_num << " batch_cnt:" << batch_cnt;
+  for (size_t i = 0; i < op_name.size(); ++i) {
+    VLOG(0) << "card:" << thread_id_ << ", i:" << i << ", op: " << op_name[i]
+            << ", mean time: " << op_total_time[i] / total_ins_num
+            << "s, totol time:" << op_total_time[i] << "sec";
+  }
+  VLOG(0) << "card: " << thread_id_ << " read time: " << read_time
+          << ", percent: " << read_time / total_time * 100;
+  return;
+}
+
+void PSGPUWorker::TrainFilesWithProfiler() {
+  VLOG(0) << "Begin to train files with profiler";
   platform::SetNumThreads(1);
   platform::Timer timeline;
   timeline.Start();
@@ -483,7 +828,7 @@ void PSGPUWorker::TrainFiles() {
     if (cur_batch <= 0) {
       break;
     }
-    // VLOG(0) << "gpu:" << thread_id_ << ", bs:" << cur_batch; 
+
     // profile 
     timeline.Pause();
     read_time += timeline.ElapsedSec();
@@ -529,27 +874,7 @@ void PSGPUWorker::TrainFiles() {
       }
       graph_batch_size = cur_batch;
       PrepareCudaGraph();
-      // profile
-      /*
-      if (op_or_cudagraphs_.empty()) VLOG(0) << "cudagraph is empty!!!";
-      else {
-          VLOG(0) << "cudagraph is not empty!!!";
-          for (auto& op_or_cuda_graph : op_or_cudagraphs_) {
-              if (op_or_cuda_graph.need_capture) {
-                  for (auto& op: op_or_cuda_graph.ops) {
-                      VLOG(0) << "op:" << op->Type() << " is captured";
-                  }
-              } else {
-                  for (auto& op: op_or_cuda_graph.ops) {
-                      VLOG(0) << "op:" << op->Type() << " is not captured";
-                  }
-              }
-          }
-      }
-      */
-      // profile
     } else if (graph_batch_size != cur_batch || batch_cnt <= thread_id_) {
-      VLOG(0) << "[zmx debug] thread_id:" << thread_id_ << " batch_size changed, cur:" << cur_batch << ", prev:" << graph_batch_size;
       // when batch_size changed, run original ops
       for (auto& op : ops_) {
         bool need_skip = false;
@@ -587,7 +912,7 @@ void PSGPUWorker::TrainFiles() {
           platform::RecordEvent op_type_record_event(
               op_or_cuda_graph.name, platform::TracerEventType::Operator, 1);
           op_or_cuda_graph.cudagraph->Replay();
-        } else {
+        } else { // since cudagraph is not used in gpups, we only calc this branch
           for (auto& op : op_or_cuda_graph.ops) {
             timeline.Start();
             VLOG(3) << "Going to run op " << op_name[run_op_idx];
@@ -639,7 +964,6 @@ void PSGPUWorker::TrainFiles() {
       }
     }
     timeline.Start();
-    // dev_ctx_->Wait();
     PrintFetchVars();
     thread_scope->DropKids();
     dev_ctx_->Wait();
@@ -668,90 +992,10 @@ void PSGPUWorker::TrainFiles() {
     writer_.Flush();
   }
   timeline.Pause();
-  // VLOG(0) << "GpuPs worker " << thread_id_ << " train cost "
-  //         << timeline.ElapsedSec() << " seconds, ins_num: " << total_ins_num;
   VLOG(0) << "GpuPs worker " << thread_id_ << " train cost " << total_time
           << " seconds, ins_num: " << total_ins_num << " batch_cnt:" << batch_cnt;
   for (size_t i = 0; i < op_name.size(); ++i) {
     VLOG(0) << "card:" << thread_id_ << ", i:" << i << ", op: " << op_name[i]
-            << ", mean time: " << op_total_time[i] / total_ins_num
-            << "s, totol time:" << op_total_time[i] << "sec";
-  }
-  VLOG(0) << "card: " << thread_id_ << " read time: " << read_time
-          << ", percent: " << read_time / total_time * 100;
-  return;
-}
-
-void PSGPUWorker::TrainFilesWithProfiler() {
-  platform::SetNumThreads(1);
-  VLOG(0) << "Begin to train files with profiler";
-  device_reader_->Start();
-  std::vector<double> op_total_time;
-  std::vector<std::string> op_name;
-  for (auto& op : ops_) {
-    bool need_skip = false;
-    for (auto t = 0u; t < skip_ops_.size(); ++t) {
-      if (op->Type().find(skip_ops_[t]) != std::string::npos) {
-        need_skip = true;
-        break;
-      }
-    }
-    if (!need_skip) {
-      op_name.push_back(op->Type());
-    }
-  }
-
-  VLOG(3) << "op name size: " << op_name.size();
-  op_total_time.resize(op_name.size());
-  for (size_t i = 0; i < op_total_time.size(); ++i) {
-    op_total_time[i] = 0.0;
-  }
-  platform::Timer timeline;
-  double total_time = 0.0;
-  double read_time = 0.0;
-  int total_ins_num = 0;
-  int cur_batch;
-  timeline.Start();
-  platform::SetDeviceId(place_.GetDeviceId());
-  while ((cur_batch = device_reader_->Next()) > 0) {
-    total_ins_num += cur_batch;
-    timeline.Pause();
-    read_time += timeline.ElapsedSec();
-    total_time += timeline.ElapsedSec();
-
-    int run_op_idx = 0;
-    dev_ctx_->Wait();
-    for (auto& op : ops_) {
-      bool need_skip = false;
-      for (auto t = 0u; t < skip_ops_.size(); ++t) {
-        if (op->Type().find(skip_ops_[t]) != std::string::npos) {
-          need_skip = true;
-          break;
-        }
-      }
-      if (!need_skip) {
-        timeline.Start();
-        VLOG(3) << "Going to run op " << op_name[run_op_idx];
-        op->Run(*thread_scope_, place_);
-        dev_ctx_->Wait();
-        VLOG(3) << "Op " << op_name[run_op_idx] << " Finished";
-        timeline.Pause();
-        op_total_time[run_op_idx++] += timeline.ElapsedSec();
-        total_time += timeline.ElapsedSec();
-      }
-    }
-    timeline.Start();
-    PrintFetchVars();
-    thread_scope_->DropKids();
-    dev_ctx_->Wait();
-    timeline.Pause();
-    total_time += timeline.ElapsedSec();
-    timeline.Start();
-  }
-  VLOG(0) << "GpuPs worker " << thread_id_ << " train cost " << total_time
-          << " seconds, ins_num: " << total_ins_num;
-  for (size_t i = 0; i < op_name.size(); ++i) {
-    VLOG(0) << "card:" << thread_id_ << ", op: " << op_name[i]
             << ", mean time: " << op_total_time[i] / total_ins_num
             << "s, totol time:" << op_total_time[i] << "sec";
   }

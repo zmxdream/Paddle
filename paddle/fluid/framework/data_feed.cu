@@ -45,7 +45,6 @@ __global__ void FillSlotValueOffsetKernel(
   CUDA_KERNEL_LOOP(slot_idx, used_slot_num) {
     int value_off = slot_idx * col_num;
     slot_value_offsets[value_off] = 0;
-
     auto &info = used_slots[slot_idx];
     if (info.is_uint64_value) {
       for (int k = 0; k < ins_num; ++k) {
@@ -90,11 +89,9 @@ __global__ void CopyForTensorKernel(
   int col_num = ins_num + 1;
   int uint64_cols = uint64_slot_size + 1;
   int float_cols = float_slot_size + 1;
-
   CUDA_KERNEL_LOOP(i, ins_num * used_slot_num) {
     int slot_idx = i / ins_num;
     int ins_idx = i % ins_num;
-
     uint32_t value_offset = slot_value_offsets[slot_idx * col_num + ins_idx];
     auto &info = used_slots[slot_idx];
     if (info.is_uint64_value) {
