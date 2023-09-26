@@ -405,6 +405,7 @@ paddle::framework::GpuPsCommGraphEdgeFea GraphTable::make_gpu_ps_graph_edge_fea(
               for (int t = 0; t < slot_num; ++t) {
                 auto feature_ids_size =
                   v->get_feature_ids(k, t, feature_array[i], slot_id_array[i]);
+                // VLOG(0)  << "[zmx debug] feature size:" << feature_ids_size;
                 total_feature_size += feature_ids_size;
               }
               x.feature_size = total_feature_size;
@@ -441,7 +442,8 @@ paddle::framework::GpuPsCommGraphEdgeFea GraphTable::make_gpu_ps_graph_edge_fea(
     }
     for (size_t j = 0; j < edge_array[i].size(); j++) {
       res.neighbor_list[offset + j] = edge_array[i][j];
-
+      // debug
+      res.fea_info_list[offset + j] = edge_fea_info_array[i][j];
       if (is_weighted_) {
         res.weight_list[offset + j] = weight_array[i][j];
       }

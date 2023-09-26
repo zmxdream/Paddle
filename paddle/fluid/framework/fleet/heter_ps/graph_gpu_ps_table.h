@@ -16,7 +16,7 @@
 #include <thrust/host_vector.h>
 
 #include <chrono>
-
+#include "paddle/fluid/framework/barrier.h"
 #include "paddle/fluid/distributed/ps/table/common_graph_table.h"
 #include "paddle/fluid/framework/fleet/heter_ps/gpu_graph_node.h"
 #include "paddle/fluid/framework/fleet/ps_gpu_wrapper.h"
@@ -66,7 +66,7 @@ class GpuPsGraphTable
     }
     gpu_num = resource_->total_device();
     memset(global_device_map, -1, sizeof(global_device_map));
-
+    
     tables_ = std::vector<Table *>(
         gpu_num * (graph_table_num_ + feature_table_num_ + float_feature_table_num_), NULL);
 
@@ -96,6 +96,8 @@ class GpuPsGraphTable
     for (int i = 0; i < gpu_num; i++) {
       device_mutex_[i] = new std::mutex();
     }
+    // debug
+    barrier_debug.reset(gpu_num);
   }
   ~GpuPsGraphTable() {
     for (size_t i = 0; i < device_mutex_.size(); ++i) {
@@ -352,6 +354,10 @@ class GpuPsGraphTable
   std::condition_variable cv_;
   int cpu_table_status;
   bool infer_mode_ = false;
+
+
+  // debug
+  Barrier barrier_debug;
 };
 
 };  // namespace framework

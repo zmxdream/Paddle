@@ -907,7 +907,6 @@ void GraphGpuWrapper::upload_batch(int table_type,
           g->build_graph_edge_float_fea_on_single_gpu(sub_graph, i, edge_idx, build_table, edge_feature_to_hbm);
           sub_graph.release_on_cpu();
         }
-
       } else {// keep consistent with origin implementation 
         GpuPsCommGraph sub_graph =
             g->cpu_graph_table_->make_gpu_ps_graph(edge_idx, ids[i]);

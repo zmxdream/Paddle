@@ -502,11 +502,19 @@ void HeterComm<KeyType, ValType, GradType, GPUAccessor>::destroy_storage(
   auto &nodes = path_[start_index][end_index].nodes_;
   for (size_t i = 0; i < nodes.size(); ++i) {
     platform::CUDADeviceGuard guard(resource_->dev_id(nodes[i].dev_num));
-
-    PADDLE_ENFORCE_GPU_SUCCESS(allocator->DeviceFree(
-        resource_->dev_id(nodes[i].dev_num), nodes[i].key_storage));
-    PADDLE_ENFORCE_GPU_SUCCESS(allocator->DeviceFree(
-        resource_->dev_id(nodes[i].dev_num), nodes[i].val_storage));
+    VLOG(0) << "[debug in destroy_storage] start_index:" << start_index << ", end_index:" << end_index << ", key_bytes_len:" << nodes[i].key_bytes_len << ", val_bytes_len:" << nodes[i].val_bytes_len;
+    if (nodes[i].key_storage) {
+      PADDLE_ENFORCE_GPU_SUCCESS(allocator->DeviceFree(
+          resource_->dev_id(nodes[i].dev_num), nodes[i].key_storage));
+      nodes[i].key_storage = nullptr;
+      nodes[i].key_bytes_len = 0;
+    }
+    if (nodes[i].val_storage) {
+      PADDLE_ENFORCE_GPU_SUCCESS(allocator->DeviceFree(
+          resource_->dev_id(nodes[i].dev_num), nodes[i].val_storage));
+      nodes[i].val_storage = nullptr;
+      nodes[i].val_bytes_len = 0;
+    }
   }
 #endif
 }
