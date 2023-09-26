@@ -895,7 +895,6 @@ class BoxPSWorker : public DeviceWorker {
   int thread_id_;
 
   std::vector<std::unique_ptr<OperatorBase>> ops_;
-  std::vector<std::unique_ptr<OperatorBase>> debug_remove_ops_;
   platform::DeviceContext* dev_ctx_ = nullptr;
 
   // dense async table
@@ -928,6 +927,8 @@ class BoxPSWorker : public DeviceWorker {
   std::vector<std::string> shard_dump_params_;
   std::vector<std::string> shard_dump_fields_;
   bool sharding_mode_ = false;
+  // op extend
+  std::unordered_set<const OperatorBase*> sync_points_;
 };
 #endif
 

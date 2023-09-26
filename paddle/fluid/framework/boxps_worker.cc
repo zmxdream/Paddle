@@ -48,9 +48,12 @@ PADDLE_DEFINE_EXPORTED_bool(enable_print_dump_field_debug,
 PADDLE_DEFINE_EXPORTED_bool(enable_print_dump_info_debug,
                             false,
                             "enable print dump info debug ,default false");
+PADDLE_DEFINE_EXPORTED_bool(
+    padbox_enable_sharding_stage,
+    false,
+    "enable sharding stage step1 only param and grad split, default false");
 namespace paddle {
 namespace framework {
-
 BoxPSAsynDenseTable::BoxPSAsynDenseTable(const int device_num)
     : device_num_(device_num) {
   int buffer_size = device_num * 4;  // magic number
@@ -639,6 +642,24 @@ void BoxPSWorker::BuildShardingDepends(const ProgramDesc& program) {
       break;
     }
   }
+  // stage1
+  if (FLAGS_padbox_enable_sharding_stage) {
+    bool starting = false;
+    for (auto& op_desc : all_desc) {
+      int op_role = op_desc->GetAttrIfExists<int>("op_role");
+      if (!starting && op_role == static_cast<int>(OpRole::kBackward)) {
+        starting = true;
+        continue;
+      }
+      if (op_desc->Type() != "c_broadcast") {
+        continue;
+      }
+      // remove backup broadcast
+      if (starting) {
+        remove_ops_.insert(op_desc);
+      }
+    }
+  }
 
   // reset dump param
   if (need_dump_param_ && dump_param_ != nullptr) {
@@ -683,6 +704,19 @@ void BoxPSWorker::BuildShardingDepends(const ProgramDesc& program) {
           << ", dump param count=" << shard_dump_params_.size()
           << ", dump fields count=" << shard_dump_fields_.size();
 }
+inline bool IsCommunicationOp(const std::string& op_name) {
+  if (op_name == "c_broadcast" || op_name == "c_reduce_sum" ||
+      op_name == "c_allreduce_sum") {
+    return true;
+  }
+  return false;
+}
+inline bool IsSyncStreamOp(const std::string& op_name) {
+  if (op_name == "c_sync_comm_stream" || op_name == "c_sync_calc_stream") {
+    return true;
+  }
+  return false;
+}
 void BoxPSWorker::CreateThreadOperators(const ProgramDesc& program) {
   auto& block = program.Block(0);
   skip_vars_.push_back("rank_offset");  // for op rank_attention2_grad or others
@@ -696,8 +730,7 @@ void BoxPSWorker::CreateThreadOperators(const ProgramDesc& program) {
     }
     std::string op_name = op_desc->Type();
     // single stream not need sync
-    if (op_name ==
-        "c_sync_comm_stream" /**|| op_name == "c_sync_calc_stream"*/) {
+    if (IsSyncStreamOp(op_name)) {
       continue;
     }
     // skip feed fetch op
@@ -711,12 +744,30 @@ void BoxPSWorker::CreateThreadOperators(const ProgramDesc& program) {
     }
     ops_.push_back(OpRegistry::CreateOp(*op_desc));
     // change to device stream
-    if (op_name == "c_broadcast" || op_name == "c_reduce_sum" ||
-        op_name == "c_allreduce_sum") {
+    if (IsCommunicationOp(op_name)) {
       ops_[op_index]->SetAttr("use_calc_stream", true);
     }
     ++op_index;
   }
+  // add stream sync point
+  bool find = false;
+  for (size_t op_id = 0; op_id < ops_.size(); ++op_id) {
+    auto& op = ops_[op_id];
+    std::string op_name = op->Type();
+    if (!IsCommunicationOp(op_name)) {
+      if (find) {
+        find = false;
+        sync_points_.insert(op.get());
+      }
+      continue;
+    }
+    if (find) {
+      continue;
+    }
+    find = true;
+    sync_points_.insert(op.get());
+  }
+
   // skip dump fields
   if (need_dump_field_ && dump_fields_ != nullptr) {
     skip_vars_.insert(
@@ -736,8 +787,12 @@ void BoxPSWorker::CreateThreadOperators(const ProgramDesc& program) {
   }
   if (FLAGS_padbox_enable_gc) {
     // add op gc vars
-    unused_vars_ = GetUnusedVars(
-        block, ops_, skip_vars_, &unpersist_vars_, sharding_mode_);
+    unused_vars_ =
+        GetUnusedVars(block,
+                      ops_,
+                      skip_vars_,
+                      &unpersist_vars_,
+                      (sharding_mode_ && !FLAGS_padbox_enable_sharding_stage));
   }
   VLOG(3) << "device[" << device_id_ << "] total op count=" << block.OpSize()
           << ", create op count=" << ops_.size()
@@ -1061,7 +1116,6 @@ void BoxPSWorker::TrainFiles() {
     VLOG(2) << "[" << device_id_
             << "]begin running ops, batch size:" << batch_size
             << ", batch id=" << step;
-
     if (dense_table_) {
       dense_table_->PullDense(place_, &param_async_);
     }
@@ -1069,6 +1123,10 @@ void BoxPSWorker::TrainFiles() {
       if (FLAGS_padbox_enable_print_op_debug) {
         VLOG(0) << "thread id=" << thread_id_ << ", "
                 << op->DebugStringEx(thread_scope_);
+      }
+      // add stream sync
+      if (sync_points_.find(op.get()) != sync_points_.end()) {
+        dev_ctx_->Wait();
       }
       op->Run(*thread_scope_, place_);
       if (gc) {
@@ -1154,7 +1212,6 @@ void BoxPSWorker::TrainFilesWithProfiler() {
   outer_timer.Start();
   while (true) {
     main_timer.Resume();
-
     reader_timer.Resume();
     batch_size = PackBatchTask();
     reader_timer.Pause();
