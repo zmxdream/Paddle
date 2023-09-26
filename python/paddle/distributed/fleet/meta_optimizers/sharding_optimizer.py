@@ -1956,10 +1956,11 @@ class ThreadShardingOptimizer(ShardingOptimizer):
         self.role_id = self.role_maker._role_id()
         self.node_nums = self.role_maker._node_num()
         startup_block = self._startup_program.global_block()
-        node_nums = len(self.global_endpoints)
-        assert (
-            self.node_nums == node_nums
-        ), "end points not equal node nums"
+        if self.node_nums > 1:
+            node_nums = len(self.global_endpoints)
+            assert (
+                self.node_nums == node_nums
+            ), "end points not equal node nums"
         self.current_endpoint = self.global_endpoints[self.role_id]
         
         # mp ring
@@ -1995,10 +1996,10 @@ class ThreadShardingOptimizer(ShardingOptimizer):
         startup_block._sync_with_cpp()
 
     def _wait(self):
-        if len(self.global_endpoints) <= 1:
+        if self.node_nums <= 1:
             return
         endpoints = self.global_endpoints[:]
-        current_endpoint = endpoints[self.role_maker._role_id()]
+        current_endpoint = endpoints[self.role_id]
         if self.global_rank == 0:
             from paddle.fluid.transpiler.details import wait_server_ready
             endpoints.remove(current_endpoint)
@@ -2012,10 +2013,9 @@ class ThreadShardingOptimizer(ShardingOptimizer):
         role_id,
         ring_id
     ):
-        nranks = len(endpoints)
         block = program.global_block()
         # init mulit node nccl
-        if nranks > 1:
+        if self.node_nums > 1:
             other_endpoints = endpoints[:]
             other_endpoints.remove(current_endpoint)
             
@@ -2040,7 +2040,7 @@ class ThreadShardingOptimizer(ShardingOptimizer):
                 inputs={'X': nccl_id_var},
                 outputs={},
                 attrs={
-                    'ntrainers': nranks,
+                    'ntrainers': self.node_nums,
                     'trainer_id': role_id,
                     'ring_id': ring_id,
                     self.op_role_key: OpRole.Forward,
