@@ -168,13 +168,16 @@ GetUnusedVars2(const BlockDesc &block,
   std::unordered_map<std::string, size_t> temp_ref;
   for (size_t i = 0; i < ops.size(); ++i) {
     auto *op = ops[i].get();
+    bool check_out_gc = (op->Type() == "c_broadcast");
     for (auto &name_pair : op->Inputs()) {
       for (auto &name : name_pair.second) {
         if (!VarCanBeDeleted(name, block, skip_vars, unpersist_vars)) {
           continue;
         }
         add_name_ref(name, &names_ref);
-        add_name_ref(name, &temp_ref);
+        if (check_out_gc) {
+          add_name_ref(name, &temp_ref);
+        }
       }
     }
     for (auto &name_pair : op->Outputs()) {
@@ -183,8 +186,9 @@ GetUnusedVars2(const BlockDesc &block,
           continue;
         }
         size_t n = add_name_ref(name, &names_ref);
+        size_t out_ref = add_name_ref(name, &output_names_ref);
         // more than one time
-        if (add_name_ref(name, &output_names_ref) > 1) {
+        if (out_ref > 1 && check_out_gc) {
           auto it = temp_ref.find(name);
           if (it != temp_ref.end()) {
             n = n - it->second - 1;

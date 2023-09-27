@@ -50,7 +50,7 @@ PADDLE_DEFINE_EXPORTED_bool(enable_print_dump_info_debug,
                             "enable print dump info debug ,default false");
 PADDLE_DEFINE_EXPORTED_bool(
     padbox_enable_sharding_stage,
-    false,
+    true,
     "enable sharding stage step1 only param and grad split, default false");
 namespace paddle {
 namespace framework {
@@ -665,18 +665,23 @@ void BoxPSWorker::BuildShardingDepends(const ProgramDesc& program) {
   }
   // stage1
   if (FLAGS_padbox_enable_sharding_stage) {
-    bool starting = false;
+    std::multiset<std::string> broadcast_vars;
     for (auto& op_desc : all_desc) {
-      int op_role = op_desc->GetAttrIfExists<int>("op_role");
-      if (!starting && op_role == static_cast<int>(OpRole::kBackward)) {
-        starting = true;
-        continue;
-      }
       if (op_desc->Type() != "c_broadcast") {
         continue;
       }
-      // remove backup broadcast
-      if (starting) {
+      bool find = false;
+      for (auto& o : op_desc->Inputs()) {
+        for (auto& name : o.second) {
+          auto it = broadcast_vars.find(name);
+          if (it != broadcast_vars.end()) {
+            find = true;
+            continue;
+          }
+          broadcast_vars.insert(name);
+        }
+      }
+      if (find) {
         remove_ops_.insert(op_desc);
       }
     }
