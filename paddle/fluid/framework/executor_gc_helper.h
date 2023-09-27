@@ -49,10 +49,12 @@ struct OpInOutInfo {
 std::unordered_map<const OperatorBase *, std::vector<std::string>>
 GetUnusedVars(const BlockDesc &block,
               const std::vector<std::unique_ptr<OperatorBase>> &ops,
-              const std::vector<std::string> &skip_var_list,
-              const std::multiset<std::string> *unpersist_vars = nullptr,
-              bool is_shard_for_thread_mode = false);
-
+              const std::vector<std::string> &skip_vars);
+std::unordered_map<const OperatorBase *, std::vector<std::string>>
+GetUnusedVars2(const BlockDesc &block,
+               const std::vector<std::unique_ptr<OperatorBase>> &ops,
+               const std::vector<std::string> &skip_var_list,
+               const std::multiset<std::string> *unpersist_vars);
 // Collect unused tensors
 void DeleteUnusedTensors(const Scope &scope,
                          const std::vector<std::string> &delete_vars,

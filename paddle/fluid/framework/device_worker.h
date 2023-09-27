@@ -847,6 +847,25 @@ class BoxPSAsynDenseTable {
 };
 
 class BoxPSWorker : public DeviceWorker {
+  struct MemoryShareTensor {
+    int64_t offset_ = 0;
+    phi::DenseTensor* data_tensor_ = nullptr;
+    // init
+    void init(const std::string& name,
+              const platform::Place& place,
+              const int64_t& total_len,
+              Scope* root_scope);
+    // share
+    phi::DenseTensor& share(phi::DenseTensor* gpu_tensor, const size_t& len);
+    template <typename T>
+    T* data() {
+      return data_tensor_->data<T>();
+    }
+    phi::DenseTensor& tensor() { return *data_tensor_; }
+    // numel
+    int64_t numel(void) { return data_tensor_->numel(); }
+  };
+
  public:
   BoxPSWorker() {}
   ~BoxPSWorker() override {}
@@ -880,7 +899,9 @@ class BoxPSWorker : public DeviceWorker {
   int64_t AllocParamTensorAsync(const ProgramDesc& program);
   void SyncParam(void);
   void BuildShardingDepends(const ProgramDesc& program);
-  void CreateThreadScope(const ProgramDesc& program);
+  void CreateThreadScopeForAsync(const ProgramDesc& program);
+  void CreateThreadScopeForSharding(const ProgramDesc& program);
+  void CreateThreadScopeForNorm(const ProgramDesc& program);
   void CreateThreadOperators(const ProgramDesc& program);
   int IsParameter(const std::string& name, bool full_match);
 
@@ -899,9 +920,9 @@ class BoxPSWorker : public DeviceWorker {
 
   // dense async table
   BoxPSAsynDenseTable* dense_table_ = nullptr;
-  Tensor param_async_;
-  Tensor grad_async_;
-  Tensor param_sync_;
+  MemoryShareTensor param_async_;
+  MemoryShareTensor grad_async_;
+  MemoryShareTensor param_sync_;
   std::set<std::string> async_param_name_;
   int param_sync_step_ = 0;
   int sync_mode_ = 0;
@@ -911,7 +932,6 @@ class BoxPSWorker : public DeviceWorker {
 
   // skip vars
   std::vector<std::string> skip_vars_;
-  std::vector<std::string> skip_ops_;
   std::unordered_map<const OperatorBase*, std::vector<std::string>>
       unused_vars_;
   int nccl_rank_id_ = 0;

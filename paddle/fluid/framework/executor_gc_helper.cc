@@ -61,10 +61,11 @@ bool OpInOutInfo::IsInArgBufferNeeded(const std::string &in_arg_name) const {
   return no_need_buffer_ins_.empty() || other_args_set_.count(in_arg_name) != 0;
 }
 
-static bool VarCanBeDeleted(const std::string &name,
-                            const BlockDesc &block,
-                            const std::unordered_set<std::string> &skip_vars,
-                            const std::multiset<std::string> *unpersist_vars) {
+static bool VarCanBeDeleted(
+    const std::string &name,
+    const BlockDesc &block,
+    const std::unordered_set<std::string> &skip_vars,
+    const std::multiset<std::string> *unpersist_vars = nullptr) {
   if (skip_vars.count(name) != 0) {
     return false;
   }
@@ -91,40 +92,20 @@ static bool VarCanBeDeleted(const std::string &name,
 std::unordered_map<const OperatorBase *, std::vector<std::string>>
 GetUnusedVars(const BlockDesc &block,
               const std::vector<std::unique_ptr<OperatorBase>> &ops,
-              const std::vector<std::string> &skip_var_list,
-              const std::multiset<std::string> *unpersist_vars,
-              bool is_shard_for_thread_mode) {
+              const std::vector<std::string> &skip_var_list) {
   std::unordered_set<std::string> skip_vars(skip_var_list.begin(),
                                             skip_var_list.end());
 
   std::unordered_map<std::string, size_t> var_op_idx_map;
-  std::unordered_map<std::string, std::string> old_to_new;
-  std::unordered_map<std::string, std::string> new_to_old;
+
   for (size_t i = 0; i < ops.size(); ++i) {
     auto *op = ops[i].get();
 
     OpInOutInfo info;
     for (auto &name_pair : op->Inputs()) {
       for (auto &name : name_pair.second) {
-        if (!VarCanBeDeleted(name, block, skip_vars, unpersist_vars)) {
+        if (!VarCanBeDeleted(name, block, skip_vars)) {
           continue;
-        }
-        bool is_unpersist_var = false;
-        if (is_shard_for_thread_mode) {
-          if (unpersist_vars->find(name) != unpersist_vars->end()) {
-            is_unpersist_var = true;
-            if (op->Type() == std::string("c_broadcast")) {
-              auto it = old_to_new.find(name);
-              if (it == old_to_new.end()) {
-                old_to_new[name] = name;
-                new_to_old[name] = name;
-              } else {
-                std::string new_name = it->second + std::string("_");
-                old_to_new[name] = new_name;
-                new_to_old[new_name] = name;
-              }
-            }
-          }
         }
 
         // var can be gc-ed
@@ -134,11 +115,7 @@ GetUnusedVars(const BlockDesc &block,
 
         if (info.IsInArgBufferNeeded(name)) {
           // Update the last living op of variable to current op
-          if (is_unpersist_var && old_to_new.count(name) > 0) {
-            var_op_idx_map[old_to_new[name]] = i;
-          } else {
-            var_op_idx_map[name] = i;
-          }
+          var_op_idx_map[name] = i;
         } else {
           VLOG(10) << "Skip reference count computing of variable "
                    << name_pair.first << "(" << name << ") in Operator "
@@ -149,13 +126,9 @@ GetUnusedVars(const BlockDesc &block,
 
     for (auto &name_pair : op->Outputs()) {
       for (auto &name : name_pair.second) {
-        if (VarCanBeDeleted(name, block, skip_vars, unpersist_vars)) {
+        if (VarCanBeDeleted(name, block, skip_vars)) {
           // Update the last living op of variable to current op
-          if (is_shard_for_thread_mode && old_to_new.count(name) > 0) {
-            var_op_idx_map[old_to_new[name]] = i;
-          } else {
-            var_op_idx_map[name] = i;
-          }
+          var_op_idx_map[name] = i;
         }
       }
     }
@@ -165,81 +138,117 @@ GetUnusedVars(const BlockDesc &block,
   for (auto &name_op_idx_pair : var_op_idx_map) {
     auto &name = name_op_idx_pair.first;
     size_t op_idx = name_op_idx_pair.second;
-    if (is_shard_for_thread_mode && new_to_old.count(name) > 0) {
-      result[ops[op_idx].get()].emplace_back(new_to_old[name]);
-    } else {
-      result[ops[op_idx].get()].emplace_back(name);
-    }
+    result[ops[op_idx].get()].emplace_back(name);
   }
   return result;
 }
 
-// std::unordered_map<const OperatorBase *, std::vector<std::string>>
-// GetUnusedVars2(const BlockDesc &block,
-//               const std::vector<std::unique_ptr<OperatorBase>> &ops,
-//               const std::vector<std::string> &skip_var_list) {
-//   std::unordered_set<std::string> skip_vars(skip_var_list.begin(),
-//                                             skip_var_list.end());
-//   // get refs
-//   std::unordered_map<std::string, size_t> names_ref;
-//   for (size_t i = 0; i < ops.size(); ++i) {
-//     auto *op = ops[i].get();
-//     for (auto &name_pair : op->Inputs()) {
-//       for (auto &name : name_pair.second) {
-//         if (!VarCanBeDeleted(name, block, skip_vars)) {
-//           continue;
-//         }
-//         auto it = names_ref.find(name);
-//         if (it != names_ref.end()) {
-//           ++it->second;
-//         } else {
-//           names_ref[name] = 1;
-//         }
-//       }
-//     }
-//     for (auto &name_pair : op->Outputs()) {
-//       for (auto &name : name_pair.second) {
-//         if (!VarCanBeDeleted(name, block, skip_vars)) {
-//           continue;
-//         }
-//         auto it = names_ref.find(name);
-//         if (it != names_ref.end()) {
-//           ++it->second;
-//         } else {
-//           names_ref[name] = 1;
-//         }
-//       }
-//     }
-//   }
-//   // dec refs
-//   std::unordered_map<const OperatorBase *, std::vector<std::string>> result;
-//   for (size_t i = 0; i < ops.size(); ++i) {
-//     auto *op = ops[i].get();
-//     for (auto &name_pair : op->Inputs()) {
-//       for (auto &name : name_pair.second) {
-//         auto it = names_ref.find(name);
-//         if (it == names_ref.end()) {
-//           continue;
-//         }
-//         if (--it->second == 0) {
-//           result[op].push_back(name);
-//         }
-//       }
-//     }
-//     for (auto &name_pair : op->Outputs()) {
-//       for (auto &name : name_pair.second) {
-//         auto it = names_ref.find(name);
-//         if (it == names_ref.end()) {
-//           continue;
-//         }
-//         if (--it->second == 0) {
-//           result[op].push_back(name);
-//         }
-//       }
-//     }
-//   }
-//   return result;
-// }
+std::unordered_map<const OperatorBase *, std::vector<std::string>>
+GetUnusedVars2(const BlockDesc &block,
+               const std::vector<std::unique_ptr<OperatorBase>> &ops,
+               const std::vector<std::string> &skip_var_list,
+               const std::multiset<std::string> *unpersist_vars) {
+  std::unordered_set<std::string> skip_vars(skip_var_list.begin(),
+                                            skip_var_list.end());
+  // get refs
+  std::unordered_map<std::string, size_t> names_ref;
+  std::unordered_map<std::string, size_t> output_names_ref;
+  std::unordered_map<std::string, std::vector<size_t>> names_points;
+  auto add_name_ref =
+      [&](const std::string &name,
+          std::unordered_map<std::string, size_t> *refs) -> size_t {
+    auto it = refs->find(name);
+    if (it != refs->end()) {
+      return (++it->second);
+    }
+    (*refs)[name] = 1;
+    return 1;
+  };
+
+  std::unordered_map<std::string, size_t> temp_ref;
+  for (size_t i = 0; i < ops.size(); ++i) {
+    auto *op = ops[i].get();
+    for (auto &name_pair : op->Inputs()) {
+      for (auto &name : name_pair.second) {
+        if (!VarCanBeDeleted(name, block, skip_vars, unpersist_vars)) {
+          continue;
+        }
+        add_name_ref(name, &names_ref);
+        add_name_ref(name, &temp_ref);
+      }
+    }
+    for (auto &name_pair : op->Outputs()) {
+      for (auto &name : name_pair.second) {
+        if (!VarCanBeDeleted(name, block, skip_vars, unpersist_vars)) {
+          continue;
+        }
+        size_t n = add_name_ref(name, &names_ref);
+        // more than one time
+        if (add_name_ref(name, &output_names_ref) > 1) {
+          auto it = temp_ref.find(name);
+          if (it != temp_ref.end()) {
+            n = n - it->second - 1;
+          }
+          auto itx = names_points.find(name);
+          if (itx != names_points.end()) {
+            itx->second.push_back(n);
+          } else {
+            std::vector<size_t> vec;
+            vec.push_back(n);
+            names_points.insert(std::make_pair(name, vec));
+          }
+        }
+      }
+    }
+    temp_ref.clear();
+  }
+  output_names_ref.clear();
+
+  auto dec_name_ref =
+      [&](const std::string &name,
+          std::unordered_map<std::string, size_t> *refs) -> bool {
+    auto it = refs->find(name);
+    if (it == refs->end()) {
+      return false;
+    }
+    return (--it->second == 0);
+  };
+  // dec refs
+  std::unordered_map<const OperatorBase *, std::vector<std::string>> result;
+  for (size_t i = 0; i < ops.size(); ++i) {
+    auto *op = ops[i].get();
+    for (auto &name_pair : op->Inputs()) {
+      for (auto &name : name_pair.second) {
+        size_t n = add_name_ref(name, &temp_ref);
+        if (dec_name_ref(name, &names_ref)) {
+          result[op].push_back(name);
+        } else {
+          auto it = output_names_ref.find(name);
+          if (it == output_names_ref.end()) {
+            continue;
+          }
+          auto itx = names_points.find(name);
+          if (itx == names_points.end()) {
+            continue;
+          }
+          if (itx->second[it->second - 1] == n) {
+            result[op].push_back(name);
+          }
+        }
+      }
+    }
+    for (auto &name_pair : op->Outputs()) {
+      for (auto &name : name_pair.second) {
+        if (dec_name_ref(name, &names_ref)) {
+          result[op].push_back(name);
+        }
+        add_name_ref(name, &temp_ref);
+        add_name_ref(name, &output_names_ref);
+      }
+    }
+  }
+  return result;
+}
 
 void DeleteUnusedTensors(const Scope &scope,
                          const std::vector<std::string> &delete_vars,

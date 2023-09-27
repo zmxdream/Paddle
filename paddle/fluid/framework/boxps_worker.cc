@@ -365,6 +365,27 @@ void BoxPSAsynDenseTable::InitThreadGroup() {
   thread_pool.reset(new paddle::framework::ThreadPool(thread_num_));
 }
 //======================== BoxPSWorker ======================
+// init
+void BoxPSWorker::MemoryShareTensor::init(const std::string& name,
+                                          const platform::Place& place,
+                                          const int64_t& total_len,
+                                          Scope* root_scope) {
+  char szname[512] = {0};
+  snprintf(szname,
+           sizeof(szname),
+           "paddlebox_boxps_worker_share_%s_%d",
+           name.c_str(),
+           place.GetDeviceId());
+  data_tensor_ = root_scope->Var(szname)->GetMutable<phi::DenseTensor>();
+  data_tensor_->mutable_data<float>({total_len, 1}, place);
+}
+// share
+phi::DenseTensor& BoxPSWorker::MemoryShareTensor::share(
+    phi::DenseTensor* gpu_tensor, const size_t& len) {
+  gpu_tensor->ShareDataWith(data_tensor_->Slice(offset_, offset_ + len));
+  offset_ += len;
+  return *gpu_tensor;
+}
 static const int DenseKStepNode = 1;
 static const int DenseKStepALL = 2;
 static const int DenseDataNormal = 3;
@@ -475,7 +496,7 @@ int64_t BoxPSWorker::AllocParamTensor(const ProgramDesc& program,
           << ", sync length:" << all_sync_param_len
           << ", sync mode:" << sync_mode_ << ", node size:" << node_size_
           << ", device num:" << device_num_ << ", one ring:" << one_ring_;
-  param_sync_.mutable_data<float>({all_sync_param_len, 1}, place_);
+  param_sync_.init("total_param_sync", place_, all_sync_param_len, root_scope_);
   return total_param_len;
 }
 
@@ -501,8 +522,8 @@ int64_t BoxPSWorker::AllocParamTensorAsync(const ProgramDesc& program) {
   CHECK(total_param_len > 0) << "error param total zero";
   CHECK(dense_table_->GetParamTotalLen() == total_param_len);
 
-  param_async_.mutable_data<float>({total_param_len, 1}, place_);
-  grad_async_.mutable_data<float>({total_param_len, 1}, place_);
+  param_async_.init("total_param_async", place_, total_param_len, root_scope_);
+  grad_async_.init("total_grad_async", place_, total_param_len, root_scope_);
   return total_param_len;
 }
 
@@ -719,7 +740,6 @@ inline bool IsSyncStreamOp(const std::string& op_name) {
 }
 void BoxPSWorker::CreateThreadOperators(const ProgramDesc& program) {
   auto& block = program.Block(0);
-  skip_vars_.push_back("rank_offset");  // for op rank_attention2_grad or others
 
   size_t op_index = 0;
   auto ops_descs = block.AllOps();
@@ -787,54 +807,187 @@ void BoxPSWorker::CreateThreadOperators(const ProgramDesc& program) {
   }
   if (FLAGS_padbox_enable_gc) {
     // add op gc vars
-    unused_vars_ =
-        GetUnusedVars(block,
-                      ops_,
-                      skip_vars_,
-                      &unpersist_vars_,
-                      (sharding_mode_ && !FLAGS_padbox_enable_sharding_stage));
+    unused_vars_ = GetUnusedVars2(block, ops_, skip_vars_, &unpersist_vars_);
   }
   VLOG(3) << "device[" << device_id_ << "] total op count=" << block.OpSize()
           << ", create op count=" << ops_.size()
           << ", skip vars count=" << skip_vars_.size()
           << ", unused vars count=" << unused_vars_.size();
 }
-void BoxPSWorker::CreateThreadScope(const ProgramDesc& program) {
-  int64_t pad_len = 0;
-  if (sync_mode_ > 0) {
-    AllocParamTensor(program, &pad_len);
-  } else if (dense_table_) {
-    AllocParamTensorAsync(program);
-  }
+void BoxPSWorker::CreateThreadScopeForAsync(const ProgramDesc& program) {
+  AllocParamTensorAsync(program);
 
   thread_scope_ = &(root_scope_->NewScope());
 
-  int64_t offset = 0;
-  int64_t grad_offset = 0;
   // make param and param@GRAD in same order
   auto& block = program.Block(0);
   std::vector<VarDesc*> sorted_var = block.AllVars();
-  if (dense_table_) {
-    std::sort(sorted_var.begin(),
-              sorted_var.end(),
-              [](const VarDesc* var1, const VarDesc* var2) {
-                std::string var1_name = var1->Name();
-                std::string var2_name = var2->Name();
-                if (var1_name.find("param") != std::string::npos &&
-                    var2_name.find("param") == std::string::npos) {
-                  return true;
-                } else if (var1_name.find("param") == std::string::npos &&
-                           var2_name.find("param") != std::string::npos) {
-                  return false;
-                } else {
-                  return var1->Name() < var2->Name();
-                }
-              });
-  }
+  std::sort(sorted_var.begin(),
+            sorted_var.end(),
+            [](const VarDesc* var1, const VarDesc* var2) {
+              std::string var1_name = var1->Name();
+              std::string var2_name = var2->Name();
+              if (var1_name.find("param") != std::string::npos &&
+                  var2_name.find("param") == std::string::npos) {
+                return true;
+              } else if (var1_name.find("param") == std::string::npos &&
+                         var2_name.find("param") != std::string::npos) {
+                return false;
+              } else {
+                return var1->Name() < var2->Name();
+              }
+            });
 
   // init var and copy persistable
   int grad_var_num = 0;
   int var_num = 0;
+  int persistable_num = 0;
+  int64_t total_persistable_len = 0;
+  int param_total = 0;
+
+  for (auto& var : sorted_var) {
+    std::string name = var->Name();
+    ++param_total;
+    if (!var->Persistable()) {
+      if (async_param_name_.find(name) != async_param_name_.end()) {
+        // parm@GRAD can not find in root_scope_  use parm length replace
+        VLOG(3) << "device[" << device_id_ << "] grad var name " << name;
+        const LoDTensor& root_tensor =
+            root_scope_->FindVar(name.substr(0, name.length() - 5))
+                ->Get<LoDTensor>();
+        LoDTensor* gpu_tensor =
+            thread_scope_->Var(name)->GetMutable<LoDTensor>();
+        auto dim = root_tensor.dims();
+        size_t len = root_tensor.numel();
+        grad_async_.share(gpu_tensor, len).Resize(dim);
+        grad_var_num += 1;
+        skip_vars_.push_back(name);
+      } else {
+        auto* ptr = thread_scope_->Var(name);
+        InitializeVariable(ptr, var->GetType());
+      }
+    } else {
+      Variable* root_var = root_scope_->FindVar(name);
+      if (!root_var) {
+        VLOG(0) << "not found var name=" << name;
+        continue;
+      }
+      if (root_var->IsType<phi::SelectedRows>()) {
+        continue;
+      }
+      phi::DenseTensor* root_tensor = root_var->GetMutable<phi::DenseTensor>();
+      size_t len = root_tensor->numel();
+      ++persistable_num;
+      total_persistable_len += len;
+
+      LoDTensor* gpu_tensor = thread_scope_->Var(name)->GetMutable<LoDTensor>();
+      if (async_param_name_.find(name) != async_param_name_.end()) {
+        VLOG(3) << "device[" << device_id_ << "] Persistable var name " << name;
+        auto dim = root_tensor->dims();
+        param_async_.share(gpu_tensor, len).Resize(dim);
+        var_num += 1;
+        skip_vars_.push_back(name);
+      }
+      // only support copy
+      TensorCopy(*static_cast<const Tensor*>(root_tensor),
+                 place_,
+                 static_cast<Tensor*>(gpu_tensor));
+    }
+  }
+  VLOG(0) << "device[" << device_id_ << "] total param count=" << param_total
+          << ", persistable=" << persistable_num << "("
+          << total_persistable_len / 262144.0 << "MB)"
+          << ", param_async_ offset:" << param_async_.offset_
+          << ", grad_offset: " << grad_async_.offset_
+          << ", var_num: " << var_num << ", grad_var_num: " << grad_var_num;
+  CHECK(param_async_.offset_ <= param_async_.numel());
+  CHECK(grad_async_.offset_ <= grad_async_.numel());
+}
+void BoxPSWorker::CreateThreadScopeForNorm(const ProgramDesc& program) {
+  int64_t pad_len = 0;
+  if (sync_mode_ > 0) {
+    AllocParamTensor(program, &pad_len);
+  }
+  thread_scope_ = &(root_scope_->NewScope());
+
+  auto& block = program.Block(0);
+  std::vector<VarDesc*> all_vars = block.AllVars();
+
+  // init var and copy persistable
+  int persistable_num = 0;
+  int share_var_num = 0;
+  int64_t share_persistable_len = 0;
+  int64_t total_persistable_len = 0;
+  int param_total = 0;
+  int copy_persist_num = 0;
+
+  for (auto& var : all_vars) {
+    std::string name = var->Name();
+    ++param_total;
+    if (var->Persistable()) {
+      Variable* root_var = root_scope_->FindVar(name);
+      if (!root_var) {
+        VLOG(0) << "not found var name=" << name;
+        continue;
+      }
+      if (root_var->IsType<phi::SelectedRows>()) {
+        continue;
+      }
+      phi::DenseTensor* root_tensor = root_var->GetMutable<phi::DenseTensor>();
+      size_t len = root_tensor->numel();
+      ++persistable_num;
+      total_persistable_len += len;
+
+      LoDTensor* gpu_tensor = thread_scope_->Var(name)->GetMutable<LoDTensor>();
+      if (sync_mode_ > 0) {
+        if (CheckNeedParam(var)) {
+          auto dim = root_tensor->dims();
+          param_sync_.share(gpu_tensor, len).Resize(dim);
+          skip_vars_.push_back(name);
+          // add copy back to root scope
+          if (device_id_ == 0) {
+            need_copy_vars_.push_back(name);
+          }
+        }
+      }
+      // data norm copy and learning rate
+      if (!gpu_tensor->initialized() && place_ == root_tensor->place()) {
+        auto dim = root_tensor->dims();
+        gpu_tensor->ShareDataWith(*root_tensor).Resize(dim);
+        ++share_var_num;
+        share_persistable_len += len;
+      } else {
+        TensorCopy(*static_cast<const Tensor*>(root_tensor),
+                   place_,
+                   static_cast<Tensor*>(gpu_tensor));
+        ++copy_persist_num;
+      }
+    } else {
+      auto* ptr = thread_scope_->Var(name);
+      InitializeVariable(ptr, var->GetType());
+    }
+  }
+  if (sync_mode_ > 0) {
+    CHECK(param_sync_.offset_ <= (param_sync_.numel() - pad_len));
+  }
+  VLOG(0) << "device[" << device_id_ << "] total param count=" << param_total
+          << ", persistable=[total:" << persistable_num << "("
+          << total_persistable_len / 262144.0 << "MB)"
+          << ", share:" << share_var_num << "("
+          << share_persistable_len / 262144.0 << "MB)"
+          << ", copy:" << copy_persist_num << "]";
+}
+void BoxPSWorker::CreateThreadScopeForSharding(const ProgramDesc& program) {
+  int64_t pad_len = 0;
+  if (sync_mode_ > 0) {
+    AllocParamTensor(program, &pad_len);
+  }
+  thread_scope_ = &(root_scope_->NewScope());
+
+  auto& block = program.Block(0);
+  std::vector<VarDesc*> all_vars = block.AllVars();
+
+  // init var and copy persistable
   int persistable_num = 0;
   int share_var_num = 0;
   int64_t share_persistable_len = 0;
@@ -846,7 +999,8 @@ void BoxPSWorker::CreateThreadScope(const ProgramDesc& program) {
   int64_t real_persist_len = 0;
   int real_persist_num = 0;
   int delete_vars_num = 0;
-  for (auto& var : sorted_var) {
+
+  for (auto& var : all_vars) {
     std::string name = var->Name();
     all_vars_.push_back(name);
     if (remove_vars_.find(name) != remove_vars_.end()) {
@@ -855,29 +1009,7 @@ void BoxPSWorker::CreateThreadScope(const ProgramDesc& program) {
     }
     thread_vars_.push_back(name);
     ++param_total;
-    if (!var->Persistable()) {
-      if (dense_table_ &&
-          async_param_name_.find(name) != async_param_name_.end()) {
-        // parm@GRAD can not find in root_scope_  use parm length replace
-        VLOG(3) << "device[" << device_id_ << "] grad var name " << name;
-        const LoDTensor& root_tensor =
-            root_scope_->FindVar(name.substr(0, name.length() - 5))
-                ->Get<LoDTensor>();
-        LoDTensor* gpu_tensor =
-            thread_scope_->Var(name)->GetMutable<LoDTensor>();
-        auto dim = root_tensor.dims();
-        size_t len = root_tensor.numel();
-        gpu_tensor
-            ->ShareDataWith(grad_async_.Slice(grad_offset, grad_offset + len))
-            .Resize(dim);
-        grad_offset += len;
-        grad_var_num += 1;
-        skip_vars_.push_back(name);
-      } else {
-        auto* ptr = thread_scope_->Var(name);
-        InitializeVariable(ptr, var->GetType());
-      }
-    } else {
+    if (var->Persistable()) {
       Variable* root_var = root_scope_->FindVar(name);
       if (!root_var) {
         VLOG(0) << "not found var name=" << name;
@@ -916,20 +1048,7 @@ void BoxPSWorker::CreateThreadScope(const ProgramDesc& program) {
       if (sync_mode_ > 0) {
         if (CheckNeedParam(var)) {
           auto dim = root_tensor->dims();
-          gpu_tensor->ShareDataWith(param_sync_.Slice(offset, offset + len))
-              .Resize(dim);
-          offset += len;
-          skip_vars_.push_back(name);
-        }
-      } else if (dense_table_) {
-        if (async_param_name_.find(name) != async_param_name_.end()) {
-          VLOG(3) << "device[" << device_id_ << "] Persistable var name "
-                  << name;
-          auto dim = root_tensor->dims();
-          gpu_tensor->ShareDataWith(param_async_.Slice(offset, offset + len))
-              .Resize(dim);
-          offset += len;
-          var_num += 1;
+          param_sync_.share(gpu_tensor, len).Resize(dim);
           skip_vars_.push_back(name);
         }
       }
@@ -957,19 +1076,19 @@ void BoxPSWorker::CreateThreadScope(const ProgramDesc& program) {
                      place_,
                      static_cast<Tensor*>(gpu_tensor));
           ++copy_persist_num;
+          // device 0 need sync datanorm and learning rate to root scope
+          if (device_id_ == 0) {
+            need_copy_vars_.push_back(name);
+          }
         }
       }
+    } else {
+      auto* ptr = thread_scope_->Var(name);
+      InitializeVariable(ptr, var->GetType());
     }
   }
   if (sync_mode_ > 0) {
-    CHECK(offset <= (param_sync_.numel() - pad_len));
-  } else if (dense_table_) {
-    VLOG(3) << "device[" << device_id_
-            << "]CreateDeviceResource param_async_ offset:" << offset
-            << " grad_offset: " << grad_offset << " var_num: " << var_num
-            << " grad_var_num: " << grad_var_num;
-    CHECK(offset <= param_async_.numel());
-    CHECK(grad_offset <= grad_async_.numel());
+    CHECK(param_sync_.offset_ <= (param_sync_.numel() - pad_len));
   }
   VLOG(0) << "device[" << device_id_ << "] total param count=" << param_total
           << ", persistable=[total:" << persistable_num << "("
@@ -983,7 +1102,16 @@ void BoxPSWorker::CreateThreadScope(const ProgramDesc& program) {
 }
 void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
   BuildShardingDepends(main_prog);
-  CreateThreadScope(main_prog);
+  if (dense_table_) {
+    // async
+    CreateThreadScopeForAsync(main_prog);
+  } else if (sharding_mode_) {
+    // sharding mode
+    CreateThreadScopeForSharding(main_prog);
+  } else {
+    // normal
+    CreateThreadScopeForNorm(main_prog);
+  }
   CreateThreadOperators(main_prog);
 
   // debug str
@@ -1002,8 +1130,13 @@ void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
       }
       str_os << "\n";
     }
+    auto box_ptr = BoxWrapper::GetInstance();
     char filename[512] = {0};
-    snprintf(filename, sizeof(filename), "./device_%d_ops.txt", thread_id_);
+    snprintf(filename,
+             sizeof(filename),
+             "./device_%d_ops_%d.txt",
+             thread_id_,
+             box_ptr->Phase());
     WriteToFile(filename, str_os.str());
   }
 }
@@ -1055,7 +1188,7 @@ void BoxPSWorker::SyncParam(void) {
         sendbuff, sendbuff, numel, ncclFloat32, ncclSum, comm->comm(), stream));
   }
   const float scale = 1.0 / (device_num_ * node_size_);
-  TensorScaleValue(place_, param_sync_, &param_sync_, scale);
+  TensorScaleValue(place_, param_sync_.tensor(), &param_sync_.tensor(), scale);
   PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
 #elif defined(PADDLE_WITH_XPU_BKCL) || defined(PADDLE_WITH_XPU)
   PADDLE_ENFORCE_EQ(
@@ -1069,7 +1202,7 @@ void BoxPSWorker::SyncParam(void) {
       BKCL_SUCCESS,
       platform::errors::PreconditionNotMet("BKCL all reduce failed"));
   const float scale = 1.0 / (device_num_ * node_size_);
-  TensorScaleValue(place_, param_sync_, &param_sync_, scale);
+  TensorScaleValue(place_, param_sync_.tensor(), &param_sync_.tensor(), scale);
   PADDLE_ENFORCE_XPU_SUCCESS(xpu_wait(stream));
 #endif
 
@@ -1117,7 +1250,7 @@ void BoxPSWorker::TrainFiles() {
             << "]begin running ops, batch size:" << batch_size
             << ", batch id=" << step;
     if (dense_table_) {
-      dense_table_->PullDense(place_, &param_async_);
+      dense_table_->PullDense(place_, &param_async_.tensor());
     }
     for (auto& op : ops_) {
       if (FLAGS_padbox_enable_print_op_debug) {
@@ -1134,7 +1267,7 @@ void BoxPSWorker::TrainFiles() {
       }
     }
     if (dense_table_) {
-      dense_table_->PushDense(place_, &grad_async_);
+      dense_table_->PushDense(place_, &grad_async_.tensor());
     } else if (sync_mode_ > 0) {
       if (step > param_sync_step_) {
         step = 0;
