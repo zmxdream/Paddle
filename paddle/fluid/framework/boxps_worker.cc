@@ -812,7 +812,7 @@ void BoxPSWorker::CreateThreadOperators(const ProgramDesc& program) {
   }
   if (FLAGS_padbox_enable_gc) {
     // add op gc vars
-    unused_vars_ = GetUnusedVars2(block, ops_, skip_vars_, &unpersist_vars_);
+    unused_vars_ = GetUnusedVars(block, ops_, skip_vars_, &unpersist_vars_);
   }
   VLOG(3) << "device[" << device_id_ << "] total op count=" << block.OpSize()
           << ", create op count=" << ops_.size()

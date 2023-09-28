@@ -175,9 +175,6 @@ class RankAttentionGradOpMaker : public framework::SingleGradOpMaker<T> {
     op->SetAttrMap(this->Attrs());
   }
 };
-DECLARE_NO_NEED_BUFFER_VARS_INFERER(
-    RankAttentionGradOpNoNeedBufferVarsInference, "X", "RankOffset",
-    "RankParam");
 
 class RankAttention2Op : public framework::OperatorWithKernel {
  public:
@@ -292,10 +289,6 @@ class RankAttention2GradOpMaker : public framework::SingleGradOpMaker<T> {
   }
 };
 
-DECLARE_NO_NEED_BUFFER_VARS_INFERER(
-    RankAttention2GradOpNoNeedBufferVarsInference, "X", "RankOffset",
-    "RankParam");
-
 }  // namespace operators
 }  // namespace paddle
 using CPUCtx = phi::CPUContext;
@@ -305,16 +298,14 @@ REGISTER_OPERATOR(rank_attention, ops::RankAttentionOp,
                   ops::RankAttentionGradOpMaker<paddle::framework::OpDesc>,
                   ops::RankAttentionGradOpMaker<paddle::imperative::OpBase>);
 
-REGISTER_OPERATOR(rank_attention_grad, ops::RankAttentionGradOp,
-                  ops::RankAttentionGradOpNoNeedBufferVarsInference);
+REGISTER_OPERATOR(rank_attention_grad, ops::RankAttentionGradOp);
 
 REGISTER_OPERATOR(rank_attention2, ops::RankAttention2Op,
                   ops::RankAttention2OpMaker,
                   ops::RankAttention2GradOpMaker<paddle::framework::OpDesc>,
                   ops::RankAttention2GradOpMaker<paddle::imperative::OpBase>);
 
-REGISTER_OPERATOR(rank_attention2_grad, ops::RankAttention2GradOp,
-                  ops::RankAttention2GradOpNoNeedBufferVarsInference);
+REGISTER_OPERATOR(rank_attention2_grad, ops::RankAttention2GradOp);
 
 REGISTER_OP_CPU_KERNEL(
     rank_attention,
