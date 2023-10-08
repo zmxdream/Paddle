@@ -53,7 +53,18 @@ class SaveCombineOpKernel : public framework::OpKernel<T> {
           overwrite));
     }
 
-    std::ostringstream ss;
+    std::ostream *os_ptr = nullptr;
+    if (save_to_memory) {
+      os_ptr = new std::ostringstream;
+    } else {
+      MkDirRecursively(DirName(filename).c_str());
+      os_ptr = new std::ofstream(filename, std::ios::binary);
+      PADDLE_ENFORCE_EQ(static_cast<bool>(os_ptr->good()),
+                        true,
+                        platform::errors::Unavailable(
+                            "Cannot open %s to save variables.", filename));
+    }
+
     auto inp_var_names = ctx.InputNames("X");
     auto &inp_vars = ctx.MultiInputVar("X");
     PADDLE_ENFORCE_GT(inp_var_names.size(),
@@ -102,9 +113,9 @@ class SaveCombineOpKernel : public framework::OpKernel<T> {
           out.set_lod(tensor.lod());
           framework::TransDataType(
               in_kernel_type, out_kernel_type, tensor, &out);
-          framework::SerializeToStream(ss, out, dev_ctx);
+          framework::SerializeToStream(*os_ptr, out, dev_ctx);
         } else {
-          framework::SerializeToStream(ss, tensor, dev_ctx);
+          framework::SerializeToStream(*os_ptr, tensor, dev_ctx);
         }
       } else {
         auto &tensor = inp_vars[i]->Get<framework::Vocab>();
@@ -114,7 +125,7 @@ class SaveCombineOpKernel : public framework::OpKernel<T> {
           framework::ConvertWstrToStr(it->first, &t);
           data.emplace(t, it->second);
         }
-        framework::StringMapToStream(ss, data);
+        framework::StringMapToStream(*os_ptr, data);
       }
     }
     if (save_to_memory) {
@@ -122,17 +133,11 @@ class SaveCombineOpKernel : public framework::OpKernel<T> {
                         nullptr,
                         platform::errors::InvalidArgument(
                             "Cannot find variable Y for save_combine_op"));
-      *output = ss.str();
+      *output = reinterpret_cast<std::ostringstream *>(os_ptr)->str();
     } else {
-      MkDirRecursively(DirName(filename).c_str());
-      std::ofstream fout(filename, std::ios::binary);
-      PADDLE_ENFORCE_EQ(static_cast<bool>(fout),
-                        true,
-                        platform::errors::Unavailable(
-                            "Cannot open %s to save variables.", filename));
-      fout << ss.str();
-      fout.close();
+      reinterpret_cast<std::ofstream *>(os_ptr)->close();
     }
+    delete os_ptr;
   }
 };
 
