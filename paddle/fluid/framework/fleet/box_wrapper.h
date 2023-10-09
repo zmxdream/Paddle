@@ -258,6 +258,12 @@ class DCacheBuffer {
     return buf_->size();
   }
 
+  bool IsInitialized() {
+#ifdef PADDLE_WITH_CUDA
+    return d_buf_ != nullptr;
+#endif
+    return buf_ != nullptr;
+  }
  private:
   void* d_buf_ = nullptr;
   size_t total_bytes_ = 0;

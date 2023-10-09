@@ -46,8 +46,9 @@ void BoxWrapper::PullSparseCaseCPU(const paddle::platform::Place& place,
   all_timer.Resume();
 
   int slot_num = static_cast<int>(slot_lengths.size());
-  int64_t* slot_lens = reinterpret_cast<int64_t*>(
-      dev.slot_lens.mutable_data<int64_t>({(slot_num + 1), 1}, place));
+
+  int64_t* slot_lens = dev.slot_lens.mutable_data<int64_t>(
+      (slot_num + 1) * sizeof(int64_t), place);
   int64_t total_length = 0;
   slot_lens[0] = 0;
   for (int i = 0; i < slot_num; i++) {
@@ -55,14 +56,12 @@ void BoxWrapper::PullSparseCaseCPU(const paddle::platform::Place& place,
     slot_lens[i + 1] = total_length;
   }
   dev.total_key_length = total_length;
-
-    uint64_t* total_keys =
-      reinterpret_cast<uint64_t*>(dev.keys_tensor.mutable_data<int64_t>(
-          {static_cast<int64_t>(total_length * 2), 1}, place));
-  int* key2slot = reinterpret_cast<int*>(dev.keys2slot.mutable_data<int>(
-      {static_cast<int64_t>(total_length * 5), 1}, place));
-  int* total_dims = reinterpret_cast<int*>(
-      dev.dims_tensor.mutable_data<int>({total_length, 1}, place));
+  uint64_t* total_keys = dev.keys_tensor.mutable_data<uint64_t>(
+    static_cast<int64_t>(total_length * 2) * sizeof(int64_t), place);
+  int* key2slot = dev.keys2slot.mutable_data<int>(
+      static_cast<int64_t>(total_length * 5) * sizeof(int), place);
+  int* total_dims =
+      dev.dims_tensor.mutable_data<int>(total_length * sizeof(int), place);
 
   dev.copy_keys_timer.Resume();
   this->CopyCPUKeys(place, keys, total_keys, slot_lens, slot_num,
@@ -302,7 +301,6 @@ void BoxWrapper::PullSparseCaseXPU(const paddle::platform::Place& place,
   int64_t total_length =
       std::accumulate(slot_lengths.begin(), slot_lengths.end(), 0UL);
   int slot_num = static_cast<int>(slot_lengths.size());
-<<<<<<< HEAD
   dev.total_key_length = total_length;
 
   VLOG(3) << "Begine BoxPs PullSparse";
@@ -314,18 +312,15 @@ void BoxWrapper::PullSparseCaseXPU(const paddle::platform::Place& place,
 
   TRACE_SCOPE_START("copy keys", xpu_wait(ctx_xpu->xpu_stream));
   VLOG(3) << "Begin copy keys, key_num[" << total_length << "]";
-  LoDTensor& total_keys_tensor = dev.keys_tensor;
+  // LoDTensor& total_keys_tensor = dev.keys_tensor;
   uint64_t* total_keys;
   if(use_l3_tensor) {
-    total_keys = reinterpret_cast<uint64_t*>(
-        total_keys_tensor.mutable_data<int64_t>({total_length, 1}, l3_place));
+    total_keys = dev.keys_tensor.mutable_data<uint64_t>(total_length * sizeof(int64_t), l3_place);
   } else {
-    total_keys = reinterpret_cast<uint64_t*>(
-        total_keys_tensor.mutable_data<int64_t>({total_length, 1}, place));
+    total_keys = dev.keys_tensor.mutable_data<uint64_t>(total_length * sizeof(int64_t), place);
   }
   int* key2slot = nullptr;
-  key2slot = reinterpret_cast<int*>(
-      dev.keys2slot.mutable_data<int>({total_length, 1}, place));
+  key2slot =dev.keys2slot.mutable_data<int>(total_length * sizeof(int), place);
 
   // construct slot_level lod info
   std::vector<int64_t> slot_lengths_lod(slot_num + 1, 0);
@@ -333,31 +328,11 @@ void BoxWrapper::PullSparseCaseXPU(const paddle::platform::Place& place,
     slot_lengths_lod[i] = slot_lengths_lod[i - 1] + slot_lengths[i - 1];
   }
 
-  int* total_dims = reinterpret_cast<int*>(
-      dev.dims_tensor.mutable_data<int>({total_length, 1}, place));
-=======
-  int64_t* slot_lens = dev.slot_lens.mutable_data<int64_t>(
-      (slot_num + 1) * sizeof(int64_t), place);
-  int64_t total_length = 0;
-  slot_lens[0] = 0;
-  for (int i = 0; i < slot_num; i++) {
-    total_length += slot_lengths[i];
-    slot_lens[i + 1] = total_length;
-  }
-  dev.total_key_length = total_length;
-
-  uint64_t* total_keys = dev.keys_tensor.mutable_data<uint64_t>(
-      static_cast<int64_t>(total_length * 2) * sizeof(int64_t), place);
-  int* key2slot = dev.keys2slot.mutable_data<int>(
-      static_cast<int64_t>(total_length * 5) * sizeof(int), place);
-  int* total_dims =
-      dev.dims_tensor.mutable_data<int>(total_length * sizeof(int), place);
->>>>>>> a188f0f625 (add alias_method_op, add device memory print info)
+  int* total_dims = dev.dims_tensor.mutable_data<int>(total_length * sizeof(int), place);
 
   uint64_t** xpu_keys = dev.keys_ptr_tensor.mutable_data<uint64_t*>(
       static_cast<int>(keys.size() * sizeof(uint64_t*)), place);
-  int64_t* slot_lens = reinterpret_cast<int64_t*>(
-      dev.slot_lens.mutable_data<int64_t>({(slot_num + 1), 1}, place));
+  int64_t* slot_lens = dev.slot_lens.mutable_data<int64_t>((slot_num + 1) * sizeof(int64_t), place);
   xpu_memcpy(xpu_keys, keys.data(), keys.size() * sizeof(uint64_t*),
                   XPU_HOST_TO_DEVICE);
   xpu_memcpy(slot_lens, slot_lengths_lod.data(),
@@ -569,8 +544,7 @@ void BoxWrapper::PushSparseGradCaseXPU(const paddle::platform::Place& place,
   int slot_num = static_cast<int>(slot_lengths.size());
 
   if (!dev.d_slot_vector.IsInitialized()) {
-    int* buf_slot_vector = reinterpret_cast<int*>(
-        dev.d_slot_vector.mutable_data<int>({slot_num, 1}, place));
+    int* buf_slot_vector = dev.d_slot_vector.mutable_data<int>(slot_num * sizeof(int), place);
     xpu_memcpy(buf_slot_vector, slot_vector_.data(),
                     slot_num * sizeof(int), XPU_HOST_TO_DEVICE);
   }
