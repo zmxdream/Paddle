@@ -3477,9 +3477,11 @@ void SlotPaddleBoxDataFeed::BuildSlotBatchGPU(const int ins_num) {
   int64_t uint64_offset = 0;
   offset_timer_.Pause();
 
+#if defined(PADDLE_WITH_CUDA)
   auto stream = dynamic_cast<phi::GPUContext*>(
             platform::DeviceContextPool::Instance().Get(this->place_))
             ->stream();
+#endif
 
   copy_timer_.Resume();
   // copy index

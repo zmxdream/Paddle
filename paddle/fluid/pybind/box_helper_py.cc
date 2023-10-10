@@ -162,7 +162,7 @@ void BindBoxWrapper(py::module* m) {
            py::call_guard<py::gil_scoped_release>())
       .def("merge_multi_models",
            &framework::BoxWrapper::MergeMultiModels,
-           py::call_guard<py::gil_scoped_release>());
+           py::call_guard<py::gil_scoped_release>())
       .def("merge_multi_models", 
            &framework::BoxWrapper::MergeMultiModels,
            py::call_guard<py::gil_scoped_release>());
