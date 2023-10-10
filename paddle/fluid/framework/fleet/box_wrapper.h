@@ -748,7 +748,7 @@ class BoxWrapper {
     return s_instance_;
   }
 
-  bool SyncDense(cudaStream_t stream,
+  bool SyncDense(boxps::StreamType stream,
                  const int size,
                  const void* sendbuf,
                  void* recvbuf,
