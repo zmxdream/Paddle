@@ -35,6 +35,7 @@ limitations under the License. */
 #include "paddle/fluid/platform/collective_helper.h"
 #endif
 
+#if defined(TRACE_PROFILE) && (defined(PADDLE_WITH_XPU_KP) || defined(PADDLE_WITH_XPU))
 // The producer side.
 #include <scalopus_tracing/tracing.h>
 #include <scalopus_transport/transport_loopback.h>
@@ -43,6 +44,7 @@ limitations under the License. */
 #include <scalopus_general/endpoint_manager_poll.h>
 #include <scalopus_general/general_provider.h>
 #include <scalopus_tracing/native_trace_provider.h>
+#endif
 
 DECLARE_bool(enable_sync_dense_moment);
 DECLARE_bool(check_nan_inf);
@@ -742,9 +744,13 @@ void BoxPSWorker::TrainFilesWithProfiler() {
     main_timer.Resume();
 
     reader_timer.Resume();
+#if defined(TRACE_PROFILE) && (defined(PADDLE_WITH_XPU_KP) || defined(PADDLE_WITH_XPU))
     TRACE_SCOPE_START("PackBatchTask", dev_ctx_->Wait());
+#endif
     batch_size = PackBatchTask();
+#if defined(TRACE_PROFILE) && (defined(PADDLE_WITH_XPU_KP) || defined(PADDLE_WITH_XPU))
     TRACE_SCOPE_END("PackBatchTask", dev_ctx_->Wait());
+#endif
     reader_timer.Pause();
     if (batch_size <= 0) {
       break;
@@ -756,19 +762,27 @@ void BoxPSWorker::TrainFilesWithProfiler() {
     cal_timer.Resume();
     int op_id = 0;
     dev_ctx_->Wait();
-    std::vector<std::string> op_names;
+    // std::vector<std::string> op_names;
+#if defined(TRACE_PROFILE) && (defined(PADDLE_WITH_XPU_KP) || defined(PADDLE_WITH_XPU))
     TRACE_SCOPE_START("ops run",);
+#endif
     for (auto& op : ops_) {
+#if defined(TRACE_PROFILE) && (defined(PADDLE_WITH_XPU_KP) || defined(PADDLE_WITH_XPU))
       RUNTIME_TRACE_SCOPE_START((op->Type()+" run").c_str(),);
+#endif
       timeline.Start();
       op->Run(*thread_scope_, place_);
       dev_ctx_->Wait();
       timeline.Pause();
       op_total_time[op_id++] += timeline.ElapsedUS();
+#if defined(TRACE_PROFILE) && (defined(PADDLE_WITH_XPU_KP) || defined(PADDLE_WITH_XPU))
       RUNTIME_TRACE_SCOPE_END((op->Type()+" run").c_str(),);
+#endif
     }
     dev_ctx_->Wait();
+#if defined(TRACE_PROFILE) && (defined(PADDLE_WITH_XPU_KP) || defined(PADDLE_WITH_XPU))
     TRACE_SCOPE_END("ops run",);
+#endif
     cal_timer.Pause();
 #if defined(PADDLE_WITH_CUDA)
     if (FLAGS_check_nan_inf) {

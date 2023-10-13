@@ -144,7 +144,7 @@ void BoxWrapper::EndPass(bool need_save_delta) {
             << "MB, available: " << (available >> 20) << "MB";
   }
 #endif
-#ifdef TRACE_PROFILE
+#if defined(TRACE_PROFILE) && defined(PADDLE_WITH_XPU_KP)
   static int trace_pass_count = std::getenv("TRACE_PASS_NUM")!=NULL ?
                       std::stoi(std::string(std::getenv("TRACE_PASS_NUM"))):
                       1;

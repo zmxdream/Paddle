@@ -48,6 +48,8 @@ limitations under the License. */
 #include "paddle/fluid/string/string_helper.h"
 #include "paddle/fluid/framework/fleet/metrics.h"
 #include "paddle/fluid/framework/fleet/box_wrapper_kernel.h"
+
+#if defined(TRACE_PROFILE) && (defined(PADDLE_WITH_XPU_KP) || defined(PADDLE_WITH_XPU))
 // The producer side.
 #include <scalopus_tracing/tracing.h>
 #include <scalopus_transport/transport_loopback.h>
@@ -56,6 +58,7 @@ limitations under the License. */
 #include <scalopus_general/endpoint_manager_poll.h>
 #include <scalopus_general/general_provider.h>
 #include <scalopus_tracing/native_trace_provider.h>
+#endif
 #define BUF_SIZE 1024 * 1024
 
 DECLARE_int32(fix_dayid);
@@ -393,7 +396,7 @@ class BoxWrapper {
         use_xpu_sparse_map_ = true;
     }
 #endif
-#ifdef TRACE_PROFILE
+#if defined(TRACE_PROFILE) && (defined(PADDLE_WITH_XPU_KP) || defined(PADDLE_WITH_XPU))
     // Client side to produce the tracepoints.
     factory = std::make_shared<scalopus::TransportLoopbackFactory>();
     const auto server = factory->serve();
@@ -909,7 +912,7 @@ class BoxWrapper {
   std::set<std::string> slot_eval_set_;
   std::atomic<uint16_t> dataset_id_{0};
   std::atomic<uint16_t> round_id_{0};
-#ifdef TRACE_PROFILE
+#if defined(TRACE_PROFILE) && (defined(PADDLE_WITH_XPU_KP) || defined(PADDLE_WITH_XPU))
   scalopus::TransportLoopbackFactory::Ptr factory;
   std::shared_ptr<scalopus::EndpointManagerPoll> manager;
   scalopus::CatapultRecorder::Ptr catapult_recorder;
