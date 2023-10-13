@@ -414,7 +414,9 @@ class CMixAllGatherOpXPUKernel : public framework::OpKernel<T> {
     XPUStream stream = static_cast<platform::XPUDeviceContext*>(dev_ctx)
                        ->x_context()
                        ->xpu_stream;
+#ifdef TRACE_PROFILE
     TRACE_SCOPE_START("bkcl_all_reduce", xpu_wait(stream));
+#endif
     PADDLE_ENFORCE_EQ(
         bkcl_all_reduce(comm->comm(),
                         recvbuff,
@@ -426,8 +428,9 @@ class CMixAllGatherOpXPUKernel : public framework::OpKernel<T> {
             BKCL_SUCCESS,
             platform::errors::PreconditionNotMet("BKCL all reduce failed"));
     PADDLE_ENFORCE_XPU_SUCCESS(xpu_wait(stream));
+#ifdef TRACE_PROFILE
     TRACE_SCOPE_END("bkcl_all_reduce",);
-
+#endif
     box_ptr->DenseNcclTimer(device_id, true, 0x01);
 #else
     PADDLE_THROW("PaddlePaddle should compile with XPU.");
