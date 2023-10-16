@@ -105,7 +105,7 @@ class AnalysisPredictor : public PaddlePredictor {
       config_.EnableMemoryOptim(false);
     }
     predictor_id_ = inference::GetUniqueId();
-#ifdef TRACE_PROFILE
+#if defined(TRACE_PROFILE) && (defined(PADDLE_WITH_XPU_KP) || defined(PADDLE_WITH_XPU))
     // Client side to produce the tracepoints.
     factory = std::make_shared<scalopus::TransportLoopbackFactory>();
     const auto server = factory->serve();
@@ -556,7 +556,7 @@ class AnalysisPredictor : public PaddlePredictor {
 #endif
   friend class paddle_infer::experimental::InternalUtils;
 
-#ifdef TRACE_PROFILE
+#if defined(TRACE_PROFILE) && defined(PADDLE_WITH_XPU_KP)
   scalopus::TransportLoopbackFactory::Ptr factory;
   std::shared_ptr<scalopus::EndpointManagerPoll> manager;
   scalopus::CatapultRecorder::Ptr catapult_recorder;
