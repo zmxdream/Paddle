@@ -2008,11 +2008,13 @@ void PadBoxSlotDataset::CheckThreadPool(void) {
   } else {  // shuffle
     VLOG(0) << "pass id=" << pass_id_ << ", use shuffle by random id";
   }
-  VLOG(0) << "pass id=" << pass_id_ << ", shuffle disable: " << disable_shuffle_
-          << ", polling disable: " << disable_polling_;
   used_fea_index_.clear();
   auto feed_obj = reinterpret_cast<SlotPaddleBoxDataFeed*>(readers_[0].get());
   feed_obj->GetUsedSlotIndex(&used_fea_index_);
+
+  VLOG(0) << "pass id=" << pass_id_ << ", shuffle disable: " << disable_shuffle_
+            << ", polling disable: " << disable_polling_
+            << ", slot num=" << used_fea_index_.size();
 
   // read ins thread
   thread_pool_ = GetThreadPool(thread_num_);
@@ -2781,7 +2783,7 @@ void PadBoxSlotDataset::PrepareTrain(void) {
 
   std::vector<std::pair<int, int>> offset;
   // join or aucrunner mode enable pv
-  if (enable_pv_merge_ && (box_ptr->Phase() == 1 || box_ptr->Phase() == 3 ||
+  if (enable_pv_merge_ && (box_ptr->Phase() & 0x01 == 1 ||
                            box_ptr->Mode() == 1)) {
     std::shuffle(input_pv_ins_.begin(), input_pv_ins_.end(),
                  BoxWrapper::LocalRandomEngine());
