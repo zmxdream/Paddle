@@ -81,9 +81,9 @@ class Shard(object):
             param2device[param.name] = device_idx
             sizes[device_idx] += numel
             
-        # for x in range(worker_num):
-        #     print("device id: %s, num: %s, mem: %s, names: %s" % (
-        #         x, len(device2params[x]), sizes[x], device2params[x]))
+        for x in range(worker_num):
+            print("device id: %s, num: %s, mem: %s, names: %s" % (
+                x, len(device2params[x]), sizes[x], device2params[x]))
         
         return param2device, device2params
 
