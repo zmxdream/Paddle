@@ -37,6 +37,15 @@ void MatmulWithFlattenKernel(const Context& dev_ctx,
                              int x_num_col_dims,
                              int y_num_col_dims,
                              DenseTensor* out);
+#ifdef PADDLE_ON_INFERENCE
+template <typename T, typename Context>
+void MatmulKernel_V1(const Context& dev_ctx,
+                     const DenseTensor& x,
+                     const DenseTensor& y,
+                     bool transpose_x,
+                     bool transpose_y,
+                     DenseTensor* out);
+#endif
 
 template <typename T, typename Context>
 DenseTensor Matmul(const Context& dev_ctx,
@@ -47,7 +56,11 @@ DenseTensor Matmul(const Context& dev_ctx,
   DenseTensor dense_out;
   MetaTensor meta_out(&dense_out);
   MatmulInferMeta(x, y, transpose_x, transpose_y, &meta_out);
+#ifdef PADDLE_ON_INFERENCE
+  MatmulKernel_V1<T, Context>(dev_ctx, x, y, transpose_x, transpose_y, &dense_out);
+#else
   MatmulKernel<T, Context>(dev_ctx, x, y, transpose_x, transpose_y, &dense_out);
+#endif
   return dense_out;
 }
 

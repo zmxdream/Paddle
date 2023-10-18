@@ -12,13 +12,24 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License. */
 
-#include "paddle/phi/kernels/matmul_kernel.h"
-
 #include "paddle/phi/backends/gpu/gpu_context.h"
 #include "paddle/phi/common/complex.h"
 #include "paddle/phi/core/kernel_registry.h"
 #include "paddle/phi/kernels/impl/matmul_kernel_impl.h"
+#include "paddle/phi/kernels/matmul_kernel.h"
 
+#ifdef PADDLE_ON_INFERENCE
+PD_REGISTER_KERNEL(matmul,
+                   GPU,
+                   ALL_LAYOUT,
+                   phi::MatmulKernel_V1,
+                   float,
+                   double,
+                   phi::dtype::float16,
+                   phi::dtype::bfloat16,
+                   phi::dtype::complex<float>,
+                   phi::dtype::complex<double>) {}
+#else
 PD_REGISTER_KERNEL(matmul,
                    GPU,
                    ALL_LAYOUT,
@@ -29,7 +40,7 @@ PD_REGISTER_KERNEL(matmul,
                    phi::dtype::bfloat16,
                    phi::dtype::complex<float>,
                    phi::dtype::complex<double>) {}
-
+#endif
 PD_REGISTER_KERNEL(matmul_with_flatten,
                    GPU,
                    ALL_LAYOUT,

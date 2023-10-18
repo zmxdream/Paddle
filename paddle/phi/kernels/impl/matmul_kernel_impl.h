@@ -534,5 +534,54 @@ void MatmulWithFlattenKernel(const Context& dev_ctx,
     out->Resize(z_dim);
   }
 }
+#ifdef PADDLE_ON_INFERENCE
+/**
+ * Get row matrix shape from a vector shape. If the rank of x_dim > 1, the
+ * original x_dim is returned.
+ */
+inline DDim RowMatrixFromVector_V1(const DDim& x_dim) {
+  if (x_dim.size() > 1) {
+    return x_dim;
+  }
+  return phi::make_ddim({1, x_dim[0]});
+}
 
+/**
+ * Get column matrix shape from a vector shape. If the ran of y_dim > 1, the
+ * original y_dim is returned.
+ */
+inline DDim ColumnMatrixFromVector_V1(const DDim& y_dim) {
+  if (y_dim.size() > 1) {
+    return y_dim;
+  }
+  return phi::make_ddim({y_dim[0], 1});
+}
+template <typename T, typename Context>
+void MatmulKernel_V1(const Context& dev_ctx,
+                     const DenseTensor& x,
+                     const DenseTensor& y,
+                     bool transpose_x,
+                     bool transpose_y,
+                     DenseTensor* out) {
+  dev_ctx.template Alloc<T>(out);
+
+  auto blas = phi::funcs::GetBlas<Context, T>(dev_ctx);
+  auto mat_dim_a = phi::funcs::CreateMatrixDescriptor(
+      RowMatrixFromVector_V1(x.dims()), 0, transpose_x);
+  auto mat_dim_b = phi::funcs::CreateMatrixDescriptor(
+      ColumnMatrixFromVector_V1(y.dims()), 0, transpose_y);
+  auto scale = static_cast<T>(1.0);
+
+  const auto& x_dims = x.dims();
+  const auto& y_dims = y.dims();
+  if (x_dims.size() == 3 && y_dims.size() <= 2) {
+    // the transpose_X must be false, if is true, the transpose cost much time
+    if (!transpose_x) {
+      mat_dim_a.height_ *= mat_dim_a.batch_size_;
+      mat_dim_a.batch_size_ = 0;
+    }
+  }
+  blas.MatMul(x, mat_dim_a, y, mat_dim_b, scale, out, T(0));
+}
+#endif
 }  // namespace phi
