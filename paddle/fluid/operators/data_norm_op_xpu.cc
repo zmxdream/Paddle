@@ -123,9 +123,6 @@ class  DataNormGradXPUKernel : public framework::OpKernel<T> {
           auto comm = platform::BKCLCommContext::Instance().Get(0, place);
           auto stream = dev_ctx.x_context()->xpu_stream;
 
-          // Other dense op use default stream, so we need wait other op calc finished before call bkcl_all_reduce.
-          xpu_wait(0);
-
           PADDLE_ENFORCE_EQ(bkcl_all_reduce(comm->comm(), d_batch_size, d_batch_size,
                           C,  BKCL_FLOAT, BKCL_ADD, stream),
                           BKCL_SUCCESS, platform::errors::PreconditionNotMet(
