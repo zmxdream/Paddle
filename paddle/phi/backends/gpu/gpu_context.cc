@@ -57,6 +57,16 @@ limitations under the License. */
 // TODO(phi): remove fluid header.
 #include "paddle/fluid/platform/enforce.h"
 
+#ifdef PADDLE_ON_INFERENCE
+PADDLE_DEFINE_EXPORTED_bool(enable_cublas_tf32_op_math,
+                            false,
+                            "enable tf32 for cublas.");
+#else
+PADDLE_DEFINE_EXPORTED_bool(enable_cublas_tf32_op_math,
+                            true,
+                            "enable tf32 for cublas.");
+#endif
+
 namespace phi {
 
 namespace internal {
@@ -598,7 +608,8 @@ struct GPUContext::Impl {
 #endif
 #endif
     });
-    if (blas_tf32_tensor_core_handle_ != nullptr) {
+    if (FLAGS_enable_cublas_tf32_op_math &&
+        blas_tf32_tensor_core_handle_ != nullptr) {
       std::lock_guard<std::mutex> guard(blas_tf32_mtx_);
       callback(blas_tf32_tensor_core_handle_);
     } else {
