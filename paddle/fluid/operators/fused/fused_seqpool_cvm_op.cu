@@ -191,7 +191,7 @@ __global__ void FusedSeqpoolKernelEmbedQuantFilterEmbedxConcate(
     for (auto k = start; k < end; ++k) {
       T &show = *(input_values[x] + k * embedding_size);
       T &click = *(input_values[x] + k * embedding_size + 1);
-      if (!embedx_concate_filter&&(show - click) * show_coeff + click * clk_coeff < threshold) {
+      if (embedx_concate_filter && (show - click) * show_coeff + click * clk_coeff < threshold) {
         continue;
       }
       T &embedw = *(input_values[x] + k * embedding_size + cvm_offset);
