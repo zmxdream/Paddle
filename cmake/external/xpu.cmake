@@ -111,6 +111,9 @@ if (WITH_BOX_PS OR WITH_XPU_KP)
     set(SCALOPUS_URL
         "https://klx-sdk-release-public.su.bcebos.com/xdnn_train/dev/paddlebox/20230306/scalopus.tar.gz"
         CACHE STRING "" FORCE)
+    set(XPU_XTDK_URL
+        "https://klx-sdk-release-public.su.bcebos.com/xdnn_train/dev/paddlebox/xtdk/20230914/output.tar.gz"
+        CACHE STRING "" FORCE)
 endif()
 
 set(SNAPPY_PREFIX_DIR "${THIRD_PARTY_PATH}/xpu")
@@ -141,7 +144,8 @@ ExternalProject_Add(
     wget --no-check-certificate ${XPU_PACK_DEPENCE_URL} -O pack_paddle_box_depence.sh && bash pack_paddle_box_depence.sh ${XPU_XRE_URL}
     ${XPU_XRE_DIR_NAME} ${XPU_XDNN_URL} ${XPU_XDNN_DIR_NAME} ${XPU_XCCL_URL}
     ${XPU_XCCL_DIR_NAME} ${XPU_XCTR_URL} ${XPU_XCTR_DIR_NAME} &&
-    wget --no-check-certificate ${SCALOPUS_URL} && tar zxvf scalopus.tar.gz
+    wget --no-check-certificate ${SCALOPUS_URL} && tar zxvf scalopus.tar.gz &&
+    wget --no-check-certificate ${XPU_XTDK_URL} && tar zxvf output.tar.gz
   DOWNLOAD_NO_PROGRESS 1
   UPDATE_COMMAND ""
   CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${XPU_INSTALL_ROOT}
