@@ -231,10 +231,53 @@ void BoxPSTrainer::InitTrainerEnv(const ProgramDesc& main_program,
           this_worker->CreateDeviceResource(main_program);
         }));
   }
+  RemoveOtherDeviceVars(main_program, root_scope_);
   for (auto& th : wait_futures_) {
     th.get();
   }
+  VLOG(0) << "InitTrainerEnv done!";
 }
+
+void BoxPSTrainer::RemoveOtherDeviceVars(const ProgramDesc& main_program,
+                                         Scope* root_scope) {
+  std::vector<std::string> remove_vars;
+  std::unordered_set<std::string> unpersist_var_names;
+  auto& block = main_program.Block(0);
+  auto all_desc = block.AllOps();
+  auto box_wrapper = BoxWrapper::GetInstance();
+  int rank_id = box_wrapper->GetMpiRank();
+  int gum_num = box_wrapper->GetGpuNum();
+  // 1. Get other device's Param
+  for (auto& op_desc : all_desc) {
+    // broadcast op
+    if (op_desc->Type() != "c_broadcast") {
+      continue;
+    }
+    int root_id = op_desc->GetAttrIfExists<int>("root");
+    if ((root_id / gum_num) == rank_id) {
+      continue;
+    }
+    for (auto& o : op_desc->Inputs()) {
+      for (auto& name : o.second) {
+        unpersist_var_names.insert(name);
+      }
+    }
+  }
+  VLOG(0) << "root scope remove_params size = " << unpersist_var_names.size();
+  // 2. Get moment param
+  for (auto& unpersist_var_name : unpersist_var_names) {
+    for (auto& var : block.AllVars()) {
+      std::string name = var->Name();
+      if (var->Persistable() && name.find(unpersist_var_name) == 0) {
+        remove_vars.push_back(name);
+      }
+    }
+  }
+  if (remove_vars.empty()) return;
+  VLOG(0) << "root scope remove_vars's size = " << remove_vars.size();
+  root_scope->EraseVars(remove_vars);
+}
+
 void BoxPSTrainer::Run() {
   VLOG(3) << "Going to run";
   auto pool = GetThreadPool(thread_num_);

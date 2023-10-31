@@ -1015,6 +1015,20 @@ void BoxPSWorker::CreateThreadScopeForSharding(const ProgramDesc& program) {
     thread_vars_.push_back(name);
     ++param_total;
     if (var->Persistable()) {
+      if (unpersist_vars_.find(name) != unpersist_vars_.end()) {
+        // unpersist vars(include other thread var and other device var)
+        auto* ptr = thread_scope_->Var(name);
+        InitializeVariable(ptr, var->GetType());
+        // set dims
+        auto dims = phi::make_ddim(var->GetShape());
+        auto var_dtype =
+            paddle::framework::TransToPhiDataType(var->GetDataType());
+        ptr->GetMutable<phi::DenseTensor>()->Resize(dims).set_type(var_dtype);
+        ++unpersist_num;
+        ++persistable_num;
+        total_persistable_len +=  ptr->GetMutable<phi::DenseTensor>()->numel();
+        continue;
+      }
       Variable* root_var = root_scope_->FindVar(name);
       if (!root_var) {
         VLOG(0) << "not found var name=" << name;
@@ -1027,10 +1041,10 @@ void BoxPSWorker::CreateThreadScopeForSharding(const ProgramDesc& program) {
       size_t len = root_tensor->numel();
       ++persistable_num;
       total_persistable_len += len;
+      real_persist_len += len;
+      ++real_persist_num;
       // convert one device to other device c_broadcast param
       if (persist_param_vars_.find(name) != persist_param_vars_.end()) {
-        real_persist_len += len;
-        ++real_persist_num;
         // same device
         if (place_ == root_tensor->place()) {
           ++share_var_num;
@@ -1057,34 +1071,20 @@ void BoxPSWorker::CreateThreadScopeForSharding(const ProgramDesc& program) {
           skip_vars_.push_back(name);
         }
       }
-      // unpersist vars
-      if (unpersist_vars_.find(name) != unpersist_vars_.end()) {
-        auto* ptr = thread_scope_->Var(name);
-        InitializeVariable(ptr, var->GetType());
-        // set dims
-        auto dims = phi::make_ddim(var->GetShape());
-        auto var_dtype =
-            paddle::framework::TransToPhiDataType(var->GetDataType());
-        ptr->GetMutable<phi::DenseTensor>()->Resize(dims).set_type(var_dtype);
-        ++unpersist_num;
+      // data norm copy and learning rate
+      if (!gpu_tensor->initialized() && place_ == root_tensor->place()) {
+        auto dim = root_tensor->dims();
+        gpu_tensor->ShareDataWith(*root_tensor).Resize(dim);
+        ++share_var_num;
+        share_persistable_len += len;
       } else {
-        real_persist_len += len;
-        ++real_persist_num;
-        // data norm copy and learning rate
-        if (!gpu_tensor->initialized() && place_ == root_tensor->place()) {
-          auto dim = root_tensor->dims();
-          gpu_tensor->ShareDataWith(*root_tensor).Resize(dim);
-          ++share_var_num;
-          share_persistable_len += len;
-        } else {
-          TensorCopy(*static_cast<const Tensor*>(root_tensor),
-                     place_,
-                     static_cast<Tensor*>(gpu_tensor));
-          ++copy_persist_num;
-          // device 0 need sync datanorm and learning rate to root scope
-          if (device_id_ == 0) {
-            need_copy_vars_.push_back(name);
-          }
+        TensorCopy(*static_cast<const Tensor*>(root_tensor),
+                    place_,
+                    static_cast<Tensor*>(gpu_tensor));
+        ++copy_persist_num;
+        // device 0 need sync datanorm and learning rate to root scope
+        if (device_id_ == 0) {
+          need_copy_vars_.push_back(name);
         }
       }
     } else {

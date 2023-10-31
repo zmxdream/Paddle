@@ -400,6 +400,8 @@ class BoxPSTrainer : public TrainerBase {
   virtual std::string GetDumpPath(int tid);
   virtual void DumpWork(int tid);
   virtual void FinalizeDumpEnv();
+  void RemoveOtherDeviceVars(const ProgramDesc& main_program,
+                             Scope* root_scope);
 
  protected:
   int thread_num_;
