@@ -20,6 +20,7 @@ limitations under the License. */
 #endif
 #include <string>
 
+#ifdef TRACE_PROFILE
 // The producer side.
 #include <scalopus_tracing/tracing.h>
 #include <scalopus_transport/transport_loopback.h>
@@ -28,6 +29,8 @@ limitations under the License. */
 #include <scalopus_general/endpoint_manager_poll.h>
 #include <scalopus_general/general_provider.h>
 #include <scalopus_tracing/native_trace_provider.h>
+#endif
+
 namespace paddle {
 namespace operators {
 
@@ -35,7 +38,9 @@ template <typename DeviceContext, typename T>
 class FusedSeqpoolCVMWithDiffThresOpXPUKernel : public framework::OpKernel<T> {
  public:
   void Compute(const framework::ExecutionContext& ctx) const override {
+#ifdef TRACE_PROFILE
     TRACE_SCOPE_START("FusedSeqpoolCVMWithDiffThresOpXPUKernel Compute", xpu_wait(ctx.template device_context<DeviceContext>().x_context()->xpu_stream));
+#endif
     auto ins = ctx.MultiInput<LoDTensor>("X");
     auto out = ctx.MultiOutput<LoDTensor>("Out");
     // std::string pooltype = ctx.Attr<std::string>("pooltype");
@@ -111,7 +116,9 @@ class FusedSeqpoolCVMWithDiffThresOpXPUKernel : public framework::OpKernel<T> {
 	      lod_index += x_lod.size();
     }
 
+#ifdef TRACE_PROFILE
     TRACE_SCOPE_START("xpu::sequence_sum_pool_cvm_with_diff_thres", xpu_wait(xpu_context->xpu_stream););
+#endif
     int r = xpu::sequence_sum_pool_cvm_with_diff_thres<T>(xpu_context,
                                           cpu_x_addr_vec,
                                           cpu_y_addr_vec,
@@ -134,8 +141,10 @@ class FusedSeqpoolCVMWithDiffThresOpXPUKernel : public framework::OpKernel<T> {
                      platform::errors::External(
                          "The sequence_sum_pool_cvm_with_diff_thres XPU OP return wrong value[%d %s]",
                          r, XPUAPIErrorMsg[r]));
+#ifdef TRACE_PROFILE
     TRACE_SCOPE_END("xpu::sequence_sum_pool_cvm_with_diff_thres", xpu_wait(xpu_context->xpu_stream););
     TRACE_SCOPE_END("FusedSeqpoolCVMWithDiffThresOpXPUKernel Compute", xpu_wait(xpu_context->xpu_stream));
+#endif
   }
 };
 
@@ -143,7 +152,9 @@ template <typename DeviceContext, typename T>
 class FusedSeqpoolCVMWithDiffThresGradOpXPUKernel : public framework::OpKernel<T> {
  public:
   void Compute(const framework::ExecutionContext& ctx) const override {
+#ifdef TRACE_PROFILE
     TRACE_SCOPE_START("FusedSeqpoolCVMWithDiffThresGradOpXPUKernel Compute", xpu_wait(ctx.template device_context<DeviceContext>().x_context()->xpu_stream));
+#endif
     auto dOut = ctx.MultiInput<framework::LoDTensor>(framework::GradVarName("Out"));
     auto xs = ctx.MultiInput<LoDTensor>("X");
     const framework::Tensor* cvm = ctx.Input<framework::Tensor>("CVM");
@@ -213,7 +224,9 @@ class FusedSeqpoolCVMWithDiffThresGradOpXPUKernel : public framework::OpKernel<T
             platform::errors::External(
                "The sequence_sum_pool_cvm_with_diff_thres_grad XPU OP return wrong value[%d %s]",
                r, XPUAPIErrorMsg[r]));
+#ifdef TRACE_PROFILE
     TRACE_SCOPE_END("FusedSeqpoolCVMWithDiffThresGradOpXPUKernel Compute", xpu_wait(xpu_context->xpu_stream));
+#endif
   }
 };
 

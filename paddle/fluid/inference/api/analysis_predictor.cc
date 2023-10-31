@@ -1944,7 +1944,7 @@ AnalysisPredictor::~AnalysisPredictor() {
   }
   device_contexts_.clear();
 
-  #ifdef TRACE_PROFILE
+  #if defined(TRACE_PROFILE) && (defined(PADDLE_WITH_XPU_KP) || defined(PADDLE_WITH_XPU))
       // need to guarantee we propagate the tracepoints before we stop the interval.
       std::this_thread::sleep_for(std::chrono::milliseconds(1000));
       catapult_recorder->stopInterval();

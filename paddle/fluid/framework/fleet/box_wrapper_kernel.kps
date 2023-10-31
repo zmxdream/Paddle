@@ -23,10 +23,13 @@ limitations under the License. */
 #include "paddle/fluid/platform/device/xpu/enforce_xpu.h"
 #include "paddle/fluid/framework/fleet/box_wrapper_kernel.h"
 #include "paddle/fluid/platform/device_context.h"
+
 #include "xpu/kernel/xtdk.h"  // NOLINT
 // #include "xpu/kernel/debug.h"           // NOLINT
 #include "xpu/kernel/xtdk_math.h"            // NOLINT
 #include "xpu/kernel/xtdk_simd.h"
+
+#ifdef TRACE_PROFILE
 // The producer side.
 #include <scalopus_tracing/tracing.h>
 #include <scalopus_transport/transport_loopback.h>
@@ -35,6 +38,7 @@ limitations under the License. */
 #include <scalopus_general/endpoint_manager_poll.h>
 #include <scalopus_general/general_provider.h>
 #include <scalopus_tracing/native_trace_provider.h>
+#endif
 
 namespace paddle {
 namespace framework {
@@ -304,8 +308,9 @@ inline void FeaturePullCopy(const paddle::platform::Place& place,
                op,
                sizeof(TEmbedxOp));
 
+#ifdef TRACE_PROFILE
   TRACE_SCOPE_START("PullCopy", xpu_wait(stream));
-
+#endif
   float* real_dst_vals;
   for (int i = 0; i < slot_num; i++) {
     if(xpu_values[i] != nullptr) {
@@ -326,11 +331,17 @@ inline void FeaturePullCopy(const paddle::platform::Place& place,
                                 skip_offset,
                                 cvm_offset);
   xpu_wait(stream);
+#ifdef TRACE_PROFILE
   TRACE_SCOPE_END("PullCopy", );
+#endif
 
+#ifdef TRACE_PROFILE
   TRACE_SCOPE_START("PullCopy's xpu::copy", xpu_wait(stream));
+#endif
   xpu_wait(stream);
+#ifdef TRACE_PROFILE
   TRACE_SCOPE_END("PullCopy's xpu::copy",);
+#endif
 }
 
 void BoxWrapperKernel::CopyForPull(

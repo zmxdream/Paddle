@@ -74,7 +74,9 @@ class FusedSeqpoolCVMOpXPUKernel : public framework::OpKernel<T> {
     auto clk_coeff = ctx.Attr<float>("clk_coeff");
     auto threshold = ctx.Attr<float>("threshold");
     auto cvm_offset = ctx.Attr<int>("cvm_offset");
-    auto embed_thres_size = ctx.Attr<int>("embed_thres_size");
+    bool embed_threshold_filter = ctx.Attr<bool>("embed_threshold_filter");
+    float embed_threshold = ctx.Attr<float>("embed_threshold");
+    int embed_thres_size = ctx.Attr<int>("embed_thres_size");
 
     auto x0_lod = ins[0]->lod();
     auto x0_dims = ins[0]->dims();
@@ -145,7 +147,10 @@ class FusedSeqpoolCVMOpXPUKernel : public framework::OpKernel<T> {
                                           show_coeff,
                                           clk_coeff,
                                           threshold,
-                                          cvm_offset);
+                                          cvm_offset,
+                                          embed_threshold_filter,
+                                          embed_threshold,
+                                          embed_thres_size);
     PADDLE_ENFORCE_EQ(r, xpu::Error_t::SUCCESS,
                      platform::errors::External(
                          "The sequence_sum_pool_cvm_concat XPU OP return wrong value[%d %s]",
@@ -167,6 +172,7 @@ class FusedSeqpoolCVMGradOpXPUKernel : public framework::OpKernel<T> {
     auto use_cvm = ctx.Attr<bool>("use_cvm");//TODO:
     bool clk_filter = ctx.Attr<bool>("clk_filter");
     auto cvm_offset = ctx.Attr<int>("cvm_offset");
+    int embed_thres_size = ctx.Attr<int>("embed_thres_size");
     int slot_num = dxs.size();
     auto xpu_context = ctx.template device_context<DeviceContext>().x_context();
     auto place = ctx.GetPlace();
@@ -224,7 +230,9 @@ class FusedSeqpoolCVMGradOpXPUKernel : public framework::OpKernel<T> {
                                                clk_filter,//split
                                                item_size,
                                                batch_size,
-                                               slot_num);
+                                               slot_num,
+                                               embed_thres_size);                                    
+
      PADDLE_ENFORCE_EQ(r, xpu::Error_t::SUCCESS,
             platform::errors::External(
                "The sequence_pool_cvm_grad XPU OP return wrong value[%d %s]",
