@@ -119,7 +119,7 @@ static void PullBoxExtendedSparseFunctor(
       auto *output = outputs[i]->mutable_data<T>(ctx.GetPlace());
       all_values[i] = reinterpret_cast<float*>(output);
       // === expand adapt === 
-      offset = slot_dims0_offset[i] * expand_dims1 * sizoef(T);
+      offset = slot_dims0_offset[i] * expand_dims1 * sizeof(T);
       total_values.set_offset(max_total_dims0 * dims1 * sizeof(T) + offset);
       outputs_extend[i]->ShareBufferWith(total_values);
       // === expand adapt === 
@@ -150,7 +150,7 @@ static void PullBoxExtendedSparseFunctor(
       }
       if (flags[i] & 0x02) {
         // === expand adapt === 
-        int offset = slot_dims0_offset[i] * expand_dims1 * sizoef(T);
+        int offset = slot_dims0_offset[i] * expand_dims1 * sizeof(T);
         total_values.set_offset(max_total_dims0 * dims1 * sizeof(T) + offset);
         outputs_extend[expand_offset]->ShareBufferWith(total_values);
         // === expand adapt === 
