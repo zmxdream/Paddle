@@ -402,8 +402,9 @@ inline void FeaturePullCopyNNCross(
                op,
                sizeof(TEmbedxOp));
 
+#ifdef TRACE_PROFILE
   TRACE_SCOPE_START("PullCopyNNCross", xpu_wait(stream));
-
+#endif
   // float* real_dst_vals;
   // for (int i = 0; i < slot_num; i++) {
   //   if(xpu_values[i] != nullptr) {
@@ -451,11 +452,14 @@ inline void FeaturePullCopyNNCross(
     ;
   }
   xpu_wait(stream);
+#ifdef TRACE_PROFILE
   TRACE_SCOPE_END("PullCopyNNCross", );
-
   TRACE_SCOPE_START("PullCopyNNCross's xpu::copy", xpu_wait(stream));
+#endif
   xpu_wait(stream);
+#ifdef TRACE_PROFILE
   TRACE_SCOPE_END("PullCopyNNCross's xpu::copy",);
+#endif
 }
 
 
@@ -997,8 +1001,9 @@ inline void FeaturePushCopyNNCross(
                op,
                sizeof(TExpandPushGetOp));
 
+#ifdef TRACE_PROFILE
   TRACE_SCOPE_START("PushCopyNNCross", xpu_wait(stream));
-
+#endif
   if (expand_only) {
     PushCopyNNCross<TExpandPushGetOp><<<8, 64, stream>>>(d_op,
                                                       info,
@@ -1020,12 +1025,14 @@ inline void FeaturePushCopyNNCross(
     ;
   }
   xpu_wait(stream);
+#ifdef TRACE_PROFILE
   TRACE_SCOPE_END("PushCopyNNCross", );
+#endif
 }
 
 void BoxWrapperKernel::CopyForPush(
     const paddle::platform::Place& place,
-    float* gm_src_ptr,
+    float** gm_src_ptr,
     void* total_grad_values_xpu,
     boxps::FeaturePushOffset* push_offset,
     const int64_t total_length,
@@ -1076,9 +1083,16 @@ void BoxWrapperKernel::CopyForPush(
     // FeaturePushCopyVariable
     // TODO:
   } else {
+    
+    float* real_gm_src_ptr;
+    for (int i = 0; i < slot_num; i++) {
+      if(gm_src_ptr[i] != 0) {
+        real_gm_src_ptr = const_cast<float*>(gm_src_ptr[i]);
+        break;
+      }
+    }
 
-
-    PushCopy<<<8, 64, stream>>>(gm_src_ptr, push_grad_values, push_offset,
+    PushCopy<<<8, 64, stream>>>(real_gm_src_ptr, push_grad_values, push_offset,
         push_float_num_, c_total_length, hidden_size, batch_size, total_dims,
         skip_offset, cvm_offset, key2slot, slots, slot_num);
 
