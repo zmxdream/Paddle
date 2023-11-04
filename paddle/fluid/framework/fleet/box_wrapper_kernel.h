@@ -46,6 +46,20 @@ void CopyForPull(
     const int skip_offset, bool expand_only,
     const uint32_t* xpu_restore_idx = nullptr);
 
+// void CopyForPush(
+//     const paddle::platform::Place& place,
+//     float* gm_src_ptr,
+//     void* total_grad_values_xpu,
+//     boxps::FeaturePushOffset* push_offset,
+//     const int64_t total_length,
+//     const int* slots,
+//     const int64_t* slot_lens,
+//     const int slot_num,
+//     const int hidden_size,
+//     const int batch_size,
+//     const int* total_dims,
+//     const int skip_offset,
+//     const int* key2slot);
 void CopyForPush(
     const paddle::platform::Place& place,
     float* gm_src_ptr,
@@ -56,10 +70,12 @@ void CopyForPush(
     const int64_t* slot_lens,
     const int slot_num,
     const int hidden_size,
+    const int expand_embed_dim,
     const int batch_size,
     const int* total_dims,
     const int skip_offset,
-    const int* key2slot);
+    const int* key2slot,
+    bool expand_only) {
 
 public:
   const static int MAX_SLOT_SIZE = 10240;
