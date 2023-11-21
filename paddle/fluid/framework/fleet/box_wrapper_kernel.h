@@ -44,7 +44,7 @@ void CopyForPull(
     const int slot_num, const int* key2slot, const int hidden_size,
     const int expand_embed_dim, const int64_t total_length, int* total_dims,
     const int skip_offset, bool expand_only,
-    const uint32_t* xpu_restore_idx = nullptr);
+    const int* xpu_restore_idx = nullptr);
 
 void CopyForPush(
     const paddle::platform::Place& place,

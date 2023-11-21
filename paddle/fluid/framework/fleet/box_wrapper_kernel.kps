@@ -595,7 +595,7 @@ __global__ void PullCopy(const TEmbedxOp* op,
                           int* total_dims,
                           float* dst_vals,
                           float* total_values,
-                          const uint32_t* restore_idx,
+                          const int* restore_idx,
                           const int total_length,
                           const int hidden_size,
                           const int pull_float_num,
@@ -617,7 +617,7 @@ __global__ void PullCopy(const TEmbedxOp* op,
   __local__ float lm_total_values[buf_length * pull_float_num];
   __local__ float lm_dst_vals[buf_length * hidden_size];
   __local__ int lm_total_dims[buf_length];
-  __local__ uint32_t lm_restore_idx[buf_length];
+  __local__ int lm_restore_idx[buf_length];
   __local__ boxps::FeaturePullOffset lm_info[1];
   __local__ TEmbedxOp lm_op[1];
 
@@ -628,14 +628,19 @@ __global__ void PullCopy(const TEmbedxOp* op,
     if (gm_offset >= total_length) {
       return;
     }
-    //if(restore_idx != nullptr) {
-    //  GM2LM(restore_idx + gm_offset, lm_restore_idx, per_thread_per_loop_len * sizeof(uint32_t));
-    //}
-    //int pos = (restore_idx != nullptr) ? lm_restore_idx[gm_offset] : gm_offset;
-    //GM2LM(total_values + pos * pull_float_num, lm_total_values, per_thread_per_loop_len * pull_float_num * sizeof(float));
 
     int len = min(per_thread_per_loop_len, total_length - gm_offset);
-    GM2LM(total_values + gm_offset * pull_float_num, lm_total_values, len * pull_float_num * sizeof(float));
+
+    if (restore_idx != nullptr) {
+      GM2LM(restore_idx + gm_offset, lm_restore_idx, len * sizeof(int));
+      for (int j = 0; j < len; ++j) {
+        int gm_idx = lm_restore_idx[j];
+        mfence();
+        GM2LM(total_values + gm_idx * pull_float_num, lm_total_values + j * pull_float_num, pull_float_num * sizeof(float));
+      }
+    } else {
+      GM2LM(total_values + gm_offset * pull_float_num, lm_total_values, len * pull_float_num * sizeof(float));
+    }
     GM2LM(total_dims + gm_offset, lm_total_dims, len * sizeof(int));
 
     for (int j = 0; j < len; j++) {
@@ -672,7 +677,7 @@ inline void FeaturePullCopy(const paddle::platform::Place& place,
                             float** xpu_values,// const std::vector<float*>& values,
                             uint64_t* total_keys_xpu,
                             float* total_values_xpu,
-                            const uint32_t* xpu_restore_idx,
+                            const int* xpu_restore_idx,
                             const int64_t* slot_lens,
                             const int slot_num,
                             const int total_length,
@@ -735,8 +740,8 @@ void BoxWrapperKernel::CopyForPull(
     boxps::FeaturePullOffset* pull_offset, const int64_t* slot_lens,
     const int slot_num, const int* key2slot, const int hidden_size,
     const int expand_embed_dim, const int64_t total_length, int* total_dims,
-    const int skip_offset, bool expand_only, const uint32_t* xpu_restore_idx) {
-  CHECK(xpu_restore_idx == nullptr) << "Not Supported yet";
+    const int skip_offset, bool expand_only, const int* xpu_restore_idx) {
+  //CHECK(xpu_restore_idx == nullptr) << "Not Supported yet";
   uint64_t* total_keys_xpu = nullptr;
   const int cvm_offset = cvm_offset_ - skip_offset;
   if (pull_info_.is_quant) {
