@@ -56,6 +56,7 @@ class RankAttention2XPUKernel : public framework::OpKernel<T> {
         auto& dev_ctx = ctx.template device_context<DeviceContext>();
 
         T* out_data = Out->mutable_data<T>(ctx.GetPlace());
+
         int ret = xpu::rank_attention2<T>(dev_ctx.x_context(), ins_num, x_fea_dim, X->data<T>(),
                                           max_rank, rank_offset->data<int>(), para_row, para_col,
                                           param->data<T>(), out_data);

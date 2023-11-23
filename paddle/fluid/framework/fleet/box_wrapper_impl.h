@@ -731,16 +731,34 @@ void BoxWrapper::PushSparseGradCaseXPU(const paddle::platform::Place& place,
 
   TRACE_SCOPE_START("CopyForPush", xpu_wait(ctx_xpu->xpu_stream));
 #endif
-  float* real_grad_values;
+//   float* real_grad_values;
+//   for (int i = 0; i < slot_num; i++) {
+//     if(grad_values[i] != nullptr) {
+//       real_grad_values = const_cast<float*>(grad_values[i]);
+//       break;
+//     }
+//   }
+  std::vector<int> slot_inner_offset(total_length);
+  int out_count = 0;
   for (int i = 0; i < slot_num; i++) {
-    if(grad_values[i] != nullptr) {
-      real_grad_values = const_cast<float*>(grad_values[i]);
-      break;
+    for (int64_t j = 0; j < slot_lengths[i]; j++) {
+      slot_inner_offset[out_count++] = j;
     }
   }
-  box_wrapper_kernel_->CopyForPush(place, real_grad_values, total_grad_values_xpu,
-      push_offset, total_length, slot_vector, slot_lens, slot_num,
-      hidden_size, batch_size, total_dims, skip_offset, key2slot);
+  auto d_slot_inner_offset_tmp = memory::Alloc(place, total_length * sizeof(int));
+  int* d_slot_inner_offset = reinterpret_cast<int*>(d_slot_inner_offset_tmp->ptr());
+  memory::Copy(place,
+               d_slot_inner_offset,
+               platform::CPUPlace(),
+               slot_inner_offset.data(),
+               total_length * sizeof(int));
+
+  box_wrapper_kernel_->CopyForPush(place, xpu_values, total_grad_values_xpu,
+      push_offset, total_length, slot_vector, (int*)d_slot_inner_offset, slot_lens, slot_num,
+      hidden_size, batch_size, total_dims, skip_offset, key2slot,
+      expand_embed_dim,
+      push_float_num_,
+      expand_only);
 
   push_boxps_timer.Resume();
 #ifdef TRACE_PROFILE
@@ -749,9 +767,11 @@ void BoxWrapper::PushSparseGradCaseXPU(const paddle::platform::Place& place,
 
   TRACE_SCOPE_START("PushSparseXPU", xpu_wait(ctx_xpu->xpu_stream));
 #endif
+
   int ret = boxps_ptr_->PushSparseXPU(total_keys,
       reinterpret_cast<void*>(total_grad_values_xpu),
       static_cast<int>(total_length), device_id);
+
   PADDLE_ENFORCE_EQ(ret, 0, platform::errors::PreconditionNotMet(
                               "PushSparseXPU failed in BoxPS."));
   push_boxps_timer.Pause();

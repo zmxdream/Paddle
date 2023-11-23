@@ -3,6 +3,7 @@
 #include "xpu/kernel/xtdk.h"
 // #include "xpu/kernel/debug.h"
 #include "xpu/kernel/xtdk_math.h"
+#include "xpu/kernel/xtdk_io.h"
 
 namespace paddle {
 namespace framework {
@@ -93,6 +94,7 @@ __global__ void CopyRankOffsetKernel(int* mat,
                     }
                 }
             }
+            mfence();
             LM2GM(lm_mat, mat + lm_pv_offset[pv_offset_left_index] * col, ad_num * col * sizeof(int));
             pv_offset_left_index = pv_offset_right_index;
         }
@@ -376,7 +378,7 @@ void DataFeedPdboxXpuKernelHelper::CopyRankOffset(const paddle::platform::Place&
     stream = static_cast<platform::XPUDeviceContext*>(dev_ctx)
                 ->x_context()
                 ->xpu_stream;
-    CopyRankOffsetKernel<<<4, 64, stream>>>(dest, ranks, cmatchs, ad_offsets, ins_num, pv_num, max_rank, cols);
+    CopyRankOffsetKernel<<<8, 64, stream>>>(dest, ranks, cmatchs, ad_offsets, pv_num, ins_num, max_rank, cols);
     xpu_wait(stream);
 }
 
