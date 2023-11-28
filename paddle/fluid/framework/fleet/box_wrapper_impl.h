@@ -391,19 +391,16 @@ void BoxWrapper::PullSparseCaseXPU(const paddle::platform::Place& place,
   // LoDTensor& total_keys_tensor = dev.keys_tensor;
   uint64_t* total_keys;
   int* key2slot = nullptr;
-  if (FLAGS_enable_pullpush_dedup_keys) {
+  if (FLAGS_enable_pullpush_dedup_keys && use_xpu_sparse_map_) {
     total_keys = dev.keys_tensor.mutable_data<uint64_t>(total_length * 2 * sizeof(int64_t), place);
-    key2slot = dev.keys2slot.mutable_data<int>(total_length * 2 * sizeof(int), place);
-
   } else {
     if(use_l3_tensor) {
       total_keys = dev.keys_tensor.mutable_data<uint64_t>(total_length * sizeof(int64_t), l3_place);
     } else {
       total_keys = dev.keys_tensor.mutable_data<uint64_t>(total_length * sizeof(int64_t), place);
     }
-    key2slot =dev.keys2slot.mutable_data<int>(total_length * sizeof(int), place);
   }
-  
+  key2slot = dev.keys2slot.mutable_data<int>(total_length * sizeof(int), place);
   // construct slot_level lod info
   std::vector<int64_t> slot_lengths_lod(slot_num + 1, 0);
   for (int i = 1; i <= slot_num ; i++) {
@@ -433,17 +430,14 @@ void BoxWrapper::PullSparseCaseXPU(const paddle::platform::Place& place,
                   static_cast<int>(slot_lengths.size()),
                   static_cast<int>(total_length), key2slot);
   }
-
   uint64_t* d_pull_keys = total_keys;
   int pull_size = total_length;
-  int* d_restore_idx = nullptr;
-  if (FLAGS_enable_pullpush_dedup_keys) {
-    d_restore_idx = reinterpret_cast<int*>(&key2slot[total_length]);
+  int* d_merged_idx = nullptr;
+  int* d_merged_offsets = nullptr;
+  if (FLAGS_enable_pullpush_dedup_keys && use_xpu_sparse_map_) {
     uint64_t* d_merged_keys = reinterpret_cast<uint64_t*>(&total_keys[total_length]);
-
-    pull_size = boxps_ptr_->DedupKeysAndFillIdx(device_id, total_length, total_keys, d_merged_keys, 
-                                                reinterpret_cast<uint32_t*>(d_restore_idx), 
-                                                nullptr, nullptr, nullptr);
+    pull_size = boxps_ptr_->DedupKeysAndFillIdxXPU(device_id, total_length, total_keys, 
+                                                   d_merged_keys, d_merged_idx, d_merged_offsets);
     d_pull_keys = d_merged_keys;
   }
 
@@ -487,9 +481,9 @@ void BoxWrapper::PullSparseCaseXPU(const paddle::platform::Place& place,
   TRACE_SCOPE_START("CopyForPull", xpu_wait(ctx_xpu->xpu_stream));
 #endif
   box_wrapper_kernel_->CopyForPull(place, xpu_keys, (float**)values.data(), total_values_xpu,
-                      pull_offset, slot_lengths_lod.data(), slot_num, key2slot, hidden_size,
-                      expand_embed_dim, total_length, total_dims, skip_offset,
-                      expand_only, d_restore_idx);
+                                   pull_offset, slot_lengths_lod.data(), slot_num, key2slot, hidden_size,
+                                   expand_embed_dim, total_length, total_dims, skip_offset,
+                                   expand_only, d_merged_idx, d_merged_offsets, pull_size);
 #ifdef TRACE_PROFILE
   TRACE_SCOPE_END("CopyForPull", xpu_wait(ctx_xpu->xpu_stream));
   TRACE_SCOPE_END("pull copy", xpu_wait(ctx_xpu->xpu_stream));
