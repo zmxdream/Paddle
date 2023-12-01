@@ -422,6 +422,12 @@ class BoxWrapper {
     fprintf(stdout, "init box wrapper\n");
     boxps::MPICluster::Ins();
   }
+  int GetMpiSize() { return boxps::MPICluster::Ins().size(); }
+  int GetMpiRank() { return boxps::MPICluster::Ins().rank(); }
+  int GetNCCLRankId(const int &device_id) {
+    return (GetMpiRank() * gpu_num_ + device_id);
+  }
+  int GetGpuNum() { return gpu_num_; }
   void SetDatasetName(const std::string& name) {}
   void SetInputTableDim(size_t dim) { input_table_dim_ = dim; }
   void FeedPass(int date, const std::vector<uint64_t>& feasgin_to_box);

@@ -57,6 +57,16 @@ limitations under the License. */
 // TODO(phi): remove fluid header.
 #include "paddle/fluid/platform/enforce.h"
 
+#ifdef PADDLE_ON_INFERENCE
+PADDLE_DEFINE_EXPORTED_bool(enable_cublas_tf32_op_math,
+                            false,
+                            "enable tf32 for cublas.");
+#else
+PADDLE_DEFINE_EXPORTED_bool(enable_cublas_tf32_op_math,
+                            true,
+                            "enable tf32 for cublas.");
+#endif
+
 namespace phi {
 
 namespace internal {
@@ -216,6 +226,7 @@ struct GPUContext::Impl {
     stream_ = new CUDAStream(place_);
     InitEigenDevice();
     InitDnnWorkspace();
+    GetBlasHandle();
   }
 
   void PartialInitWithoutAllocator() {
@@ -231,6 +242,7 @@ struct GPUContext::Impl {
                            &max_threads_per_block_,
                            &max_grid_dim_size_);
     stream_ = new CUDAStream(place_);
+    GetBlasHandle();
   }
 
   void PartialInitWithAllocator() {
@@ -238,6 +250,7 @@ struct GPUContext::Impl {
     stream_owned_ = true;
     backends::gpu::GPUDeviceGuard guard(place_.device);
     InitDnnWorkspace();
+    GetBlasHandle();
   }
 
   explicit Impl(const GPUPlace& place) : place_(place) {}
@@ -561,41 +574,8 @@ struct GPUContext::Impl {
   }
 
   inline void CublasCall(const std::function<void(blasHandle_t)>& callback) {
-    std::call_once(flag_cublas_, [&]() {
-      if (!blas_handle_) {
-        if (!blas_handle_creator_) {
-          phi::InitBlasHandle(&blas_handle_, stream());
-        } else {
-          blas_handle_ = blas_handle_creator_();
-        }
-      }
-#ifdef PADDLE_WITH_CUDA
-#if CUDA_VERSION >= 9000
-      if (!blas_tensor_core_handle_) {
-        if (!blas_tensor_core_handle_creator_) {
-          phi::InitBlasHandle(&blas_tensor_core_handle_, stream());
-        } else {
-          phi::InitBlasHandle(&blas_tensor_core_handle_, stream());
-        }
-        PADDLE_RETRY_CUDA_SUCCESS(phi::dynload::cublasSetMathMode(
-            blas_tensor_core_handle_, CUBLAS_TENSOR_OP_MATH));
-      }
-#endif
-#if CUDA_VERSION >= 11000
-      if (!blas_tf32_tensor_core_handle_) {
-        if (!blas_tf32_tensor_core_handle_creator_) {
-          phi::InitBlasHandle(&blas_tf32_tensor_core_handle_, stream());
-        } else {
-          blas_tf32_tensor_core_handle_ =
-              blas_tf32_tensor_core_handle_creator_();
-        }
-        PADDLE_RETRY_CUDA_SUCCESS(phi::dynload::cublasSetMathMode(
-            blas_tf32_tensor_core_handle_, CUBLAS_TF32_TENSOR_OP_MATH));
-      }
-#endif
-#endif
-    });
-    if (blas_tf32_tensor_core_handle_ != nullptr) {
+    if (FLAGS_enable_cublas_tf32_op_math &&
+        blas_tf32_tensor_core_handle_ != nullptr) {
       std::lock_guard<std::mutex> guard(blas_tf32_mtx_);
       callback(blas_tf32_tensor_core_handle_);
     } else {
@@ -606,40 +586,6 @@ struct GPUContext::Impl {
 
   inline void TensorCoreCublasCallIfAvailable(
       const std::function<void(blasHandle_t)>& callback) {
-    std::call_once(flag_tensorcore_cublas_, [&]() {
-      if (!blas_handle_) {
-        if (!blas_handle_creator_) {
-          phi::InitBlasHandle(&blas_handle_, stream());
-        } else {
-          blas_handle_ = blas_handle_creator_();
-        }
-      }
-#ifdef PADDLE_WITH_CUDA
-#if CUDA_VERSION >= 9000
-      if (!blas_tensor_core_handle_) {
-        if (!blas_tensor_core_handle_creator_) {
-          phi::InitBlasHandle(&blas_tensor_core_handle_, stream());
-        } else {
-          blas_tensor_core_handle_ = blas_tensor_core_handle_creator_();
-        }
-        PADDLE_RETRY_CUDA_SUCCESS(phi::dynload::cublasSetMathMode(
-            blas_tensor_core_handle_, CUBLAS_TENSOR_OP_MATH));
-      }
-#endif
-#if CUDA_VERSION >= 11000
-      if (!blas_tf32_tensor_core_handle_) {
-        if (!blas_tf32_tensor_core_handle_creator_) {
-          phi::InitBlasHandle(&blas_tf32_tensor_core_handle_, stream());
-        } else {
-          blas_tf32_tensor_core_handle_ =
-              blas_tf32_tensor_core_handle_creator_();
-        }
-        PADDLE_RETRY_CUDA_SUCCESS(phi::dynload::cublasSetMathMode(
-            blas_tf32_tensor_core_handle_, CUBLAS_TF32_TENSOR_OP_MATH));
-      }
-#endif
-#endif
-    });
     if (blas_tensor_core_handle_ != nullptr) {
       std::lock_guard<std::mutex> guard(blas_tensor_core_mtx_);
       callback(blas_tensor_core_handle_);
