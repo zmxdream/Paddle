@@ -53,6 +53,38 @@ __global__ void FusedSeqpoolWithConvKernelNormal(const size_t N, T **input_value
   }
 }
 
+// Filter
+template <typename T>
+__global__ void FusedSeqpoolWithConvKernelFilter(const size_t N, T **input_values,
+                                         T **seqpool_output_values,
+                                         size_t **lods_values,
+                                         const int batch_size,
+                                         const int embedding_size,
+                                         const float pad_value,
+                                         const float show_coeff,
+                                         const float clk_coeff,
+                                         const float threshold) {
+  CUDA_KERNEL_LOOP(i, N) {
+    int key = i / embedding_size;
+    int offset = i % embedding_size;
+    int x = key / batch_size;  // slot id
+    int y = key % batch_size;  // ins id
+    auto &start = *(lods_values[x] + y);
+    auto &end = *(lods_values[x] + y + 1);
+
+    double val = pad_value;
+    for (auto k = start; k < end; ++k) {
+      T &show = *(input_values[x] + k * embedding_size);
+      T &click = *(input_values[x] + k * embedding_size + 1);
+      if ((show - click) * show_coeff + click * clk_coeff < threshold) {
+        continue;
+      }
+      val += *(input_values[x] + k * embedding_size + offset);
+    }
+    *(seqpool_output_values[x] + y * embedding_size + offset) = val;
+  }
+}
+
 // normal & expand slot's feasign
 template <typename T>
 __global__ void FusedSeqpoolWithConvKernelNormalEmbedxConcate(const size_t N, T **input_values,
@@ -257,6 +289,8 @@ void FusedSeqpoolCVMWithConv(const paddle::platform::Place &place,
                      std::vector<const size_t *> lods, const int batch_size,
                      const int slot_num, const int embedding_size,
                      const float padding_value, const bool use_cvm,
+                     float need_filter, float show_coeff,
+                     float clk_coeff, float threshold,
                      const int cvm_offset, bool show_filter,
                      const int embedx_concate_size) {
   auto stream = dynamic_cast<phi::GPUContext*>(
@@ -290,10 +324,17 @@ void FusedSeqpoolCVMWithConv(const paddle::platform::Place &place,
   size_t N = static_cast<size_t>(batch_size * slot_num * embedding_size);
   // first sum pool
   if (embedx_concate_size == 1){
+    if (need_filter) {  //filter
+      FusedSeqpoolWithConvKernelFilter<<<GET_BLOCK(N), PADDLE_CUDA_NUM_THREADS, 0,
+                              stream>>>(
+        N, gpu_input_values, gpu_seqpool_output_values, lods_values, batch_size,
+        embedding_size, padding_value, show_coeff, clk_coeff, threshold);
+    } else {  //normal
       FusedSeqpoolWithConvKernelNormal<<<GET_BLOCK(N), PADDLE_CUDA_NUM_THREADS, 0,
-                                 stream>>>(
-          N, gpu_input_values, gpu_seqpool_output_values, lods_values, batch_size,
-          embedding_size, padding_value);
+                                stream>>>(
+        N, gpu_input_values, gpu_seqpool_output_values, lods_values, batch_size,
+        embedding_size, padding_value);
+    }
   } else {
       FusedSeqpoolWithConvKernelNormalEmbedxConcate<<<GET_BLOCK(N), PADDLE_CUDA_NUM_THREADS, 0,
                                  stream>>>(
@@ -595,6 +636,10 @@ class FusedSeqpoolCVMWithConvCUDAKernel : public framework::OpKernel<T> {
 
     auto padding_value = ctx.Attr<float>("pad_value");
     auto use_cvm = ctx.Attr<bool>("use_cvm");
+    bool need_filter = ctx.Attr<bool>("need_filter");
+    float show_coeff = ctx.Attr<float>("show_coeff");
+    float clk_coeff = ctx.Attr<float>("clk_coeff");
+    float threshold = ctx.Attr<float>("threshold");
     const int cvm_offset = ctx.Attr<int>("cvm_offset");
     bool show_filter = ctx.Attr<bool>("show_filter");
     const int embedx_concate_size = ctx.Attr<int>("embedx_concate_size");
@@ -638,7 +683,9 @@ class FusedSeqpoolCVMWithConvCUDAKernel : public framework::OpKernel<T> {
     }
     FusedSeqpoolCVMWithConv(ctx.GetPlace(), input_data, output_data,
                     seqpool_output_data, lods_data, batch_size, slot_size,
-                    embedding_size, padding_value, use_cvm, cvm_offset, show_filter, embedx_concate_size);
+                    embedding_size, padding_value, use_cvm,
+                    need_filter, show_coeff, clk_coeff, threshold,
+                    cvm_offset, show_filter, embedx_concate_size);
   }
 };
 

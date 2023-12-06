@@ -109,6 +109,10 @@ class FusedSeqpoolCVMOpWithConvMaker : public framework::OpProtoAndCheckerMaker 
                    "(float, default 0.0) The value to pad for empty sequence.")
         .SetDefault(0.0);
     AddAttr<bool>("use_cvm", "bool, use cvm or not").SetDefault(true);
+    AddAttr<bool>("need_filter", "(bool, default false)").SetDefault(false);
+    AddAttr<float>("show_coeff", "(float, default 0.2)").SetDefault(0.2);
+    AddAttr<float>("clk_coeff", "(float, default 1)").SetDefault(1);
+    AddAttr<float>("threshold", "(float, default 0.96)").SetDefault(0.96);
     AddAttr<int>("cvm_offset", "(int, default 3)").SetDefault(3);
     AddAttr<bool>("show_filter", "(bool, default false)").SetDefault(false);
     AddAttr<int>("embedx_concate_size", "(int, default 1)").SetDefault(1);
