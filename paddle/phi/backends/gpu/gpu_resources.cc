@@ -67,7 +67,9 @@ void InitGpuProperties(Place place,
                           << "." << (*driver_version % 100) / 10
                           << ", Runtime API Version: "
                           << *runtime_version / 1000 << "."
-                          << (*runtime_version % 100) / 10;
+                          << (*runtime_version % 100) / 10
+						  << ", build date "
+				          << __DATE__  << " time " << __TIME__;
 #ifdef PADDLE_WITH_HIP
   size_t miopen_major, miopen_minor, miopen_patch;
   PADDLE_ENFORCE_GPU_SUCCESS(
