@@ -66,6 +66,7 @@ PADDLE_DEFINE_EXPORTED_bool(enable_cublas_tf32_op_math,
                             true,
                             "enable tf32 for cublas.");
 #endif
+DECLARE_bool(enable_cublas_tensor_op_math);
 
 namespace phi {
 
@@ -382,7 +383,7 @@ struct GPUContext::Impl {
       }
 #ifdef PADDLE_WITH_CUDA
 #if CUDA_VERSION >= 9000
-      if (!blas_tensor_core_handle_) {
+      if (FLAGS_enable_cublas_tensor_op_math && !blas_tensor_core_handle_) {
         if (!blas_tensor_core_handle_creator_) {
           phi::InitBlasHandle(&blas_tensor_core_handle_, stream());
         } else {
@@ -393,7 +394,7 @@ struct GPUContext::Impl {
       }
 #endif
 #if CUDA_VERSION >= 11000
-      if (!blas_tf32_tensor_core_handle_) {
+      if (FLAGS_enable_cublas_tf32_op_math && !blas_tf32_tensor_core_handle_) {
         if (!blas_tf32_tensor_core_handle_creator_) {
           phi::InitBlasHandle(&blas_tf32_tensor_core_handle_, stream());
         } else {
@@ -574,8 +575,7 @@ struct GPUContext::Impl {
   }
 
   inline void CublasCall(const std::function<void(blasHandle_t)>& callback) {
-    if (FLAGS_enable_cublas_tf32_op_math &&
-        blas_tf32_tensor_core_handle_ != nullptr) {
+    if (blas_tf32_tensor_core_handle_ != nullptr) {
       std::lock_guard<std::mutex> guard(blas_tf32_mtx_);
       callback(blas_tf32_tensor_core_handle_);
     } else {
