@@ -983,8 +983,8 @@ void BoxPSWorker::CreateThreadScopeForNorm(const ProgramDesc& program) {
         ++copy_persist_num;
         // add copy back to root scope
         if (device_id_ == 0) {
-		  need_copy_vars_.push_back(name);
-	    }
+          need_copy_vars_.push_back(name);
+        }
       }
     } else {
       auto* ptr = thread_scope_->Var(name);
