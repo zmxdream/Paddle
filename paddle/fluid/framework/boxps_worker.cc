@@ -984,6 +984,7 @@ void BoxPSWorker::CreateThreadScopeForNorm(const ProgramDesc& program) {
         // add copy back to root scope
         if (device_id_ == 0) {
           need_copy_vars_.push_back(name);
+          skip_vars_.push_back(name);
         }
       }
     } else {
@@ -1104,6 +1105,7 @@ void BoxPSWorker::CreateThreadScopeForSharding(const ProgramDesc& program) {
         // device 0 need sync datanorm and learning rate to root scope
         if (device_id_ == 0) {
           need_copy_vars_.push_back(name);
+          skip_vars_.push_back(name);
         }
       }
     } else {
