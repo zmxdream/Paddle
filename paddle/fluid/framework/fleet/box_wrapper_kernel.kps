@@ -636,9 +636,7 @@ __global__ void PullCopyNNCrossWithEmbMerged(const TEmbedxOp* op,
                                              unsigned long long* dst_vals,
                                              const int* key2slot,
                                              float* total_values,
-                                             const int* merged_idx,
-                                             const int* merged_offsets,
-                                             const int merged_length,
+                                             const int* d_res_idx,
                                              const int total_length,
                                              const int max_cols_num,
                                              const int hidden_size,
@@ -656,8 +654,7 @@ __global__ void PullCopyNNCrossWithEmbMerged(const TEmbedxOp* op,
   int nthreads = cluster_num() * ncores;
 
   const int buf_length = 5;
-  const int same_key_idx_buf_len = 10;
-  int per_thread_len = roundup_div(merged_length, nthreads);
+  int per_thread_len = roundup_div(total_length, nthreads);
   int per_thread_loop_count = roundup_div(per_thread_len, buf_length);
   int per_thread_per_loop_len = roundup_div(per_thread_len, per_thread_loop_count);
 
@@ -666,11 +663,7 @@ __global__ void PullCopyNNCrossWithEmbMerged(const TEmbedxOp* op,
   __local__ float lm_dst_expand_vals[buf_length * (hidden_size + expand_embed_dim)];
   __local__ int lm_key2slot[buf_length];
   __local__ int lm_total_dims[buf_length];
-
-  __local__ int lm_merged_idx[buf_length];
-  __local__ int lm_merged_offset[buf_length + 1];
-  __local__ int lm_same_key_idx_buf[same_key_idx_buf_len];
-
+  __local__ int lm_res_idx[buf_length];
   __local__ boxps::FeaturePullOffset lm_info[1];
   __local__ TEmbedxOp lm_op[1];
 
@@ -697,25 +690,23 @@ __global__ void PullCopyNNCrossWithEmbMerged(const TEmbedxOp* op,
   GM2LM(op, lm_op, sizeof(TEmbedxOp));
   for (int i = thread_id; i < per_thread_loop_count * nthreads; i += nthreads) {
     int gm_offset = i * per_thread_per_loop_len;
-    if (gm_offset >= merged_length) {
+    if (gm_offset >= total_length) {
       return;
     }
 
-    int len = min(per_thread_per_loop_len, merged_length - gm_offset);
-    GM2LM(total_values + gm_offset * pull_float_num, lm_total_values, len * pull_float_num * sizeof(float));
-    GM2LM(key2slot + gm_offset, lm_key2slot, len * sizeof(int));
+    int len = min(per_thread_per_loop_len, total_length - gm_offset);
 
-    int idx_copy_len = len + 1;
-    if (gm_offset + len == merged_length) { // last
-      idx_copy_len = len;
-      lm_merged_offset[len] = total_length;
-    }
-    GM2LM(merged_offsets + gm_offset, lm_merged_offset, idx_copy_len * sizeof(int));
+    GM2LM(total_dims + gm_offset, lm_total_dims, len * sizeof(int));
+    GM2LM(key2slot + gm_offset, lm_key2slot, len * sizeof(int));
+    GM2LM(d_res_idx + gm_offset, lm_res_idx, len * sizeof(int));
 
     for (int j = 0; j < len; j++) {
       // mfence();
-      // cvm offset
-      for (int k = 0; k < cvm_offset; ++k) {
+     GM2LM(total_values + lm_res_idx[j] * pull_float_num,
+           lm_total_values + j * pull_float_num,
+           pull_float_num * sizeof(float));
+     // cvm offset
+     for (int k = 0; k < cvm_offset; ++k) {
         //TODO:consider xpu_value[slot_id]==nullptr?
         if (sm_dst_vals_ptr[lm_key2slot[j]] != 0) {
           lm_dst_vals[j * hidden_size + k] = lm_total_values[j * pull_float_num + lm_info[0].show + skip_offset + k];
@@ -728,6 +719,8 @@ __global__ void PullCopyNNCrossWithEmbMerged(const TEmbedxOp* op,
       // embedx
       // embedx flags + expand flags   && *(keys[x] + y) != 0  && *(keys[x] + y)
       int embedx_size = *((int *)&(lm_total_values[j * pull_float_num + lm_info[0].embedx_size]));
+      // int embedx_size = 0;
+      // TODO: expand_size = expand_embed_dim?
       int expand_size = *((int *)&(lm_total_values[j * pull_float_num + lm_info[0].expand_size]));
       lm_total_dims[j] = static_cast<int>(embedx_size > 0) | static_cast<int>((expand_size > 0) << 1);
 
@@ -738,7 +731,7 @@ __global__ void PullCopyNNCrossWithEmbMerged(const TEmbedxOp* op,
                   k - cvm_offset,
                   scale);
         }
-        
+
         for (int k = cvm_offset + embedx_size; k < hidden_size; ++k) {
           lm_dst_vals[j * hidden_size + k] = 0;
         }
@@ -751,7 +744,7 @@ __global__ void PullCopyNNCrossWithEmbMerged(const TEmbedxOp* op,
                   k - cvm_offset,
                   scale);
         }
-        
+
         for (int k = cvm_offset + embedx_size; k < hidden_size; ++k) {
           lm_dst_expand_vals[j * (hidden_size + expand_embed_dim) + k] = 0;
         }
@@ -771,30 +764,15 @@ __global__ void PullCopyNNCrossWithEmbMerged(const TEmbedxOp* op,
       for (int k = hidden_size + expand_size; k < max_cols_num; ++k) {
         lm_dst_expand_vals[j * (hidden_size + expand_embed_dim) + k] = 0;
       }
-
-      int same_key_len = lm_merged_offset[j + 1] - lm_merged_offset[j];
-      for (int k = 0; k < same_key_len; k += same_key_idx_buf_len) { // handle each same key of lm_dst_vals[j]
-        int handle_len = min(same_key_idx_buf_len, same_key_len - k);
-        GM2LM(merged_idx + lm_merged_offset[j] + k, lm_same_key_idx_buf, handle_len * sizeof(int));
-        for (int l = 0; l < handle_len; ++l) {
-          LM2GM(&lm_dst_vals[j * hidden_size], 
-                (__global_ptr__ float*)lm_dst_vals_ptr[0] + lm_same_key_idx_buf[l] * hidden_size, 
-                hidden_size * sizeof(float));    
-          LM2GM(&lm_total_dims[j], total_dims + lm_same_key_idx_buf[l], sizeof(int));
-          LM2GM(&lm_dst_expand_vals[j * (hidden_size + expand_embed_dim)], 
-                (__global_ptr__ float*)lm_dst_vals_ptr[0] + merged_length * hidden_size 
-                    + lm_same_key_idx_buf[l] * (hidden_size + expand_embed_dim), 
-                (hidden_size + expand_embed_dim) * sizeof(float));
-        }
-      }
     }
     mfence();
-    // LM2GM(lm_total_dims, total_dims + gm_offset, len * sizeof(int));
-    // LM2GM(lm_dst_vals, ((__global_ptr__ float*)lm_dst_vals_ptr[0] + gm_offset * hidden_size), 
-    //       len * hidden_size * sizeof(float));
-    // LM2GM(lm_dst_expand_vals, 
-    //       ((__global_ptr__ float*)lm_dst_vals_ptr[0] + total_length * hidden_size + gm_offset * (hidden_size + expand_embed_dim)), 
-    //       len * (hidden_size + expand_embed_dim) * sizeof(float));
+
+    LM2GM(lm_total_dims, total_dims + gm_offset, len * sizeof(int));
+    LM2GM(lm_dst_vals, ((__global_ptr__ float*)lm_dst_vals_ptr[0] + gm_offset * hidden_size), 
+          len * hidden_size * sizeof(float));
+    LM2GM(lm_dst_expand_vals,
+          ((__global_ptr__ float*)lm_dst_vals_ptr[0] + total_length * hidden_size + gm_offset * (hidden_size + expand_embed_dim)), 
+          len * (hidden_size + expand_embed_dim) * sizeof(float));
     mfence();
   }
 }
@@ -914,9 +892,7 @@ inline void FeaturePullCopyNNCross(
                                                                  reinterpret_cast<unsigned long long*>(d_xpu_values),
                                                                  key2slot,
                                                                  total_values_xpu,
-                                                                 xpu_merged_idx,
-                                                                 xpu_merged_offsets,
-                                                                 merged_length,
+                                                                 d_res_idx,
                                                                  total_length,
                                                                  (hidden_size + expand_embed_dim),
                                                                  hidden_size,
