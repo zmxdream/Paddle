@@ -16,6 +16,7 @@ limitations under the License. */
 #include <glog/logging.h>
 
 #include <vector>
+#include <thread>
 
 #if defined(TRACE_PROFILE) && (defined(PADDLE_WITH_XPU_KP) || defined(PADDLE_WITH_XPU))
 // The producer side.
@@ -352,6 +353,96 @@ void BoxWrapper::PullSparseCaseCPU(const paddle::platform::Place& place,
   all_timer.Pause();
 }
 
+template <uint32_t EMBEDX_DIM, uint32_t EXPAND_EMBED_DIM>
+std::ostream & operator << (std::ostream & ofs,
+    boxps::FeaturePullValueGpuQuant<EMBEDX_DIM, EXPAND_EMBED_DIM> & value) {
+    ofs << value.slot
+        << "\t" << value.show
+        << "\t" << value.clk
+        << "\t" << value.embed_w
+        << "\t" << value.embedding_size;
+
+    ofs << "\t[" << EMBEDX_DIM;
+    for (int i = 0; i < (int)EMBEDX_DIM; ++i) {
+        ofs << " " << value.embedx[i];
+    }
+    ofs << "]";
+
+    int len = EXPAND_EMBED_DIM > 0 ? 1 : 0;
+    ofs << "\t[" << len;
+    for (int i = 0; i < len; ++i) {
+        ofs << " " << value.embed_expand_size[i];
+    }
+    ofs << "]";
+
+    len = EXPAND_EMBED_DIM > 0 ? EXPAND_EMBED_DIM : 0;
+    ofs << "\t[" << len;
+    for (int i = 0; i < len; ++i) {
+        ofs << " " << value.embed_expand[i];
+    }
+    ofs << "]";
+    return ofs;
+}
+
+template <typename T>
+void hsq_dump(void* d_ptr,
+              int len,
+              std::string path,
+              bool need_print,
+              int oneline_count,
+              int print_len,
+              std::string print_name,
+              bool is_xpu=true) {
+    std::vector<T> h_buf(len);
+    if(is_xpu) {
+        xpu_memcpy(h_buf.data(), d_ptr, h_buf.size() * sizeof(T), XPU_DEVICE_TO_HOST);
+    } else {
+        memcpy(h_buf.data(), d_ptr, h_buf.size() * sizeof(T));
+    }
+
+    std::ofstream fo;
+    fo.open(path);
+    if(oneline_count) {
+        for (int i = 0; i < (int)h_buf.size()/oneline_count; i++) {
+            for(int j=0; j<oneline_count;j++) {
+                fo << h_buf[i*oneline_count+j] << ", ";
+            }
+            fo << "\n";
+        }
+    } else {//one line
+        for (int i = 0; i < (int)h_buf.size(); i++) {
+            fo << h_buf[i] << ", ";
+        }
+    }
+    fo.close();
+    std::cout<< "[hsq] dump " <<path <<" done! src_ptr:" << d_ptr << std::endl;
+    if(need_print) {
+        std::cout<< "[hsq] " << print_name <<"(" << len <<"): [";
+        if(oneline_count) {
+            for (int i = 0; i < std::min((int)h_buf.size(), print_len)/oneline_count; i++) {
+                for(int j=0; j<oneline_count;j++) {
+                    std::cout<<h_buf[i*oneline_count+j]<<", ";
+                }
+                std::cout<<std::endl;
+            }
+        } else {//one line
+            for (int i = 0; i < std::min((int)h_buf.size(), print_len); i++) {
+                std::cout<<h_buf[i]<<", ";
+            }
+        }
+        std::cout<<"]"<<std::endl;
+    }
+}
+#include <time.h>
+#include <sys/time.h>
+//返回的单位是s, 精确到us
+double what_time_is_it_now() {
+    struct timeval time;
+    if (gettimeofday(&time,NULL)){
+        return 0;
+    }
+    return (double)time.tv_sec + (double)time.tv_usec * .000001;
+}
 void BoxWrapper::PullSparseCaseXPU(const paddle::platform::Place& place,
                                    const std::vector<const uint64_t*>& keys,
                                    const std::vector<float*>& values,
@@ -370,6 +461,20 @@ void BoxWrapper::PullSparseCaseXPU(const paddle::platform::Place& place,
    static_cast<platform::XPUDeviceContext*>(dev_ctx)->GetL3Place();
   int device_id = place.GetDeviceId();
   DeviceBoxData& dev = device_caches_[device_id];
+
+  // static int target_id = std::getenv("HSQ_XPURT_TARGET_DEVICE")!=NULL ?
+  //                         std::stoi(std::string(std::getenv("HSQ_XPURT_TARGET_DEVICE"))) :
+  //                         0;
+  // static int target_count = std::getenv("HSQ_BOXPS_TARGET_COUNT")!=NULL ?
+  //                         std::stoi(std::string(std::getenv("HSQ_BOXPS_TARGET_COUNT"))) :
+  //                         0;
+  // static int count = 0;
+  int dev_id = place.GetDeviceId();
+  // double t1, t2, tall1, tall2, tall, tjoin=0, tpullsparse, tcopy, tdedup;
+  // if(dev_id==target_id) {
+  //   xpu_wait(ctx_xpu->xpu_stream);
+  //   tall1 = what_time_is_it_now();
+  // }
 
   platform::Timer all_timer;
   platform::Timer pull_boxps_timer;
@@ -392,7 +497,7 @@ void BoxWrapper::PullSparseCaseXPU(const paddle::platform::Place& place,
   uint64_t* total_keys;
   int* key2slot = nullptr;
   if (FLAGS_enable_pullpush_dedup_keys && use_xpu_sparse_map_) {
-    total_keys = dev.keys_tensor.mutable_data<uint64_t>(total_length * 2 * sizeof(int64_t), place);
+    total_keys = dev.keys_tensor.mutable_data<uint64_t>(total_length * 3 * sizeof(int64_t), place);
   } else {
     if(use_l3_tensor) {
       total_keys = dev.keys_tensor.mutable_data<uint64_t>(total_length * sizeof(int64_t), l3_place);
@@ -434,12 +539,89 @@ void BoxWrapper::PullSparseCaseXPU(const paddle::platform::Place& place,
   int pull_size = total_length;
   int* d_merged_idx = nullptr;
   int* d_merged_offsets = nullptr;
+  int* d_res_idx = nullptr;
+  std::thread thread_get_restore_idx;
+
   if (FLAGS_enable_pullpush_dedup_keys && use_xpu_sparse_map_) {
+    // if(dev_id==target_id) {
+    //   xpu_wait(ctx_xpu->xpu_stream);
+    //   t1 = what_time_is_it_now();
+    // }
     uint64_t* d_merged_keys = reinterpret_cast<uint64_t*>(&total_keys[total_length]);
     pull_size = boxps_ptr_->DedupKeysAndFillIdxXPU(device_id, total_length, total_keys, 
                                                    d_merged_keys, d_merged_idx, d_merged_offsets);
     d_pull_keys = d_merged_keys;
+    // if(dev_id==target_id) {
+    //   // xpu_wait(ctx_xpu->xpu_stream);
+    //   t2 = what_time_is_it_now();
+    //   tdedup = t2 - t1;
+    // }
+
+    d_res_idx = reinterpret_cast<int*>(&total_keys[2 * total_length]);
+
+    thread_get_restore_idx = std::thread([&] {
+      xpu_set_device(dev_id);
+      std::vector<int> h_idx(total_length);
+      std::vector<int> h_offset(pull_size+1);
+      xpu_memcpy(h_idx.data(),
+                 d_merged_idx,
+                 h_idx.size() * sizeof(int),
+                 XPUMemcpyKind::XPU_DEVICE_TO_HOST);
+      xpu_memcpy(h_offset.data(),
+                 d_merged_offsets,
+                 pull_size * sizeof(int),
+                 XPUMemcpyKind::XPU_DEVICE_TO_HOST);
+      h_offset[pull_size] = total_length-1;
+      std::vector<int> tmp1(total_length);
+
+      for (size_t i = 0; i < (size_t)pull_size; i++) {
+        if (i != 0) {
+          tmp1[h_offset[i]] = tmp1[h_offset[i] - 1];
+        }
+        else {
+          tmp1[0] = 0;
+        }
+        for (int j = h_offset[i] + 1; j < h_offset[i + 1]; j++) {
+          tmp1[j] = tmp1[j - 1] + 1;
+        }
+      }
+      if (h_offset[pull_size - 1] != h_offset[pull_size]) {
+        tmp1[h_offset[pull_size]] = tmp1[h_offset[pull_size] - 1] + 1;
+      } else {
+        tmp1[h_offset[pull_size]] = tmp1[h_offset[pull_size] - 1];
+      }
+      std::vector<int> h_res_idx(total_length);
+      for (size_t i = 0; i < (size_t)total_length; i++) {
+        h_res_idx[h_idx[i]] = i - tmp1[i];
+      }
+
+      xpu_memcpy(d_res_idx,
+                 h_res_idx.data(),
+                 total_length * sizeof(int),
+                 XPUMemcpyKind::XPU_HOST_TO_DEVICE);
+    });
   }
+
+  // if(dev_id==target_id&&count==target_count) {
+  //     std::string file_path = "count"+std::to_string(count)+"_PullSparseXPU_input.txt";
+  //     hsq_dump<uint64_t>(d_pull_keys,
+  //                             pull_size,//after dedup
+  //                             file_path,
+  //                             false, // need_print
+  //                             1,  // oneline_count
+  //                             100,
+  //                             file_path);  // print_name
+  // }
+  // if(dev_id==target_id&&count==target_count) {
+  //     std::string file_path = "count"+std::to_string(count)+"_PullSparseXPU_input2.txt";
+  //     hsq_dump<uint64_t>(total_keys,
+  //                             total_length,//after dedup
+  //                             file_path,
+  //                             false, // need_print
+  //                             1,  // oneline_count
+  //                             100,
+  //                             file_path);  // print_name
+  // }
 
   void* total_values_xpu = dev.pull_push_tensor.mutable_data<void>(pull_size * feature_pull_size_, place);
 
@@ -451,7 +633,21 @@ void BoxWrapper::PullSparseCaseXPU(const paddle::platform::Place& place,
   TRACE_SCOPE_START("PullSparseXPU", xpu_wait(ctx_xpu->xpu_stream));
 #endif
   pull_boxps_timer.Start();
+  // if(dev_id==target_id) {
+  //   xpu_wait(ctx_xpu->xpu_stream);
+  //   t1 = what_time_is_it_now();
+  // }
   boxps_ptr_->PullSparseXPU(d_pull_keys, total_values_xpu, pull_size, device_id);
+  // if(dev_id==target_id) {
+  //   xpu_wait(ctx_xpu->xpu_stream);
+  //   t2 = what_time_is_it_now();
+  //   tpullsparse = t2 - t1;
+  // }
+
+  // Tensor tensor_total_values_xpu2;
+  // tensor_total_values_xpu2.Resize(phi::make_ddim({(long)total_length * (long)feature_pull_size_ / (long)sizeof(float), 1}));
+  // float* total_values_xpu2 = tensor_total_values_xpu2.mutable_data<float>(place);
+  // boxps_ptr_->PullSparseXPU((uint64_t*)total_keys, total_values_xpu2, total_length, device_id);
   pull_boxps_timer.Pause();
 #ifdef TRACE_PROFILE
   TRACE_SCOPE_END("PullSparseXPU", xpu_wait(ctx_xpu->xpu_stream));
@@ -480,10 +676,194 @@ void BoxWrapper::PullSparseCaseXPU(const paddle::platform::Place& place,
 #ifdef TRACE_PROFILE
   TRACE_SCOPE_START("CopyForPull", xpu_wait(ctx_xpu->xpu_stream));
 #endif
+  // if(dev_id==target_id&&count==target_count) {
+  //     std::string file_path = "count"+std::to_string(count)+"_copyforpull_input_totalvalues.txt";
+  //     hsq_dump<boxps::FeaturePullValueGpuQuant<16, 64>>(total_values_xpu,
+  //                             pull_size,//after dedup
+  //                             file_path,
+  //                             false, // need_print
+  //                             1,  // oneline_count
+  //                             100,
+  //                             file_path);  // print_name
+  // }
+  // if(dev_id==target_id&&count==target_count) {
+  //     std::string file_path = "count"+std::to_string(count)+"_copyforpull_input_key2slot.txt";
+  //     hsq_dump<int>(key2slot,
+  //                             total_length,//after dedup
+  //                             file_path,
+  //                             false, // need_print
+  //                             1,  // oneline_count
+  //                             100,
+  //                             file_path);  // print_name
+  // }
+
+
+  // // if(dev_id==target_id) {
+  //   std::vector<uint64_t> h_keys(total_length);
+  //   std::vector<uint64_t> h_merged_keys(pull_size);
+  //   std::vector<int> h_res_idx(total_length);
+  //   xpu_memcpy(h_keys.data(), total_keys, h_keys.size() * sizeof(uint64_t), XPUMemcpyKind::XPU_DEVICE_TO_HOST);
+  //   xpu_memcpy(h_merged_keys.data(), d_merged_keys, h_merged_keys.size() * sizeof(uint64_t), XPUMemcpyKind::XPU_DEVICE_TO_HOST);
+  //   xpu_memcpy(h_res_idx.data(), d_res_idx, total_length * sizeof(int), XPUMemcpyKind::XPU_DEVICE_TO_HOST);
+
+  //   bool error = false;
+  //   int error_idx = -1;
+  //   for (size_t i = 0; i < (size_t)total_length; i++) {
+  //     if(h_res_idx[i]<0||h_res_idx[i]>=(int)pull_size) {
+  //       error = true;
+  //       printf("[hsq] dev_id: %d, error in h_res_idx[%d]=%d, pull_size:%d\n", dev_id, (int)i, h_res_idx[i], pull_size);
+  //       break;
+  //     }
+  //   }
+  //   if(error==false) {
+  //     for (size_t i = 0; i < (size_t)total_length; i++) {
+  //         if(h_keys[i] != h_merged_keys[h_res_idx[i]]) {
+  //             error_idx = i;
+  //             error = true;
+  //             printf("[hsq] dev_id: %d,  error in %d\n", dev_id, (int)i);
+  //             break;
+  //         }
+  //     }
+  //   }
+  //   if(error == true) {
+  //       printf("[hsq] dev_id: %d,  error\n", dev_id);
+  //       printf("[hsq] dev_id: %d,  h_res_idx: [", dev_id);
+  //       for (int i = error_idx-5; i < std::min(error_idx+5, (int)total_length); i++) {
+  //           printf("%d, ", h_res_idx[i]);
+  //       }
+  //       printf("]\n");
+  //   } else {
+  //       printf("[hsq] dev_id: %d,  no error\n", dev_id);
+  //   }
+  // // }
+
+  // if(dev_id==target_id) {
+  //   // thread join no need xpu_wait
+  //   t1 = what_time_is_it_now();
+  // }
+  // if (FLAGS_enable_pullpush_dedup_keys && use_xpu_sparse_map_) {
+  //   thread_get_restore_idx.join();
+  // }
+  // if(dev_id==target_id) {
+  //   // thread join no need xpu_wait
+  //   t2 = what_time_is_it_now();
+  //   tjoin = t2 - t1;
+  // }
+
+  // if(dev_id==target_id) {
+  //   xpu_wait(ctx_xpu->xpu_stream);
+  //   t1 = what_time_is_it_now();
+  // }
   box_wrapper_kernel_->CopyForPull(place, xpu_keys, (float**)values.data(), total_values_xpu,
-                                   pull_offset, slot_lengths_lod.data(), slot_num, key2slot, hidden_size,
+                                   pull_offset, slot_lengths_lod.data(), slot_num, key2slot, d_res_idx, hidden_size,
                                    expand_embed_dim, total_length, total_dims, skip_offset,
                                    expand_only, d_merged_idx, d_merged_offsets, pull_size);
+  // if(dev_id==target_id) {
+  //   xpu_wait(ctx_xpu->xpu_stream);
+  //   t2 = what_time_is_it_now();
+  //   tcopy = t2 - t1;
+  //   // printf("[hsq] CopyForPull time: %f ms\r\n", (t2 - t1) * 1000);
+  // }
+  // if(dev_id==target_id) {
+  //   xpu_wait(ctx_xpu->xpu_stream);
+  //   tall2 = what_time_is_it_now();
+  //   tall = tall2 - tall1;
+  //   printf("[hsq] dedup: %f ms, pull_sparse: %f ms, thread join : %f ms, pull_copy: %f ms, total pull: %f ms\r\n", tdedup * 1000, tpullsparse * 1000, tjoin*1000, tcopy*1000, tall*1000);
+  // }
+  // if(dev_id==target_id&&count==target_count) {
+  //     std::string file_path = "count"+std::to_string(count)+"_copyforpull_output_total_dims.txt";
+  //     hsq_dump<int>(total_dims,
+  //                             total_length,//after dedup
+  //                             file_path,
+  //                             false, // need_print
+  //                             1,  // oneline_count
+  //                             100,
+  //                             file_path);  // print_name
+  // }
+  // if(dev_id==target_id&&count==target_count) {
+  //   for(int i=0;i<slot_num;i++) {
+  //       if(values[i]==nullptr)
+  //           continue;
+  //       std::string file_path = "count"+std::to_string(count)+"_copyforpull_output"+std::to_string(i)+".txt";
+  //       hsq_dump<float>(values[i],
+  //                               slot_lengths[i]*hidden_size,
+  //                               file_path,
+  //                               false, // need_print
+  //                               hidden_size,  // oneline_count
+  //                               100,
+  //                               file_path);  // print_name
+  //   }
+
+  //   for(int i=slot_num;i<2*slot_num;i++) {
+  //       if(values[i]==nullptr)
+  //           continue;
+  //       std::string file_path = "count"+std::to_string(count)+"_copyforpull_outputexpand"+std::to_string(i)+".txt";
+  //       hsq_dump<float>(values[i],
+  //                               slot_lengths[i-slot_num]*expand_embed_dim,
+  //                               file_path,
+  //                               false, // need_print
+  //                               expand_embed_dim,  // oneline_count
+  //                               100,
+  //                               file_path);  // print_name
+  //   }
+  // }
+  // if(dev_id==target_id&&count==target_count) {
+  //     std::string file_path = "count"+std::to_string(count)+"_copyforpull_input_totalvalues_2.txt";
+  //     hsq_dump<boxps::FeaturePullValueGpuQuant<16, 64>>(total_values_xpu2,
+  //                             total_length,//after dedup
+  //                             file_path,
+  //                             false, // need_print
+  //                             1,  // oneline_count
+  //                             100,
+  //                             file_path);  // print_name
+  // }
+  // box_wrapper_kernel_->CopyForPull(place, xpu_keys, (float**)values.data(), total_values_xpu2,
+  //                                  pull_offset, slot_lengths_lod.data(), slot_num, key2slot, hidden_size,
+  //                                  expand_embed_dim, total_length, total_dims, skip_offset,
+  //                                  expand_only, nullptr, nullptr, 0);
+  // if(dev_id==target_id&&count==target_count) {
+  //     std::string file_path = "count"+std::to_string(count)+"_copyforpull_output_total_dims2.txt";
+  //     hsq_dump<int>(total_dims,
+  //                             total_length,//after dedup
+  //                             file_path,
+  //                             false, // need_print
+  //                             1,  // oneline_count
+  //                             100,
+  //                             file_path);  // print_name
+  // }
+  // if(dev_id==target_id&&count==target_count) {
+  //   for(int i=0;i<slot_num;i++) {
+  //       if(values[i]==nullptr)
+  //           continue;
+  //       std::string file_path = "count"+std::to_string(count)+"_copyforpull_output"+std::to_string(i)+"_2.txt";
+  //       hsq_dump<float>(values[i],
+  //                               slot_lengths[i]*hidden_size,
+  //                               file_path,
+  //                               false, // need_print
+  //                               hidden_size,  // oneline_count
+  //                               100,
+  //                               file_path);  // print_name
+  //   }
+
+  //   for(int i=slot_num;i<2*slot_num;i++) {
+  //       if(values[i]==nullptr)
+  //           continue;
+  //       std::string file_path = "count"+std::to_string(count)+"_copyforpull_outputexpand"+std::to_string(i)+"_2.txt";
+  //       hsq_dump<float>(values[i],
+  //                               slot_lengths[i-slot_num]*expand_embed_dim,
+  //                               file_path,
+  //                               false, // need_print
+  //                               expand_embed_dim,  // oneline_count
+  //                               100,
+  //                               file_path);  // print_name
+  //   }
+  // }
+
+  // if(dev_id==target_id) {
+  //   printf("[hsq] pullsparse count: %d\n", count);
+  //   printf("[hsq] FLAGS_enable_pullpush_dedup_keys: %d\n", FLAGS_enable_pullpush_dedup_keys);
+  //   count++;
+  // }
 #ifdef TRACE_PROFILE
   TRACE_SCOPE_END("CopyForPull", xpu_wait(ctx_xpu->xpu_stream));
   TRACE_SCOPE_END("pull copy", xpu_wait(ctx_xpu->xpu_stream));
