@@ -372,8 +372,6 @@ void BoxWrapper::PullSparseCaseXPU(const paddle::platform::Place& place,
   int device_id = place.GetDeviceId();
   DeviceBoxData& dev = device_caches_[device_id];
 
-  int dev_id = place.GetDeviceId();
-
   platform::Timer all_timer;
   platform::Timer pull_boxps_timer;
   all_timer.Start();
@@ -448,7 +446,7 @@ void BoxWrapper::PullSparseCaseXPU(const paddle::platform::Place& place,
     d_res_idx = reinterpret_cast<int*>(&total_keys[2 * total_length]);
 
     thread_get_restore_idx = std::thread([&] {
-      xpu_set_device(dev_id);
+      xpu_set_device(device_id);
       std::vector<int> h_idx(total_length);
       std::vector<int> h_offset(pull_size + 1);
       xpu_memcpy(h_idx.data(),
