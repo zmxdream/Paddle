@@ -71,6 +71,7 @@ __all__ = [
     'fused_seqpool_concat',
     'fused_concat',
     'rank_attention2',
+    'fused_seq_tensor',
 ]
 
 
@@ -1601,7 +1602,7 @@ def rank_attention2(input,
     return output
 
 
-def batch_fc(input, param_size, param_attr, bias_size, bias_attr, act=None, batchcount=0):
+def batch_fc(input, param_size, param_attr, bias_size, bias_attr, act=None, batchcount=0, transpose_weight=False):
     """
     **Batch FC layer**
     This Op can calculate BatchFC. This is similar to matmul op, 
@@ -1666,7 +1667,10 @@ def batch_fc(input, param_size, param_attr, bias_size, bias_attr, act=None, batc
                          "W": w,
                          "Bias": b
                      },
-                     attrs={'batchcount': batchcount},
+                     attrs={
+                         'batchcount': batchcount,
+                         'transpose_weight': transpose_weight
+                     },
                      outputs={"Out": pre_act})
     return helper.append_activation(pre_act)
 
@@ -1759,7 +1763,8 @@ def fused_seqpool_cvm(input,
                       clk_filter=False,
                       embed_thres_size=0,
                       embedx_concate_size=1,
-                      embedx_concate_filter=False):
+                      embedx_concate_filter=False,
+                      fill_zero=True):
     """
      **Notes: The Op only receives List of LoDTensor as input, only support SUM pooling now.
     :attr:`input`.
@@ -1818,7 +1823,8 @@ def fused_seqpool_cvm(input,
             "clk_filter": clk_filter,
             "embed_thres_size": embed_thres_size,
             "embedx_concate_size": embedx_concate_size,
-            "embedx_concate_filter": embedx_concate_filter
+            "embedx_concate_filter": embedx_concate_filter,
+            "fill_zero": fill_zero
         })
 
     return outs
@@ -1908,6 +1914,10 @@ def fused_seqpool_cvm_with_conv(input,
                                 cvm,
                                 pad_value=0.0,
                                 use_cvm=True,
+                                need_filter=False,
+                                show_coeff=0.2,
+                                clk_coeff=1.0,
+                                threshold=0.96,
                                 show_filter=False,
                                 cvm_offset=3,
                                 embedx_concate_size=1):
@@ -1955,6 +1965,10 @@ def fused_seqpool_cvm_with_conv(input,
             "pad_value": pad_value,
             "use_cvm": use_cvm,
             "cvm_offset": cvm_offset,
+            "need_filter": need_filter,
+            "show_coeff": show_coeff,
+            "clk_coeff": clk_coeff,
+            "threshold": threshold,
             "show_filter": show_filter,
             "embedx_concate_size": embedx_concate_size,
         })
@@ -2817,3 +2831,66 @@ def fused_concat(input, start_index=0, length=-1, axis=1):
                "length": length})
     return out
 
+def fused_seq_tensor(input,
+              batch_count,
+              max_length,
+              slot_num,
+              ad_slot_num,
+              fea_emb_dim,
+              ad_slot_offset):
+    """
+    **fused seq tensor**
+    Notice: It currently only supports GPU device.
+
+    Args:
+        input: [input, ad_input], input tensor list with data type float32.
+        batch_count: parrellel num.
+        max_length: max_length.
+        slot_num: slot_num, sum of ad_slot_num and side info slot.
+        ad_slot_num: ad slot num.
+        fea_emb_dim: embding dim.
+        ad_slot_offset: ad slot offset.
+
+    Returns:
+        Variable: 
+            din_out, mask_out, side_info_out, ad_slot_session_out 
+    """
+
+    helper = LayerHelper("fused_seq_tensor", **locals())
+
+    check_type(input, "input", list, 'fused_seq_tensor')
+
+    dtype = helper.input_dtype()
+    check_dtype(dtype, 'input', ['float32', 'float64'], 'fused_seq_tensor')
+    
+    check_type(batch_count, 'batch_count', (int, Variable), 'fused_seq_tensor')
+    check_type(max_length, 'max_length', (int, Variable), 'fused_seq_tensor')
+    check_type(slot_num, 'slot_num', (int, Variable), 'fused_seq_tensor')
+    check_type(fea_emb_dim, 'fea_emb_dim', (int, Variable), 'fused_seq_tensor')
+
+    din_out = helper.create_variable_for_type_inference(dtype=helper.input_dtype())
+    mask_out = helper.create_variable_for_type_inference(dtype=helper.input_dtype())
+    side_info_out = helper.create_variable_for_type_inference(dtype=helper.input_dtype())
+    ad_slot_session_out = helper.create_variable_for_type_inference(dtype=helper.input_dtype())
+
+    helper.append_op(
+        type="fused_seq_tensor",
+        inputs={"Input": input[0],
+                "ADInput": input[1]
+                },
+        attrs={
+            'batch_count': batch_count,
+            'max_length': max_length,
+            'slot_num': slot_num,
+            'fea_emb_dim': fea_emb_dim,
+            'ad_slot_num': ad_slot_num,
+            'ad_slot_offset': ad_slot_offset
+        },
+        outputs={
+            "DINOut": din_out,
+            "MaskOut": mask_out,
+            "SideInfoOut": side_info_out,
+            "ADSlotSessionOut": ad_slot_session_out
+            })
+
+    return din_out, mask_out, side_info_out, ad_slot_session_out
