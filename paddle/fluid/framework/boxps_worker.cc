@@ -968,10 +968,6 @@ void BoxPSWorker::CreateThreadScopeForNorm(const ProgramDesc& program) {
           auto dim = root_tensor->dims();
           param_sync_.share(gpu_tensor, len).Resize(dim);
           skip_vars_.push_back(name);
-          // add copy back to root scope
-          if (device_id_ == 0) {
-            need_copy_vars_.push_back(name);
-          }
         }
       }
       // data norm copy and learning rate
@@ -985,6 +981,11 @@ void BoxPSWorker::CreateThreadScopeForNorm(const ProgramDesc& program) {
                    place_,
                    static_cast<Tensor*>(gpu_tensor));
         ++copy_persist_num;
+        // add copy back to root scope
+        if (device_id_ == 0) {
+          need_copy_vars_.push_back(name);
+          skip_vars_.push_back(name);
+        }
       }
     } else {
       auto* ptr = thread_scope_->Var(name);
@@ -1104,6 +1105,7 @@ void BoxPSWorker::CreateThreadScopeForSharding(const ProgramDesc& program) {
         // device 0 need sync datanorm and learning rate to root scope
         if (device_id_ == 0) {
           need_copy_vars_.push_back(name);
+          skip_vars_.push_back(name);
         }
       }
     } else {

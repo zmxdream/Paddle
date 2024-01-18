@@ -55,7 +55,7 @@ DECLARE_int32(padbox_dataset_shuffle_thread_num);
 
 namespace paddle {
 namespace framework {
-extern int make_day_id(const int &y, const int &m, const int &d);
+extern int make_day_id(const int& y, const int& m, const int& d);
 #ifdef PADDLE_WITH_BOX_PS
 #define MAX_GPU_NUM 16
 
@@ -322,6 +322,11 @@ class MetricMsg {
         platform::errors::NotFound("Error: var %s is not found in scope.",
                                    varname.c_str()));
     auto& gpu_tensor = var->Get<LoDTensor>();
+    PADDLE_ENFORCE_EQ(
+        gpu_tensor.IsInitialized(),
+        true,
+        platform::errors::InvalidArgument(
+            "Error: monitor var `%s` uninitialized Tensor.", varname.c_str()));
     *data = gpu_tensor.data<T>();
     *len = gpu_tensor.numel();
   }
@@ -335,6 +340,11 @@ class MetricMsg {
         platform::errors::NotFound("Error: var %s is not found in scope.",
                                    varname.c_str()));
     auto& gpu_tensor = var->Get<LoDTensor>();
+    PADDLE_ENFORCE_EQ(
+        gpu_tensor.IsInitialized(),
+        true,
+        platform::errors::InvalidArgument(
+            "Error: monitor var `%s` uninitialized Tensor.", varname.c_str()));
     auto* gpu_data = gpu_tensor.data<T>();
     auto len = gpu_tensor.numel();
     data->resize(len);
@@ -424,7 +434,7 @@ class BoxWrapper {
   }
   int GetMpiSize() { return boxps::MPICluster::Ins().size(); }
   int GetMpiRank() { return boxps::MPICluster::Ins().rank(); }
-  int GetNCCLRankId(const int &device_id) {
+  int GetNCCLRankId(const int& device_id) {
     return (GetMpiRank() * gpu_num_ + device_id);
   }
   int GetGpuNum() { return gpu_num_; }
@@ -832,7 +842,7 @@ class BoxWrapper {
     for (auto& name : var_names) {
       auto it = std::find(skip_gc_vars_.begin(), skip_gc_vars_.end(), name);
       if (it != skip_gc_vars_.end()) {
-        return;
+        continue;
       }
       skip_gc_vars_.push_back(name);
     }
@@ -1026,8 +1036,8 @@ class BoxHelper {
 
   void SetDate(int year, int month, int day) {
     day_id_ = make_day_id(year, month, day);
-    VLOG(0) << "BoxHelpler set year=" << year << ", month="
-        << month << ", day=" << day << ", day id=" << day_id_;
+    VLOG(0) << "BoxHelpler set year=" << year << ", month=" << month
+            << ", day=" << day << ", day id=" << day_id_;
   }
   void BeginPass() {
 #ifdef PADDLE_WITH_BOX_PS
