@@ -145,8 +145,8 @@ __device__ void warpReduce(volatile T* cache, int tid) {
 
 #define THREAD_PER_BLOCK 128
 template <typename T>
-__global__ void reduce_sum_max_length(const T* input,  // 1
-                                      T* mask_output,  // mask
+__global__ void reduce_sum_max_length(const T* input,
+                                      T* mask_output,
                                       const size_t batch_count,
                                       const size_t ins_num,
                                       const size_t slot_num,
