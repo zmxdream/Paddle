@@ -47,10 +47,10 @@ class FusedSeqTensorOp : public framework::OperatorWithKernel {
         ad_slot_num, 0, 
         platform::errors::InvalidArgument(
           "ad_slot_num [%ld] <= 0", ad_slot_num));
-    PADDLE_ENFORCE_LT(
+    PADDLE_ENFORCE_LE(
         ad_slot_offset, slot_num - 1, 
         platform::errors::InvalidArgument(
-          "ad_slot_num [%ld] >  slot_num - 1 [%ld]", ad_slot_offset, slot_num));
+          "ad_slot_num [%ld] > slot_num - 1 [%ld]", ad_slot_offset, slot_num));
     PADDLE_ENFORCE_GE(
         ad_slot_offset, 0, 
         platform::errors::InvalidArgument(
