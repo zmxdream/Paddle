@@ -326,6 +326,7 @@ class RankAttentionGradOpMaker : public framework::SingleGradOpMaker<T> {
     op->SetAttrMap(this->Attrs());
   }
 };
+
 DECLARE_NO_NEED_BUFFER_VARS_INFERER(RankAttentionGradOpNoNeedBufferVarsInference,
                                     "X",
                                     "RankOffset",
@@ -433,10 +434,13 @@ class RankAttention2GradOpMaker : public framework::SingleGradOpMaker<T> {
     }
 };
 
+<<<<<<< HEAD
 DECLARE_NO_NEED_BUFFER_VARS_INFERER(RankAttention2GradOpNoNeedBufferVarsInference,
                                     "X",
                                     "RankOffset",
                                     "RankParam");
+=======
+>>>>>>> 5d5059547849c6d90ab097584bcc0add754e623d
 }  // namespace operators
 }  // namespace paddle
 using CPUCtx = phi::CPUContext;
@@ -447,9 +451,13 @@ REGISTER_OPERATOR(rank_attention,
                   ops::RankAttentionGradOpMaker<paddle::framework::OpDesc>,
                   ops::RankAttentionGradOpMaker<paddle::imperative::OpBase>);
 
+<<<<<<< HEAD
 REGISTER_OPERATOR(rank_attention_grad,
                   ops::RankAttentionGradOp,
                   ops::RankAttentionGradOpNoNeedBufferVarsInference);
+=======
+REGISTER_OPERATOR(rank_attention_grad, ops::RankAttentionGradOp);
+>>>>>>> 5d5059547849c6d90ab097584bcc0add754e623d
 
 REGISTER_OPERATOR(rank_attention2,
                   ops::RankAttention2Op,
@@ -461,9 +469,13 @@ REGISTER_OPERATOR(rank_attention2_grad, ops::RankAttention2GradOp);
 // REGISTER_OPERATOR(rank_attention2_grad, ops::RankAttention2GradOp,
 //                   ops::RankAttention2GradOpNoNeedBufferVarsInference);
 
+<<<<<<< HEAD
 REGISTER_OP_CPU_KERNEL(rank_attention,
                        ops::RankAttentionKernel<CPUCtx, float>,
                        ops::RankAttentionKernel<CPUCtx, double>);
+=======
+REGISTER_OPERATOR(rank_attention2_grad, ops::RankAttention2GradOp);
+>>>>>>> 5d5059547849c6d90ab097584bcc0add754e623d
 
 REGISTER_OP_CPU_KERNEL(rank_attention2,
                        ops::RankAttention2CPUKernel<CPUCtx, float>,

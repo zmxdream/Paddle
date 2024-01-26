@@ -3121,6 +3121,7 @@ void SlotPaddleBoxDataFeed::GetUsedSlotIndex(
   // get feasigns that FeedPass doesn't need
   const std::unordered_set<std::string>& slot_name_omited_in_feedpass_ =
       boxps_ptr->GetOmitedSlot();
+<<<<<<< HEAD
   if (used_slot_index != nullptr) {
     used_slot_index->clear();
   }
@@ -3128,6 +3129,10 @@ void SlotPaddleBoxDataFeed::GetUsedSlotIndex(
     used_slot_name->clear();
   }
   const std::vector<int>& slot_ids = boxps_ptr->GetSlotVector();
+=======
+  const std::vector<int>& slot_ids = boxps_ptr->GetSlotVector();
+  used_slot_index->clear();
+>>>>>>> 5d5059547849c6d90ab097584bcc0add754e623d
   for (int i = 0; i < use_slot_size_; ++i) {
     auto& info = used_slots_info_[i];
     if (info.type[0] != 'u') {
@@ -3151,6 +3156,7 @@ void SlotPaddleBoxDataFeed::GetUsedSlotIndex(
     if (used_slot_name != nullptr) {
         used_slot_name->push_back(info.slot);
     }
+    used_slot_index->push_back(info.slot_value_idx);
   }
 }
 bool SlotPaddleBoxDataFeed::Start() {
@@ -3477,6 +3483,7 @@ void SlotPaddleBoxDataFeed::BuildSlotBatchGPU(const int ins_num) {
   int64_t uint64_offset = 0;
   offset_timer_.Pause();
 
+<<<<<<< HEAD
 #if defined(PADDLE_WITH_CUDA)
   auto stream = dynamic_cast<phi::GPUContext*>(
             platform::DeviceContextPool::Instance().Get(this->place_))
@@ -3486,13 +3493,24 @@ void SlotPaddleBoxDataFeed::BuildSlotBatchGPU(const int ins_num) {
   copy_timer_.Resume();
   // copy index
 #if defined(PADDLE_WITH_CUDA)
+=======
+  auto stream = dynamic_cast<phi::GPUContext*>(
+            platform::DeviceContextPool::Instance().Get(this->place_))
+            ->stream();
+
+  copy_timer_.Resume();
+  // copy index
+>>>>>>> 5d5059547849c6d90ab097584bcc0add754e623d
   CUDA_CHECK(cudaMemcpyAsync(offsets.data(), d_slot_offsets,
                         slot_total_num * sizeof(size_t),
                         cudaMemcpyDeviceToHost, stream));
   cudaStreamSynchronize(stream);
+<<<<<<< HEAD
 #elif defined(PADDLE_WITH_XPU_KP)
   platform::MemcpySyncD2H(offsets.data(), d_slot_offsets, slot_total_num * sizeof(size_t), this->place_);
 #endif
+=======
+>>>>>>> 5d5059547849c6d90ab097584bcc0add754e623d
   copy_timer_.Pause();
   data_timer_.Resume();
 
@@ -3558,7 +3576,10 @@ void SlotPaddleBoxDataFeed::BuildSlotBatchGPU(const int ins_num) {
 
   trans_timer_.Resume();
   void** dest_gpu_p = reinterpret_cast<void**>(pack_->slot_buf_ptr());
+<<<<<<< HEAD
 #if defined(PADDLE_WITH_CUDA)
+=======
+>>>>>>> 5d5059547849c6d90ab097584bcc0add754e623d
   CUDA_CHECK(cudaMemcpyAsync(dest_gpu_p, h_tensor_ptrs.data(),
                         use_slot_size_ * sizeof(void*),
                         cudaMemcpyHostToDevice, stream));

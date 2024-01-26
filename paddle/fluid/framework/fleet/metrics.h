@@ -68,16 +68,13 @@ class BasicAucCalculator {
   void add_data(const float* d_pred,
                 const int64_t* d_label,
                 int batch_size,
-                const paddle::platform::Place& place_pred,
-                const paddle::platform::Place& place_label);
+                const paddle::platform::Place& place);
   // add mask data
   void add_mask_data(const float* d_pred,
                      const int64_t* d_label,
                      const int64_t* d_mask,
                      int batch_size,
-                     const paddle::platform::Place& place_pred,
-                     const paddle::platform::Place& place_label,
-                     const paddle::platform::Place& place_mask);
+                     const paddle::platform::Place& place);
   // add float data
   void add_float_mask_data(const float* d_pred,
                            const float* d_label,
@@ -95,16 +92,13 @@ class BasicAucCalculator {
                        const int64_t* d_label,
                        const std::vector<float>& d_sample_scale,
                        int batch_size,
-                       const paddle::platform::Place& place_pred,
-                       const paddle::platform::Place& place_label);
+                       const paddle::platform::Place& place);
   // add uid data
   void add_uid_data(const float* d_pred,
                     const int64_t* d_label,
                     const int64_t* d_uid,
                     int batch_size,
-                    const paddle::platform::Place& place_pred,
-                    const paddle::platform::Place& place_label,
-                    const paddle::platform::Place& place_uid);
+                    const paddle::platform::Place& place);
 
   void add_nan_inf_data(const float* d_pred,
                         const int64_t* d_label,
@@ -117,8 +111,8 @@ class BasicAucCalculator {
   double bucket_error() const { return _bucket_error; }
   double auc() const { return _auc; }
   double mae() const { return _mae; }
-  double nan_rate() const { return _nan_rate; }
-  double inf_rate() const { return _inf_rate; }
+  double nan_cnt() const { return _nan_cnt; }
+  double inf_cnt() const { return _inf_cnt; }
   double nan_inf_rate() const { return _nan_inf_rate; }
   double actual_ctr() const { return _actual_ctr; }
   double predicted_ctr() const { return _predicted_ctr; }

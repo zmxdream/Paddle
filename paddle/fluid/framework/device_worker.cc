@@ -17,11 +17,6 @@ limitations under the License. */
 #include <chrono>
 
 #include "paddle/fluid/framework/convert_utils.h"
-#ifdef PADDLE_WITH_BOX_PS
-#include "paddle/fluid/framework/fleet/box_wrapper.h"
-#endif
-DECLARE_bool(lineid_have_extend_info);
-DECLARE_bool(dump_filed_same_as_aibox);
 
 namespace phi {
 class DenseTensor;
@@ -247,20 +242,27 @@ bool CheckValidOutput(const LoDTensor* tensor, size_t batch_size) {
 
 void DeviceWorker::DumpParam(const Scope& scope, const int batch_id) {
   std::ostringstream os;
+  int device_id = int(place_.GetDeviceId());
   for (auto& param : *dump_param_) {
     os.str("");
     Variable* var = scope.FindVar(param);
-    if (var == nullptr) {
+    if (var == nullptr || !var->IsInitialized()) {
+      continue;
+    }
+    if (!var->IsType<phi::DenseTensor>()) {
       continue;
     }
     LoDTensor* tensor = var->GetMutable<LoDTensor>();
+    if (tensor == nullptr || !tensor->IsInitialized()) {
+      continue;
+    }
     framework::LoDTensor cpu_tensor;
     if (platform::is_gpu_place(tensor->place())) {
       TensorCopySync(*tensor, platform::CPUPlace(), &cpu_tensor);
       tensor = &cpu_tensor;
     }
     int64_t len = tensor->numel();
-    os << "(" << batch_id << "," << param << ")"
+    os << "(" << device_id << "," << batch_id << "," << param << ")"
        << PrintLodTensor(tensor, 0, len);
     writer_ << os.str();
   }
@@ -429,6 +431,11 @@ void DeviceWorker::DumpField(const Scope& scope,
               << "] cannot be find in scope, so it was skipped.";
       continue;
     }
+    if (!var->IsType<phi::DenseTensor>()) {
+      VLOG(3) << "Note: field[" << field
+              << "] is not dense tensor, so it was skipped.";
+      continue;
+    }
     LoDTensor* tensor = var->GetMutable<LoDTensor>();
     if (!tensor->IsInitialized()) {
       VLOG(0) << "Note: field[" << field
@@ -467,6 +474,7 @@ void DeviceWorker::DumpField(const Scope& scope,
   }
   writer_.Flush();
 }
+
 template <class... ARGS>
 void format_string_append(std::string* str,
                           const char* fmt,
