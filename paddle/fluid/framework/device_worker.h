@@ -226,10 +226,6 @@ class DeviceWorker {
   virtual void DumpField(const Scope& scope,
                          int dump_mode,
                          int dump_interval = 10000);
-  virtual void DumpParamBoxPS(const Scope& scope, const int batch_id);
-  virtual void DumpFieldBoxPS(const Scope& scope,
-                              int dump_mode,
-                              int dump_interval = 10000);
 
   Scope* root_scope_ = nullptr;
   Scope* thread_scope_;
@@ -933,16 +929,11 @@ class BoxPSWorker : public DeviceWorker {
   bool one_ring_ = false;
   int device_num_ = 0;
   int node_size_ = 1;
-<<<<<<< HEAD
-=======
-
->>>>>>> 5d5059547849c6d90ab097584bcc0add754e623d
   // skip vars
   std::vector<std::string> skip_vars_;
   std::unordered_map<const OperatorBase*, std::vector<std::string>>
       unused_vars_;
-<<<<<<< HEAD
-=======
+
   int nccl_rank_id_ = 0;
   int ring_id_ = 0;
   std::unordered_map<std::string, int> params2rootid_;
@@ -958,7 +949,6 @@ class BoxPSWorker : public DeviceWorker {
   bool sharding_mode_ = false;
   // op extend
   std::unordered_set<const OperatorBase*> sync_points_;
->>>>>>> 5d5059547849c6d90ab097584bcc0add754e623d
 };
 #endif
 

@@ -47,7 +47,6 @@ limitations under the License. */
 DECLARE_bool(enable_dump_main_program);
 DECLARE_bool(enable_sync_dense_moment);
 DECLARE_bool(check_nan_inf);
-
 DECLARE_bool(lineid_have_extend_info);
 DECLARE_bool(dump_filed_same_as_aibox);
 PADDLE_DEFINE_EXPORTED_bool(padbox_enable_gc, true, "enable paddlebox gc");
@@ -843,24 +842,6 @@ void BoxPSWorker::CreateThreadOperators(const ProgramDesc& program) {
     skip_vars_.insert(
         skip_vars_.end(), monitor_vars.begin(), monitor_vars.end());
   }
-
-  // skip dump fields
-  if (need_dump_field_ && dump_fields_ != nullptr) {
-    skip_vars_.insert(
-        skip_vars_.end(), dump_fields_->begin(), dump_fields_->end());
-  }
-  // skip dump param
-  if (need_dump_param_ && dump_param_ != nullptr) {
-    skip_vars_.insert(
-        skip_vars_.end(), dump_param_->begin(), dump_param_->end());
-  }
-  // add monitor skip vars
-  auto box_ptr = BoxWrapper::GetInstance();
-  auto& monitor_vars = box_ptr->GetSkipGCVars();
-  if (!monitor_vars.empty()) {
-    skip_vars_.insert(
-        skip_vars_.end(), monitor_vars.begin(), monitor_vars.end());
-  }
   if (FLAGS_padbox_enable_gc) {
     // add op gc vars
     unused_vars_ = GetUnusedVars(block, ops_, skip_vars_, &unpersist_vars_);
@@ -1104,14 +1085,26 @@ void BoxPSWorker::CreateThreadScopeForSharding(const ProgramDesc& program) {
           share_persistable_len += len;
           continue;
         }
-        auto stream = static_cast<phi::GPUContext*>(dev_ctx_)->stream();
+
         auto src_place = root_tensor->place();
         auto holder = root_tensor->MoveMemoryHolder();
         auto dst_ptr = root_tensor->mutable_data(
             place_, root_tensor->dtype(), holder->size());
-        memory::Copy(
-            place_, dst_ptr, src_place, holder->ptr(), holder->size(), stream);
-        CHECK(platform::is_gpu_place(root_tensor->place()));
+        
+        #if defined(PADDLE_WITH_CUDA)
+            auto stream = static_cast<phi::GPUContext*>(dev_ctx_)->stream();
+            memory::Copy(
+                place_, dst_ptr, src_place, holder->ptr(), holder->size(), stream);
+            CHECK(platform::is_gpu_place(root_tensor->place()));
+        #elif defined(PADDLE_WITH_XPU)
+            // XPUStream stream = static_cast<platform::XPUDeviceContext*>(dev_ctx_)
+            //                        ->x_context()
+            //                        ->xpu_stream;
+            memory::Copy(
+                place_, dst_ptr, src_place, holder->ptr(), holder->size());
+            CHECK(platform::is_xpu_place(root_tensor->place()));
+        #endif
+        
         ++persist_reset;
         continue;
       }
@@ -1197,27 +1190,6 @@ void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
              thread_id_,
              box_ptr->Phase());
     WriteToFile(filename, str_os.str());
-  }
-  if (share_var_num > 0) {
-    VLOG(0) << "device[" << device_id_ << "] persistable total num ["
-            << persistable_num << "," << total_persistable_len << ","
-            << total_persistable_len / 262144.0
-            << "MB], share persistable num [" << share_var_num << ","
-            << share_persistable_len << "," << share_persistable_len / 262144.0
-            << "MB]";
-  }
-  if (FLAGS_padbox_enable_gc) {
-    // add op gc vars
-    unused_vars_ = GetUnusedVars2(block, ops_, skip_vars_);
-    //  for (auto &var : unused_vars_) {
-    //    VLOG(0) << "op name=" << var.first->Type() << ", gc names: " <<
-    //    paddle::string::join_strings(var.second, ",");
-    //  }
-    if (device_id_ == 0) {
-      VLOG(0) << "total op count=" << ops_.size()
-              << ", skip vars count=" << skip_vars_.size()
-              << ", unused vars op count=" << unused_vars_.size();
-    }
   }
 }
 void BoxPSWorker::SyncParam(void) {

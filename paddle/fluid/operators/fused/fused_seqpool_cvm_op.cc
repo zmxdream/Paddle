@@ -145,7 +145,6 @@ class FusedSeqpoolCVMOpMaker : public framework::OpProtoAndCheckerMaker {
     AddAttr<bool>("embedx_concate_filter", "(bool, default false)").SetDefault(false);
     AddAttr<bool>("fill_zero", "(bool, default true)").SetDefault(true);
     AddAttr<bool>("fix_ctr_to_click", "(bool, default false)").SetDefault(false);
-    AddAttr<bool>("fill_zero", "(bool, default true)").SetDefault(true);
 
     AddComment(R"DOC(
 Fuse multiple pairs of Sequence Pool and CVM Operator.
