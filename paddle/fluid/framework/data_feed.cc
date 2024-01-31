@@ -36,7 +36,7 @@ limitations under the License. */
 
 USE_INT_STAT(STAT_total_feasign_num_in_mem);
 DECLARE_bool(enable_ins_parser_file);
-DECLARE_bool(data_feed_use_buffer_async);
+DECLARE_bool(enable_async_datafeed_batch);
 #ifdef PADDLE_WITH_BOX_PS
 #include <dlfcn.h>
 extern "C" {
@@ -3164,7 +3164,7 @@ bool SlotPaddleBoxDataFeed::Start() {
 #elif defined(PADDLE_WITH_XPU_KP) && !defined(CPU_DATA_FEED)
   pack_ = BatchGpuPackMgr().get(this->GetPlace(), used_slots_info_);
 #endif
-  if (FLAGS_data_feed_use_buffer_async) {
+  if (FLAGS_enable_async_datafeed_batch) {
     slot_pv_tensor_buf_ = std::make_shared<MiniBatchSlotPvTensorBuffer>(used_slots_info_, this->GetPlace());
     slot_pv_tensor_buf_next_ = std::make_shared<MiniBatchSlotPvTensorBuffer>(used_slots_info_, this->GetPlace());
   }
@@ -3196,7 +3196,7 @@ int SlotPaddleBoxDataFeed::Next() {
       VLOG(3) << "finish reading, batch size zero, thread_id=" << thread_id_;
     }
 
-    if (FLAGS_data_feed_use_buffer_async && offset_index_ < static_cast<int>(batch_offsets_.size())) {
+    if (FLAGS_enable_async_datafeed_batch && offset_index_ < static_cast<int>(batch_offsets_.size())) {
       auto & new_batch = batch_offsets_[offset_index_];
       if (new_batch.second != 0) {
         std::future<bool> prefetch_done = std::async(std::launch::async, 
@@ -3217,7 +3217,7 @@ int SlotPaddleBoxDataFeed::Next() {
     batch_timer_.Resume();
     PutToFeedSlotVec(&records_[batch.first], this->batch_size_);
     // prefetch next batch
-    if (FLAGS_data_feed_use_buffer_async && offset_index_ < static_cast<int>(batch_offsets_.size())) {
+    if (FLAGS_enable_async_datafeed_batch && offset_index_ < static_cast<int>(batch_offsets_.size())) {
       auto & new_batch = batch_offsets_[offset_index_];
       //PrefechNextBatch(&records_[new_batch.first], new_batch.second);
       std::future<bool> prefetch_done = std::async(std::launch::async, 
@@ -3278,7 +3278,7 @@ void SlotPaddleBoxDataFeed::PutToFeedPvVec(const SlotPvInstance* pvs, int num) {
   BuildSlotBatchGPU(ins_num);
 #elif defined(PADDLE_WITH_XPU_KP) && !defined(CPU_DATA_FEED)
   paddle::platform::SetXPUDeviceId(place_.GetDeviceId());
-  if (FLAGS_data_feed_use_buffer_async) {
+  if (FLAGS_enable_async_datafeed_batch) {
     if (!slot_pv_tensor_buf_next_->valid()) { // first_batch
       std::future<bool> prefetch_done = std::async(std::launch::async, 
           std::bind(&SlotPaddleBoxDataFeed::PrefechNextBatchWithPv, this, pvs, num));
@@ -3528,7 +3528,7 @@ void SlotPaddleBoxDataFeed::PutToFeedSlotVec(const SlotRecord* ins_vec,
 
   paddle::platform::SetXPUDeviceId(place_.GetDeviceId());
   
-  if (FLAGS_data_feed_use_buffer_async) {
+  if (FLAGS_enable_async_datafeed_batch) {
     if (!slot_pv_tensor_buf_next_->valid()) { // first_batch
       std::future<bool> prefetch_done = std::async(std::launch::async, 
           std::bind(&SlotPaddleBoxDataFeed::PrefechNextBatch, this, ins_vec, num));
