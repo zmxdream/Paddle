@@ -76,7 +76,7 @@ class FusedSeqpoolCVMWithConvOpXPUKernel : public framework::OpKernel<T> {
     phi::Place l3_place = ctx.template device_context<DeviceContext>().GetL3Place();
     int w = ins[0]->numel() / x0_dims[0];
     if(use_cvm) {
-      if (show_filter) w = (w - 1) * embedx_concate_size;
+      if (show_filter) w = (w - 1);
       PADDLE_ENFORCE_EQ(y_dims[1] % (w * embedx_concate_size), 0,
                         paddle::platform::errors::InvalidArgument(
                             "The output of dims[1] should be dividable of w"));
