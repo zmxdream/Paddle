@@ -225,7 +225,7 @@ class DeviceWorker {
   virtual void DumpParam(const Scope& scope, const int batch_id);
   virtual void DumpField(const Scope& scope,
                          int dump_mode,
-                         int dump_interval = 10000);
+                         int dump_interval = 10000);                    
 
   Scope* root_scope_ = nullptr;
   Scope* thread_scope_;
