@@ -1523,7 +1523,22 @@ inline void format_string_append(
                  len);
   str->resize(oldlen + len);
 }
+
 static const size_t max_fmt_buff_size = 40;
+
+inline void GetLodBound(const LoD& lod,
+                        const int64_t& dim,
+                        const int& index,
+                        std::pair<int64_t, int64_t>* bound) {
+  if (lod.size() != 0) {
+    bound->first = lod[0][index] * dim;
+    bound->second = lod[0][index + 1] * dim;
+  } else {
+    bound->first = index * dim;
+    bound->second = (index + 1) * dim;
+  }
+}
+
 template <typename T, typename C>
 inline void PrintLodTensorFmtType(const Tensor* tensor,
                                   const int64_t& start,
@@ -1581,52 +1596,46 @@ inline void GetTensorBound(const LoDTensor& tensor,
   }
 }
 void BoxPSWorker::DumpParam(const Scope& scope, const int batch_id) {
-  platform::Timer timeline;
-  timeline.Resume();
-
   size_t field_num = dump_param_->size();
+
+  auto chan = writer_.channel();
   // thread process fields
-  std::vector<framework::LoDTensor> cpu_tensors(field_num);
-  for (size_t i = 0; i < field_num; ++i) {
-    auto& name = (*dump_param_)[i];
-    Variable* var = scope.FindVar(name);
-    if (var == nullptr || !var->IsInitialized()) {
-      continue;
-    }
-    const LoDTensor& tensor = var->Get<LoDTensor>();
-    if (!tensor.IsInitialized()) {
-      VLOG(0) << "Note: param[" << name
-              << "] is not initialized, so it was skipped.";
-      continue;
-    }
-    auto& cpu_tensor = cpu_tensors[i];
-    TensorCopy(tensor, platform::CUDAPinnedPlace(), &cpu_tensor);
-  }
-  dev_ctx_->Wait();
-  timeline.Pause();
-
-  double copy_time = timeline.ElapsedSec();
-
-  timeline.Resume();
+#ifdef PADDLE_WITH_BOX_PS
+  auto box_ptr = paddle::framework::BoxWrapper::GetInstance();
+  box_ptr->ExecuteFunc(
+      platform::CPUPlace(),
+#else
   parallel_run_dynamic(
-      field_num, [this, &scope, batch_id, &cpu_tensors](const size_t& i) {
-        auto& cpu_tensor = cpu_tensors[i];
-        int64_t len = cpu_tensor.numel();
-        auto& name = (*dump_param_)[i];
+#endif
+      field_num,
+      [this, &scope, batch_id, chan](const size_t& id) {
+        auto& name = (*dump_param_)[id];
+        Variable* var = scope.FindVar(name);
+        if (var == nullptr || !var->IsInitialized()) {
+          return;
+        }
+        const LoDTensor& tensor = var->Get<LoDTensor>();
+        if (!tensor.IsInitialized()) {
+          VLOG(0) << "Note: param[" << name
+                  << "] is not initialized, so it was skipped.";
+          return;
+        }
+        framework::LoDTensor cpu_tensor;
+        if (!platform::is_cpu_place(tensor.place())) {
+          TensorCopySync(tensor, platform::CPUPlace(), &cpu_tensor);
+        } else {
+          cpu_tensor.ShareDataWith(tensor);
+        }
+
         std::string s;
-        format_string_append(&s, "(%d,%s,%ld)", batch_id, name.c_str(), len);
+        format_string_append(&s, "(%d,%s)", batch_id, name.c_str());
+        int64_t len = cpu_tensor.numel();
         PrintLodTensor(&cpu_tensor, 0, len, &s);
         // write to channel
-        writer_.channel()->Put(std::move(s));
+        chan->WriteMove(1, &s);
       });
-  timeline.Pause();
-
-  if (FLAGS_enable_print_dump_info_debug) {
-    VLOG(0) << "[" << device_id_ << "]dump param field_num=" << field_num
-            << ", total span=" << timeline.ElapsedSec()
-            << ", copy span=" << copy_time;
-  }
 }
+
 void BoxPSWorker::DumpField(const Scope& scope,
                             int dump_mode,
                             int dump_interval) {
@@ -1634,71 +1643,131 @@ void BoxPSWorker::DumpField(const Scope& scope,
   // number
   size_t batch_size = device_reader_->GetCurBatchSize();
   size_t field_num = dump_fields_->size();
+  std::vector<int64_t> dims(field_num, 0);
   std::vector<framework::LoDTensor> cpu_tensors(field_num);
+  std::vector<const LoD*> lods(field_num, nullptr);
 
-  platform::Timer timeline;
-  timeline.Resume();
-  // copy fields
-  for (size_t i = 0; i < field_num; ++i) {
-    auto& field = (*dump_fields_)[i];
-    Variable* var = scope.FindVar(field);
-    if (var == nullptr || !var->IsInitialized()) {
-      VLOG(3) << "Note: field[" << field
-              << "] cannot be find in scope, so it was skipped.";
-      continue;
-    }
-    const LoDTensor& tensor = var->Get<LoDTensor>();
-    if (!tensor.IsInitialized()) {
-      VLOG(3) << "Note: field[" << field
-              << "] is not initialized, so it was skipped.";
-      continue;
-    }
-    if (!CheckValidOutput(&tensor, batch_size)) {
-      auto& dims = tensor.dims();
-      VLOG(0) << "Note: field[" << field
-              << "] cannot pass check, "
-                 "so it was skipped. Maybe the dimension is wrong["
-              << dims.size() << "!=" << dims[0] << " * " << dims[1] << "]";
-      continue;
-    }
-    TensorCopy(tensor, platform::CUDAPinnedPlace(), &cpu_tensors[i]);
+// #ifdef PADDLE_WITH_XPU_KP
+std::set<std::string> used_slot_set;
+#if (defined PADDLE_WITH_XPU_KP) && (defined PADDLE_WITH_BOX_PS)
+  auto real_reader = dynamic_cast<SlotPaddleBoxDataFeed *>(device_reader_);
+  PADDLE_ENFORCE_NOT_NULL(
+        real_reader, platform::errors::NotFound("In XPU only support SlotPaddleBoxDataFeed"));
+  std::vector<std::string> used_slot_names;
+  real_reader->GetUsedSlotIndex(nullptr, &used_slot_names);
+  for (auto & slot : used_slot_names) {
+    used_slot_set.insert(slot);
   }
-  dev_ctx_->Wait();
-  // wait stream
-  timeline.Pause();
+#endif
 
-  double copy_time = timeline.ElapsedSec();
+  // copy fields
+#ifdef PADDLE_WITH_BOX_PS
+  auto box_ptr = paddle::framework::BoxWrapper::GetInstance();
+  box_ptr->ExecuteFunc(
+      platform::CPUPlace(),
+#else
+  parallel_run_dynamic(
+#endif
+      field_num,
+      [this, &dims, &cpu_tensors, &lods, &scope, &used_slot_set, batch_size](const size_t& i) {
+        auto& field = (*dump_fields_)[i];
+        Variable* var = scope.FindVar(field);
+        if (var == nullptr || !var->IsInitialized()) {
+          VLOG(3) << "Note: field[" << field
+                  << "] cannot be find in scope, so it was skipped.";
+          return;
+        }
+        const LoDTensor& tensor = var->Get<LoDTensor>();
+        if (!tensor.IsInitialized()) {
+          VLOG(3) << "Note: field[" << field
+                  << "] is not initialized, so it was skipped.";
+          return;
+        }
+        if (!CheckValidOutput(&tensor, batch_size)) {
+          //      VLOG(0) << "Note: field[" << field << "] cannot pass check, so
+          //      it was "
+          //                                            "skipped. Maybe the
+          //                                            dimension is " "wrong ";
+          return;
+        }
+        dims[i] = tensor.dims()[1];
+        lods[i] = (&tensor.lod());
+        if (!platform::is_cpu_place(tensor.place())) {
+          TensorCopySync(tensor, platform::CPUPlace(), &cpu_tensors[i]);
+        } else {
+          cpu_tensors[i].ShareDataWith(tensor);
+        }
+#ifdef PADDLE_WITH_XPU_KP
+    auto fid2sign_map_ptr = paddle::framework::BoxWrapper::GetInstance()->GetFid2SginMap();
+    if (used_slot_set.find(field) != used_slot_set.end() \
+        && fid2sign_map_ptr != nullptr && fid2sign_map_ptr->size() > 0) {
+      auto t_dtype = framework::TransToProtoVarType(cpu_tensors[i].dtype());
+      if (t_dtype == proto::VarType::INT64) {
+        size_t numel = cpu_tensors[i].numel();
+        int64_t * slot_data = cpu_tensors[i].data<int64_t>();
+        for (size_t j = 0; j < numel; ++j) {
+          uint64_t fid = static_cast<uint64_t>(slot_data[j]);
+          PADDLE_ENFORCE_LT(fid, fid2sign_map_ptr->size());
+          uint64_t sign = (*fid2sign_map_ptr)[fid];
+          PADDLE_ENFORCE(sign > 0 || (sign == 0 && fid == 0),
+              platform::errors::PreconditionNotMet(
+              "sign can only be 0 when fid is 0, fid:%llu, sign:%llu",
+              (unsigned long long)(fid), (unsigned long long)sign));
+          slot_data[j] = static_cast<int64_t>(sign);
+        }
+      }
+    }
+#endif
+      });
 
-  timeline.Resume();
+  // dump data
+  std::default_random_engine engine(0);
+  std::uniform_int_distribution<size_t> dist(0U, INT_MAX);
+  // need dump check
+  auto need_dump_func = [this, &dist, &engine, dump_mode, dump_interval](
+                            const std::string& lineid) {
+    size_t r = 0;
+    if (dump_mode == 1) {
+      r = XXH64(lineid.data(), lineid.length(), 0);
+    } else if (dump_mode == 2) {
+      r = dist(engine);
+    }
+    if (r % dump_interval != 0) {
+      return false;
+    }
+    return true;
+  };
+
   std::atomic<size_t> line_cnt{0};
   std::atomic<size_t> num_cnt{0};
+
+  auto chan = writer_.channel();
+#ifdef PADDLE_WITH_BOX_PS
+  box_ptr->ExecuteFunc(
+      platform::CPUPlace(),
+#else
   // dump data
   parallel_run_dynamic(
+#endif
       batch_size,
       [this,
+       chan,
+       &dims,
        &cpu_tensors,
+       &lods,
+       &need_dump_func,
        field_num,
-       dump_mode,
-       dump_interval,
        &line_cnt,
        &num_cnt](const size_t& i) {
         const std::string& lineid = device_reader_->GetLineId(i);
-
-        thread_local std::default_random_engine engine(0);
-        thread_local std::uniform_int_distribution<size_t> dist(0U, INT_MAX);
-        size_t r = 0;
-        if (dump_mode == 1) {
-          r = XXH64(lineid.data(), lineid.length(), 0);
-        } else if (dump_mode == 2) {
-          r = dist(engine);
-        }
-        if (r % dump_interval != 0) {
+        if (!need_dump_func(lineid)) {
           return;
         }
+
         ++line_cnt;
 
+        thread_local std::pair<int64_t, int64_t> bound;
         std::string s;
-        s.reserve(1024);
         size_t pos = 0;
         if (FLAGS_lineid_have_extend_info) {
           pos = lineid.find(" ");
@@ -1711,15 +1780,17 @@ void BoxPSWorker::DumpField(const Scope& scope,
           s.append(lineid);
         }
 
-        thread_local std::pair<int64_t, int64_t> bound;
         size_t num = 0;
         for (size_t k = 0; k < field_num; ++k) {
-          s.append("\t", 1);
-          auto& tensor = cpu_tensors[k];
-          GetTensorBound(tensor, i, &bound);
-          num += (bound.second - bound.first);
-
+          auto& lod = lods[k];
+          if (lod == nullptr) {
+            continue;
+          }
           auto& field = (*dump_fields_)[k];
+          s.append("\t", 1);
+          GetLodBound(*lod, dims[k], i, &bound);
+
+          num += (bound.second - bound.first);
           if (FLAGS_dump_filed_same_as_aibox) {
             size_t ext_pos = field.find(".");
             if (ext_pos != std::string::npos) {
@@ -1731,7 +1802,7 @@ void BoxPSWorker::DumpField(const Scope& scope,
             format_string_append(
                 &s, "%s:%ld", field.c_str(), bound.second - bound.first);
           }
-          PrintLodTensor(&tensor, bound.first, bound.second, &s);
+          PrintLodTensor(&cpu_tensors[k], bound.first, bound.second, &s);
         }
         num_cnt += num;
 
@@ -1740,27 +1811,9 @@ void BoxPSWorker::DumpField(const Scope& scope,
           s.append("\t", 1);
           s.append(&lineid[pos + 1], lineid.length() - pos - 1);
         }
-        if (FLAGS_enable_print_dump_field_debug) {
-          VLOG(0) << "lineid:[" << lineid << "], " << field_num << ", value:["
-                  << s << "]";
-        }
         // write to channel
-        writer_.channel()->Put(std::move(s));
+        chan->WriteMove(1, &s);
       });
-  timeline.Pause();
-  // add dump warning
-  if (line_cnt > 0 && num_cnt == 0) {
-    VLOG(0)
-        << "WARNING: dump ins count [" << line_cnt << "] fields num ["
-        << field_num
-        << "] dump values is empty, please check configure fields is vailid!!!";
-  }
-  if (FLAGS_enable_print_dump_info_debug) {
-    VLOG(0) << "[" << device_id_ << "]dump ins count=" << line_cnt
-            << ", field=" << field_num << ", num=" << num_cnt
-            << ", total span=" << timeline.ElapsedSec()
-            << ", copy span=" << copy_time;
-  }
 }
 }  // namespace framework
 }  // namespace paddle
