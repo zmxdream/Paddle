@@ -58,6 +58,7 @@ class FusedSeqpoolCVMWithDiffThresOpXPUKernel : public framework::OpKernel<T> {
     auto threshold_vec_param = ctx.Attr<std::vector<float>>("threshold_vec");
     std::vector<float> threshold_vec(threshold_vec_param.begin(), threshold_vec_param.end());
 
+
     // VLOG(0) << "threshold_vec.size=" << threshold_vec.size();
     // for(int i=0; i<threshold_vec.size(); ++i) {
     //   VLOG(0) << "i=" << i << ", threshold=" << threshold_vec[i];
@@ -74,14 +75,19 @@ class FusedSeqpoolCVMWithDiffThresOpXPUKernel : public framework::OpKernel<T> {
     for (size_t i = 0; i <= bs; ++i) {
         y_lod[0][i] = i;
     }
+
     for (int i = 0; i < slot_num; i++) {
       out[i]->Resize({static_cast<int64_t>(bs), y_dims[1]});
-      out[i]->set_lod(y_lod);
     }
-    //TODO:r480 l3 have some thing wrong
+
+    // struct timeval af_set_var;
+    // gettimeofday(&af_set_var, NULL);
+
+    // TODO:r480 l3 have some thing wrong
     static bool use_l3_tensor = std::getenv("XPU_PADDLE_L3_TENSOR")!=NULL ?
-                        (std::strcmp(std::getenv("XPU_PADDLE_L3_TENSOR"), "1") == 0 ? true:false) :
-                        false;
+                      (std::strcmp(std::getenv("XPU_PADDLE_L3_TENSOR"), "1") == 0 ? true:false) :
+                      false;
+
     auto place = ctx.GetPlace();
     phi::Place l3_place = ctx.template device_context<DeviceContext>().GetL3Place();
     int w = ins[0]->numel() / x0_dims[0];
@@ -97,11 +103,16 @@ class FusedSeqpoolCVMWithDiffThresOpXPUKernel : public framework::OpKernel<T> {
                       "The output of dims[1] should be dividable of (w-2)"));
     }
 
-    std::vector<const T*> cpu_x_addr_vec(slot_num, 0);
-    std::vector<T*> cpu_y_addr_vec(slot_num, 0);
+    std::vector<const T*> cpu_x_addr_vec;
+    cpu_x_addr_vec.reserve(slot_num);
+    std::vector<T*> cpu_y_addr_vec;
+    cpu_y_addr_vec.reserve(slot_num);
+
     unsigned int sum_lod_size = slot_num * (bs + 1);
-    std::vector<int> cpu_lodx(sum_lod_size);
+    std::vector<int> cpu_lodx;
+    cpu_lodx.reserve(sum_lod_size);
     unsigned int lod_index = 0;
+
     for (int i = 0; i < slot_num; i++) {
         cpu_x_addr_vec[i] = reinterpret_cast<const T*>(ins[i]->data<T>());
         if(use_l3_tensor) {
@@ -110,10 +121,14 @@ class FusedSeqpoolCVMWithDiffThresOpXPUKernel : public framework::OpKernel<T> {
           cpu_y_addr_vec[i] = reinterpret_cast<T*>(out[i]->mutable_data<T>(place));
         }
         auto x_lod = ins[i]->lod()[0];
+#ifdef PADDLE_WITH_MKLML
+#pragma omp parallel for
+#endif
         for (size_t j = 0; j < x_lod.size(); j++) {
            cpu_lodx[lod_index + j] = x_lod[j];
         }
-	      lod_index += x_lod.size();
+
+        lod_index += x_lod.size();
     }
 
 #ifdef TRACE_PROFILE
