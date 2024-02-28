@@ -66,12 +66,11 @@ class FusedSeqpoolCVMWithConvOpXPUKernel : public framework::OpKernel<T> {
     }
     for (int i = 0; i < slot_num; i++) {
       out[i]->Resize({static_cast<int64_t>(bs), y_dims[1]});
-      out[i]->set_lod(y_lod);
     }
     //TODO:r480 l3 have some thing wrong
     static bool use_l3_tensor = std::getenv("XPU_PADDLE_L3_TENSOR")!=NULL ?
-                        (std::strcmp(std::getenv("XPU_PADDLE_L3_TENSOR"), "1") == 0 ? true:false) :
-                        false;
+                      (std::strcmp(std::getenv("XPU_PADDLE_L3_TENSOR"), "1") == 0 ? true:false) :
+                      false;
     auto place = ctx.GetPlace();
     phi::Place l3_place = ctx.template device_context<DeviceContext>().GetL3Place();
     int w = ins[0]->numel() / x0_dims[0];
@@ -100,10 +99,14 @@ class FusedSeqpoolCVMWithConvOpXPUKernel : public framework::OpKernel<T> {
           cpu_y_addr_vec[i] = reinterpret_cast<T*>(out[i]->mutable_data<T>(place));
         }
         auto x_lod = ins[i]->lod()[0];
+#ifdef PADDLE_WITH_MKLML
+#pragma omp parallel for
+#endif
         for (size_t j = 0; j < x_lod.size(); j++) {
            cpu_lodx[lod_index + j] = x_lod[j];
         }
-	      lod_index += x_lod.size();
+
+        lod_index += x_lod.size();
     }
 
 #ifdef TRACE_PROFILE
