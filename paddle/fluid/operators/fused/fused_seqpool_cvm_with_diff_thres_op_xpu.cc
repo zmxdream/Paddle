@@ -120,7 +120,7 @@ class FusedSeqpoolCVMWithDiffThresOpXPUKernel : public framework::OpKernel<T> {
         } else {
           cpu_y_addr_vec[i] = reinterpret_cast<T*>(out[i]->mutable_data<T>(place));
         }
-        auto x_lod = ins[i]->lod()[0];
+        auto& x_lod = ins[i]->lod()[0];
 #ifdef PADDLE_WITH_MKLML
 #pragma omp parallel for
 #endif
@@ -213,10 +213,9 @@ class FusedSeqpoolCVMWithDiffThresGradOpXPUKernel : public framework::OpKernel<T
         T* dx_data = dx->mutable_data<T>(place);
         // T* dx_data = dx->mutable_data<T>(place);
         T* dy_data = const_cast<T*>(dy->data<T>());
-        auto lod = dx->lod();
         cpu_dx_list[k] = dx_data;
         cpu_dy_list[k] = (const T*)dy_data;
-        auto lod_level_0 = dx->lod()[0];
+        auto& lod_level_0 = dx->lod()[0];
         int lod_size = lod_level_0.size();
         for (int i = 0; i < lod_size; i++) {
           cpu_lodx[i + start_index] = lod_level_0[i];
