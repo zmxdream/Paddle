@@ -731,8 +731,11 @@ class FloatMaskMetricMsg : public MetricMsg {
                           "the predict data length should be consistent with "
                           "the label data length"));
     auto cal = GetCalculator();
+    auto pre_var_place = GetVarPlace(exe_scope, pred_varname_);
+    auto label_var_place = GetVarPlace(exe_scope, label_varname_);
+    auto mask_var_place = GetVarPlace(exe_scope, mask_varname_);
     cal->add_float_mask_data(
-        pred_data, label_data, mask_data, label_len, place);
+        pred_data, label_data, mask_data, label_len, pre_var_place, label_var_place, mask_var_place);
   }
 
  protected:
@@ -775,8 +778,11 @@ class ContinueMaskMetricMsg : public MetricMsg {
                           "the predict data length should be consistent with "
                           "the label data length"));
     auto cal = GetCalculator();
+    auto pre_var_place = GetVarPlace(exe_scope, pred_varname_);
+    auto label_var_place = GetVarPlace(exe_scope, label_varname_);
+    auto mask_var_place = GetVarPlace(exe_scope, mask_varname_);
     cal->add_continue_mask_data(
-        pred_data, label_data, mask_data, label_len, place);
+        pred_data, label_data, mask_data, label_len, pre_var_place, label_var_place, mask_var_place);
   }
 
  protected:
@@ -913,8 +919,10 @@ class NanInfMetricMsg : public MetricMsg {
                           "the predict data length should be consistent with "
                           "the label data length"));
     auto cal = GetCalculator();
+    auto pre_var_place = GetVarPlace(exe_scope, pred_varname_);
+    auto label_var_place = GetVarPlace(exe_scope, label_varname_);
     cal->add_nan_inf_data( 
-        pred_data, label_data, label_len, place);
+        pred_data, label_data, label_len, pre_var_place, label_var_place);
   }
 };
 
