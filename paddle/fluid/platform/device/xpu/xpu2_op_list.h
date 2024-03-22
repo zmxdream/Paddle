@@ -611,6 +611,12 @@ XPUOpMap& get_kl2_ops() {
        XPUKernelSet({pOpKernelType(vartype::FP32, XPUPlace())})},
       {"fused_concat_grad",
        XPUKernelSet({pOpKernelType(vartype::FP32, XPUPlace())})},
+      {"c_broadcast", XPUKernelSet({pOpKernelType(vartype::FP32, XPUPlace())})},
+      {"c_reduce_sum", XPUKernelSet({pOpKernelType(vartype::FP32, XPUPlace())})},
+      {"batch_fc",
+        XPUKernelSet({pOpKernelType(vartype::FP32, XPUPlace())})},
+      {"batch_fc_grad",
+        XPUKernelSet({pOpKernelType(vartype::FP32, XPUPlace())})},
   };
   return s_xpu2_kernels;
 }
