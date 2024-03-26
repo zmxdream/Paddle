@@ -613,6 +613,8 @@ XPUOpMap& get_kl2_ops() {
        XPUKernelSet({pOpKernelType(vartype::FP32, XPUPlace())})},
       {"c_broadcast", XPUKernelSet({pOpKernelType(vartype::FP32, XPUPlace())})},
       {"c_reduce_sum", XPUKernelSet({pOpKernelType(vartype::FP32, XPUPlace())})},
+      {"c_sync_comm_stream", XPUKernelSet({pOpKernelType(vartype::FP32, XPUPlace())})},
+      {"c_calc_comm_stream", XPUKernelSet({pOpKernelType(vartype::FP32, XPUPlace())})},
       {"batch_fc",
         XPUKernelSet({pOpKernelType(vartype::FP32, XPUPlace())})},
       {"batch_fc_grad",
