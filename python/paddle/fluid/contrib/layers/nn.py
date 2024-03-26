@@ -1601,7 +1601,7 @@ def rank_attention2(input,
     return output
 
 
-def batch_fc(input, param_size, param_attr, bias_size, bias_attr, act=None, batchcount=0):
+def batch_fc(input, param_size, param_attr, bias_size, bias_attr, act=None, batchcount=0, transpose_weight=False):
     """
     **Batch FC layer**
     This Op can calculate BatchFC. This is similar to matmul op, 
@@ -1666,7 +1666,10 @@ def batch_fc(input, param_size, param_attr, bias_size, bias_attr, act=None, batc
                          "W": w,
                          "Bias": b
                      },
-                     attrs={'batchcount': batchcount},
+                     attrs={
+                         'batchcount': batchcount,
+                         'transpose_weight': transpose_weight
+                     },
                      outputs={"Out": pre_act})
     return helper.append_activation(pre_act)
 

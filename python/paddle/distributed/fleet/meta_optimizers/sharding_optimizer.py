@@ -2020,7 +2020,7 @@ class ThreadShardingOptimizer(ShardingOptimizer):
             other_endpoints.remove(current_endpoint)
             
             comm_id_var = block.create_var(
-                name=unique_name.generate('comm_id'),
+                name=unique_name.generate('nccl_id'),
                 persistable=True,
                 type=core.VarDesc.VarType.RAW,
             )

@@ -77,7 +77,7 @@ __global__ void add_bias_kernel(
   int thread_id = cluster_id() * ncores + cid;
   int total_thread = cluster_num() * ncores;
 
-  const int buf_size = 768;
+  const int buf_size = 512;
   int max_seq_len = buf_size / out_dim;
   int bias_buff_len = roundup16(out_dim);
 
@@ -87,12 +87,11 @@ __global__ void add_bias_kernel(
   __simd__ T out_buf[buf_size];
   memset_lm_float(out_buf, buf_size);
 
-  for (int slot = thread_id; slot < slot_pairs_num; slot += total_thread) {
-    mfence();
-    GM2LM(bias + slot * out_dim, local_bias_buf,  out_dim * sizeof(T));
-
-    for (int i = 0; i < ins_num; i += max_seq_len) {
-      int len = min(ins_num - i, max_seq_len);
+  for (int64_t i = thread_id * max_seq_len; i < ins_num; i += total_thread * max_seq_len) {
+    int len = min(max_seq_len, ins_num - i);
+    for (int slot = 0; slot < slot_pairs_num; slot++) {
+      mfence();
+      GM2LM(bias + slot * out_dim, local_bias_buf,  out_dim * sizeof(T));
 
       GM2LM(data + slot * ins_num * out_dim + i * out_dim, local_data_buf, len * out_dim * sizeof(T));
       for (int j = 0; j < len; j++) {
@@ -111,8 +110,9 @@ void add_bias(xpu::Context* xpu_ctx,
               int ins_num,
               int out_dim,
               const T* bias) {
+  xpu::ctx_guard RAII_GUARD(xpu_ctx);
   auto stream = xpu_ctx->xpu_stream;              
-  add_bias_kernel<<<8, 64, stream>>>(data, slot_pairs_num, ins_num, out_dim, bias);
+  add_bias_kernel<<<xpu_ctx->ncluster(), 64, stream>>>(data, slot_pairs_num, ins_num, out_dim, bias);
 }
 
 template <typename T>
@@ -139,25 +139,25 @@ __global__ void add_bias_grad_kernel(const T* dout_data,
   memset_lm_float(tmp_sum_buf, buf_size);
 
   __local__ T tmp_sum = static_cast<T>(0);
-  for (int slot = thread_id; slot < slot_pairs_num; slot += total_thread) {
-    mfence();
-    GM2LM(db_data + slot * out_dim, local_bias_buf, out_dim * sizeof(T));
+  for (int i = thread_id; i < ins_num; i += total_thread) { 
+    for (int slot = 0; slot < slot_pairs_num; slot++) {
+      mfence();
+      GM2LM(db_data + slot * out_dim, local_bias_buf, out_dim * sizeof(T));
 
-    for (int index = 0; index < out_dim; index++) {
-      for (int i = 0; i < ins_num; ++i) { 
+      for (int index = 0; index < out_dim; index++) {
         int select_indx = ((slot + 1) * i + 1) * index;
         GM2LM(dout_data + select_indx, local_data_buf, sizeof(T));
         // mfence();
         tmp_sum_buf[index] += local_data_buf[0];
       }
+
+      // mfence();
+      primitive_add(tmp_sum_buf, local_bias_buf, local_bias_buf, out_dim);
+
+      // mfence();
+      LM2GM_ASYNC(local_bias_buf, db_data + slot * out_dim, out_dim * sizeof(T));
+      // mfence();
     }
-
-    // mfence();
-    primitive_add(tmp_sum_buf, local_bias_buf, local_bias_buf, out_dim);
-
-    // mfence();
-    LM2GM_ASYNC(local_bias_buf, db_data + slot * out_dim, out_dim * sizeof(T));
-    // mfence();
   }
 }
 
@@ -168,14 +168,13 @@ void add_bias_grad(xpu::Context* xpu_ctx,
                    int ins_num,
                    int out_dim,
                    T* db_data) {
+  xpu::ctx_guard RAII_GUARD(xpu_ctx);
   auto stream = xpu_ctx->xpu_stream;   
-  add_bias_grad_kernel<<<8, 64, stream>>>(
+  add_bias_grad_kernel<<<xpu_ctx->ncluster(), 64, stream>>>(
       dout_data, slot_pairs_num, ins_num, out_dim, db_data);
 }
 
-
-
-template <typename DeviceContext, typename T>
+template <typename T>
 class BatchFCXPUKernel : public framework::OpKernel<T> {
   using XPUType = typename XPUTypeTrait<T>::Type;
 
@@ -210,12 +209,7 @@ class BatchFCXPUKernel : public framework::OpKernel<T> {
       auto w_dims = w->dims();
       auto slot_pairs_num = input_dims[0];
       auto ins_num = input_dims[1];
-      // auto in_dim = input_dims[2];
       auto out_dim = w_dims[2];
-
-      VLOG(0) << "BatchFCXPUKernel slot_pairs_num:" << slot_pairs_num
-              << ", ins_num:" << ins_num
-              << ", out_dim:" << out_dim;
   
       // get data ptr
       const XPUType* x_ptr = reinterpret_cast<const XPUType*>(input->data<T>());
@@ -226,27 +220,20 @@ class BatchFCXPUKernel : public framework::OpKernel<T> {
       XPUType* out_ptr = reinterpret_cast<XPUType*>(output->mutable_data<T>(ctx.GetPlace()));
 
       // initialize
-      auto& dev_ctx =
-        ctx.template device_context<DeviceContext>();
-      xpu::Context* xpu_ctx = dev_ctx.x_context();
+      auto xpu_context =
+        ctx.template device_context<paddle::platform::XPUDeviceContext>().x_context();
   
       bool trans_x = false;
       bool trans_y = false;
   
       T alpha = 1;
-      T beta = 0;
      
       XpuFcInfo fc_info;
       GetFCInfo(input_dims, w_dims, trans_x, trans_y, &fc_info);
-      MatMulXPUFunction<XPUType>(xpu_ctx, x_ptr, y_ptr, out_ptr, fc_info, alpha);
+      MatMulXPUFunction<XPUType>(xpu_context, x_ptr, y_ptr, out_ptr, fc_info, alpha);
   
-      // xpu_wait(xpu_ctx->xpu_stream);
-
-      VLOG(3) << "add_bias slot_pairs_num:" << slot_pairs_num
-              << ", ins_num:" << ins_num
-              << ", out_dim:" << out_dim;
       // add bias
-      add_bias<T>(xpu_ctx,
+      add_bias<T>(xpu_context,
                   out_ptr,
                   slot_pairs_num,
                   ins_num,
@@ -256,7 +243,7 @@ class BatchFCXPUKernel : public framework::OpKernel<T> {
   }
 };
 
-template <typename DeviceContext, typename T>
+template <typename T>
 class BatchFCGradOpXPUKernel : public framework::OpKernel<T> {
   using XPUType = typename XPUTypeTrait<T>::Type;
 
@@ -282,7 +269,6 @@ class BatchFCGradOpXPUKernel : public framework::OpKernel<T> {
       auto w_dims = w->dims();
       auto slot_pairs_num = input_dims[0];
       auto ins_num = input_dims[1];
-      // auto in_dim = input_dims[2];
       auto out_dim = w_dims[2];
 
       const XPUType* dout_ptr = reinterpret_cast<const XPUType*>(dout->data<T>());
@@ -290,10 +276,9 @@ class BatchFCGradOpXPUKernel : public framework::OpKernel<T> {
       const XPUType* y_ptr = reinterpret_cast<const XPUType*>(dw->mutable_data<T>(ctx.GetPlace()));
       XPUType* b_ptr = reinterpret_cast<XPUType*>(db->mutable_data<T>(ctx.GetPlace()));
 
-      auto& dev_ctx =
-        ctx.template device_context<DeviceContext>();
-      xpu::Context* xpu_ctx = dev_ctx.x_context();
-      xpu::ctx_guard RAII_GUARD(xpu_ctx);
+      auto xpu_context =
+        ctx.template device_context<paddle::platform::XPUDeviceContext>().x_context();
+      xpu::ctx_guard RAII_GUARD(xpu_context);
 
       bool transpose_x = false;
       bool transpose_y = false;
@@ -309,20 +294,15 @@ class BatchFCGradOpXPUKernel : public framework::OpKernel<T> {
       XPUType* c_2 = (dw == NULL) ? reinterpret_cast<XPUType*>(NULL)
                                   : reinterpret_cast<XPUType*>(dw->data<T>());
 
-      VLOG(3) << "add_bias_grad slot_pairs_num:" << slot_pairs_num
-              << ", ins_num:" << ins_num
-              << ", out_dim:" << out_dim;
-
       // add bias grad
-      db->mutable_data<T>(ctx.GetPlace());
-      add_bias_grad<T>(xpu_ctx,
+      add_bias_grad<T>(xpu_context,
                        dout_ptr,
                        slot_pairs_num,
                        ins_num,
                        out_dim,
                        b_ptr);
 
-      // xpu_wait(xpu_ctx->xpu_stream);
+      // xpu_wait(xpu_context->xpu_stream);
 
       T alpha = 1;
       XpuFcInfo info_dx;
@@ -333,7 +313,7 @@ class BatchFCGradOpXPUKernel : public framework::OpKernel<T> {
                 const XPUType*,
                 const XPUType*,
                 const XPUType*>
-          fc_info = MatmulGradFcInfo(xpu_ctx,
+          fc_info = MatmulGradFcInfo(xpu_context,
                                     &RAII_GUARD,
                                     info_forward,
                                     transpose_x,
@@ -344,10 +324,10 @@ class BatchFCGradOpXPUKernel : public framework::OpKernel<T> {
       std::tie(info_dx, info_dy, a_1, b_1, a_2, b_2) = fc_info;
   
       // dx = dout_data * y^T
-      MatMulXPUFunction<XPUType>(xpu_ctx, a_1, b_1, c_1, info_dx, alpha);
+      MatMulXPUFunction<XPUType>(xpu_context, a_1, b_1, c_1, info_dx, alpha);
       
       // dy = x^T * dout_data
-      MatMulXPUFunction<XPUType>(xpu_ctx, a_2, b_2, c_2, info_dy, alpha);
+      MatMulXPUFunction<XPUType>(xpu_context, a_2, b_2, c_2, info_dy, alpha);
     }
   }
 };
@@ -355,20 +335,16 @@ class BatchFCGradOpXPUKernel : public framework::OpKernel<T> {
 }  // namespace operators
 }  // namespace paddle
 
-     
-
 namespace ops = paddle::operators;
 namespace plat = paddle::platform;
 
 REGISTER_OP_KERNEL(batch_fc, KP, plat::XPUPlace,
-                   ops::BatchFCXPUKernel<paddle::platform::XPUDeviceContext, float>);     
+                   ops::BatchFCXPUKernel<float>);     
 REGISTER_OP_KERNEL(batch_fc_grad, KP, plat::XPUPlace,
-                   ops::BatchFCGradOpXPUKernel<paddle::platform::XPUDeviceContext, float>);    
-
-// namespace ops = paddle::operators;
+                   ops::BatchFCGradOpXPUKernel<float>);    
 
 REGISTER_OP_XPU_KERNEL(batch_fc,
-                       ops::BatchFCXPUKernel<paddle::platform::XPUDeviceContext, float>);      
+                       ops::BatchFCXPUKernel<float>);      
 REGISTER_OP_XPU_KERNEL(batch_fc_grad,
-                       ops::BatchFCGradOpXPUKernel<paddle::platform::XPUDeviceContext, float>);  
+                       ops::BatchFCGradOpXPUKernel<float>);  
 #endif
