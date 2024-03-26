@@ -27,8 +27,6 @@ limitations under the License. */
 #include "xpu/kernel/xtdk_math.h"            // NOLINT
 #include "xpu/kernel/xtdk_simd.h"
 
-#include "xpu/kernel/xtdk_io.h"
-
 #include "paddle/fluid/operators/batch_fc_op.h"
 #include "paddle/phi/kernels/funcs/math_function.h"
 
