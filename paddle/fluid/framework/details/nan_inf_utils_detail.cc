@@ -723,6 +723,7 @@ void CheckVarHasNanOrInfRet(const std::string& op_type,
 #ifdef PADDLE_WITH_XPU
     if (framework::TransToProtoVarType(tensor->dtype()) !=
         proto::VarType::FP32) {
+      LOG(WARNING) << "skip check_nan_inf, tensor type:" << tensor->dtype() << " not float32!";
       return;
     }
 
@@ -765,7 +766,8 @@ void CheckVarHasNanOrInfRet(const std::string& op_type,
                  y_tensor.place(),
                  static_cast<const void*>(y_tensor.data<bool>()),
                  y_tensor.numel() * sizeof(bool));
-    if (res_ptr) {
+    VLOG(3) << "CheckVarHasNanOrInfRet check_res = " << check_res;
+    if (check_res) {
       get_cpu_nan_inf_num() ++;
     }
     return;

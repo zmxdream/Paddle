@@ -77,11 +77,12 @@ __global__ void add_bias_kernel(
   int thread_id = cluster_id() * ncores + cid;
   int total_thread = cluster_num() * ncores;
 
-  const int buf_size = 512;
+  const int buf_size = 768;
   int max_seq_len = buf_size / out_dim;
+  int bias_buff_len = roundup16(out_dim);
 
   __simd__ T local_data_buf[buf_size];
-  __simd__ T local_bias_buf[256];
+  __simd__ T local_bias_buf[bias_buff_len];
 
   __simd__ T out_buf[buf_size];
   memset_lm_float(out_buf, buf_size);
@@ -93,12 +94,12 @@ __global__ void add_bias_kernel(
     for (int i = 0; i < ins_num; i += max_seq_len) {
       int len = min(ins_num - i, max_seq_len);
 
-      GM2LM(data + slot * ins_num * out_dim, local_data_buf, len * out_dim * sizeof(T));
+      GM2LM(data + slot * ins_num * out_dim + i * out_dim, local_data_buf, len * out_dim * sizeof(T));
       for (int j = 0; j < len; j++) {
         primitive_add(local_data_buf + j * out_dim, local_bias_buf, out_buf + j * out_dim, out_dim);
       }
       // mfence();
-      LM2GM_ASYNC(out_buf, data + slot * ins_num * out_dim, len * out_dim * sizeof(T));
+      LM2GM_ASYNC(out_buf, data + slot * ins_num * out_dim + i * out_dim, len * out_dim * sizeof(T));
     }
   }
 }
@@ -145,8 +146,8 @@ __global__ void add_bias_grad_kernel(const T* dout_data,
     for (int index = 0; index < out_dim; index++) {
       for (int i = 0; i < ins_num; ++i) { 
         int select_indx = ((slot + 1) * i + 1) * index;
-        GM2LM_ASYNC(dout_data + select_indx, local_data_buf, sizeof(T));
-        mfence();
+        GM2LM(dout_data + select_indx, local_data_buf, sizeof(T));
+        // mfence();
         tmp_sum_buf[index] += local_data_buf[0];
       }
     }
@@ -156,7 +157,7 @@ __global__ void add_bias_grad_kernel(const T* dout_data,
 
     // mfence();
     LM2GM_ASYNC(local_bias_buf, db_data + slot * out_dim, out_dim * sizeof(T));
-    mfence();
+    // mfence();
   }
 }
 
@@ -211,6 +212,10 @@ class BatchFCXPUKernel : public framework::OpKernel<T> {
       auto ins_num = input_dims[1];
       // auto in_dim = input_dims[2];
       auto out_dim = w_dims[2];
+
+      VLOG(0) << "BatchFCXPUKernel slot_pairs_num:" << slot_pairs_num
+              << ", ins_num:" << ins_num
+              << ", out_dim:" << out_dim;
   
       // get data ptr
       const XPUType* x_ptr = reinterpret_cast<const XPUType*>(input->data<T>());
@@ -235,6 +240,11 @@ class BatchFCXPUKernel : public framework::OpKernel<T> {
       GetFCInfo(input_dims, w_dims, trans_x, trans_y, &fc_info);
       MatMulXPUFunction<XPUType>(xpu_ctx, x_ptr, y_ptr, out_ptr, fc_info, alpha);
   
+      // xpu_wait(xpu_ctx->xpu_stream);
+
+      VLOG(3) << "add_bias slot_pairs_num:" << slot_pairs_num
+              << ", ins_num:" << ins_num
+              << ", out_dim:" << out_dim;
       // add bias
       add_bias<T>(xpu_ctx,
                   out_ptr,
@@ -298,7 +308,11 @@ class BatchFCGradOpXPUKernel : public framework::OpKernel<T> {
                                   : reinterpret_cast<XPUType*>(dx->data<T>());
       XPUType* c_2 = (dw == NULL) ? reinterpret_cast<XPUType*>(NULL)
                                   : reinterpret_cast<XPUType*>(dw->data<T>());
-                                  
+
+      VLOG(3) << "add_bias_grad slot_pairs_num:" << slot_pairs_num
+              << ", ins_num:" << ins_num
+              << ", out_dim:" << out_dim;
+
       // add bias grad
       db->mutable_data<T>(ctx.GetPlace());
       add_bias_grad<T>(xpu_ctx,
@@ -307,9 +321,10 @@ class BatchFCGradOpXPUKernel : public framework::OpKernel<T> {
                        ins_num,
                        out_dim,
                        b_ptr);
-  
-      T alpha = 1;
 
+      // xpu_wait(xpu_ctx->xpu_stream);
+
+      T alpha = 1;
       XpuFcInfo info_dx;
       XpuFcInfo info_dy;
       std::tuple<XpuFcInfo,
