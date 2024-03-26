@@ -776,7 +776,7 @@ void BoxPSWorker::TrainFiles() {
         SyncParam();
       }
     }
-#if defined(PADDLE_WITH_CUDA)
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_XPU) || defined(PADDLE_WITH_XPU_KP)
     if (FLAGS_check_nan_inf) {
       // check nan result
       if (framework::details::CheckBatchNanOrInfRet(place_)) {
