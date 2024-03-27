@@ -399,6 +399,8 @@ class BoxPSTrainer : public TrainerBase {
   void InitDumpEnv() override;
   virtual std::string GetDumpPath(int tid);
   virtual void DumpWork(int tid);
+  void RemoveOtherDeviceVars(const ProgramDesc& main_program,
+                             Scope* root_scope);
 
  protected:
   void CopyParameters(const Scope& root_scope, int device_id);

@@ -41,10 +41,29 @@ limitations under the License. */
 #include <scalopus_general/general_provider.h>
 #include <scalopus_tracing/native_trace_provider.h>
 #endif
+#include "paddle/fluid/framework/data_type_transform.h"
+#include "paddle/fluid/framework/program_utils.h"
 
+DECLARE_bool(enable_dump_main_program);
 DECLARE_bool(enable_sync_dense_moment);
 DECLARE_bool(check_nan_inf);
-PADDLE_DEFINE_EXPORTED_bool(padbox_enable_gc, false, "enable paddlebox gc");
+DECLARE_bool(lineid_have_extend_info);
+DECLARE_bool(dump_filed_same_as_aibox);
+PADDLE_DEFINE_EXPORTED_bool(padbox_enable_gc, true, "enable paddlebox gc");
+PADDLE_DEFINE_EXPORTED_bool(padbox_enable_print_op_debug,
+                            false,
+                            "enable print op debug ,default false");
+PADDLE_DEFINE_EXPORTED_bool(enable_print_dump_field_debug,
+                            false,
+                            "enable print dump field debug ,default false");
+PADDLE_DEFINE_EXPORTED_bool(enable_print_dump_info_debug,
+                            false,
+                            "enable print dump info debug ,default false");
+PADDLE_DEFINE_EXPORTED_bool(
+    padbox_enable_sharding_stage,
+    true,
+    "enable sharding stage step1 only param and grad split, default false");
+
 namespace paddle {
 namespace framework {
 
@@ -358,7 +377,28 @@ void BoxPSAsynDenseTable::InitThreadGroup() {
   }
   thread_pool.reset(new paddle::framework::ThreadPool(thread_num_));
 }
-
+//======================== BoxPSWorker ======================
+// init
+void BoxPSWorker::MemoryShareTensor::init(const std::string& name,
+                                          const platform::Place& place,
+                                          const int64_t& total_len,
+                                          Scope* root_scope) {
+  char szname[512] = {0};
+  snprintf(szname,
+           sizeof(szname),
+           "paddlebox_boxps_worker_share_%s_%d",
+           name.c_str(),
+           place.GetDeviceId());
+  data_tensor_ = root_scope->Var(szname)->GetMutable<phi::DenseTensor>();
+  data_tensor_->mutable_data<float>({total_len, 1}, place);
+}
+// share
+phi::DenseTensor& BoxPSWorker::MemoryShareTensor::share(
+    phi::DenseTensor* gpu_tensor, const size_t& len) {
+  gpu_tensor->ShareDataWith(data_tensor_->Slice(offset_, offset_ + len));
+  offset_ += len;
+  return *gpu_tensor;
+}
 static const int DenseKStepNode = 1;
 static const int DenseKStepALL = 2;
 static const int DenseDataNormal = 3;
@@ -371,11 +411,32 @@ void BoxPSWorker::Initialize(const TrainerDesc& desc) {
   }
   VLOG(1) << "boxps_worker init device num: " << device_num_;
 }
-
+void BoxPSWorker::Finalize() {
+  if (sharding_mode_ || device_id_ == 0) {
+    for (auto& name : need_copy_vars_) {
+      Variable* root_var = root_scope_->FindVar(name);
+      if (root_var == nullptr) {
+        continue;
+      }
+      auto root_tensor = root_var->GetMutable<phi::DenseTensor>();
+      Variable* var = thread_scope_->FindVar(name);
+      auto tensor = var->Get<phi::DenseTensor>();
+      TensorCopy(tensor, root_tensor->place(), root_tensor);
+    }
+    dev_ctx_->Wait();
+  }
+}
 void BoxPSWorker::SetDenseTable(BoxPSAsynDenseTable* dense) {
   dense_table_ = dense;
 }
-
+inline bool IsDataNormParam(const std::string& name) {
+  if (name.find(".batch_size") != std::string::npos ||
+      name.find(".batch_sum") != std::string::npos ||
+      name.find(".batch_square_sum") != std::string::npos) {
+    return true;
+  }
+  return false;
+}
 int BoxPSWorker::CheckNeedParam(VarDesc* var) {
   if (!var->Persistable()) {
     return 0;
@@ -413,8 +474,9 @@ int BoxPSWorker::CheckNeedParam(VarDesc* var) {
   return 0;
 }
 
-int64_t BoxPSWorker::AllocParamTensor(int64_t* pad_len) {
-  auto& block = program_->Block(0);
+int64_t BoxPSWorker::AllocParamTensor(const ProgramDesc& program,
+                                      int64_t* pad_len) {
+  auto& block = program.Block(0);
   // init var and copy persistable
   int64_t total_param_len = 0;
   int64_t total_moment_len = 0;
@@ -449,12 +511,12 @@ int64_t BoxPSWorker::AllocParamTensor(int64_t* pad_len) {
           << ", sync length:" << all_sync_param_len
           << ", sync mode:" << sync_mode_ << ", node size:" << node_size_
           << ", device num:" << device_num_ << ", one ring:" << one_ring_;
-  param_sync_.mutable_data<float>({all_sync_param_len, 1}, place_);
+  param_sync_.init("total_param_sync", place_, all_sync_param_len, root_scope_);
   return total_param_len;
 }
 
-int64_t BoxPSWorker::AllocParamTensorAsync() {
-  auto& block = program_->Block(0);
+int64_t BoxPSWorker::AllocParamTensorAsync(const ProgramDesc& program) {
+  auto& block = program.Block(0);
   // init var and copy persistable
   int64_t total_param_len = 0;
   for (auto& var : block.AllVars()) {
@@ -475,17 +537,263 @@ int64_t BoxPSWorker::AllocParamTensorAsync() {
   CHECK(total_param_len > 0) << "error param total zero";
   CHECK(dense_table_->GetParamTotalLen() == total_param_len);
 
-  param_async_.mutable_data<float>({total_param_len, 1}, place_);
-  grad_async_.mutable_data<float>({total_param_len, 1}, place_);
+  param_async_.init("total_param_async", place_, total_param_len, root_scope_);
+  grad_async_.init("total_grad_async", place_, total_param_len, root_scope_);
   return total_param_len;
 }
 
-void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
-  program_.reset(new ProgramDesc(main_prog));
-  auto& block = program_->Block(0);
-  for (auto& op_desc : block.AllOps()) {
+int BoxPSWorker::IsParameter(const std::string& name, bool full_match) {
+  if (full_match) {
+    auto it = params2rootid_.find(name);
+    if (it == params2rootid_.end()) {
+      return -1;
+    }
+    if (it->second == nccl_rank_id_) {
+      return 1;
+    }
+    return 0;
+  } else {
+    // moment, acc
+    for (auto it = params2rootid_.begin(); it != params2rootid_.end(); ++it) {
+      if (strncmp(name.c_str(), it->first.c_str(), it->first.length()) != 0) {
+        continue;
+      }
+      if (it->second == nccl_rank_id_) {
+        return 1;
+      }
+      return 0;
+    }
+    return -1;
+  }
+}
+
+static bool FindVarInMap(const VariableNameMap& op_var_map,
+                         const std::multiset<std::string>& var_set) {
+  for (auto& o : op_var_map) {
+    for (auto& name : o.second) {
+      if (var_set.find(name) != var_set.end()) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+static bool IsAvgOp(OpDesc* op_desc) {
+  if (op_desc->Type() != "elementwise_add" &&
+      op_desc->Type() != "elementwise_mul") {
+    return false;
+  }
+  for (auto& o : op_desc->Outputs()) {
+    for (auto& name : o.second) {
+      if (name.find("avg_weight") != std::string::npos ||
+          name.find("@avg") != std::string::npos) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+void BoxPSWorker::BuildShardingDepends(const ProgramDesc& program) {
+  nccl_rank_id_ = place_.GetDeviceId();
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_XPU_KP)
+  auto box_wrapper = BoxWrapper::GetInstance();
+  nccl_rank_id_ = box_wrapper->GetNCCLRankId(nccl_rank_id_);
+#endif
+
+  auto& block = program.Block(0);
+  auto all_desc = block.AllOps();
+
+  for (auto& op_desc : all_desc) {
+    // broadcast op
+    if (op_desc->Type() != "c_broadcast") {
+      continue;
+    }
+    int root_id = op_desc->GetAttrIfExists<int>("root");
+    int ring_id = op_desc->GetAttrIfExists<int>("ring_id");
+    if (ring_id >= 0 && ring_id != ring_id_) {
+      ring_id_ = ring_id;
+    }
+    for (auto& o : op_desc->Inputs()) {
+      for (auto& name : o.second) {
+        auto var = block.FindVar(name);
+        if (!var->Persistable() || !var->IsParameter()) {
+          continue;
+        }
+        if (params2rootid_.find(name) != params2rootid_.end()) {
+          auto it = params2rootid_.find(name);
+          if (it->second != root_id) {
+            std::cout << "error: param name conflict" << std::endl;
+          }
+          continue;
+        }
+        params2rootid_.insert(std::make_pair(name, root_id));
+      }
+    }
+  }
+  if (params2rootid_.empty()) {
+    return;
+  }
+  sharding_mode_ = true;
+  size_t copy_param_cnt = 0;
+  // check find
+  for (auto& var : block.AllVars()) {
+    if (!var->Persistable()) {
+      continue;
+    }
+    std::string name = var->Name();
+    int ret = IsParameter(name, var->IsParameter());
+    if (ret < 0 || ret == 1) {
+      if (ret == 1) {
+        persist_param_vars_.insert(name);
+      }
+      continue;
+    }
+    if (var->IsParameter()) {
+      // persist parameter，eg: data_norm, learning_rate
+      if (IsDataNormParam(name) ||
+          name.find("learning_rate") != std::string::npos) {
+        ++copy_param_cnt;
+      } else {
+        unpersist_vars_.insert(name);
+      }
+    } else {
+      // adam ubmq1_h2_param.b_0_moment1_0, avg_weight @avg @w_backup
+      remove_vars_.insert(name);
+    }
+  }
+
+  std::multiset<std::string> all_remove_inputs;
+  for (auto& op_desc : all_desc) {
+    if (FindVarInMap(op_desc->Inputs(), remove_vars_)) {
+      for (auto& o : op_desc->Inputs()) {
+        for (auto& name : o.second) {
+          all_remove_inputs.insert(name);
+        }
+      }
+      remove_ops_.insert(op_desc);
+    } else if (IsAvgOp(op_desc) &&
+               (FindVarInMap(op_desc->Outputs(), remove_vars_) ||
+                FindVarInMap(op_desc->Inputs(), unpersist_vars_))) {
+      remove_ops_.insert(op_desc);
+    }
+  }
+
+  size_t total_scale_cnt = 0;
+  size_t remove_scale_cnt = 0;
+  // remove scale op
+  for (auto& op_desc : all_desc) {
+    if (op_desc->Type() != "scale") {
+      continue;
+    }
+    ++total_scale_cnt;
+    // check scale output
+    for (auto& name : op_desc->Output("Out")) {
+      if (all_remove_inputs.find(name) == all_remove_inputs.end()) {
+        continue;
+      }
+      ++remove_scale_cnt;
+      remove_ops_.insert(op_desc);
+      break;
+    }
+  }
+  // stage1
+  if (FLAGS_padbox_enable_sharding_stage) {
+    std::multiset<std::string> broadcast_vars;
+    for (auto& op_desc : all_desc) {
+      if (op_desc->Type() != "c_broadcast") {
+        continue;
+      }
+      bool find = false;
+      for (auto& o : op_desc->Inputs()) {
+        for (auto& name : o.second) {
+          auto it = broadcast_vars.find(name);
+          if (it != broadcast_vars.end()) {
+            find = true;
+            continue;
+          }
+          broadcast_vars.insert(name);
+        }
+      }
+      if (find) {
+        remove_ops_.insert(op_desc);
+      }
+    }
+  }
+
+  // reset dump param
+  if (need_dump_param_ && dump_param_ != nullptr) {
+    for (auto& name : *dump_param_) {
+      auto var = block.FindVar(name);
+      if (var == nullptr) {
+        continue;
+      }
+      std::string new_name = name;
+      size_t pos = new_name.find("@");
+      if (pos > 0) {
+        new_name = name.substr(0, pos);
+      }
+      if (persist_param_vars_.find(new_name) == persist_param_vars_.end()) {
+        continue;
+      }
+      shard_dump_params_.push_back(name);
+    }
+    dump_param_ = &shard_dump_params_;
+  }
+  // reset dump fields
+  if (need_dump_field_ && dump_fields_ != nullptr) {
+    for (auto& name : *dump_fields_) {
+      auto var = block.FindVar(name);
+      if (var == nullptr) {
+        continue;
+      }
+      if (remove_vars_.find(name) != remove_vars_.end()) {
+        continue;
+      }
+      shard_dump_fields_.push_back(name);
+    }
+    dump_fields_ = &shard_dump_fields_;
+  }
+  VLOG(3) << "device id=" << int(place_.GetDeviceId())
+          << ", nccl rank=" << nccl_rank_id_
+          << ", total param count=" << params2rootid_.size()
+          << ", remove op count=" << remove_ops_.size()
+          << ", total scale op=" << total_scale_cnt << ", remove "
+          << remove_scale_cnt << ", remove var count=" << remove_vars_.size()
+          << ", unpersist var count=" << unpersist_vars_.size()
+          << ", dump param count=" << shard_dump_params_.size()
+          << ", dump fields count=" << shard_dump_fields_.size();
+}
+inline bool IsCommunicationOp(const std::string& op_name) {
+  if (op_name == "c_broadcast" || op_name == "c_reduce_sum" ||
+      op_name == "c_allreduce_sum") {
+    return true;
+  }
+  return false;
+}
+inline bool IsSyncStreamOp(const std::string& op_name) {
+  if (op_name == "c_sync_comm_stream" || op_name == "c_sync_calc_stream") {
+    return true;
+  }
+  return false;
+}
+void BoxPSWorker::CreateThreadOperators(const ProgramDesc& program) {
+  auto& block = program.Block(0);
+
+  size_t op_index = 0;
+  auto ops_descs = block.AllOps();
+  for (auto& op_desc : ops_descs) {
+    // skip remove ops
+    if (remove_ops_.find(op_desc) != remove_ops_.end()) {
+      continue;
+    }
+    std::string op_name = op_desc->Type();
+    // single stream not need sync
+    if (IsSyncStreamOp(op_name)) {
+      continue;
+    }
     // skip feed fetch op
-    if (op_desc->Type() == "feed" || op_desc->Type() == "fetch") {
+    if (op_name == "feed" || op_name == "fetch") {
       for (auto& o : op_desc->Inputs()) {
         skip_vars_.insert(skip_vars_.end(), o.second.begin(), o.second.end());
       }
@@ -494,6 +802,29 @@ void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
       }
     }
     ops_.push_back(OpRegistry::CreateOp(*op_desc));
+    // change to device stream
+    if (IsCommunicationOp(op_name)) {
+      ops_[op_index]->SetAttr("use_calc_stream", true);
+    }
+    ++op_index;
+  }
+  // add stream sync point
+  bool find = false;
+  for (size_t op_id = 0; op_id < ops_.size(); ++op_id) {
+    auto& op = ops_[op_id];
+    std::string op_name = op->Type();
+    if (!IsCommunicationOp(op_name)) {
+      if (find) {
+        find = false;
+        sync_points_.insert(op.get());
+      }
+      continue;
+    }
+    if (find) {
+      continue;
+    }
+    find = true;
+    sync_points_.insert(op.get());
   }
   // skip dump fields
   if (need_dump_field_ && dump_fields_ != nullptr) {
@@ -512,19 +843,23 @@ void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
     skip_vars_.insert(
         skip_vars_.end(), monitor_vars.begin(), monitor_vars.end());
   }
-
-  int64_t pad_len = 0;
-  if (sync_mode_ > 0) {
-    AllocParamTensor(&pad_len);
-  } else if (dense_table_) {
-    AllocParamTensorAsync();
+  if (FLAGS_padbox_enable_gc) {
+    // add op gc vars
+    unused_vars_ = GetUnusedVars(block, ops_, skip_vars_, &unpersist_vars_);
   }
+  VLOG(3) << "device[" << device_id_ << "] total op count=" << block.OpSize()
+          << ", create op count=" << ops_.size()
+          << ", skip vars count=" << skip_vars_.size()
+          << ", unused vars count=" << unused_vars_.size();
+}
+
+void BoxPSWorker::CreateThreadScopeForAsync(const ProgramDesc& program) {
+  AllocParamTensorAsync(program);
 
   thread_scope_ = &(root_scope_->NewScope());
 
-  int64_t offset = 0;
-  int64_t grad_offset = 0;
   // make param and param@GRAD in same order
+  auto& block = program.Block(0);
   std::vector<VarDesc*> sorted_var = block.AllVars();
   std::sort(sorted_var.begin(),
             sorted_var.end(),
@@ -541,18 +876,19 @@ void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
                 return var1->Name() < var2->Name();
               }
             });
+
   // init var and copy persistable
   int grad_var_num = 0;
   int var_num = 0;
   int persistable_num = 0;
-  int share_var_num = 0;
-  int64_t share_persistable_len = 0;
   int64_t total_persistable_len = 0;
+  int param_total = 0;
+
   for (auto& var : sorted_var) {
     std::string name = var->Name();
+    ++param_total;
     if (!var->Persistable()) {
-      if (dense_table_ &&
-          async_param_name_.find(name) != async_param_name_.end()) {
+      if (async_param_name_.find(name) != async_param_name_.end()) {
         // parm@GRAD can not find in root_scope_  use parm length replace
         VLOG(3) << "device[" << device_id_ << "] grad var name " << name;
         const LoDTensor& root_tensor =
@@ -562,10 +898,7 @@ void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
             thread_scope_->Var(name)->GetMutable<LoDTensor>();
         auto dim = root_tensor.dims();
         size_t len = root_tensor.numel();
-        gpu_tensor
-            ->ShareDataWith(grad_async_.Slice(grad_offset, grad_offset + len))
-            .Resize(dim);
-        grad_offset += len;
+        grad_async_.share(gpu_tensor, len).Resize(dim);
         grad_var_num += 1;
         skip_vars_.push_back(name);
       } else {
@@ -573,75 +906,291 @@ void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
         InitializeVariable(ptr, var->GetType());
       }
     } else {
-      const LoDTensor& root_tensor =
-          root_scope_->FindVar(name)->Get<LoDTensor>();
-      size_t len = root_tensor.numel();
+      Variable* root_var = root_scope_->FindVar(name);
+      if (!root_var) {
+        VLOG(0) << "not found var name=" << name;
+        continue;
+      }
+      if (root_var->IsType<phi::SelectedRows>()) {
+        continue;
+      }
+      phi::DenseTensor* root_tensor = root_var->GetMutable<phi::DenseTensor>();
+      size_t len = root_tensor->numel();
       ++persistable_num;
       total_persistable_len += len;
-      // add gc skip vars
+
+      LoDTensor* gpu_tensor = thread_scope_->Var(name)->GetMutable<LoDTensor>();
+      if (async_param_name_.find(name) != async_param_name_.end()) {
+        VLOG(3) << "device[" << device_id_ << "] Persistable var name " << name;
+        auto dim = root_tensor->dims();
+        param_async_.share(gpu_tensor, len).Resize(dim);
+        var_num += 1;
       skip_vars_.push_back(name);
+      }
+      // only support copy
+      TensorCopy(*static_cast<const Tensor*>(root_tensor),
+                 place_,
+                 static_cast<Tensor*>(gpu_tensor));
+    }
+  }
+  VLOG(0) << "device[" << device_id_ << "] total param count=" << param_total
+          << ", persistable=" << persistable_num << "("
+          << total_persistable_len / 262144.0 << "MB)"
+          << ", param_async_ offset:" << param_async_.offset_
+          << ", grad_offset: " << grad_async_.offset_
+          << ", var_num: " << var_num << ", grad_var_num: " << grad_var_num;
+  CHECK(param_async_.offset_ <= param_async_.numel());
+  CHECK(grad_async_.offset_ <= grad_async_.numel());
+}
+void BoxPSWorker::CreateThreadScopeForNorm(const ProgramDesc& program) {
+  int64_t pad_len = 0;
+  if (sync_mode_ > 0) {
+    AllocParamTensor(program, &pad_len);
+  }
+  thread_scope_ = &(root_scope_->NewScope());
+
+  auto& block = program.Block(0);
+  std::vector<VarDesc*> all_vars = block.AllVars();
+
+  // init var and copy persistable
+  int persistable_num = 0;
+  int share_var_num = 0;
+  int64_t share_persistable_len = 0;
+  int64_t total_persistable_len = 0;
+  int param_total = 0;
+  int copy_persist_num = 0;
+
+  for (auto& var : all_vars) {
+    std::string name = var->Name();
+    ++param_total;
+    if (var->Persistable()) {
+      Variable* root_var = root_scope_->FindVar(name);
+      if (!root_var) {
+        VLOG(0) << "not found var name=" << name;
+        continue;
+      }
+      if (root_var->IsType<phi::SelectedRows>()) {
+        continue;
+      }
+      phi::DenseTensor* root_tensor = root_var->GetMutable<phi::DenseTensor>();
+      size_t len = root_tensor->numel();
+      ++persistable_num;
+      total_persistable_len += len;
 
       LoDTensor* gpu_tensor = thread_scope_->Var(name)->GetMutable<LoDTensor>();
       if (sync_mode_ > 0) {
         if (CheckNeedParam(var)) {
-          auto dim = root_tensor.dims();
-          gpu_tensor->ShareDataWith(param_sync_.Slice(offset, offset + len))
-              .Resize(dim);
-          offset += len;
+          auto dim = root_tensor->dims();
+          param_sync_.share(gpu_tensor, len).Resize(dim);
+          skip_vars_.push_back(name);
         }
-      } else if (dense_table_) {
-        if (async_param_name_.find(name) != async_param_name_.end()) {
-          VLOG(3) << "device[" << device_id_ << "] Persistable var name "
-                  << name;
-          auto dim = root_tensor.dims();
-          gpu_tensor->ShareDataWith(param_async_.Slice(offset, offset + len))
-              .Resize(dim);
-          offset += len;
-          var_num += 1;
         }
-      }
-      if (!gpu_tensor->initialized() && place_ == root_tensor.place()) {
-        auto dim = root_tensor.dims();
-        gpu_tensor->ShareDataWith(root_tensor).Resize(dim);
+      // data norm copy and learning rate
+      if (!gpu_tensor->initialized() && place_ == root_tensor->place()) {
+        auto dim = root_tensor->dims();
+        gpu_tensor->ShareDataWith(*root_tensor).Resize(dim);
         ++share_var_num;
         share_persistable_len += len;
       } else {
-        TensorCopy(*static_cast<const Tensor*>(&root_tensor),
+        TensorCopy(*static_cast<const Tensor*>(root_tensor),
                    place_,
                    static_cast<Tensor*>(gpu_tensor));
+        ++copy_persist_num;
+        // add copy back to root scope
+        if (device_id_ == 0) {
+          need_copy_vars_.push_back(name);
+          skip_vars_.push_back(name);
       }
+    }
+    } else {
+      auto* ptr = thread_scope_->Var(name);
+      InitializeVariable(ptr, var->GetType());
     }
   }
   if (sync_mode_ > 0) {
-    CHECK(offset <= (param_sync_.numel() - pad_len));
-  } else if (dense_table_) {
-    VLOG(3) << "device[" << device_id_
-            << "]CreateDeviceResource param_async_ offset:" << offset
-            << " grad_offset: " << grad_offset << " var_num: " << var_num
-            << " grad_var_num: " << grad_var_num;
-    CHECK(offset <= param_async_.numel());
-    CHECK(grad_offset <= grad_async_.numel());
+    CHECK(param_sync_.offset_ <= (param_sync_.numel() - pad_len));
   }
-  if (share_var_num > 0) {
-    VLOG(0) << "device[" << device_id_ << "] persistable total num ["
-            << persistable_num << "," << total_persistable_len << ","
-            << total_persistable_len / 262144.0
-            << "MB], share persistable num [" << share_var_num << ","
-            << share_persistable_len << "," << share_persistable_len / 262144.0
-            << "MB]";
+  VLOG(0) << "device[" << device_id_ << "] total param count=" << param_total
+          << ", persistable=[total:" << persistable_num << "("
+          << total_persistable_len / 262144.0 << "MB)"
+          << ", share:" << share_var_num << "("
+          << share_persistable_len / 262144.0 << "MB)"
+          << ", copy:" << copy_persist_num << "]";
   }
-  if (FLAGS_padbox_enable_gc) {
-    // add op gc vars
-    unused_vars_ = GetUnusedVars2(block, ops_, skip_vars_);
-    //  for (auto &var : unused_vars_) {
-    //    VLOG(0) << "op name=" << var.first->Type() << ", gc names: " <<
-    //    paddle::string::join_strings(var.second, ",");
-    //  }
-    if (device_id_ == 0) {
-      VLOG(0) << "total op count=" << ops_.size()
-              << ", skip vars count=" << skip_vars_.size()
-              << ", unused vars op count=" << unused_vars_.size();
+void BoxPSWorker::CreateThreadScopeForSharding(const ProgramDesc& program) {
+  int64_t pad_len = 0;
+  if (sync_mode_ > 0) {
+    AllocParamTensor(program, &pad_len);
+  }
+  thread_scope_ = &(root_scope_->NewScope());
+
+  auto& block = program.Block(0);
+  std::vector<VarDesc*> all_vars = block.AllVars();
+
+  // init var and copy persistable
+  int persistable_num = 0;
+  int share_var_num = 0;
+  int64_t share_persistable_len = 0;
+  int64_t total_persistable_len = 0;
+  int persist_reset = 0;
+  int param_total = 0;
+  int unpersist_num = 0;
+  int copy_persist_num = 0;
+  int64_t real_persist_len = 0;
+  int real_persist_num = 0;
+  int delete_vars_num = 0;
+
+  for (auto& var : all_vars) {
+    std::string name = var->Name();
+    all_vars_.push_back(name);
+    if (remove_vars_.find(name) != remove_vars_.end()) {
+      ++delete_vars_num;
+      continue;
     }
+    thread_vars_.push_back(name);
+    ++param_total;
+    if (var->Persistable()) {
+      if (unpersist_vars_.find(name) != unpersist_vars_.end()) {
+        // unpersist vars(include other thread var and other device var)
+        auto* ptr = thread_scope_->Var(name);
+        InitializeVariable(ptr, var->GetType());
+        // set dims
+        auto dims = phi::make_ddim(var->GetShape());
+        auto var_dtype =
+            paddle::framework::TransToPhiDataType(var->GetDataType());
+        ptr->GetMutable<phi::DenseTensor>()->Resize(dims).set_type(var_dtype);
+        ++unpersist_num;
+        ++persistable_num;
+        total_persistable_len += ptr->GetMutable<phi::DenseTensor>()->numel();
+        continue;
+      }
+      Variable* root_var = root_scope_->FindVar(name);
+      if (!root_var) {
+        VLOG(0) << "not found var name=" << name;
+        continue;
+      }
+      if (root_var->IsType<phi::SelectedRows>()) {
+        continue;
+      }
+      phi::DenseTensor* root_tensor = root_var->GetMutable<phi::DenseTensor>();
+      size_t len = root_tensor->numel();
+      ++persistable_num;
+      total_persistable_len += len;
+      real_persist_len += len;
+      ++real_persist_num;
+      // convert one device to other device c_broadcast param
+      if (persist_param_vars_.find(name) != persist_param_vars_.end()) {
+        // same device
+        if (place_ == root_tensor->place()) {
+          ++share_var_num;
+          share_persistable_len += len;
+          continue;
+        }
+
+        auto src_place = root_tensor->place();
+        auto holder = root_tensor->MoveMemoryHolder();
+        auto dst_ptr = root_tensor->mutable_data(
+            place_, root_tensor->dtype(), holder->size());
+        
+        #if defined(PADDLE_WITH_CUDA)
+            auto stream = static_cast<phi::GPUContext*>(dev_ctx_)->stream();
+            memory::Copy(
+                place_, dst_ptr, src_place, holder->ptr(), holder->size(), stream);
+            CHECK(platform::is_gpu_place(root_tensor->place()));
+        #elif defined(PADDLE_WITH_XPU)
+            // XPUStream stream = static_cast<platform::XPUDeviceContext*>(dev_ctx_)
+            //                        ->x_context()
+            //                        ->xpu_stream;
+            memory::Copy(
+                place_, dst_ptr, src_place, holder->ptr(), holder->size());
+            CHECK(platform::is_xpu_place(root_tensor->place()));
+        #endif
+        
+        ++persist_reset;
+        continue;
+      }
+
+      LoDTensor* gpu_tensor = thread_scope_->Var(name)->GetMutable<LoDTensor>();
+      if (sync_mode_ > 0) {
+        if (CheckNeedParam(var)) {
+          auto dim = root_tensor->dims();
+          param_sync_.share(gpu_tensor, len).Resize(dim);
+          skip_vars_.push_back(name);
+        }
+      }
+      // data norm copy and learning rate
+      if (!gpu_tensor->initialized() && place_ == root_tensor->place()) {
+        auto dim = root_tensor->dims();
+        gpu_tensor->ShareDataWith(*root_tensor).Resize(dim);
+        ++share_var_num;
+        share_persistable_len += len;
+      } else {
+        TensorCopy(*static_cast<const Tensor*>(root_tensor),
+                   place_,
+                   static_cast<Tensor*>(gpu_tensor));
+        ++copy_persist_num;
+        // device 0 need sync datanorm and learning rate to root scope
+    if (device_id_ == 0) {
+          need_copy_vars_.push_back(name);
+          skip_vars_.push_back(name);
+    }
+  }
+    } else {
+      auto* ptr = thread_scope_->Var(name);
+      InitializeVariable(ptr, var->GetType());
+    }
+  }
+  if (sync_mode_ > 0) {
+    CHECK(param_sync_.offset_ <= (param_sync_.numel() - pad_len));
+  }
+  VLOG(0) << "device[" << device_id_ << "] total param count=" << param_total
+          << ", persistable=[total:" << persistable_num << "("
+          << total_persistable_len / 262144.0 << "MB)"
+          << ", real:" << real_persist_num << "(" << real_persist_len / 262144.0
+          << "MB)"
+          << ", share:" << share_var_num << "("
+          << share_persistable_len / 262144.0 << "MB)"
+          << ", reset:" << persist_reset << ", unpersist:" << unpersist_num
+          << ", copy:" << copy_persist_num << "], delete=" << delete_vars_num;
+}
+void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
+  BuildShardingDepends(main_prog);
+  if (dense_table_) {
+    // async
+    CreateThreadScopeForAsync(main_prog);
+  } else if (sharding_mode_) {
+    // sharding mode
+    CreateThreadScopeForSharding(main_prog);
+  } else {
+    // normal
+    CreateThreadScopeForNorm(main_prog);
+  }
+  CreateThreadOperators(main_prog);
+
+  // debug str
+  if (FLAGS_enable_dump_main_program) {
+    std::ostringstream str_os;
+    for (auto& op : ops_) {
+      str_os << op->DebugStringEx(thread_scope_);
+      // add gc
+      auto it = unused_vars_.find(op.get());
+      if (it != unused_vars_.end()) {
+        str_os << ", gc names: [";
+        for (auto& name : it->second) {
+          str_os << name << ",";
+        }
+        str_os << "]";
+      }
+      str_os << "\n";
+    }
+    auto box_ptr = BoxWrapper::GetInstance();
+    char filename[512] = {0};
+    snprintf(filename,
+             sizeof(filename),
+             "./device_%d_ops_%d.txt",
+             thread_id_,
+             box_ptr->Phase());
+    WriteToFile(filename, str_os.str());
   }
 }
 void BoxPSWorker::SyncParam(void) {
@@ -654,11 +1203,11 @@ void BoxPSWorker::SyncParam(void) {
   box_ptr->DenseNcclTimer(device_id_, false, 0x03);
 
 #if defined(PADDLE_WITH_CUDA)
-  auto comm = platform::NCCLCommContext::Instance().Get(0, device_id_);
+  auto comm = platform::NCCLCommContext::Instance().Get(ring_id_, device_id_);
   auto stream = static_cast<phi::GPUContext*>(dev_ctx_)->stream();
   PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
 #elif defined(PADDLE_WITH_XPU_BKCL) || defined(PADDLE_WITH_XPU)
-  auto comm = platform::BKCLCommContext::Instance().Get(0, device_id_);
+  auto comm = platform::BKCLCommContext::Instance().Get(ring_id_, device_id_);
   XPUStream stream = static_cast<platform::XPUDeviceContext*>(dev_ctx_)
                          ->x_context()
                          ->xpu_stream;
@@ -692,7 +1241,7 @@ void BoxPSWorker::SyncParam(void) {
         sendbuff, sendbuff, numel, ncclFloat32, ncclSum, comm->comm(), stream));
   }
   const float scale = 1.0 / (device_num_ * node_size_);
-  TensorScaleValue(place_, param_sync_, &param_sync_, scale);
+  TensorScaleValue(place_, param_sync_.tensor(), &param_sync_.tensor(), scale);
   PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
 #elif defined(PADDLE_WITH_XPU_BKCL) || defined(PADDLE_WITH_XPU)
 
@@ -707,7 +1256,7 @@ void BoxPSWorker::SyncParam(void) {
       BKCL_SUCCESS,
       platform::errors::PreconditionNotMet("BKCL all reduce failed"));
   const float scale = 1.0 / (device_num_ * node_size_);
-  TensorScaleValue(place_, param_sync_, &param_sync_, scale);
+  TensorScaleValue(place_, param_sync_.tensor(), &param_sync_.tensor(), scale);
   PADDLE_ENFORCE_XPU_SUCCESS(xpu_wait(stream));
 #endif
 
@@ -756,27 +1305,32 @@ void BoxPSWorker::TrainFiles() {
     VLOG(2) << "[" << device_id_
             << "]begin running ops, batch size:" << batch_size
             << ", batch id=" << step;
-
     if (dense_table_) {
-      dense_table_->PullDense(place_, &param_async_);
+      dense_table_->PullDense(place_, &param_async_.tensor());
     }
-
     for (auto& op : ops_) {
+      if (FLAGS_padbox_enable_print_op_debug) {
+        VLOG(0) << "thread id=" << thread_id_ << ", "
+                << op->DebugStringEx(thread_scope_);
+      }
+      // add stream sync
+      if (sync_points_.find(op.get()) != sync_points_.end()) {
+        dev_ctx_->Wait();
+      }
       op->Run(*thread_scope_, place_);
       if (gc) {
         DeleteUnusedTensors(*thread_scope_, op.get(), unused_vars_, gc.get());
       }
     }
-
     if (dense_table_) {
-      dense_table_->PushDense(place_, &grad_async_);
+      dense_table_->PushDense(place_, &grad_async_.tensor());
     } else if (sync_mode_ > 0) {
       if (step > param_sync_step_) {
         step = 0;
         SyncParam();
       }
     }
-#if defined(PADDLE_WITH_CUDA)
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_XPU)
     if (FLAGS_check_nan_inf) {
       // check nan result
       if (framework::details::CheckBatchNanOrInfRet(place_)) {

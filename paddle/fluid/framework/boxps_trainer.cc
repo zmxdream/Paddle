@@ -164,41 +164,6 @@ void BoxPSTrainer::DumpParameters(void) {
   }
 }
 
-void BoxPSTrainer::InitTrainerEnv(const ProgramDesc& main_program,
-                                  const platform::Place& place) {
-  PADDLE_ENFORCE(root_scope_, "Null root_scope pointer");
-  for (auto& var : main_program.Block(0).AllVars()) {
-    if (async_mode_) {
-      std::string cur_var_name = var->Name();
-      size_t tag_pos = cur_var_name.find("@GRAD");
-      if (tag_pos != std::string::npos && tag_pos == cur_var_name.size() - 5) {
-        VLOG(3) << "BoxPSTrainer async_grad_name_ insert : " << cur_var_name;
-        async_grad_name_.insert(cur_var_name);
-      }
-    }
-    if (var->Persistable()) {
-      persistable_vars_.push_back(var->Name());
-    }
-  }
-
-  std::set<std::string> async_param_name;
-  if (async_mode_) {
-    async_param_name = dense_table_->Init(*root_scope_, *param_need_sync_.get(),
-                                          persistable_vars_,
-                                          async_grad_name_);
-  }
-  for (int i = 0; i < thread_num_; ++i) {
-    auto this_worker =
-        std::dynamic_pointer_cast<paddle::framework::BoxPSWorker>(workers_[i]);
-    this_worker->SetRootScope(root_scope_);
-    if (async_mode_) {
-      this_worker->SetDenseTable(dense_table_.get());
-      this_worker->SetAsyncParamName(async_param_name);
-    }
-    this_worker->CreateDeviceResource(main_program);
-    //    CopyParameters(*root_scope_, i);
-  }
-}
 inline std::vector<std::shared_ptr<paddle::framework::ThreadPool>>&
 GetThreadPool(int thread_num) {
   static std::vector<std::shared_ptr<paddle::framework::ThreadPool>>
@@ -228,6 +193,95 @@ GetThreadPool(int thread_num) {
   }
   return thread_pools;
 }
+
+void BoxPSTrainer::InitTrainerEnv(const ProgramDesc& main_program,
+                                  const platform::Place& place) {
+  PADDLE_ENFORCE(root_scope_, "Null root_scope pointer");
+  for (auto& var : main_program.Block(0).AllVars()) {
+    if (async_mode_) {
+      std::string cur_var_name = var->Name();
+      size_t tag_pos = cur_var_name.find("@GRAD");
+      if (tag_pos != std::string::npos && tag_pos == cur_var_name.size() - 5) {
+        VLOG(3) << "BoxPSTrainer async_grad_name_ insert : " << cur_var_name;
+        async_grad_name_.insert(cur_var_name);
+      }
+    }
+    if (var->Persistable()) {
+      persistable_vars_.push_back(var->Name());
+    }
+  }
+
+  std::set<std::string> async_param_name;
+  if (async_mode_) {
+    async_param_name = dense_table_->Init(*root_scope_,
+                                          *param_need_sync_.get(),
+                                          persistable_vars_,
+                                          async_grad_name_);
+  }
+  auto pool = GetThreadPool(thread_num_);
+  wait_futures_.clear();
+  CHECK(static_cast<int>(pool.size()) == thread_num_);
+  for (int i = 0; i < thread_num_; ++i) {
+    wait_futures_.emplace_back(
+        pool[i]->Run([this, i, &async_param_name, &main_program]() {
+    auto this_worker =
+              std::dynamic_pointer_cast<paddle::framework::BoxPSWorker>(
+                  workers_[i]);
+    this_worker->SetRootScope(root_scope_);
+    if (async_mode_) {
+      this_worker->SetDenseTable(dense_table_.get());
+      this_worker->SetAsyncParamName(async_param_name);
+    }
+    this_worker->CreateDeviceResource(main_program);
+        }));
+  }
+  RemoveOtherDeviceVars(main_program, root_scope_);
+  for (auto& th : wait_futures_) {
+    th.get();
+  }
+  VLOG(0) << "InitTrainerEnv done!";
+}
+
+void BoxPSTrainer::RemoveOtherDeviceVars(const ProgramDesc& main_program,
+                                         Scope* root_scope) {
+  std::vector<std::string> remove_vars;
+  std::unordered_set<std::string> unpersist_var_names;
+  auto& block = main_program.Block(0);
+  auto all_desc = block.AllOps();
+  auto box_wrapper = BoxWrapper::GetInstance();
+  int rank_id = box_wrapper->GetMpiRank();
+  int gum_num = box_wrapper->GetGpuNum();
+  // 1. Get other device's Param
+  for (auto& op_desc : all_desc) {
+    // broadcast op
+    if (op_desc->Type() != "c_broadcast") {
+      continue;
+  }
+    int root_id = op_desc->GetAttrIfExists<int>("root");
+    if ((root_id / gum_num) == rank_id) {
+      continue;
+}
+    for (auto& o : op_desc->Inputs()) {
+      for (auto& name : o.second) {
+        unpersist_var_names.insert(name);
+  }
+  }
+  }
+  VLOG(0) << "root scope remove_params size = " << unpersist_var_names.size();
+  // 2. Get moment param
+  for (auto& unpersist_var_name : unpersist_var_names) {
+    for (auto& var : block.AllVars()) {
+      std::string name = var->Name();
+      if (var->Persistable() && name.find(unpersist_var_name) == 0) {
+        remove_vars.push_back(name);
+  }
+    }
+  }
+  if (remove_vars.empty()) return;
+  VLOG(0) << "root scope remove_vars's size = " << remove_vars.size();
+  root_scope->EraseVars(remove_vars);
+}
+
 void BoxPSTrainer::Run() {
   VLOG(3) << "Going to run";
   auto pool = GetThreadPool(thread_num_);
@@ -242,11 +296,16 @@ void BoxPSTrainer::Run() {
           pool[i]->Run([this, i]() { workers_[i]->TrainFilesWithProfiler(); }));
     }
   }
+  for (auto& th : wait_futures_) {
+    th.get();
+  }
 }
 
 void BoxPSTrainer::Finalize() {
-  for (auto& th : wait_futures_) {
-    th.get();
+  for (int i = 0; i < thread_num_; ++i) {
+    auto this_worker =
+        std::dynamic_pointer_cast<paddle::framework::BoxPSWorker>(workers_[i]);
+    this_worker->Finalize();
   }
   if (async_mode_) {
     // must be after train thread, otherwise the ps_buffer_ will be closed first
@@ -255,14 +314,12 @@ void BoxPSTrainer::Finalize() {
   if (need_dump_field_ || need_dump_param_) {
     FinalizeDumpEnv();
   }
-  DumpParameters();
   root_scope_->DropKids();
 }
 
 Scope* BoxPSTrainer::GetWorkerScope(int thread_id) {
   return workers_[thread_id]->GetThreadScope();
 }
-
 }  // end namespace framework
 }  // end namespace paddle
 #endif

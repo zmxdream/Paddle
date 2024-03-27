@@ -71,6 +71,9 @@ DECLARE_bool(check_nan_inf);
 DECLARE_bool(enable_unused_var_check);
 DECLARE_bool(run_kp_kernel);
 DECLARE_bool(enable_host_event_recorder_hook);
+PADDLE_DEFINE_EXPORTED_bool(enable_check_input_var,
+                            false,
+                            "enable check input var");
 
 namespace paddle {
 namespace framework {
@@ -1760,7 +1763,7 @@ void OperatorWithKernel::RunImpl(const Scope& scope,
   }
 
   if (FLAGS_check_nan_inf) {
-#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_XPU)
+#if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_XPU) || defined(PADDLE_WITH_XPU_KP)
     if (framework::details::CheckOpHasNanOrInfRet(*this, exec_scope, place)) {
       framework::details::DumpAllScope(exec_scope, place);
       // dump current op data
@@ -2436,6 +2439,7 @@ void OperatorWithKernel::ParseInputDataType(
       }
     }
     if (t != nullptr) {
+      if (FLAGS_enable_check_input_var) {
       PADDLE_ENFORCE_EQ(
           t->IsInitialized(),
           true,
@@ -2443,6 +2447,7 @@ void OperatorWithKernel::ParseInputDataType(
                                             "contains uninitialized Tensor.",
                                             Type(),
                                             name));
+      }
       *data_type = paddle::framework::TransToProtoVarType(t->dtype());
     }
   }

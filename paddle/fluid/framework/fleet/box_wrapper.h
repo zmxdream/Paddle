@@ -352,6 +352,11 @@ class MetricMsg {
         platform::errors::NotFound("Error: var %s is not found in scope.",
                                    varname.c_str()));
     auto& gpu_tensor = var->Get<LoDTensor>();
+    PADDLE_ENFORCE_EQ(
+        gpu_tensor.IsInitialized(),
+        true,
+        platform::errors::InvalidArgument(
+            "Error: monitor var `%s` uninitialized Tensor.", varname.c_str()));
     *data = gpu_tensor.data<T>();
     *len = gpu_tensor.numel();
   }
@@ -365,6 +370,11 @@ class MetricMsg {
         platform::errors::NotFound("Error: var %s is not found in scope.",
                                    varname.c_str()));
     auto& gpu_tensor = var->Get<LoDTensor>();
+    PADDLE_ENFORCE_EQ(
+        gpu_tensor.IsInitialized(),
+        true,
+        platform::errors::InvalidArgument(
+            "Error: monitor var `%s` uninitialized Tensor.", varname.c_str()));
     auto* gpu_data = gpu_tensor.data<T>();
     auto len = gpu_tensor.numel();
     data->resize(len);
@@ -492,6 +502,12 @@ class BoxWrapper {
     std::cout<<"start profile in BoxWrapper"<<std::endl;
 #endif
   }
+  int GetMpiSize() { return boxps::MPICluster::Ins().size(); }
+  int GetMpiRank() { return boxps::MPICluster::Ins().rank(); }
+  int GetNCCLRankId(const int& device_id) {
+    return (GetMpiRank() * gpu_num_ + device_id);
+  }
+  int GetGpuNum() { return gpu_num_; }
   void SetDatasetName(const std::string& name) {}
   void SetInputTableDim(size_t dim) { input_table_dim_ = dim; }
   void FeedPass(int date, const std::vector<uint64_t>& feasgin_to_box);

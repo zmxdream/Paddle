@@ -1014,6 +1014,10 @@ PADDLE_DEFINE_EXPORTED_bool(gpugraph_load_node_list_into_hbm,
                             true,
                             "enable load_node_list_into_hbm, default true");
 
+PADDLE_DEFINE_EXPORTED_bool(enable_dump_main_program,
+                            false,
+                            "enable dump main program, default false");
+
 /**
  * ProcessGroupNCCL related FLAG
  * Name: nccl_blocking_wait
