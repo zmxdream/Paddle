@@ -83,13 +83,17 @@ class BasicAucCalculator {
                            const float* d_label,
                            const int64_t* d_mask,
                            int batch_size,
-                           const paddle::platform::Place& place);
+                           const paddle::platform::Place& place_pred,
+                           const paddle::platform::Place& place_label,
+                           const paddle::platform::Place& place_mask);
   // add continue data
   void add_continue_mask_data(const float* d_pred,
                               const float* d_label,
                               const int64_t* d_mask,
                               int batch_size,
-                              const paddle::platform::Place& place);
+                              const paddle::platform::Place& place_pred,
+                              const paddle::platform::Place& place_label,
+                              const paddle::platform::Place& place_mask);
   // add sample data
   void add_sample_data(const float* d_pred,
                        const int64_t* d_label,
@@ -109,7 +113,8 @@ class BasicAucCalculator {
   void add_nan_inf_data(const float* d_pred,
                         const int64_t* d_label,
                         int batch_size,
-                        const paddle::platform::Place& place);
+                        const paddle::platform::Place& place_pred,
+                        const paddle::platform::Place& place_label);
 
   void compute();
   void computeContinueMsg();

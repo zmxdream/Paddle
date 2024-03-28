@@ -45,8 +45,13 @@ class FusedSeqpoolCVMWithConvOpXPUKernel : public framework::OpKernel<T> {
     auto out = ctx.MultiOutput<LoDTensor>("Out");
     auto padding_value = ctx.Attr<float>("pad_value");
     bool use_cvm = ctx.Attr<bool>("use_cvm");
+    bool need_filter = ctx.Attr<bool>("need_filter");
+    float show_coeff = ctx.Attr<float>("show_coeff");
+    float clk_coeff = ctx.Attr<float>("clk_coeff");
+    float threshold = ctx.Attr<float>("threshold");
     auto cvm_offset = ctx.Attr<int>("cvm_offset");
     auto show_filter = ctx.Attr<bool>("show_filter");
+    const int embedx_concate_size = ctx.Attr<int>("embedx_concate_size");
 
     auto x0_lod = ins[0]->lod();
     auto x0_dims = ins[0]->dims();
@@ -61,32 +66,36 @@ class FusedSeqpoolCVMWithConvOpXPUKernel : public framework::OpKernel<T> {
     }
     for (int i = 0; i < slot_num; i++) {
       out[i]->Resize({static_cast<int64_t>(bs), y_dims[1]});
-      out[i]->set_lod(y_lod);
     }
     //TODO:r480 l3 have some thing wrong
     static bool use_l3_tensor = std::getenv("XPU_PADDLE_L3_TENSOR")!=NULL ?
-                        (std::strcmp(std::getenv("XPU_PADDLE_L3_TENSOR"), "1") == 0 ? true:false) :
-                        false;
+                      (std::strcmp(std::getenv("XPU_PADDLE_L3_TENSOR"), "1") == 0 ? true:false) :
+                      false;
     auto place = ctx.GetPlace();
     phi::Place l3_place = ctx.template device_context<DeviceContext>().GetL3Place();
     int w = ins[0]->numel() / x0_dims[0];
     if(use_cvm) {
-      if (show_filter) w = w - 1;
-      PADDLE_ENFORCE_EQ(y_dims[1] % w, 0,
+      if (show_filter) w = (w - 1);
+      PADDLE_ENFORCE_EQ(y_dims[1] % (w * embedx_concate_size), 0,
                         paddle::platform::errors::InvalidArgument(
                             "The output of dims[1] should be dividable of w"));
     }
     else{
-      PADDLE_ENFORCE_EQ(y_dims[1] % (w - cvm_offset), 0,
+      PADDLE_ENFORCE_EQ(y_dims[1] % ((w - cvm_offset) * embedx_concate_size), 0,
                   paddle::platform::errors::InvalidArgument(
                       "The output of dims[1] should be dividable of (w-2)"));
     }
 
-    std::vector<const T*> cpu_x_addr_vec(slot_num, 0);
-    std::vector<T*> cpu_y_addr_vec(slot_num, 0);
+    std::vector<const T*> cpu_x_addr_vec;
+    cpu_x_addr_vec.reserve(slot_num);
+    std::vector<T*> cpu_y_addr_vec;
+    cpu_y_addr_vec.reserve(slot_num);
+
     unsigned int sum_lod_size = slot_num * (bs + 1);
-    std::vector<int> cpu_lodx(sum_lod_size);
+    std::vector<int> cpu_lodx;
+    cpu_lodx.reserve(sum_lod_size);
     unsigned int lod_index = 0;
+
     for (int i = 0; i < slot_num; i++) {
         cpu_x_addr_vec[i] = reinterpret_cast<const T*>(ins[i]->data<T>());
         if(use_l3_tensor) {
@@ -94,11 +103,15 @@ class FusedSeqpoolCVMWithConvOpXPUKernel : public framework::OpKernel<T> {
         } else {
           cpu_y_addr_vec[i] = reinterpret_cast<T*>(out[i]->mutable_data<T>(place));
         }
-        auto x_lod = ins[i]->lod()[0];
+        auto& x_lod = ins[i]->lod()[0];
+#ifdef PADDLE_WITH_MKLML
+#pragma omp parallel for
+#endif
         for (size_t j = 0; j < x_lod.size(); j++) {
            cpu_lodx[lod_index + j] = x_lod[j];
         }
-	      lod_index += x_lod.size();
+
+        lod_index += x_lod.size();
     }
 
 #ifdef TRACE_PROFILE
@@ -112,9 +125,14 @@ class FusedSeqpoolCVMWithConvOpXPUKernel : public framework::OpKernel<T> {
                                           x0_dims[1],
                                           slot_num,
                                           use_cvm,
+                                          need_filter,
+                                          show_coeff,
+                                          clk_coeff,
+                                          threshold,
                                           show_filter,
                                           padding_value,
-                                          cvm_offset);
+                                          cvm_offset,
+                                          embedx_concate_size);
     PADDLE_ENFORCE_EQ(r, xpu::Error_t::SUCCESS,
                      platform::errors::External(
                          "The sequence_sum_pool_cvm_with_conv XPU OP return wrong value[%d %s]",
@@ -137,9 +155,11 @@ class FusedSeqpoolCVMWithConvGradOpXPUKernel : public framework::OpKernel<T> {
     auto xs = ctx.MultiInput<LoDTensor>("X");
     const framework::Tensor* cvm = ctx.Input<framework::Tensor>("CVM");
     auto dxs = ctx.MultiOutput<framework::LoDTensor>(framework::GradVarName("X"));
-    auto use_cvm = ctx.Attr<bool>("use_cvm");//TODO:
+    auto use_cvm = ctx.Attr<bool>("use_cvm");
     bool show_filter = ctx.Attr<bool>("show_filter");
     auto cvm_offset = ctx.Attr<int>("cvm_offset");
+    const int embedx_concate_size = ctx.Attr<int>("embedx_concate_size");
+
     int slot_num = dxs.size();
     auto xpu_context = ctx.template device_context<DeviceContext>().x_context();
     auto place = ctx.GetPlace();
@@ -173,10 +193,9 @@ class FusedSeqpoolCVMWithConvGradOpXPUKernel : public framework::OpKernel<T> {
         }
         T* dx_data = dx->mutable_data<T>(place);
         T* dy_data = const_cast<T*>(dy->data<T>());
-        auto lod = dx->lod();
         cpu_dx_list[k] = dx_data;
         cpu_dy_list[k] = (const T*)dy_data;
-        auto lod_level_0 = dx->lod()[0];
+        auto& lod_level_0 = dx->lod()[0];
         int lod_size = lod_level_0.size();
         for (int i = 0; i < lod_size; i++) {
           cpu_lodx[i + start_index] = lod_level_0[i];
@@ -194,7 +213,8 @@ class FusedSeqpoolCVMWithConvGradOpXPUKernel : public framework::OpKernel<T> {
                                                show_filter,
                                                item_size,
                                                batch_size,
-                                               slot_num);
+                                               slot_num,
+                                               embedx_concate_size);
      PADDLE_ENFORCE_EQ(r, xpu::Error_t::SUCCESS,
             platform::errors::External(
                "The sequence_sum_pool_cvm_with_conv_grad XPU OP return wrong value[%d %s]",

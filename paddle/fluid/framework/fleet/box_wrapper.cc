@@ -731,8 +731,11 @@ class FloatMaskMetricMsg : public MetricMsg {
                           "the predict data length should be consistent with "
                           "the label data length"));
     auto cal = GetCalculator();
+    auto pre_var_place = GetVarPlace(exe_scope, pred_varname_);
+    auto label_var_place = GetVarPlace(exe_scope, label_varname_);
+    auto mask_var_place = GetVarPlace(exe_scope, mask_varname_);
     cal->add_float_mask_data(
-        pred_data, label_data, mask_data, label_len, place);
+        pred_data, label_data, mask_data, label_len, pre_var_place, label_var_place, mask_var_place);
   }
 
  protected:
@@ -775,8 +778,11 @@ class ContinueMaskMetricMsg : public MetricMsg {
                           "the predict data length should be consistent with "
                           "the label data length"));
     auto cal = GetCalculator();
+    auto pre_var_place = GetVarPlace(exe_scope, pred_varname_);
+    auto label_var_place = GetVarPlace(exe_scope, label_varname_);
+    auto mask_var_place = GetVarPlace(exe_scope, mask_varname_);
     cal->add_continue_mask_data(
-        pred_data, label_data, mask_data, label_len, place);
+        pred_data, label_data, mask_data, label_len, pre_var_place, label_var_place, mask_var_place);
   }
 
  protected:
@@ -913,8 +919,10 @@ class NanInfMetricMsg : public MetricMsg {
                           "the predict data length should be consistent with "
                           "the label data length"));
     auto cal = GetCalculator();
+    auto pre_var_place = GetVarPlace(exe_scope, pred_varname_);
+    auto label_var_place = GetVarPlace(exe_scope, label_varname_);
     cal->add_nan_inf_data( 
-        pred_data, label_data, label_len, place);
+        pred_data, label_data, label_len, pre_var_place, label_var_place);
   }
 };
 
@@ -1229,7 +1237,7 @@ void BoxWrapper::GetFeatureOffsetInfo(void) {
 
 #ifdef PADDLE_WITH_XPU_KP
 void BoxWrapper::SetDataFuncForCacheManager(int batch_num,
-    std::function<void(int, std::vector<std::pair<uint64_t*, int>>*)> data_func) {
+    std::function<void(int, std::vector<std::vector<std::pair<uint64_t*, int>>>*)> data_func) {
   boxps_ptr_->SetDataFuncForCacheManager(batch_num, data_func, &fid2sign_map_);
 }
 
@@ -1328,17 +1336,6 @@ void BoxWrapper::InitializeGPUAndLoadModel(
         lr_map_[e.first + ".b_0"] = e.second;
       }
     }
-#if defined(PADDLE_WITH_XPU_KP)
-    std::vector<void*> bkcl_ctx_vec(gpu_num_, nullptr);
-    if (gpu_num_ > 1) {
-        for (int i = 0; i < gpu_num_; ++i) {
-            auto place = platform::XPUPlace(i);
-            auto comm = platform::BKCLCommContext::Instance().Get(0, place);
-            bkcl_ctx_vec[i] = static_cast<void*>(comm->comm());
-        }
-    }
-    boxps_ptr_->SetBKCLDefaultContext(bkcl_ctx_vec);
-#endif
   }
 }
 
