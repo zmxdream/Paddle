@@ -395,22 +395,48 @@ void CheckVarHasNanOrInf(const std::string& op_type,
       return;
     }
 
-    float* cpu_data = new float[tensor->numel()];
+    // float* cpu_data = new float[tensor->numel()];
+    // memory::Copy(platform::CPUPlace(),
+    //              static_cast<void*>(cpu_data),
+    //              tensor->place(),
+    //              static_cast<const void*>(tensor->data<float>()),
+    //              tensor->numel() * sizeof(float));
+    // bool flag = false;
+    // for (int i = 0; i < tensor->numel(); i++) {
+    //   if (isnan(cpu_data[i]) || isinf(cpu_data[i])) {
+    //     flag = true;
+    //     break;
+    //   }
+    // }
+    // delete[] cpu_data;
+
+    using XPUType = typename XPUTypeTrait<float>::Type;
+    platform::XPUDeviceContext* dev_ctx = dynamic_cast<platform::XPUDeviceContext*>(
+        platform::DeviceContextPool::Instance().Get(tensor->place()));
+    const XPUType* x = reinterpret_cast<const XPUType*>(tensor->data<float>());
+
+    Tensor y_tensor;
+    bool* y_ptr = y_tensor.mutable_data<bool>({1}, place);
+    int r = xpu::check_nan_or_inf<XPUType>(dev_ctx->x_context(), 
+                              x, 
+                              y_ptr,
+                              tensor->numel());
+    PADDLE_ENFORCE_EQ(r, xpu::Error_t::SUCCESS,
+            platform::errors::External(
+               "The check_nan_or_inf XPU OP return wrong value[%d %s]",
+               r, XPUAPIErrorMsg[r]));
+    dev_ctx->Wait();
+
+    bool check_res = false;
+    bool* res_ptr = &check_res;
     memory::Copy(platform::CPUPlace(),
-                 static_cast<void*>(cpu_data),
-                 tensor->place(),
-                 static_cast<const void*>(tensor->data<float>()),
-                 tensor->numel() * sizeof(float));
-    bool flag = false;
-    for (int i = 0; i < tensor->numel(); i++) {
-      if (isnan(cpu_data[i]) || isinf(cpu_data[i])) {
-        flag = true;
-        break;
-      }
-    }
-    delete[] cpu_data;
+                 static_cast<void*>(res_ptr),
+                 y_tensor.place(),
+                 static_cast<const void*>(y_tensor.data<bool>()),
+                 y_tensor.numel() * sizeof(bool));
+    VLOG(3) << "CheckVarHasNanOrInfRet check_res = " << check_res;
     PADDLE_ENFORCE_NE(
-        flag,
+        check_res,
         true,
         platform::errors::Fatal(
             "Operator %s output Tensor %s contains Inf.", op_type, var_name));
