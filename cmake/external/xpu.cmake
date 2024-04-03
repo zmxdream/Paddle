@@ -165,8 +165,6 @@ set_property(TARGET shared_xpuapi PROPERTY IMPORTED_LOCATION "${XPU_API_PLUGIN}"
 # for cc_library(xxx SRCS xxx.c DEPS xpulib)
 generate_dummy_static_lib(LIB_NAME "xpulib" GENERATOR "xpu.cmake")
 
-target_link_libraries(xpulib ${XPU_API_LIB} ${XPU_API_PLUGIN} ${XPU_RT_LIB})
-
 if(WITH_XPU_BKCL)
   message(STATUS "Compile with XPU BKCL!")
   add_definitions(-DPADDLE_WITH_XPU_BKCL)
@@ -175,9 +173,9 @@ if(WITH_XPU_BKCL)
   set(XPU_BKCL_LIB "${XPU_LIB_DIR}/${XPU_BKCL_LIB_NAME}")
   set(XPU_BKCL_INC_DIR "${THIRD_PARTY_PATH}/install/xpu/include")
   include_directories(${XPU_BKCL_INC_DIR})
-  target_link_libraries(xpulib ${XPU_API_LIB} ${XPU_API_PLUGIN} ${XPU_RT_LIB} ${XPU_BKCL_LIB})
+  target_link_libraries(xpulib -Wl,--push-state,--no-as-needed ${XPU_API_LIB} ${XPU_API_PLUGIN} ${XPU_RT_LIB} ${XPU_BKCL_LIB} -Wl,--pop-state)
 else()
-  target_link_libraries(xpulib ${XPU_API_LIB} ${XPU_API_PLUGIN} ${XPU_RT_LIB})
+  target_link_libraries(xpulib -Wl,--push-state,--no-as-needed ${XPU_API_LIB} ${XPU_API_PLUGIN} ${XPU_RT_LIB} -Wl,--pop-state)
 endif()
 
 add_dependencies(xpulib ${XPU_PROJECT})
