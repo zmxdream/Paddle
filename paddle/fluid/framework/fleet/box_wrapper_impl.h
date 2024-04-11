@@ -399,10 +399,15 @@ void CheckPullValue(
 
   int offset = 0;
   int xpu_ret = 0;
-  PADDLE_ENFORCE_EQ(
-      slot_lengths.size() * 2, values.size(),
-      platform::errors::PreconditionNotMet("CheckPullValue slot_length vs values.size error."));
-
+  if (expand_embed_dim > 0) {
+    PADDLE_ENFORCE_EQ(
+        slot_lengths.size() * 2, values.size(),
+        platform::errors::PreconditionNotMet("CheckPullValue slot_length vs values.size error."));
+  } else {
+    PADDLE_ENFORCE_EQ(
+        slot_lengths.size(), values.size(),
+        platform::errors::PreconditionNotMet("CheckPullValue slot_length vs values.size error."));
+  }
   int slot_num = slot_lengths.size();
   for (int i = 0; i < slot_num; ++i) {
     if (values[i] == nullptr) {
@@ -933,10 +938,15 @@ void CheckPushValue(
   std::vector<bool> has_expand(val_len);
 
   int offset = 0;
-  PADDLE_ENFORCE_EQ(
-     slot_lengths.size() * 2, grad_values.size(),
-     platform::errors::PreconditionNotMet("CheckPushValue slot_length vs grad_values  error."));
-
+  if (expand_embed_dim > 0) {
+    PADDLE_ENFORCE_EQ(
+       slot_lengths.size() * 2, grad_values.size(),
+       platform::errors::PreconditionNotMet("CheckPushValue slot_length vs grad_values  error."));
+  } else {
+    PADDLE_ENFORCE_EQ(
+       slot_lengths.size(), grad_values.size(),
+       platform::errors::PreconditionNotMet("CheckPushValue slot_length vs grad_values  error."));
+  }
   int slot_num = slot_lengths.size();
   for (int i = 0; i < slot_num; ++i) {
     if (grad_values[i] == nullptr) {
