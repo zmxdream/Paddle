@@ -70,10 +70,5 @@ void DeleteUnusedTensors(
 std::vector<std::vector<std::vector<std::string>>> GetEagerDeletionCleanVars(
     const ProgramDesc &program, const std::vector<std::string> &skip_vars = {});
 
-std::unordered_map<const OperatorBase *, std::vector<std::string>>
-GetUnusedVars2(const BlockDesc &block,
-              const std::vector<std::unique_ptr<OperatorBase>> &ops,
-              const std::vector<std::string> &skip_var_list);
-
 }  // namespace framework
 }  // namespace paddle

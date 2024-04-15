@@ -104,8 +104,8 @@ class IndexSelectGradMaker : public framework::SingleGradOpMaker<T> {
   }
 };
 
-DECLARE_NO_NEED_BUFFER_VARS_INFERER(IndexSelectGradNoNeedBufferVarsInferer,
-                                    "X");
+// DECLARE_NO_NEED_BUFFER_VARS_INFERER(IndexSelectGradNoNeedBufferVarsInferer,
+//                                     "X");
 }  // namespace operators
 }  // namespace paddle
 
@@ -119,6 +119,8 @@ REGISTER_OPERATOR(index_select,
                   ops::IndexSelectGradMaker<paddle::framework::OpDesc>,
                   ops::IndexSelectGradMaker<paddle::imperative::OpBase>,
                   IndexSelectInferShapeFunctor);
+// REGISTER_OPERATOR(index_select_grad,
+//                   ops::IndexSelectGradOp,
+//                   ops::IndexSelectGradNoNeedBufferVarsInferer);
 REGISTER_OPERATOR(index_select_grad,
-                  ops::IndexSelectGradOp,
-                  ops::IndexSelectGradNoNeedBufferVarsInferer);
+                  ops::IndexSelectGradOp);
