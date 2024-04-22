@@ -199,5 +199,62 @@ phi::backends::xpu::XPUVersion get_xpu_version(int dev_id) {
   return phi::backends::xpu::get_xpu_version(dev_id);
 }
 
+std::once_flag XPUMLHandler::init_flag_;
+
+XPUMLHandler::XPUMLHandler() {
+  std::call_once(XPUMLHandler::init_flag_, &XPUMLHandler::init_ml);
+  xpumlDeviceGetCount(&device_nums_);
+  device_handlers_.resize(device_nums_);
+  mem_infos_.resize(device_nums_);
+  for (unsigned int i = 0; i < device_nums_; ++i) {
+      xpumlDeviceGetHandleByIndex(i, &device_handlers_[i]);
+  }
+}
+
+void XPUMLHandler::init_ml() {
+    xpumlInit();
+}
+
+bool XPUMLHandler::getMemoryUsageInfo(int dev_id, unsigned long long *total,
+                                      unsigned long long* used, unsigned long long *free) {
+  if(xpumlDeviceGetMemoryInfo(device_handlers_[dev_id], &mem_infos_[dev_id]) != xpumlReturn_enum::XPUML_SUCCESS) {
+    return false;
+  }
+  *total = mem_infos_[dev_id].totalGlobalMemory;
+  *free = mem_infos_[dev_id].freeGlobalMemory;
+  *used = mem_infos_[dev_id].usedGlobalMemory;
+  return true;
+}
+
+bool XPUMLHandler::getL3UsageInfo(int dev_id, unsigned long long *total,
+                                  unsigned long long *used, unsigned long long *free) {
+  if(xpumlDeviceGetMemoryInfo(device_handlers_[dev_id], &mem_infos_[dev_id]) != xpumlReturn_enum::XPUML_SUCCESS) {
+    return false;
+  }
+  *total = mem_infos_[dev_id].totalL3Memory;
+  *free = mem_infos_[dev_id].freeL3Memory;
+  *used = mem_infos_[dev_id].usedL3Memory;
+  return true;
+}
+
+std::tuple<unsigned long long, unsigned long long, unsigned long long> XPUMLHandler::getMemoryUsageTuple(int dev_id) {
+  if(xpumlDeviceGetMemoryInfo(device_handlers_[dev_id], &mem_infos_[dev_id]) != xpumlReturn_enum::XPUML_SUCCESS) {
+    return {0, 0, 0};
+  }
+  return {mem_infos_[dev_id].totalGlobalMemory, 
+          mem_infos_[dev_id].usedGlobalMemory, 
+          mem_infos_[dev_id].freeGlobalMemory};
+
+}
+
+std::tuple<unsigned long long, unsigned long long, unsigned long long> XPUMLHandler::getL3UsageTuple(int dev_id) {
+  if(xpumlDeviceGetMemoryInfo(device_handlers_[dev_id], &mem_infos_[dev_id]) != xpumlReturn_enum::XPUML_SUCCESS) {
+    return {0, 0, 0};
+  }
+  return {mem_infos_[dev_id].totalL3Memory, 
+          mem_infos_[dev_id].usedL3Memory, 
+          mem_infos_[dev_id].freeL3Memory};  
+}
+
 }  // namespace platform
 }  // namespace paddle
