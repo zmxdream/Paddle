@@ -360,7 +360,7 @@ void CheckVarHasNanOrInf(const std::string& op_type,
       var,
       platform::errors::NotFound(
           "Cannot find var: `%s` in op `%s`.", var_name, op_type));
-
+  VLOG(0) << ">>>>>>>>>CheckVarHasNanOrInf op_type:" << op_type << ", var_name:" << var_name;
   const Tensor* tensor{nullptr};
   if (var->IsType<framework::LoDTensor>()) {
     tensor = &var->Get<framework::LoDTensor>();
@@ -368,11 +368,13 @@ void CheckVarHasNanOrInf(const std::string& op_type,
     tensor = &var->Get<phi::SelectedRows>().value();
   } else {
     VLOG(10) << var_name << " var_name need not to check";
+    VLOG(0) << ">>>>>>>>>CheckVarHasNanOrInf var_name need not to check op_type:" << op_type << ", var_name:" << var_name;
     return;
   }
 
   if (tensor->memory_size() == 0) {
     VLOG(10) << var_name << " var_name need not to check, size == 0";
+    VLOG(0) << ">>>>>>>>>CheckVarHasNanOrInf var_name need not to check op_type:" << op_type << "var_name need not to check, size == 0";
     return;
   }
 
@@ -392,6 +394,7 @@ void CheckVarHasNanOrInf(const std::string& op_type,
 #ifdef PADDLE_WITH_XPU
     if (framework::TransToProtoVarType(tensor->dtype()) !=
         proto::VarType::FP32) {
+      VLOG(0) << ">>>>>>>>>CheckVarHasNanOrInf skiped, tensor->dtype:" << tensor->dtype();
       return;
     }
 
@@ -434,7 +437,7 @@ void CheckVarHasNanOrInf(const std::string& op_type,
                  y_tensor.place(),
                  static_cast<const void*>(y_tensor.data<bool>()),
                  y_tensor.numel() * sizeof(bool));
-    VLOG(3) << "CheckVarHasNanOrInfRet check_res = " << check_res;
+    VLOG(0) << "CheckVarHasNanOrInfRet check_res = " << check_res;
     PADDLE_ENFORCE_NE(
         check_res,
         true,
@@ -502,7 +505,10 @@ bool IsSkipOp(const framework::OperatorBase& op) {
   if (op_role == static_cast<int>(framework::OpRole::kForward)) {
     op_role = FORWARD;
   }
-  if (op_role_nan_inf_white_list & op_role) return true;
+  if (op_role_nan_inf_white_list & op_role) {
+    VLOG(0) << ">>>IsSkipOp type:" << op.Type();
+    return true;
+  }
 
   return false;
 }
@@ -523,7 +529,9 @@ void NPUAllocAndClearFloatStatus(const framework::OperatorBase& op,
   if (!platform::is_npu_place(place)) return;
 
   std::call_once(white_list_init_flag, InitWhiteListFormEnv);
-  if (IsSkipOp(op)) return;
+  if (IsSkipOp(op)) {
+    return;
+  }
 
   auto* dev_ctx = reinterpret_cast<platform::NPUDeviceContext*>(
       platform::DeviceContextPool::Instance().Get(place));
@@ -645,7 +653,10 @@ void CheckOpHasNanOrInf(const framework::OperatorBase& op,
                         const platform::Place& place) {
   std::call_once(white_list_init_flag, InitWhiteListFormEnv);
 
-  if (IsSkipOp(op)) return;
+  if (IsSkipOp(op)) {
+    VLOG(0) << ">>>>>>>CheckOpHasNanOrInf skip, op.Type():" << op.Type();
+    return;
+  }
 
 #ifdef PADDLE_WITH_ASCEND_CL
   if (platform::is_npu_place(place)) {
@@ -658,7 +669,10 @@ void CheckOpHasNanOrInf(const framework::OperatorBase& op,
     // NOTE. vname may destruct in the end of this func.
     for (auto& vname : op.OutputVars(true)) {
       auto* var = exec_scope.FindVar(vname);
-      if (var == nullptr) continue;
+      if (var == nullptr) {
+        VLOG(0) << ">>>>>>>CheckOpHasNanOrInf var is null, continue, op.Type():" << op.Type();
+        continue;
+      }
       CheckVarHasNanOrInf(op.Type(), exec_scope, vname, place);
     }
   } else {
@@ -729,9 +743,11 @@ void CheckVarHasNanOrInfRet(const std::string& op_type,
   } else if (var->IsType<phi::SelectedRows>()) {
     tensor = &var->Get<phi::SelectedRows>().value();
   } else {
+    VLOG(0) << ">>>>>>>CheckVarHasNanOrInfRet var type error, op_type:" << op_type;
     return;
   }
   if (tensor->memory_size() == 0) {
+    VLOG(0) << ">>>>>>>CheckVarHasNanOrInfRet tensor->memory_size() is null, op_type:" << op_type;
     return;
   }
   if (platform::is_cpu_place(tensor->place())) {
@@ -792,7 +808,7 @@ void CheckVarHasNanOrInfRet(const std::string& op_type,
                  y_tensor.place(),
                  static_cast<const void*>(y_tensor.data<bool>()),
                  y_tensor.numel() * sizeof(bool));
-    VLOG(3) << "CheckVarHasNanOrInfRet check_res = " << check_res;
+    VLOG(0) << "CheckVarHasNanOrInfRet check_res = " << check_res;
     if (check_res) {
       get_cpu_nan_inf_num() ++;
     }
@@ -806,22 +822,30 @@ void CheckVarHasNanOrInfRet(const std::string& op_type,
 }
 
 bool CheckBatchNanOrInfRet(const platform::Place& place) {
-  if (!platform::is_gpu_place(place)) {
+  if (platform::is_cpu_place(place)) {
     return (get_cpu_nan_inf_num() > 0);
   }
 #ifdef PADDLE_WITH_CUDA
-  auto* dev_ctx = reinterpret_cast<phi::GPUContext*>(
-      platform::DeviceContextPool::Instance().Get(place));
-  auto stream = dev_ctx->stream();
-  unsigned int* num_ptr = get_device_num_ptr(place);
-  thread_local unsigned int nan_inf_num = 0;
-  PADDLE_ENFORCE_GPU_SUCCESS(cudaMemcpyAsync(&nan_inf_num, num_ptr,
-                                              sizeof(unsigned int),
-                                              cudaMemcpyDeviceToHost, stream));
-  PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
-  if ((nan_inf_num + get_cpu_nan_inf_num()) > 0) {
-    return true;
+  else if (platform::is_gpu_place(place)) {
+    auto* dev_ctx = reinterpret_cast<phi::GPUContext*>(
+        platform::DeviceContextPool::Instance().Get(place));
+    auto stream = dev_ctx->stream();
+    unsigned int* num_ptr = get_device_num_ptr(place);
+    thread_local unsigned int nan_inf_num = 0;
+    PADDLE_ENFORCE_GPU_SUCCESS(cudaMemcpyAsync(&nan_inf_num, num_ptr,
+                                                sizeof(unsigned int),
+                                                cudaMemcpyDeviceToHost, stream));
+    PADDLE_ENFORCE_GPU_SUCCESS(cudaStreamSynchronize(stream));
+    if ((nan_inf_num + get_cpu_nan_inf_num()) > 0) {
+      return true;
+    }
   }
+#elif PADDLE_WITH_XPU
+  else if (platform::is_xpu_place(place) || platform::is_xpul3_place(place)) {
+        if ((get_cpu_nan_inf_num()) > 0) {
+            return true;
+        }
+   }
 #endif
   return false;
 }
@@ -830,12 +854,18 @@ bool CheckOpHasNanOrInfRet(const framework::OperatorBase& op,
                            const platform::Place& place) {
   std::call_once(white_list_init_flag, InitWhiteListFormEnv);
 
-  if (IsSkipOp(op)) return false;
+  if (IsSkipOp(op)) {
+    VLOG(0) << ">>>>>>>CheckOpHasNanOrInfRet skip, op.Type():" << op.Type();
+    return false;
+  }
   if (op_var_nan_inf_white_list().count(op.Type()) == 0) {
     // NOTE. vname may destruct in the end of this func.
     for (auto& vname : op.OutputVars(true)) {
       auto* var = exec_scope.FindVar(vname);
-      if (var == nullptr) continue;
+      if (var == nullptr) {
+        VLOG(0) << ">>>>>>>CheckOpHasNanOrInfRet var is null, continue, op.Type():" << op.Type();
+        continue;
+      }
       CheckVarHasNanOrInfRet(op.Type(), var, vname, place);
     }
   } else {
