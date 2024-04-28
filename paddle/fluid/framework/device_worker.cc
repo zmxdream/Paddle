@@ -249,11 +249,12 @@ int device_id = int(place_.GetDeviceId());
       continue;
     }
     LoDTensor* tensor = var->GetMutable<LoDTensor>();
-if (tensor == nullptr || !tensor->IsInitialized()) {
+    if (tensor == nullptr || !tensor->IsInitialized()) {
       continue;
     }
     framework::LoDTensor cpu_tensor;
-    if (platform::is_gpu_place(tensor->place())) {
+    if (platform::is_gpu_place(tensor->place()) ||
+          platform::is_xpu_place(tensor->place())) {
       TensorCopySync(*tensor, platform::CPUPlace(), &cpu_tensor);
       tensor = &cpu_tensor;
     }
@@ -351,7 +352,8 @@ void DeviceWorker::DumpField(const Scope& scope,
         continue;
       }
       framework::LoDTensor cpu_tensor;
-      if (platform::is_gpu_place(tensor->place())) {
+      if (platform::is_gpu_place(tensor->place()) ||
+          platform::is_xpu_place(tensor->place())) {
         TensorCopySync(*tensor, platform::CPUPlace(), &cpu_tensor);
         cpu_tensor.set_lod(tensor->lod());
         tensor = &cpu_tensor;
@@ -427,7 +429,7 @@ void DeviceWorker::DumpField(const Scope& scope,
               << "] cannot be find in scope, so it was skipped.";
       continue;
     }
-if (!var->IsType<phi::DenseTensor>()) {
+    if (!var->IsType<phi::DenseTensor>()) {
       VLOG(3) << "Note: field[" << field
               << "] is not dense tensor, so it was skipped.";
       continue;
@@ -439,7 +441,8 @@ if (!var->IsType<phi::DenseTensor>()) {
       continue;
     }
     framework::LoDTensor cpu_tensor;
-    if (platform::is_gpu_place(tensor->place())) {
+    if (platform::is_gpu_place(tensor->place()) ||
+          platform::is_xpu_place(tensor->place())) {
       TensorCopySync(*tensor, platform::CPUPlace(), &cpu_tensor);
       cpu_tensor.set_lod(tensor->lod());
       tensor = &cpu_tensor;
