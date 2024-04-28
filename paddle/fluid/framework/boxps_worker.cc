@@ -1743,6 +1743,18 @@ void BoxPSWorker::DumpField(const Scope& scope,
   size_t field_num = dump_fields_->size();
   std::vector<framework::LoDTensor> cpu_tensors(field_num);
 
+  std::set<std::string> used_slot_set;
+#if (defined PADDLE_WITH_XPU_KP) && (defined PADDLE_WITH_BOX_PS)
+  auto real_reader = dynamic_cast<SlotPaddleBoxDataFeed *>(device_reader_);
+  PADDLE_ENFORCE_NOT_NULL(
+        real_reader, platform::errors::NotFound("In XPU only support SlotPaddleBoxDataFeed"));
+  std::vector<std::string> used_slot_names;
+  real_reader->GetUsedSlotIndex(nullptr, &used_slot_names);
+  for (auto & slot : used_slot_names) {
+    used_slot_set.insert(slot);
+  }
+#endif
+
   platform::Timer timeline;
   timeline.Resume();
   // copy fields
@@ -1779,6 +1791,29 @@ void BoxPSWorker::DumpField(const Scope& scope,
     } else {
       cpu_tensor.ShareDataWith(tensor);
     }
+
+#ifdef PADDLE_WITH_XPU_KP
+    auto fid2sign_map_ptr = paddle::framework::BoxWrapper::GetInstance()->GetFid2SginMap();
+    if (used_slot_set.find(field) != used_slot_set.end() \
+        && fid2sign_map_ptr != nullptr && fid2sign_map_ptr->size() > 0) {
+      auto t_dtype = framework::TransToProtoVarType(cpu_tensors[i].dtype());
+      if (t_dtype == proto::VarType::INT64) {
+        size_t numel = cpu_tensors[i].numel();
+        int64_t * slot_data = cpu_tensors[i].data<int64_t>();
+        for (size_t j = 0; j < numel; ++j) {
+          uint64_t fid = static_cast<uint64_t>(slot_data[j]);
+          PADDLE_ENFORCE_LT(fid, fid2sign_map_ptr->size());
+          uint64_t sign = (*fid2sign_map_ptr)[fid];
+          PADDLE_ENFORCE(sign > 0 || (sign == 0 && fid == 0),
+              platform::errors::PreconditionNotMet(
+              "sign can only be 0 when fid is 0, fid:%llu, sign:%llu",
+              (unsigned long long)(fid), (unsigned long long)sign));
+          slot_data[j] = static_cast<int64_t>(sign);
+        }
+      }
+    }
+#endif
+
   }
   dev_ctx_->Wait();
   // wait stream
