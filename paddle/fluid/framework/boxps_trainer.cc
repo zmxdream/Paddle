@@ -15,10 +15,10 @@
 #include "paddle/fluid/framework/data_feed_factory.h"
 #include "paddle/fluid/framework/device_worker_factory.h"
 #include "paddle/fluid/framework/fleet/box_wrapper.h"
+#include "paddle/fluid/framework/io/fs.h"
+#include "paddle/fluid/framework/tensor_util.h"
 #include "paddle/fluid/framework/trainer.h"
 #include "paddle/fluid/framework/trainer_desc.pb.h"
-#include "paddle/fluid/framework/tensor_util.h"
-#include "paddle/fluid/framework/io/fs.h"
 
 DECLARE_bool(enable_binding_train_cpu);
 namespace paddle {
@@ -89,12 +89,22 @@ void BoxPSTrainer::Initialize(const TrainerDesc& trainer_desc,
 }
 
 void BoxPSTrainer::InitOtherEnv(const ProgramDesc& main_program) {
-  if (need_dump_field_ || need_dump_param_) {
+  if (need_dump_field_) {
     InitDumpEnv();
   }
   VLOG(3) << "init other env done.";
 }
-
+// dump thread pool
+inline std::shared_ptr<paddle::framework::ThreadPool>& GetDumpThreadPool(
+    int thread_num) {
+  static std::shared_ptr<paddle::framework::ThreadPool> dump_thread_pool =
+      nullptr;
+  if (dump_thread_pool != nullptr) {
+    return dump_thread_pool;
+  }
+  dump_thread_pool.reset(new paddle::framework::ThreadPool(thread_num));
+  return dump_thread_pool;
+}
 std::string BoxPSTrainer::GetDumpPath(int tid) {
   return string::format_string("%s/part-%05d", dump_fields_path_.c_str(), tid);
 }
@@ -104,8 +114,8 @@ void BoxPSTrainer::DumpWork(int tid) {
   int fileid = 0;
   size_t file_size = 0;
   while (!is_finish) {
-    std::string path = string::format_string("%s/part-%05d-%05d",
-        dump_fields_path_.c_str(), tid, fileid++);
+    std::string path = string::format_string(
+        "%s/part-%05d-%05d", dump_fields_path_.c_str(), tid, fileid++);
     int err_no = 0;
     std::shared_ptr<FILE> fp = fs_open_write(path, &err_no, dump_converter_);
     // split dump file size
@@ -128,42 +138,30 @@ void BoxPSTrainer::DumpWork(int tid) {
   }
 }
 void BoxPSTrainer::InitDumpEnv() {
-  queue_ = paddle::framework::MakeChannel<std::string>();
-  // Only set dump channel on the last section
-  for (int i = 0; i < thread_num_; ++i) {
-    workers_[i]->SetChannelWriter(queue_.get());
-  }
-  // TODO(hutuxian): should make it as a config
-  for (int i = 0; i < dump_thread_num_; i++) {
-    dump_thread_.push_back(
-        std::thread(std::bind(&TrainerBase::DumpWork, this, i)));
-  }
-  VLOG(0) << "init dump write file thread num=" << dump_thread_num_;
+  // queue_ = paddle::framework::MakeChannel<std::string>();
+  // // Only set dump channel on the last section
+  // for (int i = 0; i < thread_num_; ++i) {
+    //   workers_[i]->SetChannelWriter(queue_.get());
+  // }
+  // // TODO(hutuxian): should make it as a config
+  // dump_futures_.clear();
+  // auto pool = GetDumpThreadPool(dump_thread_num_);
+  // for (int i = 0; i < dump_thread_num_; i++) {
+    //   dump_futures_.emplace_back(pool->Run([this, i]() { this->DumpWork(i); }));
+  // }
+  // VLOG(0) << "init dump write file thread num=" << dump_thread_num_;
+localfs_mkdir(dump_fields_path_);
 }
-
-void BoxPSTrainer::CopyParameters(const Scope& root_scope, int device_id) {
-  Scope* thread_scope = GetWorkerScope(device_id);
-  for (const std::string& name : *param_need_sync_) {
-    const LoDTensor& root_tensor = root_scope.FindVar(name)->Get<LoDTensor>();
-
-    // TODO(hutxian): check a new var of the same name is created in
-    LoDTensor* gpu_tensor = thread_scope->Var(name)->GetMutable<LoDTensor>();
-    platform::Place place = platform::CUDAPlace(device_id);
-    TensorCopy(*static_cast<const Tensor*>(&root_tensor), place,
-               static_cast<Tensor*>(gpu_tensor));
+// final dump env
+void BoxPSTrainer::FinalizeDumpEnv() {
+  // queue_->Close();
+  // for (auto& th : dump_futures_) {
+  //   th.get();
+  // }
+  // dump_futures_.clear();
+  // queue_.reset();
+  // VLOG(0) << "finalize dump write file thread";
   }
-}
-
-void BoxPSTrainer::DumpParameters(void) {
-  Scope* thread_scope = GetWorkerScope(0);
-  for (const auto& var : persistable_vars_) {
-    auto* root_tensor = root_scope_->Var(var)->GetMutable<LoDTensor>();
-    // TODO(hutuxian): Add a final all-reduce?
-    const auto& thread_tensor = thread_scope->FindVar(var)->Get<LoDTensor>();
-    TensorCopy(thread_tensor, root_tensor->place(), root_tensor);
-  }
-}
-
 inline std::vector<std::shared_ptr<paddle::framework::ThreadPool>>&
 GetThreadPool(int thread_num) {
   static std::vector<std::shared_ptr<paddle::framework::ThreadPool>>
@@ -311,7 +309,7 @@ void BoxPSTrainer::Finalize() {
     // must be after train thread, otherwise the ps_buffer_ will be closed first
     dense_table_->Finalize();
   }
-  if (need_dump_field_ || need_dump_param_) {
+  if (need_dump_field_) {
     FinalizeDumpEnv();
   }
   root_scope_->DropKids();
