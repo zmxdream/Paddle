@@ -579,23 +579,30 @@ void check_continuous_memory_pull(int dev_id,
   }
   if (ret == false) {
     float* virtual_expand = head_ptr + hidden_size * total_length;
-    printf("dev: %d, error_idx: %d\n", dev_id, error_idx);
+    VLOG(0) << "dev: " << dev_id << ", error_idx: " << error_idx;
     for (int i = 0; i < slot_num; i++) {
-      printf(
-          "dev: %d, pull_copy values[%d]:%p, slot_lengths[%d]:%d, "
-          "next_prt: %p, expand_values[%d]:%p, virtual_expand_values[%d]:%p, "
-          "next_prt: %p\n",
-          dev_id,
-          i,
-          values[i],
-          i,
-          (int)slot_lengths[i],
-          values[i] + slot_lengths[i] * hidden_size,
-          slot_num + i,
-          values[i + slot_num],
-          slot_num + i,
-          virtual_expand,
-          virtual_expand + slot_lengths[i] * expand_embed_dim);
+      VLOG(0) << "dev: "
+              << dev_id
+              << ", pull_copy values["
+              << i
+              << "]: "
+              << values[i]
+              << ", slot_lengths["
+              << i
+              << "]: "
+              << (int)slot_lengths[i]
+              << ", next_prt: "
+              << values[i] + slot_lengths[i] * hidden_size
+              << ", expand_values["
+              << slot_num + i
+              << "]: "
+              << values[i + slot_num]
+              << ", virtual_expand_values["
+              << slot_num + i
+              << "]: "
+              << virtual_expand
+              << ", next_prt: "
+              << virtual_expand + slot_lengths[i] * expand_embed_dim;
       virtual_expand += slot_lengths[i] * expand_embed_dim;
     }
   }
@@ -655,19 +662,24 @@ void check_continuous_memory_push(int dev_id,
   }
   if (ret == false) {
     for (int i = 0; i < slot_num; i++) {
-      printf(
-          "dev: %d, push_copy grad_values[%d]:%p, slot_lengths[%d]:%d, "
-          "next_prt: "
-          "%p, expand_grad_values[%d]:%p, next_prt: %p\n",
-          dev_id,
-          i,
-          grad_values[i],
-          i,
-          (int)slot_lengths[i],
-          grad_values[i] + slot_lengths[i] * hidden_size,
-          slot_num + i,
-          grad_values[i + slot_num],
-          grad_values[i + slot_num] + slot_lengths[i] * expand_embed_dim);
+      VLOG(0) << "dev: "
+              << dev_id
+              << ", push_copy grad_values["
+              << i
+              << "]: "
+              << grad_values[i]
+              << ", slot_lengths["
+              << i
+              << "]: "
+              << (int)slot_lengths[i]
+              << ", next_prt: "
+              << grad_values[i] + slot_lengths[i] * hidden_size
+              << ", expand_grad_values["
+              << slot_num + i
+              << "]: "
+              << grad_values[i + slot_num]
+              << ", next_prt: "
+              << grad_values[i + slot_num] + slot_lengths[i] * expand_embed_dim;
     }
   }
 

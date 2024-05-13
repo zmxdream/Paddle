@@ -465,11 +465,11 @@ class BoxWrapper {
       check_xpu_nan_ = true;
       VLOG(0) << "CHECK_XPU_BOXPS_NAN has been set to check paddle pull&push";
     }
-    check_xpu_continuous_memory_ = false;
+    check_xpu_continuous_memory_ = true;
     env_str = std::getenv("CHECK_XPU_CONTINUOUS_MEMORY");
-    if (env_str != nullptr && (strcmp(env_str, "true") == 0 || strcmp(env_str, "1") == 0)) {
-      check_xpu_continuous_memory_ = true;
-      VLOG(0) << "CHECK_XPU_CONTINUOUS_MEMORY has been set to check paddle pull&push";
+    if (env_str != nullptr && (strcmp(env_str, "false") == 0 || strcmp(env_str, "0") == 0)) {
+      check_xpu_continuous_memory_ = false;
+      VLOG(0) << "CHECK_XPU_CONTINUOUS_MEMORY has been unset to check paddle pull&push";
     }
 
 #endif
