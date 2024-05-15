@@ -135,14 +135,14 @@ __global__ void add_bias_grad_kernel(const T* dout_data,
 
   __local__ T local_data_buf[1];
 
-  // memset_lm_float(local_bias_buf, buf_size);
+  memset_lm_float(local_bias_buf, buf_size);
   memset_lm_float(tmp_sum_buf, buf_size);
 
   __local__ T tmp_sum = static_cast<T>(0);
   for (int i = thread_id; i < ins_num; i += total_thread) { 
     for (int slot = 0; slot < slot_pairs_num; slot++) {
       mfence();
-      GM2LM(db_data + slot * out_dim, local_bias_buf, out_dim * sizeof(T));
+      // GM2LM(db_data + slot * out_dim, local_bias_buf, out_dim * sizeof(T));
 
       for (int index = 0; index < out_dim; index++) {
         int select_indx = ((slot + 1) * i + 1) * index;
