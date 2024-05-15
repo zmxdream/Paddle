@@ -1116,6 +1116,10 @@ inline void FeaturePullCopy(const paddle::platform::Place& place,
                op,
                sizeof(TEmbedxOp));
 
+
+  // VLOG(0) << "[zmx debug ] FeaturePullCopy: slot_num:" << slot_num << ", total_len:" << total_length << ", hidden_size:" << hidden_size << ", pull_float_num:" << pull_float_num
+  //                                                      << ", skip_offset:" << skip_offset << ", cvm_offset:" << cvm_offset; 
+
 #ifdef TRACE_PROFILE
   TRACE_SCOPE_START("PullCopy", xpu_wait(stream));
 #endif
@@ -1238,7 +1242,38 @@ void BoxWrapperKernel::CopyForPull(
     }
   } else {
     EmbedxNormalOp op;
-    FeaturePullCopy(place,
+    if (expand_embed_dim > 0 && pull_info_.expand_size > 0) {
+      FeaturePullCopyNNCross(place,
+                             &op,
+                             pull_embedx_scale_,
+                             pull_offset,
+                             total_dims,
+                             xpu_values,
+                             key2slot,
+                             d_res_idx,
+                             (float*)total_values_xpu,
+                             xpu_merged_idx,
+                             xpu_merged_offsets,
+                             merged_length,
+                             slot_lens,
+                             slot_num,
+                             (int)total_length,
+                             hidden_size,
+                             expand_embed_dim_,
+                             (int)pull_float_num_,
+                             skip_offset,
+                             cvm_offset,
+                             expand_only
+                             );
+
+    } else if (pull_info_.expand_size < 0 &&
+               expand_embed_dim == cvm_offset + expand_embed_dim_ &&
+               hidden_size == cvm_offset + embedx_dim_) {
+      // TODO:
+      CHECK(false) << "FeaturePullCopyVariable not implement";
+
+    } else {
+      FeaturePullCopy(place,
                     &op,
                     pull_embedx_scale_,
                     pull_offset,
@@ -1256,6 +1291,7 @@ void BoxWrapperKernel::CopyForPull(
                     pull_float_num_,
                     skip_offset,
                     cvm_offset);
+    }
   }
 }
 
@@ -1432,6 +1468,7 @@ inline void FeaturePushCopyNNCross(
   TRACE_SCOPE_START("PushCopyNNCross", xpu_wait(stream));
 #endif
   if (expand_only) {
+    // VLOG(0) << "[zmx debug], PushCopyNNCross, expand_only:" << expand_only;
     ExpandPushGetOp op;
     auto d_op_tmp = memory::Alloc(place, sizeof(ExpandPushGetOp));
     ExpandPushGetOp* d_op = reinterpret_cast<ExpandPushGetOp*>(d_op_tmp->ptr());
