@@ -1116,10 +1116,6 @@ inline void FeaturePullCopy(const paddle::platform::Place& place,
                op,
                sizeof(TEmbedxOp));
 
-
-  // VLOG(0) << "[zmx debug ] FeaturePullCopy: slot_num:" << slot_num << ", total_len:" << total_length << ", hidden_size:" << hidden_size << ", pull_float_num:" << pull_float_num
-  //                                                      << ", skip_offset:" << skip_offset << ", cvm_offset:" << cvm_offset; 
-
 #ifdef TRACE_PROFILE
   TRACE_SCOPE_START("PullCopy", xpu_wait(stream));
 #endif
