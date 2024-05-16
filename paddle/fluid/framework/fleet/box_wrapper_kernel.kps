@@ -1464,7 +1464,6 @@ inline void FeaturePushCopyNNCross(
   TRACE_SCOPE_START("PushCopyNNCross", xpu_wait(stream));
 #endif
   if (expand_only) {
-    // VLOG(0) << "[zmx debug], PushCopyNNCross, expand_only:" << expand_only;
     ExpandPushGetOp op;
     auto d_op_tmp = memory::Alloc(place, sizeof(ExpandPushGetOp));
     ExpandPushGetOp* d_op = reinterpret_cast<ExpandPushGetOp*>(d_op_tmp->ptr());
