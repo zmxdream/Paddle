@@ -1003,6 +1003,9 @@ class BoxWrapper {
     //                          "you should export
     //                          FLAGS_padbox_auc_runner_mode=true "
     //                          "in auc runner mode."));
+#ifdef PADDLE_WITH_XPU_KP
+    setenv("ENABLE_ALWAYS_SIGN2FID", "true", 1);
+#endif
     size_t object_bytes = sizeof(SlotRecordObject) +
                           sizeof(float) * FLAGS_padbox_slotrecord_extend_dim +
                           sizeof(AucRunnerInfo);
