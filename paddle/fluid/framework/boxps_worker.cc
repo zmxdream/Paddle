@@ -1349,6 +1349,12 @@ void BoxPSWorker::TrainFiles() {
       thread_scope_->DropKids();
     }
     ++step;
+    // std::stringstream ss;
+    // ss << "Malloc Cnt: ";
+    // for (int i = 0; i < 8; ++i) {
+    //   ss << "dev: " << i << " malloc times: "<< platform::get_malloc_cnt(i) << " ";
+    // }
+    // VLOG(0) << ss.str();
   }
   // sync param step
   if (sync_mode_ > 0) {

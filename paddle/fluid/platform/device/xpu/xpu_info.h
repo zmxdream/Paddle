@@ -129,6 +129,26 @@ private:
     unsigned int device_nums_;
 };
 
+XPUError_t RecordedXpuMalloc(void **ptr, size_t size, int dev_id, bool malloc_managed_memory = false);
+
+void RecordedXpuFree(void *p, size_t size, int dev_id);
+
+bool RecordedXpuMemGetInfo(size_t *avail,
+                           size_t *total,
+                           size_t *actual_avail,
+                           size_t *actual_total,
+                           int dev_id);
+
+size_t XpuMinChunkSize();
+size_t XpuMaxChunkSize();
+
+size_t XpuInitAllocSize();
+size_t XpuReallocSize();
+size_t XpuMaxAllocSize();
+
+// for calculate malloc times
+int get_malloc_cnt(int dev_id);
+int inc_malloc_cnt(int dev_id);
 
 }  // namespace platform
 }  // namespace paddle
