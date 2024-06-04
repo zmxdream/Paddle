@@ -16,9 +16,7 @@ limitations under the License. */
 #include <google/protobuf/text_format.h>
 
 #include <functional>
-
 #include "paddle/fluid/framework/program_desc.h"
-
 namespace paddle {
 namespace framework {
 

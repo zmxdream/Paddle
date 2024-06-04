@@ -2025,6 +2025,7 @@ class ThreadShardingOptimizer(ShardingOptimizer):
                 persistable=True,
                 type=core.VarDesc.VarType.RAW,
             )
+
             if core.is_compiled_with_cuda():
                 block.append_op(
                     type='c_gen_nccl_id',
