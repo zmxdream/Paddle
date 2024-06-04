@@ -47,6 +47,7 @@ limitations under the License. */
 #include "paddle/fluid/platform/place.h"
 #include "paddle/fluid/platform/timer.h"
 #include "paddle/fluid/string/string_helper.h"
+
 #include "paddle/fluid/framework/fleet/metrics.h"
 #include "paddle/fluid/framework/fleet/box_wrapper_kernel.h"
 
@@ -60,6 +61,7 @@ limitations under the License. */
 #include <scalopus_general/general_provider.h>
 #include <scalopus_tracing/native_trace_provider.h>
 #endif
+
 #define BUF_SIZE 1024 * 1024
 
 DECLARE_bool(padbox_auc_runner_mode);
@@ -68,7 +70,9 @@ DECLARE_int32(padbox_dataset_shuffle_thread_num);
 
 namespace paddle {
 namespace framework {
+
 extern int make_day_id(const int &y, const int &m, const int &d);
+
 #ifdef PADDLE_WITH_BOX_PS
 #define MAX_GPU_NUM 16
 
@@ -466,8 +470,22 @@ class BoxWrapper {
     use_xpu_sparse_map_ = false;
     auto env_str = std::getenv("USE_XPU_SPARSE_MAP");
     if (env_str != nullptr && (strcmp(env_str, "true") == 0 || strcmp(env_str, "1") == 0)) {
-        use_xpu_sparse_map_ = true;
+      use_xpu_sparse_map_ = true;
     }
+
+    check_xpu_nan_ = false;
+    env_str = std::getenv("CHECK_XPU_BOXPS_NAN");
+    if (env_str != nullptr && (strcmp(env_str, "true") == 0 || strcmp(env_str, "1") == 0)) {
+      check_xpu_nan_ = true;
+      VLOG(0) << "CHECK_XPU_BOXPS_NAN has been set to check paddle pull&push";
+    }
+    check_xpu_continuous_memory_ = true;
+    env_str = std::getenv("CHECK_XPU_CONTINUOUS_MEMORY");
+    if (env_str != nullptr && (strcmp(env_str, "false") == 0 || strcmp(env_str, "0") == 0)) {
+      check_xpu_continuous_memory_ = false;
+      VLOG(0) << "CHECK_XPU_CONTINUOUS_MEMORY has been unset to check paddle pull&push";
+    }
+
 #endif
 #if defined(TRACE_PROFILE) && (defined(PADDLE_WITH_XPU_KP) || defined(PADDLE_WITH_XPU))
     // Client side to produce the tracepoints.
@@ -571,6 +589,7 @@ class BoxWrapper {
                           const int batch_size,
                           const int skip_offset,
                           bool expand_only);
+
   void PushSparseGradCaseGPU(const paddle::platform::Place& place,
                              const std::vector<const uint64_t*>& keys,
                              const std::vector<const float*>& grad_values,
@@ -580,6 +599,7 @@ class BoxWrapper {
                              const int batch_size,
                              const int skip_offset,
                              bool expand_only);
+
   void PushSparseGradCaseXPU(const paddle::platform::Place& place,
                              const std::vector<const uint64_t*>& keys,
                              const std::vector<const float*>& grad_values,
@@ -937,7 +957,8 @@ class BoxWrapper {
     for (auto& name : var_names) {
       auto it = std::find(skip_gc_vars_.begin(), skip_gc_vars_.end(), name);
       if (it != skip_gc_vars_.end()) {
-        return;
+        // return;
+        continue;
       }
       skip_gc_vars_.push_back(name);
     }
@@ -984,6 +1005,8 @@ class BoxWrapper {
   size_t input_table_dim_ = 0;
   int gpu_num_ = GetDeviceCount();
 #ifdef PADDLE_WITH_XPU_KP
+  bool check_xpu_nan_;
+  bool check_xpu_continuous_memory_;
   bool use_xpu_sparse_map_;
   std::vector<uint64_t> * fid2sign_map_ = nullptr;
   std::unique_ptr<BoxWrapperKernel> box_wrapper_kernel_;
@@ -1003,6 +1026,9 @@ class BoxWrapper {
     //                          "you should export
     //                          FLAGS_padbox_auc_runner_mode=true "
     //                          "in auc runner mode."));
+#ifdef PADDLE_WITH_XPU_KP
+    setenv("ENABLE_ALWAYS_SIGN2FID", "true", 1);
+#endif
     size_t object_bytes = sizeof(SlotRecordObject) +
                           sizeof(float) * FLAGS_padbox_slotrecord_extend_dim +
                           sizeof(AucRunnerInfo);
@@ -1096,11 +1122,13 @@ class BoxWrapper {
   std::set<std::string> slot_eval_set_;
   std::atomic<uint16_t> dataset_id_{0};
   std::atomic<uint16_t> round_id_{0};
+
 #if defined(TRACE_PROFILE) && (defined(PADDLE_WITH_XPU_KP) || defined(PADDLE_WITH_XPU))
   scalopus::TransportLoopbackFactory::Ptr factory;
   std::shared_ptr<scalopus::EndpointManagerPoll> manager;
   scalopus::CatapultRecorder::Ptr catapult_recorder;
 #endif
+
   // skip gc vars
   std::vector<std::string> skip_gc_vars_;
 };
