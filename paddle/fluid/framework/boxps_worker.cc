@@ -67,6 +67,7 @@ PADDLE_DEFINE_EXPORTED_bool(
     "enable sharding stage step1 only param and grad split, default false");
 PADDLE_DEFINE_EXPORTED_string(
     padbox_dump_debug_lineid, "", "config dump debug lineid, default is empty");
+
 namespace paddle {
 namespace framework {
 BoxPSAsynDenseTable::BoxPSAsynDenseTable(const int device_num)
@@ -351,6 +352,7 @@ void BoxPSAsynDenseTable::PullDense(const platform::Place& place,
   TensorCopy(
       *static_cast<const Tensor*>(&ps_), place, static_cast<Tensor*>(tensor));
 }
+  
 void BoxPSAsynDenseTable::PushDense(const platform::Place& place,
                                     Tensor* tensor) {
   LoDTensor* grad = nullptr;
@@ -401,6 +403,7 @@ phi::DenseTensor& BoxPSWorker::MemoryShareTensor::share(
   offset_ += len;
   return *gpu_tensor;
 }
+  
 static const int DenseKStepNode = 1;
 static const int DenseKStepALL = 2;
 static const int DenseDataNormal = 3;
@@ -410,7 +413,7 @@ void BoxPSWorker::Initialize(const TrainerDesc& desc) {
   device_num_ = GetDeviceCount();
   if (device_num_ == 0) {
     device_num_ = desc.thread_num();
-}
+  }
   dump_fields_path_ = desc.dump_fields_path();
   dump_thread_num_ = desc.boxps_param().dump_thread_num();
   if (need_dump_field_ || need_dump_param_) {
@@ -426,8 +429,8 @@ void BoxPSWorker::Initialize(const TrainerDesc& desc) {
             << ", dump thread num: " << dump_thread_num_;
   }
   VLOG(1) << "boxps_worker init device num: " << device_num_;
-
 }
+  
 void BoxPSWorker::Finalize() {
   if (sharding_mode_ || device_id_ == 0) {
     for (auto& name : need_copy_vars_) {
@@ -611,6 +614,7 @@ static bool IsAvgOp(OpDesc* op_desc) {
 }
 void BoxPSWorker::BuildShardingDepends(const ProgramDesc& program) {
   nccl_rank_id_ = place_.GetDeviceId();
+
 #if defined(PADDLE_WITH_CUDA) || defined(PADDLE_WITH_XPU_KP)
   auto box_wrapper = BoxWrapper::GetInstance();
   nccl_rank_id_ = box_wrapper->GetNCCLRankId(nccl_rank_id_);
@@ -868,6 +872,7 @@ void BoxPSWorker::CreateThreadOperators(const ProgramDesc& program) {
           << ", skip vars count=" << skip_vars_.size()
           << ", unused vars count=" << unused_vars_.size();
 }
+
 void BoxPSWorker::CreateThreadScopeForAsync(const ProgramDesc& program) {
   AllocParamTensorAsync(program);
 
@@ -999,7 +1004,8 @@ void BoxPSWorker::CreateThreadScopeForNorm(const ProgramDesc& program) {
           param_sync_.share(gpu_tensor, len).Resize(dim);
           skip_vars_.push_back(name);
         }
-        }
+      }
+
       // data norm copy and learning rate
       if (!gpu_tensor->initialized() && place_ == root_tensor->place()) {
         auto dim = root_tensor->dims();
@@ -1015,7 +1021,10 @@ void BoxPSWorker::CreateThreadScopeForNorm(const ProgramDesc& program) {
         if (device_id_ == 0) {
           need_copy_vars_.push_back(name);
           skip_vars_.push_back(name);
-      }
+        }
+    } else {
+      auto* ptr = thread_scope_->Var(name);
+      InitializeVariable(ptr, var->GetType());
     }
     } else {
       auto* ptr = thread_scope_->Var(name);
@@ -1154,6 +1163,14 @@ void BoxPSWorker::CreateThreadScopeForSharding(const ProgramDesc& program) {
       auto* ptr = thread_scope_->Var(name);
       InitializeVariable(ptr, var->GetType());
     }
+    auto box_ptr = BoxWrapper::GetInstance();
+    char filename[512] = {0};
+    snprintf(filename,
+             sizeof(filename),
+             "./device_%d_ops_%d.txt",
+             thread_id_,
+             box_ptr->Phase());
+    WriteToFile(filename, str_os.str());
   }
   if (sync_mode_ > 0) {
     CHECK(param_sync_.offset_ <= (param_sync_.numel() - pad_len));
@@ -1363,6 +1380,12 @@ void BoxPSWorker::TrainFiles() {
       thread_scope_->DropKids();
     }
     ++step;
+    // std::stringstream ss;
+    // ss << "Malloc Cnt: ";
+    // for (int i = 0; i < 8; ++i) {
+    //   ss << "dev: " << i << " malloc times: "<< platform::get_malloc_cnt(i) << " ";
+    // }
+    // VLOG(0) << ss.str();
   }
   // sync param step
   if (sync_mode_ > 0) {
@@ -1413,7 +1436,6 @@ void BoxPSWorker::TrainFilesWithProfiler() {
   outer_timer.Start();
   while (true) {
     main_timer.Resume();
-
     reader_timer.Resume();
 #if defined(TRACE_PROFILE) && (defined(PADDLE_WITH_XPU_KP) || defined(PADDLE_WITH_XPU))
     TRACE_SCOPE_START("PackBatchTask", dev_ctx_->Wait());
@@ -1446,9 +1468,11 @@ void BoxPSWorker::TrainFilesWithProfiler() {
       dev_ctx_->Wait();
       timeline.Pause();
       op_total_time[op_id++] += timeline.ElapsedUS();
+
 #if defined(TRACE_PROFILE) && (defined(PADDLE_WITH_XPU_KP) || defined(PADDLE_WITH_XPU))
       RUNTIME_TRACE_SCOPE_END((op->Type()+" run").c_str(),);
 #endif
+
       if (gc) {
         DeleteUnusedTensors(*thread_scope_, op.get(), unused_vars_, gc.get());
       }
@@ -1536,7 +1560,9 @@ inline void format_string_append(
                  len);
   str->resize(oldlen + len);
 }
+
 static const size_t max_fmt_buff_size = 40;
+
 template <typename T, typename C>
 inline void PrintLodTensorFmtType(const Tensor* tensor,
                                   const int64_t& start,
@@ -1582,6 +1608,7 @@ inline void PrintLodTensor(const Tensor* tensor,
     out->append("unsupported type");
   }
 }
+
 inline bool GetTensorBound(const LoDTensor& tensor,
                            int index,
                            std::pair<int64_t, int64_t>* bound) {
@@ -1734,6 +1761,7 @@ void BoxPSWorker::DumpParam(const Scope& scope, const int batch_id) {
             << ", copy span=" << copy_time;
   }
 }
+
 void BoxPSWorker::DumpField(const Scope& scope,
                             int dump_mode,
                             int dump_interval) {
@@ -1741,9 +1769,10 @@ void BoxPSWorker::DumpField(const Scope& scope,
   // number
   size_t batch_size = device_reader_->GetCurBatchSize();
   size_t field_num = dump_fields_->size();
-  std::vector<framework::LoDTensor> cpu_tensors(field_num);
 
+  std::vector<framework::LoDTensor> cpu_tensors(field_num);
   std::set<std::string> used_slot_set;
+
 #if (defined PADDLE_WITH_XPU_KP) && (defined PADDLE_WITH_BOX_PS)
   auto real_reader = dynamic_cast<SlotPaddleBoxDataFeed *>(device_reader_);
   PADDLE_ENFORCE_NOT_NULL(

@@ -36,7 +36,7 @@ limitations under the License. */
 
 USE_INT_STAT(STAT_total_feasign_num_in_mem);
 DECLARE_bool(enable_ins_parser_file);
-DECLARE_bool(enable_async_datafeed_batch);
+
 #ifdef PADDLE_WITH_BOX_PS
 #include <dlfcn.h>
 extern "C" {
@@ -3122,6 +3122,7 @@ void SlotPaddleBoxDataFeed::GetUsedSlotIndex(
   // get feasigns that FeedPass doesn't need
   const std::unordered_set<std::string>& slot_name_omited_in_feedpass_ =
       boxps_ptr->GetOmitedSlot();
+
   if (used_slot_index != nullptr) {
     used_slot_index->clear();
   }
@@ -3541,6 +3542,9 @@ void SlotPaddleBoxDataFeed::PutToFeedSlotVec(const SlotRecord* ins_vec,
       feed_vec_[j]->ShareDataWith(bufferd_feed_vec[j]);
       feed_vec_[j]->set_lod(*(bufferd_feed_vec[j].mutable_lod()));
     }
+    batch_ins_num_ = num;
+    ins_record_ptr_ = ins_vec;
+
   } else {
     pack_->pack_instance(ins_vec, num);
     BuildSlotBatchGPU(pack_->ins_num());
@@ -3691,9 +3695,11 @@ void SlotPaddleBoxDataFeed::BuildSlotBatchGPU(const int ins_num) {
                         slot_total_num * sizeof(size_t),
                         cudaMemcpyDeviceToHost, stream));
   cudaStreamSynchronize(stream);
+
 #elif defined(PADDLE_WITH_XPU_KP)
   platform::MemcpySyncD2H(offsets.data(), d_slot_offsets, slot_total_num * sizeof(size_t), this->place_);
 #endif
+
   copy_timer_.Pause();
   data_timer_.Resume();
 
@@ -3759,6 +3765,7 @@ void SlotPaddleBoxDataFeed::BuildSlotBatchGPU(const int ins_num) {
 
   trans_timer_.Resume();
   void** dest_gpu_p = reinterpret_cast<void**>(pack_->slot_buf_ptr());
+
 #if defined(PADDLE_WITH_CUDA)
   CUDA_CHECK(cudaMemcpyAsync(dest_gpu_p, h_tensor_ptrs.data(),
                         use_slot_size_ * sizeof(void*),

@@ -251,7 +251,7 @@ __global__ void PullCopyNNCross(const TEmbedxOp* op,
   int thread_id = cluster_id() * ncores + cid;
   int nthreads = cluster_num() * ncores;
 
-  const int buf_length = 5;
+  const int buf_length = 1500 / (pull_float_num + hidden_size + expand_embed_dim + 3);
   int per_thread_len = roundup_div(total_length, nthreads);
   int per_thread_loop_count = roundup_div(per_thread_len, buf_length);
   int per_thread_per_loop_len = roundup_div(per_thread_len, per_thread_loop_count);
@@ -1068,6 +1068,7 @@ __global__ void PullCopyMerged(const TEmbedxOp* op,
         lm_dst_vals[j * hidden_size + cvm_offset + k] = 0;
       }
 
+      mfence();
       // fill each undedup val
       int same_key_len = lm_merged_offset[j + 1] - lm_merged_offset[j];
       for (int k = 0; k < same_key_len; k += same_key_idx_buf_len) { // handle each same key of lm_dst_vals[j]
@@ -1237,7 +1238,38 @@ void BoxWrapperKernel::CopyForPull(
     }
   } else {
     EmbedxNormalOp op;
-    FeaturePullCopy(place,
+    if (expand_embed_dim > 0 && pull_info_.expand_size > 0) {
+      FeaturePullCopyNNCross(place,
+                             &op,
+                             pull_embedx_scale_,
+                             pull_offset,
+                             total_dims,
+                             xpu_values,
+                             key2slot,
+                             d_res_idx,
+                             (float*)total_values_xpu,
+                             xpu_merged_idx,
+                             xpu_merged_offsets,
+                             merged_length,
+                             slot_lens,
+                             slot_num,
+                             (int)total_length,
+                             hidden_size,
+                             expand_embed_dim_,
+                             (int)pull_float_num_,
+                             skip_offset,
+                             cvm_offset,
+                             expand_only
+                             );
+
+    } else if (pull_info_.expand_size < 0 &&
+               expand_embed_dim == cvm_offset + expand_embed_dim_ &&
+               hidden_size == cvm_offset + embedx_dim_) {
+      // TODO:
+      CHECK(false) << "FeaturePullCopyVariable not implement";
+
+    } else {
+      FeaturePullCopy(place,
                     &op,
                     pull_embedx_scale_,
                     pull_offset,
@@ -1255,6 +1287,7 @@ void BoxWrapperKernel::CopyForPull(
                     pull_float_num_,
                     skip_offset,
                     cvm_offset);
+    }
   }
 }
 
@@ -1283,7 +1316,7 @@ __global__ void PushCopyNNCross(const TExpandPushGetOp* op,
   int thread_id = cluster_id() * ncores + cid;
   int nthreads = cluster_num() * ncores;
 
-  const int buf_length = 5;
+  const int buf_length = 1500 / (push_float_num + hidden_size + expand_embed_dim + 3);
   int per_thread_len = roundup_div(total_length, nthreads);
   int per_thread_loop_count = roundup_div(per_thread_len, buf_length);
   int per_thread_per_loop_len = roundup_div(per_thread_len, per_thread_loop_count);
@@ -1399,6 +1432,7 @@ __global__ void PushCopyNNCross(const TExpandPushGetOp* op,
         }
       }
     }
+    mfence();
     LM2GM(lm_dst_vals, dst_vals + gm_offset * push_float_num,len * push_float_num * sizeof(float));
   }
 }

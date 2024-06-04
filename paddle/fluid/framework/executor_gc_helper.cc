@@ -63,7 +63,7 @@ bool OpInOutInfo::IsInArgBufferNeeded(const std::string &in_arg_name) const {
 
 static bool VarCanBeDeleted(
     const std::string &name,
-                            const BlockDesc &block,
+    const BlockDesc &block,
     const std::unordered_set<std::string> &skip_vars,
     const std::multiset<std::string> *unpersist_vars = nullptr) {
   if (skip_vars.count(name) != 0) {
@@ -75,8 +75,8 @@ static bool VarCanBeDeleted(
     if (unpersist_vars != nullptr) {
       // unpersist vars
       if (unpersist_vars->find(name) == unpersist_vars->end()) {
-    return false;
-  }
+        return false;
+      }
     } else {
       return false;
     }
@@ -140,7 +140,7 @@ GetUnusedVars(const BlockDesc &block,
           if (is_unpersist_var && old_to_new.count(name) > 0) {
             var_op_idx_map[old_to_new[name]] = i;
           } else {
-          var_op_idx_map[name] = i;
+            var_op_idx_map[name] = i;
           }
         } else {
           VLOG(10) << "Skip reference count computing of variable "
@@ -156,7 +156,7 @@ GetUnusedVars(const BlockDesc &block,
           if (is_sharding_mode && old_to_new.count(name) > 0) {
             var_op_idx_map[old_to_new[name]] = i;
           } else {
-          var_op_idx_map[name] = i;
+            var_op_idx_map[name] = i;
           }
         }
       }
@@ -170,7 +170,7 @@ GetUnusedVars(const BlockDesc &block,
     if (is_sharding_mode && new_to_old.count(name) > 0) {
       result[ops[op_idx].get()].emplace_back(new_to_old[name]);
     } else {
-    result[ops[op_idx].get()].emplace_back(name);
+      result[ops[op_idx].get()].emplace_back(name);
     }
   }
   return result;

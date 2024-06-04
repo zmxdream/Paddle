@@ -161,7 +161,8 @@ void BoxPSTrainer::FinalizeDumpEnv() {
   // dump_futures_.clear();
   // queue_.reset();
   // VLOG(0) << "finalize dump write file thread";
-  }
+}
+
 inline std::vector<std::shared_ptr<paddle::framework::ThreadPool>>&
 GetThreadPool(int thread_num) {
   static std::vector<std::shared_ptr<paddle::framework::ThreadPool>>
@@ -191,7 +192,6 @@ GetThreadPool(int thread_num) {
   }
   return thread_pools;
 }
-
 void BoxPSTrainer::InitTrainerEnv(const ProgramDesc& main_program,
                                   const platform::Place& place) {
   PADDLE_ENFORCE(root_scope_, "Null root_scope pointer");
@@ -254,16 +254,17 @@ void BoxPSTrainer::RemoveOtherDeviceVars(const ProgramDesc& main_program,
     // broadcast op
     if (op_desc->Type() != "c_broadcast") {
       continue;
-  }
+    }
     int root_id = op_desc->GetAttrIfExists<int>("root");
     if ((root_id / gum_num) == rank_id) {
       continue;
-}
+    }
     for (auto& o : op_desc->Inputs()) {
       for (auto& name : o.second) {
         unpersist_var_names.insert(name);
-  }
-  }
+      }
+    }
+
   }
   VLOG(0) << "root scope remove_params size = " << unpersist_var_names.size();
   // 2. Get moment param
@@ -272,7 +273,7 @@ void BoxPSTrainer::RemoveOtherDeviceVars(const ProgramDesc& main_program,
       std::string name = var->Name();
       if (var->Persistable() && name.find(unpersist_var_name) == 0) {
         remove_vars.push_back(name);
-  }
+      }
     }
   }
   if (remove_vars.empty()) return;
