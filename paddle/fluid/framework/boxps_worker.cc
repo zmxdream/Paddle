@@ -1022,10 +1022,7 @@ void BoxPSWorker::CreateThreadScopeForNorm(const ProgramDesc& program) {
           need_copy_vars_.push_back(name);
           skip_vars_.push_back(name);
         }
-    } else {
-      auto* ptr = thread_scope_->Var(name);
-      InitializeVariable(ptr, var->GetType());
-    }
+      }
     } else {
       auto* ptr = thread_scope_->Var(name);
       InitializeVariable(ptr, var->GetType());
