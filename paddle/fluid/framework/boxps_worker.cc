@@ -1154,8 +1154,8 @@ void BoxPSWorker::CreateThreadScopeForSharding(const ProgramDesc& program) {
         ++copy_persist_num;
         // device 0 need sync datanorm and learning rate to root scope
         if (device_id_ == 0) {
-              need_copy_vars_.push_back(name);
-              skip_vars_.push_back(name);
+          need_copy_vars_.push_back(name);
+          skip_vars_.push_back(name);
         }
       }
     } else {

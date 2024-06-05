@@ -133,7 +133,7 @@ class ThreadPool {
     }
     // VLOG(0) << "binding read ins thread_id = " << tid << ", cpunum = " <<
   }
-int GetThreadNum(void) {
+  int GetThreadNum(void) {
     return static_cast<int>(threads_.size());
   }
 
