@@ -962,6 +962,7 @@ void BoxPSWorker::CreateThreadScopeForAsync(const ProgramDesc& program) {
   CHECK(param_async_.offset_ <= param_async_.numel());
   CHECK(grad_async_.offset_ <= grad_async_.numel());
 }
+
 void BoxPSWorker::CreateThreadScopeForNorm(const ProgramDesc& program) {
   int64_t pad_len = 0;
   if (sync_mode_ > 0) {
@@ -1037,7 +1038,8 @@ void BoxPSWorker::CreateThreadScopeForNorm(const ProgramDesc& program) {
           << ", share:" << share_var_num << "("
           << share_persistable_len / 262144.0 << "MB)"
           << ", copy:" << copy_persist_num << "]";
-  }
+}
+
 void BoxPSWorker::CreateThreadScopeForSharding(const ProgramDesc& program) {
   int64_t pad_len = 0;
   if (sync_mode_ > 0) {
@@ -1151,23 +1153,15 @@ void BoxPSWorker::CreateThreadScopeForSharding(const ProgramDesc& program) {
                    static_cast<Tensor*>(gpu_tensor));
         ++copy_persist_num;
         // device 0 need sync datanorm and learning rate to root scope
-    if (device_id_ == 0) {
-          need_copy_vars_.push_back(name);
-          skip_vars_.push_back(name);
-    }
-  }
+        if (device_id_ == 0) {
+              need_copy_vars_.push_back(name);
+              skip_vars_.push_back(name);
+        }
+      }
     } else {
       auto* ptr = thread_scope_->Var(name);
       InitializeVariable(ptr, var->GetType());
     }
-    auto box_ptr = BoxWrapper::GetInstance();
-    char filename[512] = {0};
-    snprintf(filename,
-             sizeof(filename),
-             "./device_%d_ops_%d.txt",
-             thread_id_,
-             box_ptr->Phase());
-    WriteToFile(filename, str_os.str());
   }
   if (sync_mode_ > 0) {
     CHECK(param_sync_.offset_ <= (param_sync_.numel() - pad_len));
@@ -1182,6 +1176,7 @@ void BoxPSWorker::CreateThreadScopeForSharding(const ProgramDesc& program) {
           << ", reset:" << persist_reset << ", unpersist:" << unpersist_num
           << ", copy:" << copy_persist_num << "], delete=" << delete_vars_num;
 }
+
 void BoxPSWorker::CreateDeviceResource(const ProgramDesc& main_prog) {
   BuildShardingDepends(main_prog);
   if (dense_table_) {
