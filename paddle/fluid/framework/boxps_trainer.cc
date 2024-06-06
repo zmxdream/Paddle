@@ -89,7 +89,7 @@ void BoxPSTrainer::Initialize(const TrainerDesc& trainer_desc,
 }
 
 void BoxPSTrainer::InitOtherEnv(const ProgramDesc& main_program) {
-  if (need_dump_field_ || need_dump_param_) {
+  if (need_dump_field_) {
     InitDumpEnv();
   }
   VLOG(3) << "init other env done.";
@@ -138,28 +138,29 @@ void BoxPSTrainer::DumpWork(int tid) {
   }
 }
 void BoxPSTrainer::InitDumpEnv() {
-  queue_ = paddle::framework::MakeChannel<std::string>();
-  // Only set dump channel on the last section
-  for (int i = 0; i < thread_num_; ++i) {
-    workers_[i]->SetChannelWriter(queue_.get());
-  }
-  // TODO(hutuxian): should make it as a config
-  dump_futures_.clear();
-  auto pool = GetDumpThreadPool(dump_thread_num_);
-  for (int i = 0; i < dump_thread_num_; i++) {
-    dump_futures_.emplace_back(pool->Run([this, i]() { this->DumpWork(i); }));
-  }
-  VLOG(0) << "init dump write file thread num=" << dump_thread_num_;
+  // queue_ = paddle::framework::MakeChannel<std::string>();
+  // // Only set dump channel on the last section
+  // for (int i = 0; i < thread_num_; ++i) {
+    //   workers_[i]->SetChannelWriter(queue_.get());
+  // }
+  // // TODO(hutuxian): should make it as a config
+  // dump_futures_.clear();
+  // auto pool = GetDumpThreadPool(dump_thread_num_);
+  // for (int i = 0; i < dump_thread_num_; i++) {
+    //   dump_futures_.emplace_back(pool->Run([this, i]() { this->DumpWork(i); }));
+  // }
+  // VLOG(0) << "init dump write file thread num=" << dump_thread_num_;
+localfs_mkdir(dump_fields_path_);
 }
 // final dump env
 void BoxPSTrainer::FinalizeDumpEnv() {
-  queue_->Close();
-  for (auto& th : dump_futures_) {
-    th.get();
-  }
-  dump_futures_.clear();
-  queue_.reset();
-  VLOG(0) << "finalize dump write file thread";
+  // queue_->Close();
+  // for (auto& th : dump_futures_) {
+  //   th.get();
+  // }
+  // dump_futures_.clear();
+  // queue_.reset();
+  // VLOG(0) << "finalize dump write file thread";
 }
 
 inline std::vector<std::shared_ptr<paddle::framework::ThreadPool>>&
@@ -221,15 +222,15 @@ void BoxPSTrainer::InitTrainerEnv(const ProgramDesc& main_program,
   for (int i = 0; i < thread_num_; ++i) {
     wait_futures_.emplace_back(
         pool[i]->Run([this, i, &async_param_name, &main_program]() {
-          auto this_worker =
+    auto this_worker =
               std::dynamic_pointer_cast<paddle::framework::BoxPSWorker>(
                   workers_[i]);
-          this_worker->SetRootScope(root_scope_);
-          if (async_mode_) {
-            this_worker->SetDenseTable(dense_table_.get());
-            this_worker->SetAsyncParamName(async_param_name);
-          }
-          this_worker->CreateDeviceResource(main_program);
+    this_worker->SetRootScope(root_scope_);
+    if (async_mode_) {
+      this_worker->SetDenseTable(dense_table_.get());
+      this_worker->SetAsyncParamName(async_param_name);
+    }
+    this_worker->CreateDeviceResource(main_program);
         }));
   }
   RemoveOtherDeviceVars(main_program, root_scope_);
@@ -263,6 +264,7 @@ void BoxPSTrainer::RemoveOtherDeviceVars(const ProgramDesc& main_program,
         unpersist_var_names.insert(name);
       }
     }
+
   }
   VLOG(0) << "root scope remove_params size = " << unpersist_var_names.size();
   // 2. Get moment param
@@ -308,7 +310,7 @@ void BoxPSTrainer::Finalize() {
     // must be after train thread, otherwise the ps_buffer_ will be closed first
     dense_table_->Finalize();
   }
-  if (need_dump_field_ || need_dump_param_) {
+  if (need_dump_field_) {
     FinalizeDumpEnv();
   }
   root_scope_->DropKids();

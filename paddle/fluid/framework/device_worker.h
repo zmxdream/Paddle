@@ -225,8 +225,8 @@ class DeviceWorker {
   virtual void DumpParam(const Scope& scope, const int batch_id);
   virtual void DumpField(const Scope& scope,
                          int dump_mode,
-                         int dump_interval = 10000);                    
-
+                         int dump_interval = 10000);
+  
   Scope* root_scope_ = nullptr;
   Scope* thread_scope_;
   paddle::platform::Place place_;
@@ -866,6 +866,12 @@ class BoxPSWorker : public DeviceWorker {
     int64_t numel(void) { return data_tensor_->numel(); }
   };
 
+  struct fd_info_t {
+    int fd;
+    size_t len;
+    int fileid;
+  };
+
  public:
   BoxPSWorker() {}
   ~BoxPSWorker() override {}
@@ -905,17 +911,23 @@ class BoxPSWorker : public DeviceWorker {
   void CreateThreadOperators(const ProgramDesc& program);
   int IsParameter(const std::string& name, bool full_match);
 
- protected:
+protected:
   virtual void DumpParam(const Scope& scope, const int batch_id);
   virtual void DumpField(const Scope& scope,
                          int dump_mode,
                          int dump_interval = 10000);
+
+ private:
+  void OpenDump(const int &tid);
+  void WriteDump(const int &tid, const std::string& buf);
+  void FlushDump(void);
 
  protected:
   int device_id_;
   int thread_id_;
 
   std::vector<std::unique_ptr<OperatorBase>> ops_;
+
   platform::DeviceContext* dev_ctx_ = nullptr;
 
   // dense async table
@@ -929,6 +941,7 @@ class BoxPSWorker : public DeviceWorker {
   bool one_ring_ = false;
   int device_num_ = 0;
   int node_size_ = 1;
+
   // skip vars
   std::vector<std::string> skip_vars_;
   std::unordered_map<const OperatorBase*, std::vector<std::string>>
@@ -949,6 +962,14 @@ class BoxPSWorker : public DeviceWorker {
   bool sharding_mode_ = false;
   // op extend
   std::unordered_set<const OperatorBase*> sync_points_;
+
+  // dump file
+  int dump_thread_num_ = 20;
+  std::string dump_fields_path_ = "";
+  std::vector<fd_info_t> fds_sizes_;
+  // dump thread
+  std::shared_ptr<paddle::framework::ThreadPool> dump_thread_pool_ =
+      nullptr;
 };
 #endif
 
